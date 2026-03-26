@@ -7,7 +7,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget, Wrap};
 use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
@@ -339,11 +339,7 @@ fn render_chat(
     let visible_height = area.height.saturating_sub(2);
 
     if app.auto_scroll {
-        let inner_width = area.width.saturating_sub(2) as usize;
-        let content_height: u16 = lines
-            .iter()
-            .map(|line| wrapped_line_count(line, inner_width))
-            .sum();
+        let content_height = measure_wrapped_height(&lines, area);
 
         if content_height > visible_height {
             *chat_scroll = content_height.saturating_sub(visible_height);
@@ -439,44 +435,29 @@ fn render_status_bar(
     f.render_widget(paragraph, area);
 }
 
-fn wrapped_line_count(line: &Line, max_width: usize) -> u16 {
-    if max_width == 0 {
-        return 1;
-    }
+fn measure_wrapped_height(lines: &[Line], area: Rect) -> u16 {
+    let inner_width = area.width.saturating_sub(2);
+    let max_height = (lines.len() as u16).saturating_mul(4).saturating_add(100);
+    let measure_area = Rect::new(0, 0, inner_width, max_height);
 
-    let full_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-    if full_text.is_empty() {
-        return 1;
-    }
+    let paragraph = Paragraph::new(Text::from(lines.to_vec()))
+        .wrap(Wrap { trim: false });
 
-    let mut visual_lines: u16 = 1;
-    let mut current_width: usize = 0;
+    let mut buf = ratatui::buffer::Buffer::empty(measure_area);
+    paragraph.render(measure_area, &mut buf);
 
-    for word in full_text.split_inclusive(|c: char| c.is_whitespace()) {
-        let word_width = unicode_width::UnicodeWidthStr::width(word);
-
-        if current_width == 0 {
-            current_width = word_width;
-            if current_width > max_width {
-                visual_lines += (current_width.saturating_sub(1) / max_width) as u16;
-                current_width = current_width % max_width;
+    let mut last_non_empty: u16 = 0;
+    for y in 0..max_height {
+        for x in 0..inner_width {
+            let cell = &buf[(x, y)];
+            if cell.symbol() != " " {
+                last_non_empty = y + 1;
+                break;
             }
-            continue;
-        }
-
-        if current_width + word_width > max_width {
-            visual_lines += 1;
-            current_width = word_width;
-            if current_width > max_width {
-                visual_lines += (current_width.saturating_sub(1) / max_width) as u16;
-                current_width = current_width % max_width;
-            }
-        } else {
-            current_width += word_width;
         }
     }
 
-    visual_lines
+    last_non_empty
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

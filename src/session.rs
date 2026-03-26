@@ -1,8 +1,42 @@
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::crypto::DerivedKey;
+
+#[derive(Clone)]
+pub enum SaveMode {
+    None,
+    Plaintext(PathBuf),
+    Encrypted { path: PathBuf, key: Arc<DerivedKey> },
+}
+
+impl SaveMode {
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::None => None,
+            Self::Plaintext(p) => Some(p),
+            Self::Encrypted { path, .. } => Some(path),
+        }
+    }
+
+    pub fn set_path(&mut self, new_path: PathBuf) {
+        match self {
+            Self::None => {}
+            Self::Plaintext(p) => *p = new_path,
+            Self::Encrypted { path, .. } => *path = new_path,
+        }
+    }
+}
+
+pub struct SessionEntry {
+    pub path: PathBuf,
+    pub preview: String,
+    pub filename: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -256,10 +290,11 @@ impl Session {
         }
     }
 
-    pub fn maybe_save(&self, path: Option<&Path>) -> Result<()> {
-        match path {
-            Some(p) => save(p, self),
-            None => Ok(()),
+    pub fn maybe_save(&self, mode: &SaveMode) -> Result<()> {
+        match mode {
+            SaveMode::None => Ok(()),
+            SaveMode::Plaintext(path) => save(path, self),
+            SaveMode::Encrypted { path, key } => save_encrypted(path, self, key),
         }
     }
 }
@@ -291,11 +326,95 @@ pub fn load(path: &Path) -> Result<Session> {
         Err(e) => return Err(e).context(format!("failed to read session file: {}", path.display())),
     };
 
-    if let Ok(session) = serde_json::from_str::<Session>(&contents) {
+    load_from_str(&contents)
+}
+
+pub fn save(path: &Path, session: &Session) -> Result<()> {
+    let json = serde_json::to_string_pretty(session).context("failed to serialize session")?;
+    std::fs::write(path, json).context(format!("failed to write session file: {}", path.display()))
+}
+
+pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Result<()> {
+    let json = serde_json::to_string(session).context("failed to serialize session")?;
+    let blob = crate::crypto::encrypt(json.as_bytes(), key)?;
+    std::fs::write(path, blob).context(format!("failed to write encrypted session: {}", path.display()))
+}
+
+pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Session::default()),
+        Err(e) => return Err(e).context(format!("failed to read session: {}", path.display())),
+    };
+
+    if crate::crypto::is_encrypted(&data) {
+        let plaintext = crate::crypto::decrypt(&data, key)?;
+        let json = String::from_utf8(plaintext).context("decrypted session is not valid UTF-8")?;
+        serde_json::from_str::<Session>(&json).context("failed to parse decrypted session")
+    } else {
+        let contents = String::from_utf8_lossy(&data);
+        load_from_str(&contents)
+    }
+}
+
+pub fn generate_session_name() -> String {
+    let ts = now_iso8601();
+    let name = ts.replace(':', "-").replace('T', "_").trim_end_matches('Z').to_owned();
+    format!("{name}.session")
+}
+
+pub fn list_sessions(dir: &Path, key: &DerivedKey) -> Vec<SessionEntry> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut sessions: Vec<SessionEntry> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "session"))
+        .filter_map(|path| {
+            let preview = extract_preview(&path, key);
+            let filename = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            Some(SessionEntry { path, preview, filename })
+        })
+        .collect();
+
+    sessions.sort_by(|a, b| b.filename.cmp(&a.filename));
+    sessions
+}
+
+fn extract_preview(path: &Path, key: &DerivedKey) -> String {
+    let session = match load_encrypted(path, key) {
+        Ok(s) => s,
+        Err(_) => return "[encrypted]".to_owned(),
+    };
+
+    session
+        .tree
+        .branch_path()
+        .iter()
+        .find(|m| m.role == Role::User)
+        .map(|m| {
+            let truncated: String = m.content.chars().take(40).collect();
+            if m.content.chars().count() > 40 {
+                format!("{truncated}...")
+            } else {
+                truncated
+            }
+        })
+        .unwrap_or_else(|| "[empty]".to_owned())
+}
+
+fn load_from_str(contents: &str) -> Result<Session> {
+    if let Ok(session) = serde_json::from_str::<Session>(contents) {
         return Ok(session);
     }
 
-    if let Ok(flat) = serde_json::from_str::<FlatSession>(&contents) {
+    if let Ok(flat) = serde_json::from_str::<FlatSession>(contents) {
         return Ok(Session {
             tree: MessageTree::from_messages(flat.messages),
             model: flat.model,
@@ -304,7 +423,7 @@ pub fn load(path: &Path) -> Result<Session> {
         });
     }
 
-    if let Ok(legacy) = serde_json::from_str::<LegacySession>(&contents) {
+    if let Ok(legacy) = serde_json::from_str::<LegacySession>(contents) {
         return Ok(Session {
             tree: MessageTree::from_messages(vec![Message::new(Role::User, legacy.prompt_history)]),
             model: legacy.model,
@@ -314,16 +433,9 @@ pub fn load(path: &Path) -> Result<Session> {
     }
 
     Ok(Session {
-        tree: MessageTree::from_messages(vec![Message::new(Role::User, contents)]),
-        model: None,
-        template: None,
-        system_prompt: None,
+        tree: MessageTree::from_messages(vec![Message::new(Role::User, contents.to_owned())]),
+        ..Session::default()
     })
-}
-
-pub fn save(path: &Path, session: &Session) -> Result<()> {
-    let json = serde_json::to_string_pretty(session).context("failed to serialize session")?;
-    std::fs::write(path, json).context(format!("failed to write session file: {}", path.display()))
 }
 
 fn now_iso8601() -> String {

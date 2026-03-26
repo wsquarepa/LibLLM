@@ -18,3 +18,8 @@ termimad = "0.34.1"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 tui-textarea = "0.7"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+rpassword = "5"
+zeroize = { version = "1.8.2", features = ["derive"] }

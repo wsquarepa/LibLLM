@@ -22,16 +22,57 @@ impl Config {
     }
 }
 
-pub fn config_path() -> Option<PathBuf> {
+pub fn data_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("libllm")
+}
+
+pub fn sessions_dir() -> PathBuf {
+    data_dir().join("sessions")
+}
+
+pub fn salt_path() -> PathBuf {
+    data_dir().join(".salt")
+}
+
+pub fn ensure_dirs() -> Result<()> {
+    std::fs::create_dir_all(sessions_dir())
+        .context("failed to create sessions directory")
+}
+
+pub fn config_path() -> PathBuf {
+    data_dir().join("config.toml")
+}
+
+fn old_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("libllm").join("config.toml"))
 }
 
-pub fn load() -> Config {
-    let path = match config_path() {
-        Some(p) => p,
-        None => return Config::default(),
+fn migrate_config() {
+    let new_path = config_path();
+    if new_path.exists() {
+        return;
+    }
+
+    let old_path = match old_config_path() {
+        Some(p) if p.exists() => p,
+        _ => return,
     };
 
+    if let Some(parent) = new_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    if std::fs::rename(&old_path, &new_path).is_ok() {
+        eprintln!("Config migrated to {}", new_path.display());
+    }
+}
+
+pub fn load() -> Config {
+    migrate_config();
+
+    let path = config_path();
     match std::fs::read_to_string(&path) {
         Ok(contents) => parse(&contents).unwrap_or_default(),
         Err(_) => Config::default(),

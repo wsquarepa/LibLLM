@@ -1,5 +1,5 @@
 use std::io::{Write, stdout};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use rustyline::error::ReadlineError;
@@ -10,7 +10,7 @@ use crate::client::ApiClient;
 use crate::context::{ContextManager, ContextStatus};
 use crate::prompt::Template;
 use crate::sampling::SamplingParams;
-use crate::session::{self, Message, Role, Session};
+use crate::session::{self, Message, Role, SaveMode, Session};
 
 const GREEN_BOLD: &str = "\x1b[1;32m";
 const BLUE_BOLD: &str = "\x1b[1;34m";
@@ -21,7 +21,7 @@ const RESET: &str = "\x1b[0m";
 struct ChatContext<'a> {
     client: &'a ApiClient,
     session: &'a mut Session,
-    session_path: Option<&'a Path>,
+    save_mode: &'a SaveMode,
     template: Template,
     stop_tokens: &'static [&'static str],
     sampling: &'a SamplingParams,
@@ -31,7 +31,7 @@ struct ChatContext<'a> {
 pub async fn run(
     client: &ApiClient,
     session: &mut Session,
-    session_path: Option<&Path>,
+    save_mode: &SaveMode,
     template: Template,
     sampling: &SamplingParams,
 ) -> Result<()> {
@@ -43,7 +43,7 @@ pub async fn run(
     let mut ctx = ChatContext {
         client,
         session,
-        session_path,
+        save_mode,
         template,
         stop_tokens: template.stop_tokens(),
         sampling,
@@ -105,7 +105,7 @@ async fn send_message(content: &str, ctx: &mut ChatContext<'_>) -> Result<()> {
 
     let user_node = ctx.session.tree.head().unwrap();
     ctx.session.tree.push(Some(user_node), Message::new(Role::Assistant, response));
-    ctx.session.maybe_save(ctx.session_path)?;
+    ctx.session.maybe_save(ctx.save_mode)?;
 
     println!();
     Ok(())
@@ -124,15 +124,13 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
         "/clear" => {
             ctx.session.tree.clear();
             println!("{YELLOW}Conversation cleared.{RESET}");
-            ctx.session.maybe_save(ctx.session_path)?;
+            ctx.session.maybe_save(ctx.save_mode)?;
         }
         "/save" => {
             if arg.is_empty() {
-                match ctx.session_path {
-                    Some(path) => {
-                        session::save(path, ctx.session)?;
-                        println!("{YELLOW}Session saved to {}.{RESET}", path.display());
-                    }
+                ctx.session.maybe_save(ctx.save_mode)?;
+                match ctx.save_mode.path() {
+                    Some(p) => println!("{YELLOW}Session saved to {}.{RESET}", p.display()),
                     None => println!("{YELLOW}Usage: /save <path>{RESET}"),
                 }
             } else {
@@ -164,7 +162,7 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
             } else {
                 ctx.session.system_prompt = Some(arg.to_owned());
                 println!("{YELLOW}System prompt updated.{RESET}");
-                ctx.session.maybe_save(ctx.session_path)?;
+                ctx.session.maybe_save(ctx.save_mode)?;
             }
         }
         "/retry" => {
@@ -256,18 +254,18 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
                 "next" => {
                     ctx.session.tree.switch_sibling(1);
                     println!("{YELLOW}Switched to next branch.{RESET}");
-                    ctx.session.maybe_save(ctx.session_path)?;
+                    ctx.session.maybe_save(ctx.save_mode)?;
                 }
                 "prev" => {
                     ctx.session.tree.switch_sibling(-1);
                     println!("{YELLOW}Switched to previous branch.{RESET}");
-                    ctx.session.maybe_save(ctx.session_path)?;
+                    ctx.session.maybe_save(ctx.save_mode)?;
                 }
                 _ => {
                     if let Ok(id) = arg.parse::<usize>() {
                         ctx.session.tree.switch_to(id);
                         println!("{YELLOW}Switched to node {id}.{RESET}");
-                        ctx.session.maybe_save(ctx.session_path)?;
+                        ctx.session.maybe_save(ctx.save_mode)?;
                     } else {
                         println!("{YELLOW}Usage: /branch list|next|prev|<id>{RESET}");
                     }

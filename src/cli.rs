@@ -7,9 +7,17 @@ use crate::sampling::SamplingOverrides;
 #[derive(Parser)]
 #[command(name = "libllm", about = "CLI chat client for llama.cpp completions API")]
 pub struct Args {
-    /// Session file for persisting conversation history
+    /// Explicit session file path (plaintext JSON, bypasses encryption)
     #[arg(short = 's', long)]
     pub session: Option<PathBuf>,
+
+    /// Passkey for session encryption (or set LIBLLM_PASSKEY env var)
+    #[arg(long, env = "LIBLLM_PASSKEY", hide = true)]
+    pub passkey: Option<String>,
+
+    /// Disable session encryption
+    #[arg(long)]
+    pub no_encrypt: bool,
 
     /// Send a single message and exit (use "-" to read from stdin)
     #[arg(short = 'm', long)]

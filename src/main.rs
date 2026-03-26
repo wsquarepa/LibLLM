@@ -3,6 +3,7 @@ mod client;
 mod commands;
 mod config;
 mod context;
+mod crypto;
 mod interactive;
 mod prompt;
 mod sampling;
@@ -10,6 +11,7 @@ mod session;
 mod tui;
 
 use std::io::{self, Read, Write};
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
@@ -17,11 +19,12 @@ use clap::Parser;
 use cli::Args;
 use client::ApiClient;
 use prompt::Template;
-use session::{Message, Role};
+use session::{Message, Role, SaveMode};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    config::ensure_dirs()?;
     let cfg = config::load();
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
@@ -38,15 +41,14 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let mut session = match &args.session {
-        Some(path) => session::load(path)?,
-        None => session::Session::default(),
-    };
+    let (mut session, save_mode) = resolve_session(&args)?;
 
     session.template = Some(template.name().to_owned());
 
     if session.system_prompt.is_none() {
-        session.system_prompt = args.system_prompt.or(cfg.system_prompt);
+        session.system_prompt = args
+            .system_prompt
+            .or(cfg.system_prompt);
     }
 
     if let Some(ref message) = args.message {
@@ -73,16 +75,44 @@ async fn main() -> Result<()> {
         let user_node = session.tree.head().unwrap();
         session.tree.push(Some(user_node), Message::new(Role::Assistant, response));
 
-        if let Some(path) = &args.session {
-            session::save(path, &session)?;
-        }
+        session.maybe_save(&save_mode)?;
 
         return Ok(());
     }
 
     if args.repl {
-        interactive::run(&client, &mut session, args.session.as_deref(), template, &sampling).await
+        interactive::run(&client, &mut session, &save_mode, template, &sampling).await
     } else {
-        tui::run(&client, &mut session, args.session.as_deref(), template, &sampling).await
+        tui::run(&client, &mut session, save_mode, template, &sampling).await
     }
+}
+
+fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
+    if let Some(ref path) = args.session {
+        let session = session::load(path)?;
+        return Ok((session, SaveMode::Plaintext(path.clone())));
+    }
+
+    if args.message.is_some() {
+        return Ok((session::Session::default(), SaveMode::None));
+    }
+
+    if args.no_encrypt {
+        let path = config::sessions_dir().join(session::generate_session_name());
+        return Ok((session::Session::default(), SaveMode::Plaintext(path)));
+    }
+
+    let passkey = match &args.passkey {
+        Some(pk) => pk.clone(),
+        None => {
+            eprint!("Passkey: ");
+            rpassword::read_password()?
+        }
+    };
+
+    let salt = crypto::load_or_create_salt(&config::salt_path())?;
+    let key = Arc::new(crypto::derive_key(&passkey, &salt)?);
+    let path = config::sessions_dir().join(session::generate_session_name());
+
+    Ok((session::Session::default(), SaveMode::Encrypted { path, key }))
 }

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
@@ -16,7 +16,7 @@ use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
 use crate::prompt::Template;
 use crate::sampling::SamplingParams;
-use crate::session::{self, Message, NodeId, Role, Session};
+use crate::session::{self, Message, NodeId, Role, SaveMode, Session, SessionEntry};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -34,7 +34,7 @@ enum Action {
 struct App<'a> {
     client: &'a ApiClient,
     session: &'a mut Session,
-    session_path: Option<PathBuf>,
+    save_mode: SaveMode,
     template: Template,
     stop_tokens: &'static [&'static str],
     sampling: &'a SamplingParams,
@@ -44,7 +44,7 @@ struct App<'a> {
     textarea: TextArea<'a>,
     chat_scroll: u16,
     auto_scroll: bool,
-    sidebar_sessions: Vec<PathBuf>,
+    sidebar_sessions: Vec<SessionEntry>,
     sidebar_state: ListState,
     streaming_buffer: String,
     is_streaming: bool,
@@ -57,12 +57,12 @@ struct App<'a> {
 pub async fn run(
     client: &ApiClient,
     session: &mut Session,
-    session_path: Option<&Path>,
+    save_mode: SaveMode,
     template: Template,
     sampling: &SamplingParams,
 ) -> Result<()> {
     let model_name = client.fetch_model_name().await;
-    let sidebar_sessions = discover_sessions(session_path);
+    let sidebar_sessions = discover_sidebar_sessions(&save_mode);
 
     let mut textarea = TextArea::default();
     textarea.set_block(
@@ -74,16 +74,13 @@ pub async fn run(
 
     let mut sidebar_state = ListState::default();
     if !sidebar_sessions.is_empty() {
-        let selected = session_path
-            .and_then(|sp| sidebar_sessions.iter().position(|p| p == sp))
-            .unwrap_or(0);
-        sidebar_state.select(Some(selected));
+        sidebar_state.select(Some(0));
     }
 
     let mut app = App {
         client,
         session,
-        session_path: session_path.map(Path::to_path_buf),
+        save_mode,
         template,
         stop_tokens: template.stop_tokens(),
         sampling,
@@ -206,12 +203,12 @@ fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = app
         .sidebar_sessions
         .iter()
-        .map(|p| {
-            let name = p
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| p.to_string_lossy().to_string());
-            ListItem::new(name)
+        .map(|entry| {
+            if entry.preview.is_empty() {
+                ListItem::new(entry.filename.clone())
+            } else {
+                ListItem::new(format!("{}: {}", &entry.filename[..entry.filename.len().min(10)], entry.preview))
+            }
         })
         .collect();
 
@@ -413,13 +410,13 @@ fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {
         app.session.tree.switch_sibling(-1);
-        let _ = app.session.maybe_save(app.session_path.as_deref());
+        let _ = app.session.maybe_save(&app.save_mode);
         app.status_message.clear();
         return None;
     }
     if key.code == KeyCode::Right && key.modifiers.contains(KeyModifiers::ALT) {
         app.session.tree.switch_sibling(1);
-        let _ = app.session.maybe_save(app.session_path.as_deref());
+        let _ = app.session.maybe_save(&app.save_mode);
         app.status_message.clear();
         return None;
     }
@@ -564,12 +561,17 @@ fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Enter => {
             if let Some(selected) = app.sidebar_state.selected() {
-                let path = app.sidebar_sessions[selected].clone();
-                match session::load(&path) {
+                let entry = &app.sidebar_sessions[selected];
+                let path = entry.path.clone();
+                let load_result = match &app.save_mode {
+                    SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
+                    _ => session::load(&path),
+                };
+                match load_result {
                     Ok(loaded) => {
                         *app.session = loaded;
-                        app.status_message = format!("Loaded: {}", path.display());
-                        app.session_path = Some(path);
+                        app.status_message = format!("Loaded: {}", entry.filename);
+                        app.save_mode.set_path(path);
                         app.auto_scroll = true;
                     }
                     Err(e) => {
@@ -618,7 +620,7 @@ fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.is_streaming = false;
             app.auto_scroll = true;
             app.status_message.clear();
-            app.session.maybe_save(app.session_path.as_deref())?;
+            app.session.maybe_save(&app.save_mode)?;
         }
         StreamToken::Error(err) => {
             app.streaming_buffer.clear();
@@ -640,7 +642,7 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
         "/clear" => {
             app.session.tree.clear();
             app.status_message = "Conversation cleared.".to_owned();
-            let _ = app.session.maybe_save(app.session_path.as_deref());
+            let _ = app.session.maybe_save(&app.save_mode);
         }
         "/retry" => {
             app.session.pop_trailing_assistant();
@@ -683,19 +685,17 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
                 app.status_message = "System prompt updated.".to_owned();
-                let _ = app.session.maybe_save(app.session_path.as_deref());
+                let _ = app.session.maybe_save(&app.save_mode);
             }
         }
         "/save" => {
             if arg.is_empty() {
-                match &app.session_path {
-                    Some(path) => {
-                        match session::save(path, app.session) {
-                            Ok(()) => app.status_message = format!("Saved to {}.", path.display()),
-                            Err(e) => app.status_message = format!("Save error: {e}"),
-                        }
-                    }
-                    None => app.status_message = "Usage: /save <path>".to_owned(),
+                match app.session.maybe_save(&app.save_mode) {
+                    Ok(()) => match app.save_mode.path() {
+                        Some(p) => app.status_message = format!("Saved to {}.", p.display()),
+                        None => app.status_message = "No session path set.".to_owned(),
+                    },
+                    Err(e) => app.status_message = format!("Save error: {e}"),
                 }
             } else {
                 let path = PathBuf::from(arg);
@@ -718,7 +718,6 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
                         *app.session = loaded;
                         let count = app.session.tree.branch_path().len();
                         app.status_message = format!("Loaded from {arg} ({count} messages).");
-                        app.session_path = Some(path);
                         app.auto_scroll = true;
                     }
                     Err(e) => app.status_message = format!("Load error: {e}"),
@@ -730,12 +729,12 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
                 "next" => {
                     app.session.tree.switch_sibling(1);
                     app.status_message = "Switched to next branch.".to_owned();
-                    let _ = app.session.maybe_save(app.session_path.as_deref());
+                    let _ = app.session.maybe_save(&app.save_mode);
                 }
                 "prev" => {
                     app.session.tree.switch_sibling(-1);
                     app.status_message = "Switched to previous branch.".to_owned();
-                    let _ = app.session.maybe_save(app.session_path.as_deref());
+                    let _ = app.session.maybe_save(&app.save_mode);
                 }
                 "list" => {
                     let path_ids = app.session.tree.branch_path_ids();
@@ -758,7 +757,7 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
                     if let Ok(id) = arg.parse::<usize>() {
                         app.session.tree.switch_to(id);
                         app.status_message = format!("Switched to node {id}.");
-                        let _ = app.session.maybe_save(app.session_path.as_deref());
+                        let _ = app.session.maybe_save(&app.save_mode);
                     } else {
                         app.status_message = "Usage: /branch list|next|prev|<id>".to_owned();
                     }
@@ -771,20 +770,32 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
     }
 }
 
-fn discover_sessions(session_path: Option<&Path>) -> Vec<PathBuf> {
-    let dir = match session_path.and_then(|p| p.parent()) {
-        Some(d) => d,
-        None => return Vec::new(),
-    };
-
-    let mut sessions: Vec<PathBuf> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
-        .collect();
-
-    sessions.sort();
-    sessions
+fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
+    match save_mode {
+        SaveMode::Encrypted { key, .. } => {
+            session::list_sessions(&crate::config::sessions_dir(), key)
+        }
+        SaveMode::Plaintext(path) => {
+            let dir = match path.parent() {
+                Some(d) => d,
+                None => return Vec::new(),
+            };
+            let mut entries: Vec<SessionEntry> = std::fs::read_dir(dir)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+                .map(|p| {
+                    let filename = p.file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    SessionEntry { path: p, preview: String::new(), filename }
+                })
+                .collect();
+            entries.sort_by(|a, b| b.filename.cmp(&a.filename));
+            entries
+        }
+        SaveMode::None => Vec::new(),
+    }
 }

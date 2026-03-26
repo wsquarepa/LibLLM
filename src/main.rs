@@ -1,7 +1,11 @@
 mod cli;
 mod client;
+mod config;
+mod context;
 mod interactive;
 mod prompt;
+mod render;
+mod sampling;
 mod session;
 
 use std::io::{self, Read, Write};
@@ -11,21 +15,39 @@ use clap::Parser;
 
 use cli::Args;
 use client::ApiClient;
-use prompt::{Llama2Template, PromptTemplate};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let template = Llama2Template;
-    let client = ApiClient::new(&args.api_url);
+    let cfg = config::load();
+
+    let api_url = args
+        .api_url
+        .as_deref()
+        .unwrap_or_else(|| cfg.api_url());
+    let client = ApiClient::new(api_url);
+
+    let template_name = args
+        .template
+        .as_deref()
+        .or(cfg.template.as_deref())
+        .unwrap_or("llama2");
+    let template = prompt::template_by_name(template_name);
+
+    let sampling = args.resolve_sampling(cfg.resolve_sampling());
 
     let mut session = match &args.session {
         Some(path) => session::load(path)?,
         None => session::Session::default(),
     };
 
-    if session.prompt_history.is_empty() {
-        session.prompt_history = template.bos(args.system_prompt.as_deref());
+    session.template = Some(template.name().to_owned());
+
+    if session.system_prompt.is_none() {
+        session.system_prompt = args
+            .system_prompt
+            .clone()
+            .or_else(|| cfg.system_prompt.clone());
     }
 
     if let Some(message) = &args.message {
@@ -37,17 +59,17 @@ async fn main() -> Result<()> {
             message.clone()
         };
 
-        session.prompt_history.push_str(&template.wrap_user(&text));
+        session.messages.push(session::Message::new("user", &text));
 
+        let prompt_text = template.render(&session.messages, session.system_prompt.as_deref());
         let stop_tokens = template.stop_tokens();
         let mut stdout = io::stdout().lock();
         let response = client
-            .stream_completion(&session.prompt_history, &stop_tokens, &mut stdout)
+            .stream_completion(&prompt_text, &stop_tokens, &sampling, &mut stdout)
             .await?;
         writeln!(stdout)?;
 
-        session.prompt_history.push_str(&response);
-        session.prompt_history.push_str(template.assistant_end());
+        session.messages.push(session::Message::new("assistant", &response));
 
         if let Some(path) = &args.session {
             session::save(path, &session)?;
@@ -56,5 +78,5 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    interactive::run(&client, &mut session, args.session.as_deref(), &template).await
+    interactive::run(&client, &mut session, args.session.as_deref(), template.as_ref(), &sampling).await
 }

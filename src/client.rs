@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use serde_json::json;
 
+use crate::sampling::SamplingParams;
+
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
@@ -41,19 +43,20 @@ impl ApiClient {
         &self,
         prompt: &str,
         stop_tokens: &[String],
+        sampling: &SamplingParams,
         writer: &mut impl Write,
     ) -> Result<String> {
         let url = format!("{}/completions", self.base_url);
         let body = json!({
             "prompt": prompt,
             "stream": true,
-            "temperature": 0.8,
-            "max_tokens": -1,
-            "top_k": 40,
-            "top_p": 0.95,
-            "min_p": 0.05,
-            "repeat_last_n": 64,
-            "repeat_penalty": 1.0,
+            "temperature": sampling.temperature,
+            "max_tokens": sampling.max_tokens,
+            "top_k": sampling.top_k,
+            "top_p": sampling.top_p,
+            "min_p": sampling.min_p,
+            "repeat_last_n": sampling.repeat_last_n,
+            "repeat_penalty": sampling.repeat_penalty,
             "stop": stop_tokens,
             "samplers": ["top_k", "top_p", "min_p", "temperature"],
         });

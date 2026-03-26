@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::sampling::SamplingParams;
+
 #[derive(Parser)]
 #[command(name = "libllm", about = "CLI chat client for llama.cpp completions API")]
 pub struct Args {
@@ -18,6 +20,52 @@ pub struct Args {
     pub system_prompt: Option<String>,
 
     /// API base URL (without /completions suffix)
-    #[arg(long, env = "LIBLLM_API_URL", default_value = "http://localhost:5001/v1")]
-    pub api_url: String,
+    #[arg(long, env = "LIBLLM_API_URL")]
+    pub api_url: Option<String>,
+
+    /// Prompt template to use (llama2, chatml, mistral, phi, raw)
+    #[arg(short = 't', long)]
+    pub template: Option<String>,
+
+    /// Sampling temperature
+    #[arg(long)]
+    pub temperature: Option<f64>,
+
+    /// Top-K sampling
+    #[arg(long)]
+    pub top_k: Option<i64>,
+
+    /// Top-P (nucleus) sampling
+    #[arg(long)]
+    pub top_p: Option<f64>,
+
+    /// Min-P sampling
+    #[arg(long)]
+    pub min_p: Option<f64>,
+
+    /// Repeat penalty window size
+    #[arg(long)]
+    pub repeat_last_n: Option<i64>,
+
+    /// Repeat penalty strength
+    #[arg(long)]
+    pub repeat_penalty: Option<f64>,
+
+    /// Maximum tokens to generate (-1 for unlimited)
+    #[arg(long)]
+    pub max_tokens: Option<i64>,
+}
+
+impl Args {
+    pub fn resolve_sampling(&self, base: SamplingParams) -> SamplingParams {
+        SamplingParams {
+            temperature: self.temperature.unwrap_or(base.temperature),
+            top_k: self.top_k.unwrap_or(base.top_k),
+            top_p: self.top_p.unwrap_or(base.top_p),
+            min_p: self.min_p.unwrap_or(base.min_p),
+            repeat_last_n: self.repeat_last_n.unwrap_or(base.repeat_last_n),
+            repeat_penalty: self.repeat_penalty.unwrap_or(base.repeat_penalty),
+            max_tokens: self.max_tokens.unwrap_or(base.max_tokens),
+        }
+    }
 }

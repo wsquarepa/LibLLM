@@ -283,7 +283,18 @@ fn render_chat(
         }
     }
 
-    let content_height = lines.len() as u16;
+    let inner_width = area.width.saturating_sub(2) as usize;
+    let content_height: u16 = lines
+        .iter()
+        .map(|line| {
+            let line_width: usize = line.spans.iter().map(|s| s.content.len()).sum();
+            if inner_width == 0 {
+                1u16
+            } else {
+                ((line_width.max(1) + inner_width - 1) / inner_width) as u16
+            }
+        })
+        .sum();
     let visible_height = area.height.saturating_sub(2);
 
     if app.auto_scroll && content_height > visible_height {

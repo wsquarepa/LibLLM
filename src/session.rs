@@ -43,6 +43,7 @@ pub struct SessionEntry {
     pub path: PathBuf,
     pub preview: String,
     pub filename: String,
+    pub is_new_chat: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,7 +386,7 @@ pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            SessionEntry { path, preview: String::new(), filename }
+            SessionEntry { path, preview: String::new(), filename, is_new_chat: false }
         })
         .collect();
 

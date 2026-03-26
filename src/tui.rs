@@ -144,6 +144,9 @@ pub async fn run(
 
     if let SaveMode::Encrypted { key, .. } = &app.save_mode {
         for i in 0..app.sidebar_sessions.len() {
+            if app.sidebar_sessions[i].is_new_chat {
+                continue;
+            }
             let entry_path = app.sidebar_sessions[i].path.clone();
             let key = key.clone();
             let tx = bg_tx.clone();
@@ -734,20 +737,29 @@ fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         KeyCode::Enter => {
             if let Some(selected) = app.sidebar_state.selected() {
                 let entry = &app.sidebar_sessions[selected];
-                let path = entry.path.clone();
-                let load_result = match &app.save_mode {
-                    SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
-                    _ => session::load(&path),
-                };
-                match load_result {
-                    Ok(loaded) => {
-                        *app.session = loaded;
-                        app.status_message = format!("Loaded: {}", entry.filename);
-                        app.save_mode.set_path(path);
-                        app.auto_scroll = true;
-                    }
-                    Err(e) => {
-                        app.status_message = format!("Error loading: {e}");
+                if entry.is_new_chat {
+                    *app.session = Session::default();
+                    app.chat_scroll = 0;
+                    app.auto_scroll = true;
+                    let new_path = crate::config::sessions_dir().join(session::generate_session_name());
+                    app.save_mode.set_path(new_path);
+                    app.status_message = "New conversation started.".to_owned();
+                } else {
+                    let path = entry.path.clone();
+                    let load_result = match &app.save_mode {
+                        SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
+                        _ => session::load(&path),
+                    };
+                    match load_result {
+                        Ok(loaded) => {
+                            *app.session = loaded;
+                            app.status_message = format!("Loaded: {}", entry.filename);
+                            app.save_mode.set_path(path);
+                            app.auto_scroll = true;
+                        }
+                        Err(e) => {
+                            app.status_message = format!("Error loading: {e}");
+                        }
                     }
                 }
             }
@@ -964,12 +976,15 @@ fn handle_background_event(event: BackgroundEvent, app: &mut App, bg_tx: mpsc::S
             app.status_message.clear();
 
             let sessions_dir = crate::config::sessions_dir();
-            app.sidebar_sessions = session::list_session_paths(&sessions_dir);
-            if !app.sidebar_sessions.is_empty() {
-                app.sidebar_state.select(Some(0));
-            }
+            let mut sessions = session::list_session_paths(&sessions_dir);
+            sessions.insert(0, new_chat_entry());
+            app.sidebar_sessions = sessions;
+            app.sidebar_state.select(Some(0));
 
             for i in 0..app.sidebar_sessions.len() {
+                if app.sidebar_sessions[i].is_new_chat {
+                    continue;
+                }
                 let entry_path = app.sidebar_sessions[i].path.clone();
                 let key = key.clone();
                 let tx = bg_tx.clone();
@@ -1141,8 +1156,17 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
     }
 }
 
+fn new_chat_entry() -> SessionEntry {
+    SessionEntry {
+        path: std::path::PathBuf::new(),
+        preview: String::new(),
+        filename: "+ New Chat".to_owned(),
+        is_new_chat: true,
+    }
+}
+
 fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
-    match save_mode {
+    let mut sessions = match save_mode {
         SaveMode::Encrypted { .. } => {
             session::list_session_paths(&crate::config::sessions_dir())
         }
@@ -1161,12 +1185,14 @@ fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
                     let filename = p.file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    SessionEntry { path: p, preview: String::new(), filename }
+                    SessionEntry { path: p, preview: String::new(), filename, is_new_chat: false }
                 })
                 .collect();
             entries.sort_by(|a, b| b.filename.cmp(&a.filename));
             entries
         }
         SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
-    }
+    };
+    sessions.insert(0, new_chat_entry());
+    sessions
 }

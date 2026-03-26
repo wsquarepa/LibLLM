@@ -16,6 +16,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "/branch", args: "list|next|prev|<id>", description: "Navigate branches" },
     CommandInfo { name: "/config", args: "", description: "Open configuration dialog" },
     CommandInfo { name: "/quit", args: "", description: "Exit the chat" },
+    CommandInfo { name: "/exit", args: "", description: "Exit the chat" },
 ];
 
 pub fn matching_commands(prefix: &str) -> Vec<&'static CommandInfo> {

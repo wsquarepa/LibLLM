@@ -119,22 +119,7 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
 
     match cmd {
         "/help" => {
-            println!("{DIM}Available commands:");
-            println!("  /help                Show this help message");
-            println!("  /clear               Clear conversation history");
-            println!("  /save <path>         Save session to file");
-            println!("  /load <path>         Load session from file");
-            println!("  /model               Show current model name");
-            println!("  /system <prompt>     Set system prompt");
-            println!("  /retry               Regenerate last assistant response (new branch)");
-            println!("  /edit <text>          Replace last user message and regenerate (new branch)");
-            println!("  /history             Show conversation history");
-            println!("  /render              Re-render last response with markdown formatting");
-            println!("  /branch list         Show branch points");
-            println!("  /branch next         Switch to next sibling branch");
-            println!("  /branch prev         Switch to previous sibling branch");
-            println!("  /branch <id>         Switch to specific node ID");
-            println!("  /quit                Exit the chat{RESET}");
+            println!("{DIM}Available commands:\n{}\n{RESET}", crate::commands::format_help());
         }
         "/clear" => {
             ctx.session.tree.clear();

@@ -51,6 +51,7 @@ struct App<'a> {
     model_name: String,
     status_message: String,
     should_quit: bool,
+    command_picker_selected: usize,
 }
 
 pub async fn run(
@@ -98,6 +99,7 @@ pub async fn run(
         model_name,
         status_message: String::new(),
         should_quit: false,
+        command_picker_selected: 0,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -184,6 +186,11 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
             .border_style(border),
     );
     f.render_widget(&app.textarea, input_area);
+
+    let input_text = app.textarea.lines().join("\n");
+    if input_text.starts_with('/') && app.focus == Focus::Input && !app.is_streaming {
+        render_command_picker(f, app, &input_text, chat_area);
+    }
 
     let branch_path = app.session.tree.branch_path();
     let branch_ids = app.session.tree.branch_path_ids();
@@ -296,6 +303,48 @@ fn render_chat(
     f.render_widget(paragraph, area);
 }
 
+fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
+    let matches = crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"));
+    if matches.is_empty() {
+        return;
+    }
+
+    let items: Vec<ListItem> = matches
+        .iter()
+        .map(|c| {
+            let label = if c.args.is_empty() {
+                c.name.to_owned()
+            } else {
+                format!("{} {}", c.name, c.args)
+            };
+            ListItem::new(format!("{label}  {}", c.description))
+        })
+        .collect();
+
+    let height = (items.len() as u16 + 2).min(chat_area.height);
+    let picker_area = Rect {
+        x: chat_area.x,
+        y: chat_area.y + chat_area.height - height,
+        width: chat_area.width,
+        height,
+    };
+
+    let selected = app.command_picker_selected.min(matches.len().saturating_sub(1));
+    let mut state = ListState::default();
+    state.select(Some(selected));
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Commands ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        )
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+
+    f.render_stateful_widget(list, picker_area, &mut state);
+}
+
 fn render_status_bar(
     f: &mut ratatui::Frame,
     app: &App,
@@ -385,9 +434,43 @@ fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 }
 
+fn input_has_command_picker(app: &App) -> bool {
+    let text = app.textarea.lines().join("\n");
+    text.starts_with('/') && !app.is_streaming
+}
+
 fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.is_streaming {
         return None;
+    }
+
+    let picker_active = input_has_command_picker(app);
+
+    if picker_active {
+        let matches = crate::commands::matching_commands(
+            app.textarea.lines().join("\n").split_whitespace().next().unwrap_or("/"),
+        );
+        match key.code {
+            KeyCode::Up => {
+                app.command_picker_selected = app.command_picker_selected.saturating_sub(1);
+                return None;
+            }
+            KeyCode::Down => {
+                app.command_picker_selected = (app.command_picker_selected + 1).min(matches.len().saturating_sub(1));
+                return None;
+            }
+            KeyCode::Tab if !matches.is_empty() => {
+                let selected = app.command_picker_selected.min(matches.len().saturating_sub(1));
+                let cmd_name = matches[selected].name;
+                let suffix = if matches[selected].args.is_empty() { "" } else { " " };
+                app.textarea = TextArea::from(vec![format!("{cmd_name}{suffix}")]);
+                app.textarea.set_cursor_line_style(Style::default());
+                app.textarea.move_cursor(tui_textarea::CursorMove::End);
+                app.command_picker_selected = 0;
+                return None;
+            }
+            _ => {}
+        }
     }
 
     match key.code {
@@ -400,9 +483,9 @@ fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 return None;
             }
 
-            // Clear textarea
             app.textarea = TextArea::default();
             app.textarea.set_cursor_line_style(Style::default());
+            app.command_picker_selected = 0;
 
             if trimmed.starts_with('/') {
                 let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
@@ -415,6 +498,7 @@ fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         _ => {
             app.textarea.input(key);
+            app.command_picker_selected = 0;
             None
         }
     }
@@ -536,6 +620,9 @@ fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
 
 fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sender<StreamToken>) {
     match cmd {
+        "/help" => {
+            app.status_message = "Use Tab to complete commands. Type /help in REPL mode for full list.".to_owned();
+        }
         "/quit" | "/exit" => {
             app.should_quit = true;
         }

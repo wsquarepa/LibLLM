@@ -697,6 +697,63 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
         "/model" => {
             app.status_message = format!("Model: {}", app.model_name);
         }
+        "/load" => {
+            if arg.is_empty() {
+                app.status_message = "Usage: /load <path>".to_owned();
+            } else {
+                let path = PathBuf::from(arg);
+                match session::load(&path) {
+                    Ok(loaded) => {
+                        *app.session = loaded;
+                        let count = app.session.tree.branch_path().len();
+                        app.status_message = format!("Loaded from {arg} ({count} messages).");
+                        app.session_path = Some(path);
+                        app.auto_scroll = true;
+                    }
+                    Err(e) => app.status_message = format!("Load error: {e}"),
+                }
+            }
+        }
+        "/branch" => {
+            match arg {
+                "next" => {
+                    app.session.tree.switch_sibling(1);
+                    app.status_message = "Switched to next branch.".to_owned();
+                    let _ = app.session.maybe_save(app.session_path.as_deref());
+                }
+                "prev" => {
+                    app.session.tree.switch_sibling(-1);
+                    app.status_message = "Switched to previous branch.".to_owned();
+                    let _ = app.session.maybe_save(app.session_path.as_deref());
+                }
+                "list" => {
+                    let path_ids = app.session.tree.branch_path_ids();
+                    let mut parts: Vec<String> = Vec::new();
+                    for &node_id in &path_ids {
+                        let (idx, total) = app.session.tree.sibling_info(node_id);
+                        if total > 1 {
+                            if let Some(node) = app.session.tree.node(node_id) {
+                                parts.push(format!("#{node_id} ({}): {}/{total}", node.message.role, idx + 1));
+                            }
+                        }
+                    }
+                    if parts.is_empty() {
+                        app.status_message = "No branch points.".to_owned();
+                    } else {
+                        app.status_message = format!("Branches: {}", parts.join(" | "));
+                    }
+                }
+                _ => {
+                    if let Ok(id) = arg.parse::<usize>() {
+                        app.session.tree.switch_to(id);
+                        app.status_message = format!("Switched to node {id}.");
+                        let _ = app.session.maybe_save(app.session_path.as_deref());
+                    } else {
+                        app.status_message = "Usage: /branch list|next|prev|<id>".to_owned();
+                    }
+                }
+            }
+        }
         _ => {
             app.status_message = format!("Unknown command: {cmd}");
         }

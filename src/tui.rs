@@ -342,14 +342,7 @@ fn render_chat(
         let inner_width = area.width.saturating_sub(2) as usize;
         let content_height: u16 = lines
             .iter()
-            .map(|line| {
-                let line_width: usize = line.width();
-                if line_width == 0 || inner_width == 0 {
-                    1u16
-                } else {
-                    ((line_width + inner_width - 1) / inner_width) as u16
-                }
-            })
+            .map(|line| wrapped_line_count(line, inner_width))
             .sum();
 
         if content_height > visible_height {
@@ -444,6 +437,46 @@ fn render_status_bar(
         .style(Style::default().fg(Color::White).bg(Color::DarkGray));
 
     f.render_widget(paragraph, area);
+}
+
+fn wrapped_line_count(line: &Line, max_width: usize) -> u16 {
+    if max_width == 0 {
+        return 1;
+    }
+
+    let full_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    if full_text.is_empty() {
+        return 1;
+    }
+
+    let mut visual_lines: u16 = 1;
+    let mut current_width: usize = 0;
+
+    for word in full_text.split_inclusive(|c: char| c.is_whitespace()) {
+        let word_width = unicode_width::UnicodeWidthStr::width(word);
+
+        if current_width == 0 {
+            current_width = word_width;
+            if current_width > max_width {
+                visual_lines += (current_width.saturating_sub(1) / max_width) as u16;
+                current_width = current_width % max_width;
+            }
+            continue;
+        }
+
+        if current_width + word_width > max_width {
+            visual_lines += 1;
+            current_width = word_width;
+            if current_width > max_width {
+                visual_lines += (current_width.saturating_sub(1) / max_width) as u16;
+                current_width = current_width % max_width;
+            }
+        } else {
+            current_width += word_width;
+        }
+    }
+
+    visual_lines
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

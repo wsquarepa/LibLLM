@@ -22,3 +22,4 @@ rand = "0.8"
 rpassword = "5"
 zeroize = { version = "1.8.2", features = ["derive"] }
 sha2 = "0.11.0"
+unicode-width = "0.2"

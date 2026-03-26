@@ -9,14 +9,14 @@ pub struct ContextManager {
 }
 
 impl ContextManager {
-    pub fn estimate_message_tokens(messages: &[Message]) -> usize {
+    pub fn estimate_message_tokens(messages: &[&Message]) -> usize {
         messages
             .iter()
             .map(|m| m.content.len() / CHARS_PER_TOKEN_ESTIMATE + 4)
             .sum()
     }
 
-    pub fn check(&self, messages: &[Message]) -> ContextStatus {
+    pub fn check(&self, messages: &[&Message]) -> ContextStatus {
         let total = Self::estimate_message_tokens(messages);
         let ratio = total as f64 / self.token_limit as f64;
 
@@ -32,30 +32,31 @@ impl ContextManager {
         }
     }
 
-    pub fn truncate(&self, messages: &mut Vec<Message>) -> usize {
-        let before = Self::estimate_message_tokens(messages);
-        if before <= self.token_limit || messages.len() <= 2 {
-            return 0;
+    pub fn truncated_path<'a>(&self, messages: &'a [&'a Message]) -> &'a [&'a Message] {
+        if messages.len() <= 2 {
+            return messages;
+        }
+
+        let total = Self::estimate_message_tokens(messages);
+        if total <= self.token_limit {
+            return messages;
         }
 
         let mut cumulative = 0usize;
-        let mut remove_count = 0usize;
+        let mut skip = 0usize;
         for msg in messages.iter() {
             let tokens = msg.content.len() / CHARS_PER_TOKEN_ESTIMATE + 4;
-            if before - cumulative - tokens <= self.token_limit {
+            if total - cumulative - tokens <= self.token_limit {
                 break;
             }
             cumulative += tokens;
-            remove_count += 1;
-            if messages.len() - remove_count <= 2 {
+            skip += 1;
+            if messages.len() - skip <= 2 {
                 break;
             }
         }
 
-        if remove_count > 0 {
-            messages.drain(..remove_count);
-        }
-        cumulative
+        &messages[skip..]
     }
 }
 

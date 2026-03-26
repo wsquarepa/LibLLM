@@ -6,6 +6,7 @@ mod interactive;
 mod prompt;
 mod sampling;
 mod session;
+mod tui;
 
 use std::io::{self, Read, Write};
 
@@ -44,9 +45,7 @@ async fn main() -> Result<()> {
     session.template = Some(template.name().to_owned());
 
     if session.system_prompt.is_none() {
-        session.system_prompt = args
-            .system_prompt
-            .or(cfg.system_prompt);
+        session.system_prompt = args.system_prompt.or(cfg.system_prompt);
     }
 
     if let Some(ref message) = args.message {
@@ -58,9 +57,11 @@ async fn main() -> Result<()> {
             message.clone()
         };
 
-        session.messages.push(Message::new(Role::User, text));
+        let parent = session.tree.head();
+        session.tree.push(parent, Message::new(Role::User, text));
 
-        let prompt_text = template.render(&session.messages, session.system_prompt.as_deref());
+        let branch_path = session.tree.branch_path();
+        let prompt_text = template.render(&branch_path, session.system_prompt.as_deref());
         let stop_tokens = template.stop_tokens();
         let mut stdout = io::stdout().lock();
         let response = client
@@ -68,7 +69,8 @@ async fn main() -> Result<()> {
             .await?;
         writeln!(stdout)?;
 
-        session.messages.push(Message::new(Role::Assistant, response));
+        let user_node = session.tree.head().unwrap();
+        session.tree.push(Some(user_node), Message::new(Role::Assistant, response));
 
         if let Some(path) = &args.session {
             session::save(path, &session)?;
@@ -77,5 +79,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    interactive::run(&client, &mut session, args.session.as_deref(), template, &sampling).await
+    if args.repl {
+        interactive::run(&client, &mut session, args.session.as_deref(), template, &sampling).await
+    } else {
+        tui::run(&client, &mut session, args.session.as_deref(), template, &sampling).await
+    }
 }

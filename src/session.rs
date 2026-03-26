@@ -28,9 +28,185 @@ impl Message {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+pub type NodeId = usize;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Node {
+    pub id: NodeId,
+    pub parent: Option<NodeId>,
+    pub children: Vec<NodeId>,
+    pub message: Message,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageTree {
+    nodes: Vec<Node>,
+    head: Option<NodeId>,
+}
+
+impl MessageTree {
+    pub fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            head: None,
+        }
+    }
+
+    pub fn head(&self) -> Option<NodeId> {
+        self.head
+    }
+
+    pub fn node(&self, id: NodeId) -> &Node {
+        &self.nodes[id]
+    }
+
+    pub fn push(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Node {
+            id,
+            parent,
+            children: Vec::new(),
+            message,
+        });
+        if let Some(parent_id) = parent {
+            self.nodes[parent_id].children.push(id);
+        }
+        self.head = Some(id);
+        id
+    }
+
+    pub fn branch_path(&self) -> Vec<&Message> {
+        let path = self.branch_path_ids();
+        path.iter().map(|&id| &self.nodes[id].message).collect()
+    }
+
+    pub fn branch_path_ids(&self) -> Vec<NodeId> {
+        let Some(head) = self.head else {
+            return Vec::new();
+        };
+        let mut path = Vec::new();
+        let mut current = head;
+        loop {
+            path.push(current);
+            match self.nodes[current].parent {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        path.reverse();
+        path
+    }
+
+    pub fn sibling_info(&self, id: NodeId) -> (usize, usize) {
+        let parent = self.nodes[id].parent;
+        match parent {
+            Some(pid) => {
+                let siblings = &self.nodes[pid].children;
+                let index = siblings.iter().position(|&c| c == id).unwrap_or(0);
+                (index, siblings.len())
+            }
+            None => {
+                let roots: Vec<NodeId> = self.nodes.iter()
+                    .filter(|n| n.parent.is_none())
+                    .map(|n| n.id)
+                    .collect();
+                let index = roots.iter().position(|&r| r == id).unwrap_or(0);
+                (index, roots.len())
+            }
+        }
+    }
+
+    pub fn switch_to(&mut self, id: NodeId) {
+        let mut current = id;
+        while !self.nodes[current].children.is_empty() {
+            current = self.nodes[current].children[0];
+        }
+        self.head = Some(current);
+    }
+
+    pub fn switch_sibling(&mut self, offset: isize) {
+        if self.head.is_none() { return };
+
+        let path = self.branch_path_ids();
+        let branch_node = path.iter().rev()
+            .find(|&&id| {
+                let (_, total) = self.sibling_info(id);
+                total > 1
+            })
+            .copied();
+
+        let Some(node_id) = branch_node else { return };
+
+        let parent = self.nodes[node_id].parent;
+        let siblings = match parent {
+            Some(pid) => self.nodes[pid].children.clone(),
+            None => self.nodes.iter()
+                .filter(|n| n.parent.is_none())
+                .map(|n| n.id)
+                .collect(),
+        };
+
+        let current_idx = siblings.iter().position(|&c| c == node_id).unwrap_or(0);
+        let new_idx = (current_idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
+        let new_node = siblings[new_idx];
+
+        self.switch_to(new_node);
+    }
+
+    pub fn pop_head(&mut self) -> Option<Message> {
+        let head = self.head?;
+        if !self.nodes[head].children.is_empty() {
+            return None;
+        }
+
+        let node = &self.nodes[head];
+        let parent = node.parent;
+        let message = node.message.clone();
+
+        if let Some(pid) = parent {
+            self.nodes[pid].children.retain(|&c| c != head);
+        }
+
+        self.head = parent;
+        Some(message)
+    }
+
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.head = None;
+    }
+
+    pub fn deepest_branch_info(&self) -> Option<(usize, usize)> {
+        self.head?;
+        let path = self.branch_path_ids();
+        path.iter().rev()
+            .find(|&&id| {
+                let (_, total) = self.sibling_info(id);
+                total > 1
+            })
+            .map(|&id| self.sibling_info(id))
+    }
+
+    pub fn from_messages(messages: Vec<Message>) -> Self {
+        let mut tree = Self::new();
+        let mut parent: Option<NodeId> = None;
+        for msg in messages {
+            let id = tree.push(parent, msg);
+            parent = Some(id);
+        }
+        tree
+    }
+}
+
+impl Default for MessageTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Session {
-    pub messages: Vec<Message>,
+    pub tree: MessageTree,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -39,10 +215,23 @@ pub struct Session {
     pub system_prompt: Option<String>,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            tree: MessageTree::new(),
+            model: None,
+            template: None,
+            system_prompt: None,
+        }
+    }
+}
+
 impl Session {
     pub fn pop_trailing_assistant(&mut self) {
-        while self.messages.last().is_some_and(|m| m.role == Role::Assistant) {
-            self.messages.pop();
+        while self.tree.head()
+            .is_some_and(|id| self.tree.node(id).message.role == Role::Assistant)
+        {
+            self.tree.pop_head();
         }
     }
 
@@ -52,6 +241,17 @@ impl Session {
             None => Ok(()),
         }
     }
+}
+
+#[derive(Deserialize)]
+struct FlatSession {
+    messages: Vec<Message>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    template: Option<String>,
+    #[serde(default)]
+    system_prompt: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -74,9 +274,18 @@ pub fn load(path: &Path) -> Result<Session> {
         return Ok(session);
     }
 
+    if let Ok(flat) = serde_json::from_str::<FlatSession>(&contents) {
+        return Ok(Session {
+            tree: MessageTree::from_messages(flat.messages),
+            model: flat.model,
+            template: flat.template,
+            system_prompt: flat.system_prompt,
+        });
+    }
+
     if let Ok(legacy) = serde_json::from_str::<LegacySession>(&contents) {
         return Ok(Session {
-            messages: vec![Message::new(Role::User, legacy.prompt_history)],
+            tree: MessageTree::from_messages(vec![Message::new(Role::User, legacy.prompt_history)]),
             model: legacy.model,
             template: legacy.template,
             system_prompt: None,
@@ -84,7 +293,7 @@ pub fn load(path: &Path) -> Result<Session> {
     }
 
     Ok(Session {
-        messages: vec![Message::new(Role::User, contents)],
+        tree: MessageTree::from_messages(vec![Message::new(Role::User, contents)]),
         model: None,
         template: None,
         system_prompt: None,

@@ -27,6 +27,10 @@ pub struct Args {
     #[arg(short = 't', long)]
     pub template: Option<String>,
 
+    /// Use legacy REPL mode instead of TUI
+    #[arg(long)]
+    pub repl: bool,
+
     /// Sampling temperature
     #[arg(long)]
     pub temperature: Option<f64>,

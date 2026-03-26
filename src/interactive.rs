@@ -78,16 +78,20 @@ pub async fn run(
 }
 
 async fn send_message(content: &str, ctx: &mut ChatContext<'_>) -> Result<()> {
-    ctx.session.messages.push(Message::new(Role::User, content.to_owned()));
+    let parent = ctx.session.tree.head();
+    ctx.session.tree.push(parent, Message::new(Role::User, content.to_owned()));
 
-    let removed = ctx.context_mgr.truncate(&mut ctx.session.messages);
-    if removed > 0 {
-        println!("{YELLOW}[context truncated: ~{removed} tokens of old messages removed]{RESET}");
-    } else if let ContextStatus::Warning { used, limit } = ctx.context_mgr.check(&ctx.session.messages) {
+    let branch_path = ctx.session.tree.branch_path();
+    let truncated = ctx.context_mgr.truncated_path(&branch_path);
+
+    if truncated.len() < branch_path.len() {
+        let removed = branch_path.len() - truncated.len();
+        println!("{YELLOW}[context truncated: {removed} old messages hidden]{RESET}");
+    } else if let ContextStatus::Warning { used, limit } = ctx.context_mgr.check(&branch_path) {
         println!("{YELLOW}[context usage: ~{used}/{limit} tokens]{RESET}");
     }
 
-    let prompt = ctx.template.render(&ctx.session.messages, ctx.session.system_prompt.as_deref());
+    let prompt = ctx.template.render(truncated, ctx.session.system_prompt.as_deref());
 
     print!("{BLUE_BOLD}Assistant:{RESET} ");
     stdout().flush()?;
@@ -99,7 +103,8 @@ async fn send_message(content: &str, ctx: &mut ChatContext<'_>) -> Result<()> {
 
     println!();
 
-    ctx.session.messages.push(Message::new(Role::Assistant, response));
+    let user_node = ctx.session.tree.head().unwrap();
+    ctx.session.tree.push(Some(user_node), Message::new(Role::Assistant, response));
     ctx.session.maybe_save(ctx.session_path)?;
 
     println!();
@@ -121,14 +126,18 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
             println!("  /load <path>         Load session from file");
             println!("  /model               Show current model name");
             println!("  /system <prompt>     Set system prompt");
-            println!("  /retry               Regenerate last assistant response");
-            println!("  /edit <text>          Replace last user message and regenerate");
+            println!("  /retry               Regenerate last assistant response (new branch)");
+            println!("  /edit <text>          Replace last user message and regenerate (new branch)");
             println!("  /history             Show conversation history");
             println!("  /render              Re-render last response with markdown formatting");
+            println!("  /branch list         Show branch points");
+            println!("  /branch next         Switch to next sibling branch");
+            println!("  /branch prev         Switch to previous sibling branch");
+            println!("  /branch <id>         Switch to specific node ID");
             println!("  /quit                Exit the chat{RESET}");
         }
         "/clear" => {
-            ctx.session.messages.clear();
+            ctx.session.tree.clear();
             println!("{YELLOW}Conversation cleared.{RESET}");
             ctx.session.maybe_save(ctx.session_path)?;
         }
@@ -153,10 +162,8 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
             } else {
                 let path = PathBuf::from(arg);
                 *ctx.session = session::load(&path)?;
-                println!(
-                    "{YELLOW}Session loaded from {arg} ({} messages).{RESET}",
-                    ctx.session.messages.len()
-                );
+                let count = ctx.session.tree.branch_path().len();
+                println!("{YELLOW}Session loaded from {arg} ({count} messages on current branch).{RESET}");
             }
         }
         "/model" => {
@@ -178,15 +185,15 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
         "/retry" => {
             ctx.session.pop_trailing_assistant();
 
-            let last_user = ctx
-                .session
-                .messages
-                .iter()
-                .rposition(|m| m.role == Role::User)
-                .map(|i| ctx.session.messages.remove(i).content);
+            let last_user_content = ctx.session.tree.head()
+                .filter(|&id| ctx.session.tree.node(id).message.role == Role::User)
+                .map(|id| ctx.session.tree.node(id).message.content.clone());
 
-            match last_user {
-                Some(content) => send_message(&content, ctx).await?,
+            match last_user_content {
+                Some(content) => {
+                    ctx.session.tree.pop_head();
+                    send_message(&content, ctx).await?;
+                }
                 None => println!("{YELLOW}No user message to retry.{RESET}"),
             }
         }
@@ -195,17 +202,21 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
                 println!("{YELLOW}Usage: /edit <new message text>{RESET}");
             } else {
                 ctx.session.pop_trailing_assistant();
-                if ctx.session.messages.last().is_some_and(|m| m.role == Role::User) {
-                    ctx.session.messages.pop();
+                if ctx.session.tree.head()
+                    .is_some_and(|id| ctx.session.tree.node(id).message.role == Role::User)
+                {
+                    ctx.session.tree.pop_head();
                 }
                 send_message(arg, ctx).await?;
             }
         }
         "/history" => {
-            if ctx.session.messages.is_empty() {
+            let path = ctx.session.tree.branch_path();
+            if path.is_empty() {
                 println!("{YELLOW}No messages in history.{RESET}");
             } else {
-                for (i, msg) in ctx.session.messages.iter().enumerate() {
+                let path_ids = ctx.session.tree.branch_path_ids();
+                for (i, (msg, &node_id)) in path.iter().zip(path_ids.iter()).enumerate() {
                     let role_color = match msg.role {
                         Role::User => GREEN_BOLD,
                         Role::Assistant => BLUE_BOLD,
@@ -218,17 +229,73 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
                     };
                     let truncated: String = msg.content.chars().take(100).collect();
                     let ellipsis = if msg.content.chars().count() > 100 { "..." } else { "" };
-                    println!("{DIM}{:>3}.{RESET} {role_color}{role_name}{RESET}: {truncated}{ellipsis}", i + 1);
+                    let (sib_idx, sib_total) = ctx.session.tree.sibling_info(node_id);
+                    let branch_marker = if sib_total > 1 {
+                        format!(" {DIM}[{}/{}]{RESET}", sib_idx + 1, sib_total)
+                    } else {
+                        String::new()
+                    };
+                    println!(
+                        "{DIM}{:>3}.{RESET} {role_color}{role_name}{RESET}{branch_marker}: {truncated}{ellipsis}",
+                        i + 1
+                    );
                 }
             }
         }
         "/render" => {
-            match ctx.session.messages.iter().rev().find(|m| m.role == Role::Assistant) {
+            let path = ctx.session.tree.branch_path();
+            match path.iter().rev().find(|m| m.role == Role::Assistant) {
                 Some(msg) => {
                     println!("{BLUE_BOLD}Assistant:{RESET}");
                     MadSkin::default().print_text(&msg.content);
                 }
                 None => println!("{YELLOW}No assistant response to render.{RESET}"),
+            }
+        }
+        "/branch" => {
+            match arg {
+                "list" => {
+                    let path = ctx.session.tree.branch_path_ids();
+                    let mut found_any = false;
+                    for &node_id in &path {
+                        let (idx, total) = ctx.session.tree.sibling_info(node_id);
+                        if total > 1 {
+                            let node = ctx.session.tree.node(node_id);
+                            let role_name = match node.message.role {
+                                Role::User => "user",
+                                Role::Assistant => "assistant",
+                                Role::System => "system",
+                            };
+                            println!(
+                                "{YELLOW}Node {node_id} ({role_name}): branch {}/{total}{RESET}",
+                                idx + 1
+                            );
+                            found_any = true;
+                        }
+                    }
+                    if !found_any {
+                        println!("{YELLOW}No branch points in current conversation.{RESET}");
+                    }
+                }
+                "next" => {
+                    ctx.session.tree.switch_sibling(1);
+                    println!("{YELLOW}Switched to next branch.{RESET}");
+                    ctx.session.maybe_save(ctx.session_path)?;
+                }
+                "prev" => {
+                    ctx.session.tree.switch_sibling(-1);
+                    println!("{YELLOW}Switched to previous branch.{RESET}");
+                    ctx.session.maybe_save(ctx.session_path)?;
+                }
+                _ => {
+                    if let Ok(id) = arg.parse::<usize>() {
+                        ctx.session.tree.switch_to(id);
+                        println!("{YELLOW}Switched to node {id}.{RESET}");
+                        ctx.session.maybe_save(ctx.session_path)?;
+                    } else {
+                        println!("{YELLOW}Usage: /branch list|next|prev|<id>{RESET}");
+                    }
+                }
             }
         }
         "/quit" | "/exit" => return Ok(true),

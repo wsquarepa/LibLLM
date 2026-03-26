@@ -30,7 +30,7 @@ impl Template {
         }
     }
 
-    pub fn render(self, messages: &[Message], system_prompt: Option<&str>) -> String {
+    pub fn render(self, messages: &[&Message], system_prompt: Option<&str>) -> String {
         let mut prompt = self.bos(system_prompt);
         for msg in messages {
             match msg.role {

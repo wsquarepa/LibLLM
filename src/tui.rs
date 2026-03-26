@@ -1152,6 +1152,65 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
                 }
             }
         }
+        "/character" => {
+            let parts: Vec<&str> = arg.splitn(2, ' ').collect();
+            match parts.first().copied().unwrap_or("") {
+                "list" => {
+                    let cards = crate::character::list_cards(&crate::config::characters_dir());
+                    if cards.is_empty() {
+                        app.status_message = "No characters imported. Use /character import <path>".to_owned();
+                    } else {
+                        let names: Vec<&str> = cards.iter().map(|c| c.name.as_str()).collect();
+                        app.status_message = format!("Characters: {}", names.join(", "));
+                    }
+                }
+                "load" => {
+                    let name = parts.get(1).copied().unwrap_or("").trim();
+                    if name.is_empty() {
+                        app.status_message = "Usage: /character load <name>".to_owned();
+                    } else {
+                        let card_path = crate::config::characters_dir().join(format!("{name}.json"));
+                        match crate::character::load_card(&card_path) {
+                            Ok(card) => {
+                                app.session.tree.clear();
+                                app.session.system_prompt = Some(crate::character::build_system_prompt(&card));
+                                app.session.character = Some(card.name.clone());
+                                if !card.first_mes.is_empty() {
+                                    app.session.tree.push(None, Message::new(Role::Assistant, card.first_mes));
+                                }
+                                app.chat_scroll = 0;
+                                app.auto_scroll = true;
+                                let new_path = crate::config::sessions_dir().join(session::generate_session_name());
+                                app.save_mode.set_path(new_path);
+                                app.status_message = format!("Loaded character: {name}");
+                            }
+                            Err(e) => app.status_message = format!("Error: {e}"),
+                        }
+                    }
+                }
+                "import" => {
+                    let path_str = parts.get(1).copied().unwrap_or("").trim();
+                    if path_str.is_empty() {
+                        app.status_message = "Usage: /character import <path>".to_owned();
+                    } else {
+                        let source = std::path::Path::new(path_str);
+                        match crate::character::import_card(source) {
+                            Ok(card) => {
+                                let name = card.name.clone();
+                                match crate::character::save_card(&card, &crate::config::characters_dir()) {
+                                    Ok(_) => app.status_message = format!("Imported character: {name}"),
+                                    Err(e) => app.status_message = format!("Save error: {e}"),
+                                }
+                            }
+                            Err(e) => app.status_message = format!("Import error: {e}"),
+                        }
+                    }
+                }
+                _ => {
+                    app.status_message = "Usage: /character list|load <name>|import <path>".to_owned();
+                }
+            }
+        }
         _ => {
             app.status_message = format!("Unknown command: {cmd}");
         }

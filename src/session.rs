@@ -276,6 +276,8 @@ pub struct Session {
     pub template: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub character: Option<String>,
 }
 
 impl Default for Session {
@@ -285,6 +287,7 @@ impl Default for Session {
             model: None,
             template: None,
             system_prompt: None,
+            character: None,
         }
     }
 }
@@ -316,6 +319,8 @@ struct FlatSession {
     template: Option<String>,
     #[serde(default)]
     system_prompt: Option<String>,
+    #[serde(default)]
+    character: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -431,6 +436,7 @@ fn load_from_str(contents: &str) -> Result<Session> {
             model: flat.model,
             template: flat.template,
             system_prompt: flat.system_prompt,
+            character: flat.character,
         });
     }
 
@@ -440,6 +446,7 @@ fn load_from_str(contents: &str) -> Result<Session> {
             model: legacy.model,
             template: legacy.template,
             system_prompt: None,
+            character: None,
         });
     }
 

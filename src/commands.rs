@@ -14,6 +14,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "/retry", args: "", description: "Regenerate last response (new branch)" },
     CommandInfo { name: "/edit", args: "<text>", description: "Replace last message and regenerate" },
     CommandInfo { name: "/branch", args: "list|next|prev|<id>", description: "Navigate branches" },
+    CommandInfo { name: "/character", args: "list|load <name>|import <path>", description: "Manage character cards" },
     CommandInfo { name: "/config", args: "", description: "Open configuration dialog" },
     CommandInfo { name: "/quit", args: "", description: "Exit the chat" },
     CommandInfo { name: "/exit", args: "", description: "Exit the chat" },

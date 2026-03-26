@@ -32,6 +32,10 @@ pub fn sessions_dir() -> PathBuf {
     data_dir().join("sessions")
 }
 
+pub fn characters_dir() -> PathBuf {
+    data_dir().join("characters")
+}
+
 pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
@@ -42,7 +46,9 @@ pub fn key_check_path() -> PathBuf {
 
 pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(sessions_dir())
-        .context("failed to create sessions directory")
+        .context("failed to create sessions directory")?;
+    std::fs::create_dir_all(characters_dir())
+        .context("failed to create characters directory")
 }
 
 pub fn config_path() -> PathBuf {

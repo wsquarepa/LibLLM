@@ -62,6 +62,10 @@ pub struct Args {
     /// Maximum tokens to generate (-1 for unlimited)
     #[arg(long)]
     pub max_tokens: Option<i64>,
+
+    /// Character card to use (name or path to .json/.png file)
+    #[arg(short = 'c', long)]
+    pub character: Option<String>,
 }
 
 impl Args {

@@ -1,3 +1,4 @@
+mod character;
 mod cli;
 mod client;
 mod commands;
@@ -48,6 +49,15 @@ async fn main() -> Result<()> {
         session.system_prompt = args
             .system_prompt
             .or(cfg.system_prompt);
+    }
+
+    if let Some(ref char_arg) = args.character {
+        let card = resolve_character(char_arg)?;
+        session.system_prompt = Some(character::build_system_prompt(&card));
+        session.character = Some(card.name.clone());
+        if session.tree.head().is_none() && !card.first_mes.is_empty() {
+            session.tree.push(None, Message::new(Role::Assistant, card.first_mes.clone()));
+        }
     }
 
     if let Some(ref message) = args.message {
@@ -111,4 +121,16 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
 
     let path = config::sessions_dir().join(session::generate_session_name());
     Ok((session::Session::default(), SaveMode::PendingPasskey(path)))
+}
+
+fn resolve_character(char_arg: &str) -> Result<character::CharacterCard> {
+    let path = std::path::Path::new(char_arg);
+    if path.exists() {
+        let card = character::import_card(path)?;
+        character::save_card(&card, &config::characters_dir())?;
+        return Ok(card);
+    }
+
+    let card_path = config::characters_dir().join(format!("{char_arg}.json"));
+    character::load_card(&card_path)
 }

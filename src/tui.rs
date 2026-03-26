@@ -23,6 +23,8 @@ enum Focus {
     Input,
     Chat,
     Sidebar,
+    PasskeyDialog,
+    ConfigDialog,
 }
 
 enum Action {
@@ -30,6 +32,16 @@ enum Action {
     SlashCommand(String, String),
     Quit,
 }
+
+const CONFIG_FIELDS: &[&str] = &[
+    "API URL",
+    "Template",
+    "System Prompt",
+    "Temperature",
+    "Top-K",
+    "Top-P",
+    "Min-P",
+];
 
 struct App<'a> {
     client: &'a ApiClient,
@@ -52,6 +64,13 @@ struct App<'a> {
     status_message: String,
     should_quit: bool,
     command_picker_selected: usize,
+
+    passkey_input: String,
+    passkey_error: String,
+
+    config_fields: Vec<String>,
+    config_selected: usize,
+    config_editing: bool,
 }
 
 pub async fn run(
@@ -80,12 +99,12 @@ pub async fn run(
     let mut app = App {
         client,
         session,
+        focus: if save_mode.needs_passkey() { Focus::PasskeyDialog } else { Focus::Input },
         save_mode,
         template,
         stop_tokens: template.stop_tokens(),
         sampling,
         context_mgr: ContextManager::default(),
-        focus: Focus::Input,
         textarea,
         chat_scroll: 0,
         auto_scroll: true,
@@ -97,6 +116,11 @@ pub async fn run(
         status_message: String::new(),
         should_quit: false,
         command_picker_selected: 0,
+        passkey_input: String::new(),
+        passkey_error: String::new(),
+        config_fields: Vec::new(),
+        config_selected: 0,
+        config_editing: false,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -197,6 +221,13 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
     render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids);
     render_status_bar(f, app, status_area, &branch_path, branch_info);
     app.chat_scroll = chat_scroll;
+
+    if app.focus == Focus::PasskeyDialog {
+        render_passkey_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::ConfigDialog {
+        render_config_dialog(f, app, f.area());
+    }
 }
 
 fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
@@ -312,7 +343,7 @@ fn render_chat(
 }
 
 fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
-    let matches = crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"), true);
+    let matches = crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"));
     if matches.is_empty() {
         return;
     }
@@ -385,6 +416,97 @@ fn render_status_bar(
     f.render_widget(paragraph, area);
 }
 
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
+
+fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let dialog = centered_rect(50, 7, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let masked: String = "*".repeat(app.passkey_input.len());
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  Passkey: "),
+            Span::styled(&masked, Style::default().fg(Color::Cyan)),
+            Span::styled("_", Style::default().fg(Color::Cyan).add_modifier(Modifier::SLOW_BLINK)),
+        ]),
+        Line::from(""),
+    ];
+
+    if !app.passkey_error.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("  {}", app.passkey_error),
+            Style::default().fg(Color::Red),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  Enter to submit, Esc to quit",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Unlock Sessions ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+
+    f.render_widget(paragraph, dialog);
+}
+
+fn render_config_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let field_count = CONFIG_FIELDS.len();
+    let dialog = centered_rect(60, field_count as u16 + 4, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for (i, &label) in CONFIG_FIELDS.iter().enumerate() {
+        let value = &app.config_fields[i];
+        let is_selected = i == app.config_selected;
+        let cursor = if is_selected && app.config_editing { "_" } else { "" };
+
+        let label_style = if is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let value_style = if is_selected {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {label:<15}"), label_style),
+            Span::styled(format!("{value}{cursor}"), value_style),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Up/Down: navigate  Enter: edit  Esc: save & close",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Configuration ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+
+    f.render_widget(paragraph, dialog);
+}
+
 fn border_style(focused: bool) -> Style {
     if focused {
         Style::default().fg(Color::Cyan)
@@ -401,6 +523,13 @@ fn handle_event(event: Event, app: &mut App) -> Option<Action> {
 }
 
 fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if app.focus == Focus::PasskeyDialog {
+        return handle_passkey_key(key, app);
+    }
+    if app.focus == Focus::ConfigDialog {
+        return handle_config_key(key, app);
+    }
+
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return Some(Action::Quit);
     }
@@ -425,7 +554,7 @@ fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         app.focus = match app.focus {
             Focus::Input => Focus::Chat,
             Focus::Chat => Focus::Sidebar,
-            Focus::Sidebar => Focus::Input,
+            _ => Focus::Input,
         };
         return None;
     }
@@ -439,6 +568,7 @@ fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         Focus::Input => handle_input_key(key, app),
         Focus::Chat => handle_chat_key(key, app),
         Focus::Sidebar => handle_sidebar_key(key, app),
+        Focus::PasskeyDialog | Focus::ConfigDialog => None,
     }
 }
 
@@ -456,7 +586,7 @@ fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let matches = crate::commands::matching_commands(
-            app.textarea.lines().join("\n").split_whitespace().next().unwrap_or("/"), true,
+            app.textarea.lines().join("\n").split_whitespace().next().unwrap_or("/"),
         );
         match key.code {
             KeyCode::Up => {
@@ -585,6 +715,128 @@ fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 }
 
+fn handle_passkey_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    match key.code {
+        KeyCode::Enter => {
+            let passkey = app.passkey_input.clone();
+            let salt_path = crate::config::salt_path();
+            match crate::crypto::load_or_create_salt(&salt_path)
+                .and_then(|salt| crate::crypto::derive_key(&passkey, &salt))
+            {
+                Ok(derived_key) => {
+                    let key = std::sync::Arc::new(derived_key);
+                    if let SaveMode::PendingPasskey(path) = &app.save_mode {
+                        app.save_mode = SaveMode::Encrypted {
+                            path: path.clone(),
+                            key: key.clone(),
+                        };
+                    }
+                    app.sidebar_sessions = discover_sidebar_sessions(&app.save_mode);
+                    if !app.sidebar_sessions.is_empty() {
+                        app.sidebar_state.select(Some(0));
+                    }
+                    app.passkey_input.clear();
+                    app.passkey_error.clear();
+                    app.focus = Focus::Input;
+                }
+                Err(e) => {
+                    app.passkey_error = format!("Key derivation failed: {e}");
+                }
+            }
+            None
+        }
+        KeyCode::Char(c) => {
+            app.passkey_input.push(c);
+            app.passkey_error.clear();
+            None
+        }
+        KeyCode::Backspace => {
+            app.passkey_input.pop();
+            app.passkey_error.clear();
+            None
+        }
+        KeyCode::Esc => Some(Action::Quit),
+        _ => None,
+    }
+}
+
+fn handle_config_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if app.config_editing {
+        match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                app.config_editing = false;
+            }
+            KeyCode::Char(c) => {
+                app.config_fields[app.config_selected].push(c);
+            }
+            KeyCode::Backspace => {
+                app.config_fields[app.config_selected].pop();
+            }
+            _ => {}
+        }
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Up => {
+            app.config_selected = app.config_selected.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            app.config_selected = (app.config_selected + 1).min(CONFIG_FIELDS.len() - 1);
+        }
+        KeyCode::Enter => {
+            app.config_editing = true;
+        }
+        KeyCode::Esc => {
+            save_config_from_fields(app);
+            app.focus = Focus::Input;
+            app.status_message = "Configuration saved.".to_owned();
+        }
+        _ => {}
+    }
+    None
+}
+
+fn load_config_fields() -> Vec<String> {
+    let cfg = crate::config::load();
+    vec![
+        cfg.api_url.unwrap_or_default(),
+        cfg.template.unwrap_or_default(),
+        cfg.system_prompt.unwrap_or_default(),
+        cfg.sampling.temperature.map(|v| v.to_string()).unwrap_or_default(),
+        cfg.sampling.top_k.map(|v| v.to_string()).unwrap_or_default(),
+        cfg.sampling.top_p.map(|v| v.to_string()).unwrap_or_default(),
+        cfg.sampling.min_p.map(|v| v.to_string()).unwrap_or_default(),
+    ]
+}
+
+fn save_config_from_fields(app: &App) {
+    let fields = &app.config_fields;
+    let cfg = crate::config::Config {
+        api_url: non_empty(&fields[0]),
+        template: non_empty(&fields[1]),
+        system_prompt: non_empty(&fields[2]),
+        sampling: crate::sampling::SamplingOverrides {
+            temperature: fields[3].parse().ok(),
+            top_k: fields[4].parse().ok(),
+            top_p: fields[5].parse().ok(),
+            min_p: fields[6].parse().ok(),
+            repeat_last_n: None,
+            repeat_penalty: None,
+            max_tokens: None,
+        },
+    };
+
+    let path = crate::config::config_path();
+    if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
+        let _ = std::fs::write(path, toml_str);
+    }
+}
+
+fn non_empty(s: &str) -> Option<String> {
+    if s.trim().is_empty() { None } else { Some(s.to_owned()) }
+}
+
 fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
     let parent = app.session.tree.head();
     app.session.tree.push(parent, Message::new(Role::User, content.to_owned()));
@@ -634,7 +886,7 @@ fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
 fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sender<StreamToken>) {
     match cmd {
         "/help" => {
-            app.status_message = "Use Tab to complete commands. Type /help in REPL mode for full list.".to_owned();
+            app.status_message = "Use Tab to complete commands, Up/Down to navigate.".to_owned();
         }
         "/quit" | "/exit" => {
             app.should_quit = true;
@@ -707,6 +959,12 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
         }
         "/model" => {
             app.status_message = format!("Model: {}", app.model_name);
+        }
+        "/config" => {
+            app.config_fields = load_config_fields();
+            app.config_selected = 0;
+            app.config_editing = false;
+            app.focus = Focus::ConfigDialog;
         }
         "/load" => {
             if arg.is_empty() {
@@ -796,6 +1054,6 @@ fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
             entries.sort_by(|a, b| b.filename.cmp(&a.filename));
             entries
         }
-        SaveMode::None => Vec::new(),
+        SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
     }
 }

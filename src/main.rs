@@ -4,7 +4,6 @@ mod commands;
 mod config;
 mod context;
 mod crypto;
-mod interactive;
 mod prompt;
 mod sampling;
 mod session;
@@ -80,11 +79,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    if args.repl {
-        interactive::run(&client, &mut session, &save_mode, template, &sampling).await
-    } else {
-        tui::run(&client, &mut session, save_mode, template, &sampling).await
-    }
+    tui::run(&client, &mut session, save_mode, template, &sampling).await
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
@@ -102,17 +97,13 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
         return Ok((session::Session::default(), SaveMode::Plaintext(path)));
     }
 
-    let passkey = match &args.passkey {
-        Some(pk) => pk.clone(),
-        None => {
-            eprint!("Passkey: ");
-            rpassword::read_password()?
-        }
-    };
+    if let Some(ref passkey) = args.passkey {
+        let salt = crypto::load_or_create_salt(&config::salt_path())?;
+        let key = Arc::new(crypto::derive_key(passkey, &salt)?);
+        let path = config::sessions_dir().join(session::generate_session_name());
+        return Ok((session::Session::default(), SaveMode::Encrypted { path, key }));
+    }
 
-    let salt = crypto::load_or_create_salt(&config::salt_path())?;
-    let key = Arc::new(crypto::derive_key(&passkey, &salt)?);
     let path = config::sessions_dir().join(session::generate_session_name());
-
-    Ok((session::Session::default(), SaveMode::Encrypted { path, key }))
+    Ok((session::Session::default(), SaveMode::PendingPasskey(path)))
 }

@@ -12,6 +12,7 @@ pub enum SaveMode {
     None,
     Plaintext(PathBuf),
     Encrypted { path: PathBuf, key: Arc<DerivedKey> },
+    PendingPasskey(PathBuf),
 }
 
 impl SaveMode {
@@ -20,6 +21,7 @@ impl SaveMode {
             Self::None => None,
             Self::Plaintext(p) => Some(p),
             Self::Encrypted { path, .. } => Some(path),
+            Self::PendingPasskey(p) => Some(p),
         }
     }
 
@@ -28,7 +30,12 @@ impl SaveMode {
             Self::None => {}
             Self::Plaintext(p) => *p = new_path,
             Self::Encrypted { path, .. } => *path = new_path,
+            Self::PendingPasskey(p) => *p = new_path,
         }
+    }
+
+    pub fn needs_passkey(&self) -> bool {
+        matches!(self, Self::PendingPasskey(_))
     }
 }
 
@@ -292,7 +299,7 @@ impl Session {
 
     pub fn maybe_save(&self, mode: &SaveMode) -> Result<()> {
         match mode {
-            SaveMode::None => Ok(()),
+            SaveMode::None | SaveMode::PendingPasskey(_) => Ok(()),
             SaveMode::Plaintext(path) => save(path, self),
             SaveMode::Encrypted { path, key } => save_encrypted(path, self, key),
         }

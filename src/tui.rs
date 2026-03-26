@@ -100,10 +100,7 @@ pub async fn run(
     );
     textarea.set_cursor_line_style(Style::default());
 
-    let mut sidebar_state = ListState::default();
-    if !sidebar_sessions.is_empty() {
-        sidebar_state.select(Some(0));
-    }
+    let sidebar_state = ListState::default();
 
     let mut app = App {
         client,
@@ -233,11 +230,6 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
     );
     f.render_widget(&app.textarea, input_area);
 
-    let input_text = app.textarea.lines().join("\n");
-    if input_text.starts_with('/') && app.focus == Focus::Input && !app.is_streaming {
-        render_command_picker(f, app, &input_text, chat_area);
-    }
-
     let branch_path = app.session.tree.branch_path();
     let branch_ids = app.session.tree.branch_path_ids();
     let branch_info = app.session.tree.deepest_branch_info();
@@ -246,6 +238,11 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
     render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids);
     render_status_bar(f, app, status_area, &branch_path, branch_info);
     app.chat_scroll = chat_scroll;
+
+    let input_text = app.textarea.lines().join("\n");
+    if input_text.starts_with('/') && app.focus == Focus::Input && !app.is_streaming {
+        render_command_picker(f, app, &input_text, chat_area);
+    }
 
     if app.focus == Focus::PasskeyDialog {
         render_passkey_dialog(f, app, f.area());

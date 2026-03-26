@@ -370,7 +370,7 @@ pub fn generate_session_name() -> String {
     format!("{name}.session")
 }
 
-pub fn list_sessions(dir: &Path, key: &DerivedKey) -> Vec<SessionEntry> {
+pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -380,18 +380,21 @@ pub fn list_sessions(dir: &Path, key: &DerivedKey) -> Vec<SessionEntry> {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "session"))
-        .filter_map(|path| {
-            let preview = extract_preview(&path, key);
+        .map(|path| {
             let filename = path
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            Some(SessionEntry { path, preview, filename })
+            SessionEntry { path, preview: String::new(), filename }
         })
         .collect();
 
     sessions.sort_by(|a, b| b.filename.cmp(&a.filename));
     sessions
+}
+
+pub fn load_preview(path: &Path, key: &DerivedKey) -> String {
+    extract_preview(path, key)
 }
 
 fn extract_preview(path: &Path, key: &DerivedKey) -> String {

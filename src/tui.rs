@@ -33,6 +33,12 @@ enum Action {
     Quit,
 }
 
+enum BackgroundEvent {
+    KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
+    KeyDeriveFailed(String),
+    PreviewLoaded { index: usize, preview: String },
+}
+
 const CONFIG_FIELDS: &[&str] = &[
     "API URL",
     "Template",
@@ -133,14 +139,27 @@ pub async fn run(
     let mut terminal = Terminal::new(backend)?;
 
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
+    let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
     let mut event_stream = EventStream::new();
+
+    if let SaveMode::Encrypted { key, .. } = &app.save_mode {
+        for i in 0..app.sidebar_sessions.len() {
+            let entry_path = app.sidebar_sessions[i].path.clone();
+            let key = key.clone();
+            let tx = bg_tx.clone();
+            tokio::spawn(async move {
+                let preview = session::load_preview(&entry_path, &key);
+                let _ = tx.send(BackgroundEvent::PreviewLoaded { index: i, preview }).await;
+            });
+        }
+    }
 
     loop {
         terminal.draw(|f| render(f, &mut app))?;
 
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
-                if let Some(action) = handle_event(event, &mut app) {
+                if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
                     match action {
                         Action::Quit => break,
                         Action::SendMessage(text) => {
@@ -154,6 +173,9 @@ pub async fn run(
             }
             Some(stream_token) = token_rx.recv() => {
                 handle_stream_token(stream_token, &mut app)?;
+            }
+            Some(bg_event) = bg_rx.recv() => {
+                handle_background_event(bg_event, &mut app, bg_tx.clone());
             }
         }
 
@@ -515,16 +537,16 @@ fn border_style(focused: bool) -> Style {
     }
 }
 
-fn handle_event(event: Event, app: &mut App) -> Option<Action> {
+fn handle_event(event: Event, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>) -> Option<Action> {
     match event {
-        Event::Key(key) => handle_key(key, app),
+        Event::Key(key) => handle_key(key, app, bg_tx),
         _ => None,
     }
 }
 
-fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+fn handle_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>) -> Option<Action> {
     if app.focus == Focus::PasskeyDialog {
-        return handle_passkey_key(key, app);
+        return handle_passkey_key(key, app, bg_tx);
     }
     if app.focus == Focus::ConfigDialog {
         return handle_config_key(key, app);
@@ -715,34 +737,32 @@ fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 }
 
-fn handle_passkey_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+fn handle_passkey_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>) -> Option<Action> {
     match key.code {
         KeyCode::Enter => {
             let passkey = app.passkey_input.clone();
-            let salt_path = crate::config::salt_path();
-            match crate::crypto::load_or_create_salt(&salt_path)
-                .and_then(|salt| crate::crypto::derive_key(&passkey, &salt))
-            {
-                Ok(derived_key) => {
-                    let key = std::sync::Arc::new(derived_key);
-                    if let SaveMode::PendingPasskey(path) = &app.save_mode {
-                        app.save_mode = SaveMode::Encrypted {
-                            path: path.clone(),
-                            key: key.clone(),
-                        };
+            let path = match &app.save_mode {
+                SaveMode::PendingPasskey(p) => p.clone(),
+                _ => return None,
+            };
+            app.passkey_input.clear();
+            app.passkey_error.clear();
+            app.status_message = "Deriving key...".to_owned();
+
+            tokio::spawn(async move {
+                let salt_path = crate::config::salt_path();
+                let result = crate::crypto::load_or_create_salt(&salt_path)
+                    .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
+                match result {
+                    Ok(derived_key) => {
+                        let key = std::sync::Arc::new(derived_key);
+                        let _ = bg_tx.send(BackgroundEvent::KeyDerived(key, path)).await;
                     }
-                    app.sidebar_sessions = discover_sidebar_sessions(&app.save_mode);
-                    if !app.sidebar_sessions.is_empty() {
-                        app.sidebar_state.select(Some(0));
+                    Err(e) => {
+                        let _ = bg_tx.send(BackgroundEvent::KeyDeriveFailed(e.to_string())).await;
                     }
-                    app.passkey_input.clear();
-                    app.passkey_error.clear();
-                    app.focus = Focus::Input;
                 }
-                Err(e) => {
-                    app.passkey_error = format!("Key derivation failed: {e}");
-                }
-            }
+            });
             None
         }
         KeyCode::Char(c) => {
@@ -881,6 +901,44 @@ fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn handle_background_event(event: BackgroundEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>) {
+    match event {
+        BackgroundEvent::KeyDerived(key, path) => {
+            app.save_mode = SaveMode::Encrypted {
+                path,
+                key: key.clone(),
+            };
+            app.focus = Focus::Input;
+            app.status_message.clear();
+
+            let sessions_dir = crate::config::sessions_dir();
+            app.sidebar_sessions = session::list_session_paths(&sessions_dir);
+            if !app.sidebar_sessions.is_empty() {
+                app.sidebar_state.select(Some(0));
+            }
+
+            for i in 0..app.sidebar_sessions.len() {
+                let entry_path = app.sidebar_sessions[i].path.clone();
+                let key = key.clone();
+                let tx = bg_tx.clone();
+                tokio::spawn(async move {
+                    let preview = session::load_preview(&entry_path, &key);
+                    let _ = tx.send(BackgroundEvent::PreviewLoaded { index: i, preview }).await;
+                });
+            }
+        }
+        BackgroundEvent::KeyDeriveFailed(err) => {
+            app.passkey_error = format!("Failed: {err}");
+            app.status_message.clear();
+        }
+        BackgroundEvent::PreviewLoaded { index, preview } => {
+            if index < app.sidebar_sessions.len() {
+                app.sidebar_sessions[index].preview = preview;
+            }
+        }
+    }
 }
 
 fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sender<StreamToken>) {
@@ -1030,8 +1088,8 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
 
 fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
     match save_mode {
-        SaveMode::Encrypted { key, .. } => {
-            session::list_sessions(&crate::config::sessions_dir(), key)
+        SaveMode::Encrypted { .. } => {
+            session::list_session_paths(&crate::config::sessions_dir())
         }
         SaveMode::Plaintext(path) => {
             let dir = match path.parent() {

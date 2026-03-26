@@ -1,0 +1,235 @@
+use std::collections::HashMap;
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldBook {
+    pub name: String,
+    pub entries: Vec<Entry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Entry {
+    pub keys: Vec<String>,
+    pub secondary_keys: Vec<String>,
+    pub selective: bool,
+    pub content: String,
+    pub constant: bool,
+    pub enabled: bool,
+    pub order: i64,
+    pub depth: usize,
+    pub case_sensitive: bool,
+}
+
+pub struct WorldBookEntry {
+    pub name: String,
+}
+
+#[derive(Deserialize)]
+struct RawWorldBook {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    scan_depth: Option<usize>,
+    entries: HashMap<String, RawEntry>,
+}
+
+#[derive(Deserialize)]
+struct RawEntry {
+    #[serde(default)]
+    key: Option<Vec<String>>,
+    #[serde(default)]
+    keys: Option<Vec<String>>,
+    #[serde(default)]
+    keysecondary: Option<Vec<String>>,
+    #[serde(default)]
+    secondary_keys: Option<Vec<String>>,
+    #[serde(default)]
+    selective: Option<bool>,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    constant: Option<bool>,
+    #[serde(default)]
+    disable: Option<bool>,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    order: Option<i64>,
+    #[serde(default)]
+    depth: Option<usize>,
+    #[serde(default, alias = "caseSensitive")]
+    case_sensitive: Option<bool>,
+}
+
+const DEFAULT_SCAN_DEPTH: usize = 4;
+
+pub fn load_worldbook(path: &Path) -> Result<WorldBook> {
+    let contents = std::fs::read_to_string(path)
+        .context(format!("failed to read worldbook: {}", path.display()))?;
+
+    if let Ok(normalized) = serde_json::from_str::<WorldBook>(&contents) {
+        return Ok(normalized);
+    }
+
+    let raw: RawWorldBook = serde_json::from_str(&contents)
+        .context("failed to parse worldbook JSON")?;
+
+    let name = raw.name
+        .or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
+        .unwrap_or_default();
+
+    let scan_depth = raw.scan_depth.unwrap_or(DEFAULT_SCAN_DEPTH);
+
+    let mut entries: Vec<Entry> = raw.entries.into_values()
+        .map(|raw_entry| {
+            let keys = raw_entry.keys
+                .or(raw_entry.key)
+                .unwrap_or_default();
+            let secondary_keys = raw_entry.secondary_keys
+                .or(raw_entry.keysecondary)
+                .unwrap_or_default();
+            let enabled = raw_entry.enabled
+                .unwrap_or_else(|| !raw_entry.disable.unwrap_or(false));
+
+            Entry {
+                keys,
+                secondary_keys,
+                selective: raw_entry.selective.unwrap_or(false),
+                content: raw_entry.content.unwrap_or_default(),
+                constant: raw_entry.constant.unwrap_or(false),
+                enabled,
+                order: raw_entry.order.unwrap_or(10),
+                depth: raw_entry.depth.unwrap_or(scan_depth),
+                case_sensitive: raw_entry.case_sensitive.unwrap_or(false),
+            }
+        })
+        .filter(|e| e.enabled && !e.content.is_empty())
+        .collect();
+
+    entries.sort_by_key(|e| e.order);
+    Ok(WorldBook { name, entries })
+}
+
+pub struct ActivatedEntry {
+    pub content: String,
+    pub depth: usize,
+    pub order: i64,
+}
+
+pub fn scan_entries(worldbook: &WorldBook, messages: &[&str]) -> Vec<ActivatedEntry> {
+    let mut activated: Vec<ActivatedEntry> = Vec::new();
+
+    for entry in &worldbook.entries {
+        if entry.constant {
+            activated.push(ActivatedEntry {
+                content: entry.content.clone(),
+                depth: entry.depth,
+                order: entry.order,
+            });
+            continue;
+        }
+
+        let scan_messages = if messages.len() > entry.depth {
+            &messages[messages.len() - entry.depth..]
+        } else {
+            messages
+        };
+
+        let combined: String = scan_messages.join("\n");
+        let haystack = if entry.case_sensitive {
+            combined.clone()
+        } else {
+            combined.to_lowercase()
+        };
+
+        let primary_match = entry.keys.iter().any(|k| {
+            if k.is_empty() {
+                return false;
+            }
+            let needle = if entry.case_sensitive { k.clone() } else { k.to_lowercase() };
+            haystack.contains(&needle)
+        });
+
+        if !primary_match {
+            continue;
+        }
+
+        if entry.selective && !entry.secondary_keys.is_empty() {
+            let secondary_match = entry.secondary_keys.iter().all(|k| {
+                if k.is_empty() {
+                    return true;
+                }
+                let needle = if entry.case_sensitive { k.clone() } else { k.to_lowercase() };
+                haystack.contains(&needle)
+            });
+            if !secondary_match {
+                continue;
+            }
+        }
+
+        activated.push(ActivatedEntry {
+            content: entry.content.clone(),
+            depth: entry.depth,
+            order: entry.order,
+        });
+    }
+
+    activated.sort_by_key(|e| e.order);
+    activated
+}
+
+pub fn normalize_worldbooks(dir: &Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let json_paths: Vec<std::path::PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+
+    for path in json_paths {
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        if serde_json::from_str::<WorldBook>(&contents).is_ok() {
+            continue;
+        }
+
+        let wb = match load_worldbook(&path) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+
+        if let Ok(json) = serde_json::to_string_pretty(&wb) {
+            let _ = std::fs::write(&path, json);
+        }
+    }
+}
+
+pub fn list_worldbooks(dir: &Path) -> Vec<WorldBookEntry> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut books: Vec<WorldBookEntry> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|path| {
+            let name = path.file_stem()?.to_string_lossy().to_string();
+            Some(WorldBookEntry { name })
+        })
+        .collect();
+
+    books.sort_by(|a, b| a.name.cmp(&b.name));
+    books
+}

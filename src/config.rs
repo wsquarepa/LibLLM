@@ -10,6 +10,8 @@ pub struct Config {
     pub api_url: Option<String>,
     pub template: Option<String>,
     pub system_prompt: Option<String>,
+    pub user_name: Option<String>,
+    pub user_persona: Option<String>,
     #[serde(default)]
     pub sampling: SamplingOverrides,
 }
@@ -36,6 +38,10 @@ pub fn characters_dir() -> PathBuf {
     data_dir().join("characters")
 }
 
+pub fn worldinfo_dir() -> PathBuf {
+    data_dir().join("worldinfo")
+}
+
 pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
@@ -48,7 +54,9 @@ pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(sessions_dir())
         .context("failed to create sessions directory")?;
     std::fs::create_dir_all(characters_dir())
-        .context("failed to create characters directory")
+        .context("failed to create characters directory")?;
+    std::fs::create_dir_all(worldinfo_dir())
+        .context("failed to create worldinfo directory")
 }
 
 pub fn config_path() -> PathBuf {

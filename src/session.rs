@@ -278,6 +278,8 @@ pub struct Session {
     pub system_prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub character: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub worldbooks: Vec<String>,
 }
 
 impl Default for Session {
@@ -288,6 +290,7 @@ impl Default for Session {
             template: None,
             system_prompt: None,
             character: None,
+            worldbooks: Vec::new(),
         }
     }
 }
@@ -321,6 +324,8 @@ struct FlatSession {
     system_prompt: Option<String>,
     #[serde(default)]
     character: Option<String>,
+    #[serde(default)]
+    worldbooks: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -437,6 +442,7 @@ fn load_from_str(contents: &str) -> Result<Session> {
             template: flat.template,
             system_prompt: flat.system_prompt,
             character: flat.character,
+            worldbooks: flat.worldbooks,
         });
     }
 
@@ -447,6 +453,7 @@ fn load_from_str(contents: &str) -> Result<Session> {
             template: legacy.template,
             system_prompt: None,
             character: None,
+            worldbooks: Vec::new(),
         });
     }
 

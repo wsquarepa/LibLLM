@@ -23,7 +23,6 @@ pub struct CharacterCard {
 
 pub struct CharacterEntry {
     pub name: String,
-    pub path: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -206,6 +205,37 @@ pub fn load_card(path: &Path) -> Result<CharacterCard> {
     serde_json::from_str(&contents).context("failed to parse character card")
 }
 
+pub fn auto_import_png_cards(dir: &Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let png_paths: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "png"))
+        .collect();
+
+    for png_path in png_paths {
+        let bytes = match std::fs::read(&png_path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let json = match extract_png_card(&bytes) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+        let card = match parse_card_json(&json) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if save_card(&card, dir).is_ok() {
+            let _ = std::fs::remove_file(&png_path);
+        }
+    }
+}
+
 pub fn list_cards(dir: &Path) -> Vec<CharacterEntry> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -220,7 +250,6 @@ pub fn list_cards(dir: &Path) -> Vec<CharacterEntry> {
             let card = load_card(&path).ok()?;
             Some(CharacterEntry {
                 name: card.name,
-                path,
             })
         })
         .collect();

@@ -12,6 +12,8 @@ use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
+const DIALOGUE_COLOR: Color = Color::LightBlue;
+
 use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
 use crate::prompt::Template;
@@ -25,6 +27,7 @@ enum Focus {
     Sidebar,
     PasskeyDialog,
     ConfigDialog,
+    SelfDialog,
 }
 
 enum Action {
@@ -80,6 +83,10 @@ struct App<'a> {
     config_fields: Vec<String>,
     config_selected: usize,
     config_editing: bool,
+
+    self_fields: Vec<String>,
+    self_selected: usize,
+    self_editing: bool,
 }
 
 pub async fn run(
@@ -127,6 +134,9 @@ pub async fn run(
         config_fields: Vec::new(),
         config_selected: 0,
         config_editing: false,
+        self_fields: Vec::new(),
+        self_selected: 0,
+        self_editing: false,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -253,6 +263,9 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
     if app.focus == Focus::ConfigDialog {
         render_config_dialog(f, app, f.area());
     }
+    if app.focus == Focus::SelfDialog {
+        render_self_dialog(f, app, f.area());
+    }
 }
 
 fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
@@ -287,6 +300,101 @@ fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, area, &mut app.sidebar_state);
 }
 
+fn parse_styled_line(text: &str) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut chars = text.char_indices().peekable();
+    let mut plain_start = 0;
+
+    while let Some(&(i, ch)) = chars.peek() {
+        match ch {
+            '*' => {
+                let star_start = i;
+                chars.next();
+                let is_bold = chars.peek().is_some_and(|&(_, c)| c == '*');
+                if is_bold {
+                    chars.next();
+                    let content_start = star_start + 2;
+                    let close = find_closing(&text[content_start..], "**");
+                    if let Some(rel_end) = close {
+                        if plain_start < star_start {
+                            spans.push(Span::raw(text[plain_start..star_start].to_owned()));
+                        }
+                        let abs_end = content_start + rel_end;
+                        spans.push(Span::styled(
+                            text[content_start..abs_end].to_owned(),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ));
+                        let skip_to = abs_end + 2;
+                        while chars.peek().is_some_and(|&(idx, _)| idx < skip_to) {
+                            chars.next();
+                        }
+                        plain_start = skip_to;
+                    }
+                } else {
+                    let content_start = star_start + 1;
+                    let close = find_closing(&text[content_start..], "*");
+                    if let Some(rel_end) = close {
+                        if plain_start < star_start {
+                            spans.push(Span::raw(text[plain_start..star_start].to_owned()));
+                        }
+                        let abs_end = content_start + rel_end;
+                        spans.push(Span::styled(
+                            text[content_start..abs_end].to_owned(),
+                            Style::default().add_modifier(Modifier::ITALIC),
+                        ));
+                        let skip_to = abs_end + 1;
+                        while chars.peek().is_some_and(|&(idx, _)| idx < skip_to) {
+                            chars.next();
+                        }
+                        plain_start = skip_to;
+                    }
+                }
+            }
+            '"' => {
+                let quote_start = i;
+                chars.next();
+                let content_start = quote_start + 1;
+                let close = find_closing(&text[content_start..], "\"");
+                if let Some(rel_end) = close {
+                    if plain_start < quote_start {
+                        spans.push(Span::raw(text[plain_start..quote_start].to_owned()));
+                    }
+                    let abs_end = content_start + rel_end;
+                    spans.push(Span::styled(
+                        text[quote_start..abs_end + 1].to_owned(),
+                        Style::default().fg(DIALOGUE_COLOR),
+                    ));
+                    let skip_to = abs_end + 1;
+                    while chars.peek().is_some_and(|&(idx, _)| idx < skip_to) {
+                        chars.next();
+                    }
+                    plain_start = skip_to;
+                }
+            }
+            _ => {
+                chars.next();
+            }
+        }
+    }
+
+    if plain_start < text.len() {
+        spans.push(Span::raw(text[plain_start..].to_owned()));
+    }
+
+    if spans.is_empty() {
+        Line::from("")
+    } else {
+        Line::from(spans)
+    }
+}
+
+fn find_closing(text: &str, delimiter: &str) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+    text[1..].find(delimiter).map(|pos| pos + 1)
+}
+
 fn render_chat(
     f: &mut ratatui::Frame,
     app: &App,
@@ -295,12 +403,37 @@ fn render_chat(
     branch_path: &[&Message],
     branch_ids: &[NodeId],
 ) {
+    let cfg = crate::config::load();
+    let char_name = app.session.character.as_deref().unwrap_or("");
+    let user_name = cfg.user_name.as_deref().unwrap_or("User");
+    let has_replacements = app.session.character.is_some();
+
+    let replace_vars = |text: &str| -> String {
+        if has_replacements {
+            text.replace("{{char}}", char_name).replace("{{user}}", user_name)
+        } else {
+            text.to_owned()
+        }
+    };
+
+    let user_label = if has_replacements && cfg.user_name.is_some() {
+        user_name.to_owned()
+    } else {
+        "You".to_owned()
+    };
+
+    let assistant_label = if has_replacements && !char_name.is_empty() {
+        char_name.to_owned()
+    } else {
+        "Assistant".to_owned()
+    };
+
     let mut lines: Vec<Line> = Vec::new();
 
     for (msg, &node_id) in branch_path.iter().zip(branch_ids.iter()) {
         let (role_label, role_color) = match msg.role {
-            Role::User => ("You", Color::Green),
-            Role::Assistant => ("Assistant", Color::Blue),
+            Role::User => (user_label.as_str(), Color::Green),
+            Role::Assistant => (assistant_label.as_str(), Color::Blue),
             Role::System => ("System", Color::DarkGray),
         };
 
@@ -318,8 +451,12 @@ fn render_chat(
             ),
         ]));
 
-        for content_line in msg.content.lines() {
-            lines.push(Line::from(format!("  {content_line}")));
+        let content = replace_vars(&msg.content);
+        for content_line in content.lines() {
+            let styled = parse_styled_line(content_line);
+            let mut indented = vec![Span::raw("  ")];
+            indented.extend(styled.spans);
+            lines.push(Line::from(indented));
         }
         lines.push(Line::from(""));
     }
@@ -327,12 +464,16 @@ fn render_chat(
     if app.is_streaming && !app.streaming_buffer.is_empty() {
         lines.push(Line::from(vec![
             Span::styled(
-                "Assistant: ",
+                format!("{assistant_label}: "),
                 Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
             ),
         ]));
-        for content_line in app.streaming_buffer.lines() {
-            lines.push(Line::from(format!("  {content_line}")));
+        let buffer = replace_vars(&app.streaming_buffer);
+        for content_line in buffer.lines() {
+            let styled = parse_styled_line(content_line);
+            let mut indented = vec![Span::raw("  ")];
+            indented.extend(styled.spans);
+            lines.push(Line::from(indented));
         }
     }
 
@@ -552,6 +693,54 @@ fn render_config_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, dialog);
 }
 
+const SELF_FIELDS: &[&str] = &["Name", "Persona"];
+
+fn render_self_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let dialog = centered_rect(60, SELF_FIELDS.len() as u16 + 4, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for (i, &label) in SELF_FIELDS.iter().enumerate() {
+        let value = &app.self_fields[i];
+        let is_selected = i == app.self_selected;
+        let cursor = if is_selected && app.self_editing { "_" } else { "" };
+
+        let label_style = if is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let value_style = if is_selected {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {label:<15}"), label_style),
+            Span::styled(format!("{value}{cursor}"), value_style),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Up/Down: navigate  Enter: edit  Esc: save & close",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" User Persona ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+
+    f.render_widget(paragraph, dialog);
+}
+
 fn border_style(focused: bool) -> Style {
     if focused {
         Style::default().fg(Color::Cyan)
@@ -573,6 +762,9 @@ fn handle_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>
     }
     if app.focus == Focus::ConfigDialog {
         return handle_config_key(key, app);
+    }
+    if app.focus == Focus::SelfDialog {
+        return handle_self_key(key, app);
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -613,7 +805,7 @@ fn handle_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>
         Focus::Input => handle_input_key(key, app),
         Focus::Chat => handle_chat_key(key, app),
         Focus::Sidebar => handle_sidebar_key(key, app),
-        Focus::PasskeyDialog | Focus::ConfigDialog => None,
+        Focus::PasskeyDialog | Focus::ConfigDialog | Focus::SelfDialog => None,
     }
 }
 
@@ -865,6 +1057,144 @@ fn handle_config_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     None
 }
 
+fn handle_self_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if app.self_editing {
+        match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                app.self_editing = false;
+            }
+            KeyCode::Char(c) => {
+                app.self_fields[app.self_selected].push(c);
+            }
+            KeyCode::Backspace => {
+                app.self_fields[app.self_selected].pop();
+            }
+            _ => {}
+        }
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Up => {
+            app.self_selected = app.self_selected.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            app.self_selected = (app.self_selected + 1).min(SELF_FIELDS.len() - 1);
+        }
+        KeyCode::Enter => {
+            app.self_editing = true;
+        }
+        KeyCode::Esc => {
+            save_self_fields(app);
+            app.focus = Focus::Input;
+            app.status_message = "User persona saved.".to_owned();
+        }
+        _ => {}
+    }
+    None
+}
+
+fn load_self_fields() -> Vec<String> {
+    let cfg = crate::config::load();
+    vec![
+        cfg.user_name.unwrap_or_default(),
+        cfg.user_persona.unwrap_or_default(),
+    ]
+}
+
+fn save_self_fields(app: &App) {
+    let mut cfg = crate::config::load();
+    cfg.user_name = non_empty(&app.self_fields[0]);
+    cfg.user_persona = non_empty(&app.self_fields[1]);
+
+    let path = crate::config::config_path();
+    if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
+        let _ = std::fs::write(path, toml_str);
+    }
+}
+
+fn build_effective_system_prompt(session: &Session) -> Option<String> {
+    let cfg = crate::config::load();
+    let base = session.system_prompt.as_deref().unwrap_or("");
+    let is_character = session.character.is_some();
+    let has_persona = is_character && (cfg.user_name.is_some() || cfg.user_persona.is_some());
+
+    if base.is_empty() && !has_persona {
+        return None;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    if !base.is_empty() {
+        parts.push(base.to_owned());
+    }
+    if has_persona {
+        let name = cfg.user_name.as_deref().unwrap_or("the user");
+        let mut persona_line = format!("The user's name is {name}.");
+        if let Some(ref desc) = cfg.user_persona {
+            if !desc.is_empty() {
+                persona_line.push_str(&format!(" {desc}"));
+            }
+        }
+        parts.push(persona_line);
+    }
+
+    let mut result = parts.join("\n\n");
+    if is_character {
+        let char_name = session.character.as_deref().unwrap_or("");
+        let user_name = cfg.user_name.as_deref().unwrap_or("User");
+        result = result.replace("{{char}}", char_name).replace("{{user}}", user_name);
+    }
+
+    Some(result)
+}
+
+fn inject_worldbook_entries<'a>(
+    session: &Session,
+    messages: &[&'a Message],
+) -> Vec<Message> {
+    if session.character.is_none() || session.worldbooks.is_empty() {
+        return messages.iter().map(|m| (*m).clone()).collect();
+    }
+
+    let cfg = crate::config::load();
+    let char_name = session.character.as_deref().unwrap_or("");
+    let user_name = cfg.user_name.as_deref().unwrap_or("User");
+
+    let msg_texts: Vec<&str> = messages.iter().map(|m| m.content.as_str()).collect();
+    let wi_dir = crate::config::worldinfo_dir();
+
+    let mut all_activated: Vec<crate::worldinfo::ActivatedEntry> = Vec::new();
+    for wb_name in &session.worldbooks {
+        let wb_path = wi_dir.join(format!("{wb_name}.json"));
+        if let Ok(wb) = crate::worldinfo::load_worldbook(&wb_path) {
+            all_activated.extend(crate::worldinfo::scan_entries(&wb, &msg_texts));
+        }
+    }
+
+    if all_activated.is_empty() {
+        return messages.iter().map(|m| (*m).clone()).collect();
+    }
+
+    all_activated.sort_by_key(|e| e.order);
+
+    let mut result: Vec<Message> = messages.iter().map(|m| (*m).clone()).collect();
+    let len = result.len();
+
+    for entry in all_activated.into_iter().rev() {
+        let content = entry.content
+            .replace("{{char}}", char_name)
+            .replace("{{user}}", user_name);
+        let insert_pos = if entry.depth == 0 || entry.depth >= len {
+            0
+        } else {
+            len - entry.depth
+        };
+        result.insert(insert_pos, Message::new(Role::System, content));
+    }
+
+    result
+}
+
 fn load_config_fields() -> Vec<String> {
     let cfg = crate::config::load();
     let defaults = crate::sampling::SamplingParams::default();
@@ -883,11 +1213,14 @@ fn load_config_fields() -> Vec<String> {
 }
 
 fn save_config_from_fields(app: &App) {
+    let existing = crate::config::load();
     let fields = &app.config_fields;
     let cfg = crate::config::Config {
         api_url: non_empty(&fields[0]),
         template: non_empty(&fields[1]),
         system_prompt: non_empty(&fields[2]),
+        user_name: existing.user_name,
+        user_persona: existing.user_persona,
         sampling: crate::sampling::SamplingOverrides {
             temperature: fields[3].parse().ok(),
             top_k: fields[4].parse().ok(),
@@ -931,7 +1264,10 @@ fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToke
 
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
-    let prompt = app.template.render(truncated, app.session.system_prompt.as_deref());
+    let effective_prompt = build_effective_system_prompt(app.session);
+    let injected = inject_worldbook_entries(app.session, truncated);
+    let injected_refs: Vec<&Message> = injected.iter().collect();
+    let prompt = app.template.render(&injected_refs, effective_prompt.as_deref());
     let stop_tokens = app.stop_tokens;
     let sampling = app.sampling.clone();
 
@@ -1148,6 +1484,68 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
                         let _ = app.session.maybe_save(&app.save_mode);
                     } else {
                         app.status_message = "Usage: /branch list|next|prev|<id>".to_owned();
+                    }
+                }
+            }
+        }
+        "/self" => {
+            app.self_fields = load_self_fields();
+            app.self_selected = 0;
+            app.self_editing = false;
+            app.focus = Focus::SelfDialog;
+        }
+        "/worldbook" => {
+            if app.session.character.is_none() {
+                app.status_message = "Worldbooks are only available in character sessions.".to_owned();
+            } else {
+                let parts: Vec<&str> = arg.splitn(2, ' ').collect();
+                match parts.first().copied().unwrap_or("") {
+                    "list" => {
+                        let books = crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir());
+                        if books.is_empty() {
+                            app.status_message = "No worldbooks found in worldinfo/ directory.".to_owned();
+                        } else {
+                            let names: Vec<&str> = books.iter().map(|b| b.name.as_str()).collect();
+                            app.status_message = format!("Worldbooks: {}", names.join(", "));
+                        }
+                    }
+                    "on" => {
+                        let name = parts.get(1).copied().unwrap_or("").trim();
+                        if name.is_empty() {
+                            app.status_message = "Usage: /worldbook on <name>".to_owned();
+                        } else {
+                            let wb_path = crate::config::worldinfo_dir().join(format!("{name}.json"));
+                            match crate::worldinfo::load_worldbook(&wb_path) {
+                                Ok(wb) => {
+                                    if !app.session.worldbooks.contains(&name.to_owned()) {
+                                        app.session.worldbooks.push(name.to_owned());
+                                        let _ = app.session.maybe_save(&app.save_mode);
+                                    }
+                                    app.status_message = format!("Worldbook enabled: {} ({} entries)", wb.name, wb.entries.len());
+                                }
+                                Err(e) => app.status_message = format!("Error: {e}"),
+                            }
+                        }
+                    }
+                    "off" => {
+                        let name = parts.get(1).copied().unwrap_or("").trim();
+                        if name.is_empty() {
+                            app.status_message = "Usage: /worldbook off <name>".to_owned();
+                        } else {
+                            app.session.worldbooks.retain(|n| n != name);
+                            let _ = app.session.maybe_save(&app.save_mode);
+                            app.status_message = format!("Worldbook disabled: {name}");
+                        }
+                    }
+                    "active" => {
+                        if app.session.worldbooks.is_empty() {
+                            app.status_message = "No worldbooks active.".to_owned();
+                        } else {
+                            app.status_message = format!("Active: {}", app.session.worldbooks.join(", "));
+                        }
+                    }
+                    _ => {
+                        app.status_message = "Usage: /worldbook list|on <name>|off <name>|active".to_owned();
                     }
                 }
             }

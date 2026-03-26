@@ -1,5 +1,6 @@
 mod character;
 mod cli;
+mod worldinfo;
 mod client;
 mod commands;
 mod config;
@@ -25,6 +26,8 @@ use session::{Message, Role, SaveMode};
 async fn main() -> Result<()> {
     let args = Args::parse();
     config::ensure_dirs()?;
+    character::auto_import_png_cards(&config::characters_dir());
+    worldinfo::normalize_worldbooks(&config::worldinfo_dir());
     let cfg = config::load();
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());

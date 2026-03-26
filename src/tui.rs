@@ -16,7 +16,7 @@ use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
 use crate::prompt::Template;
 use crate::sampling::SamplingParams;
-use crate::session::{self, Message, Role, Session};
+use crate::session::{self, Message, NodeId, Role, Session};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -34,7 +34,7 @@ enum Action {
 struct App<'a> {
     client: &'a ApiClient,
     session: &'a mut Session,
-    session_path: Option<&'a Path>,
+    session_path: Option<PathBuf>,
     template: Template,
     stop_tokens: &'static [&'static str],
     sampling: &'a SamplingParams,
@@ -82,7 +82,7 @@ pub async fn run(
     let mut app = App {
         client,
         session,
-        session_path,
+        session_path: session_path.map(Path::to_path_buf),
         template,
         stop_tokens: template.stop_tokens(),
         sampling,
@@ -174,11 +174,24 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
     let chat_area = right_split[0];
     let input_area = right_split[1];
 
-    let mut chat_scroll = app.chat_scroll;
     render_sidebar(f, app, sidebar_area);
-    render_chat(f, app, chat_area, &mut chat_scroll);
-    render_input(f, app, input_area);
-    render_status_bar(f, app, status_area);
+
+    let border = border_style(app.focus == Focus::Input);
+    app.textarea.set_block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Input (Enter to send, Alt+Enter for newline) ")
+            .border_style(border),
+    );
+    f.render_widget(&app.textarea, input_area);
+
+    let branch_path = app.session.tree.branch_path();
+    let branch_ids = app.session.tree.branch_path_ids();
+    let branch_info = app.session.tree.deepest_branch_info();
+
+    let mut chat_scroll = app.chat_scroll;
+    render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids);
+    render_status_bar(f, app, status_area, &branch_path, branch_info);
     app.chat_scroll = chat_scroll;
 }
 
@@ -214,11 +227,15 @@ fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, area, &mut app.sidebar_state);
 }
 
-fn render_chat(f: &mut ratatui::Frame, app: &App, area: Rect, chat_scroll: &mut u16) {
+fn render_chat(
+    f: &mut ratatui::Frame,
+    app: &App,
+    area: Rect,
+    chat_scroll: &mut u16,
+    branch_path: &[&Message],
+    branch_ids: &[NodeId],
+) {
     let mut lines: Vec<Line> = Vec::new();
-
-    let branch_path = app.session.tree.branch_path();
-    let branch_ids = app.session.tree.branch_path_ids();
 
     for (msg, &node_id) in branch_path.iter().zip(branch_ids.iter()) {
         let (role_label, role_color) = match msg.role {
@@ -279,23 +296,16 @@ fn render_chat(f: &mut ratatui::Frame, app: &App, area: Rect, chat_scroll: &mut 
     f.render_widget(paragraph, area);
 }
 
-fn render_input(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let border = border_style(app.focus == Focus::Input);
-    let mut textarea = app.textarea.clone();
-    textarea.set_block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline) ")
-            .border_style(border),
-    );
-    f.render_widget(&textarea, area);
-}
+fn render_status_bar(
+    f: &mut ratatui::Frame,
+    app: &App,
+    area: Rect,
+    branch_path: &[&Message],
+    branch_info: Option<(usize, usize)>,
+) {
+    let token_count = ContextManager::estimate_message_tokens(branch_path);
 
-fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let branch_path = app.session.tree.branch_path();
-    let token_count = ContextManager::estimate_message_tokens(&branch_path);
-
-    let branch_info = match app.session.tree.deepest_branch_info() {
+    let branch_info = match branch_info {
         Some((idx, total)) => format!("Branch {}/{total}", idx + 1),
         None => "Linear".to_owned(),
     };
@@ -343,13 +353,13 @@ fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {
         app.session.tree.switch_sibling(-1);
-        let _ = app.session.maybe_save(app.session_path);
+        let _ = app.session.maybe_save(app.session_path.as_deref());
         app.status_message.clear();
         return None;
     }
     if key.code == KeyCode::Right && key.modifiers.contains(KeyModifiers::ALT) {
         app.session.tree.switch_sibling(1);
-        let _ = app.session.maybe_save(app.session_path);
+        let _ = app.session.maybe_save(app.session_path.as_deref());
         app.status_message.clear();
         return None;
     }
@@ -464,6 +474,7 @@ fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     Ok(loaded) => {
                         *app.session = loaded;
                         app.status_message = format!("Loaded: {}", path.display());
+                        app.session_path = Some(path);
                         app.auto_scroll = true;
                     }
                     Err(e) => {
@@ -512,7 +523,7 @@ fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.is_streaming = false;
             app.auto_scroll = true;
             app.status_message.clear();
-            app.session.maybe_save(app.session_path)?;
+            app.session.maybe_save(app.session_path.as_deref())?;
         }
         StreamToken::Error(err) => {
             app.streaming_buffer.clear();
@@ -531,14 +542,15 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
         "/clear" => {
             app.session.tree.clear();
             app.status_message = "Conversation cleared.".to_owned();
-            let _ = app.session.maybe_save(app.session_path);
+            let _ = app.session.maybe_save(app.session_path.as_deref());
         }
         "/retry" => {
             app.session.pop_trailing_assistant();
 
             let last_user_content = app.session.tree.head()
-                .filter(|&id| app.session.tree.node(id).message.role == Role::User)
-                .map(|id| app.session.tree.node(id).message.content.clone());
+                .and_then(|id| app.session.tree.node(id))
+                .filter(|n| n.message.role == Role::User)
+                .map(|n| n.message.content.clone());
 
             match last_user_content {
                 Some(content) => {
@@ -556,7 +568,8 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
             } else {
                 app.session.pop_trailing_assistant();
                 if app.session.tree.head()
-                    .is_some_and(|id| app.session.tree.node(id).message.role == Role::User)
+                    .and_then(|id| app.session.tree.node(id))
+                    .is_some_and(|n| n.message.role == Role::User)
                 {
                     app.session.tree.pop_head();
                 }
@@ -572,12 +585,12 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
                 app.status_message = "System prompt updated.".to_owned();
-                let _ = app.session.maybe_save(app.session_path);
+                let _ = app.session.maybe_save(app.session_path.as_deref());
             }
         }
         "/save" => {
             if arg.is_empty() {
-                match app.session_path {
+                match &app.session_path {
                     Some(path) => {
                         match session::save(path, app.session) {
                             Ok(()) => app.status_message = format!("Saved to {}.", path.display()),

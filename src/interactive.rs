@@ -186,8 +186,9 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
             ctx.session.pop_trailing_assistant();
 
             let last_user_content = ctx.session.tree.head()
-                .filter(|&id| ctx.session.tree.node(id).message.role == Role::User)
-                .map(|id| ctx.session.tree.node(id).message.content.clone());
+                .and_then(|id| ctx.session.tree.node(id))
+                .filter(|n| n.message.role == Role::User)
+                .map(|n| n.message.content.clone());
 
             match last_user_content {
                 Some(content) => {
@@ -203,7 +204,8 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
             } else {
                 ctx.session.pop_trailing_assistant();
                 if ctx.session.tree.head()
-                    .is_some_and(|id| ctx.session.tree.node(id).message.role == Role::User)
+                    .and_then(|id| ctx.session.tree.node(id))
+                    .is_some_and(|n| n.message.role == Role::User)
                 {
                     ctx.session.tree.pop_head();
                 }
@@ -217,16 +219,7 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
             } else {
                 let path_ids = ctx.session.tree.branch_path_ids();
                 for (i, (msg, &node_id)) in path.iter().zip(path_ids.iter()).enumerate() {
-                    let role_color = match msg.role {
-                        Role::User => GREEN_BOLD,
-                        Role::Assistant => BLUE_BOLD,
-                        Role::System => DIM,
-                    };
-                    let role_name = match msg.role {
-                        Role::User => "user",
-                        Role::Assistant => "assistant",
-                        Role::System => "system",
-                    };
+                    let role_color = role_ansi_color(msg.role);
                     let truncated: String = msg.content.chars().take(100).collect();
                     let ellipsis = if msg.content.chars().count() > 100 { "..." } else { "" };
                     let (sib_idx, sib_total) = ctx.session.tree.sibling_info(node_id);
@@ -236,7 +229,8 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
                         String::new()
                     };
                     println!(
-                        "{DIM}{:>3}.{RESET} {role_color}{role_name}{RESET}{branch_marker}: {truncated}{ellipsis}",
+                        "{DIM}{:>3}.{RESET} {role_color}{}{RESET}{branch_marker}: {truncated}{ellipsis}",
+                        msg.role,
                         i + 1
                     );
                 }
@@ -260,17 +254,14 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
                     for &node_id in &path {
                         let (idx, total) = ctx.session.tree.sibling_info(node_id);
                         if total > 1 {
-                            let node = ctx.session.tree.node(node_id);
-                            let role_name = match node.message.role {
-                                Role::User => "user",
-                                Role::Assistant => "assistant",
-                                Role::System => "system",
-                            };
+                            if let Some(node) = ctx.session.tree.node(node_id) {
                             println!(
-                                "{YELLOW}Node {node_id} ({role_name}): branch {}/{total}{RESET}",
+                                "{YELLOW}Node {node_id} ({}): branch {}/{total}{RESET}",
+                                node.message.role,
                                 idx + 1
                             );
                             found_any = true;
+                            }
                         }
                     }
                     if !found_any {
@@ -303,4 +294,12 @@ async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> 
     }
 
     Ok(false)
+}
+
+fn role_ansi_color(role: Role) -> &'static str {
+    match role {
+        Role::User => GREEN_BOLD,
+        Role::Assistant => BLUE_BOLD,
+        Role::System => DIM,
+    }
 }

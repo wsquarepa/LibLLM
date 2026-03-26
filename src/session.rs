@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -9,6 +10,16 @@ pub enum Role {
     User,
     Assistant,
     System,
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::User => f.write_str("user"),
+            Self::Assistant => f.write_str("assistant"),
+            Self::System => f.write_str("system"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,8 +67,8 @@ impl MessageTree {
         self.head
     }
 
-    pub fn node(&self, id: NodeId) -> &Node {
-        &self.nodes[id]
+    pub fn node(&self, id: NodeId) -> Option<&Node> {
+        self.nodes.get(id)
     }
 
     pub fn push(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
@@ -107,7 +118,7 @@ impl MessageTree {
             }
             None => {
                 let roots: Vec<NodeId> = self.nodes.iter()
-                    .filter(|n| n.parent.is_none())
+                    .filter(|n| n.parent.is_none() && self.is_reachable(n.id))
                     .map(|n| n.id)
                     .collect();
                 let index = roots.iter().position(|&r| r == id).unwrap_or(0);
@@ -117,6 +128,9 @@ impl MessageTree {
     }
 
     pub fn switch_to(&mut self, id: NodeId) {
+        if id >= self.nodes.len() {
+            return;
+        }
         let mut current = id;
         while !self.nodes[current].children.is_empty() {
             current = self.nodes[current].children[0];
@@ -176,6 +190,13 @@ impl MessageTree {
         self.head = None;
     }
 
+    fn is_reachable(&self, id: NodeId) -> bool {
+        if self.nodes[id].parent.is_some() {
+            return false;
+        }
+        !self.nodes[id].children.is_empty() || self.head == Some(id)
+    }
+
     pub fn deepest_branch_info(&self) -> Option<(usize, usize)> {
         self.head?;
         let path = self.branch_path_ids();
@@ -229,7 +250,7 @@ impl Default for Session {
 impl Session {
     pub fn pop_trailing_assistant(&mut self) {
         while self.tree.head()
-            .is_some_and(|id| self.tree.node(id).message.role == Role::Assistant)
+            .is_some_and(|id| self.tree.node(id).is_some_and(|n| n.message.role == Role::Assistant))
         {
             self.tree.pop_head();
         }

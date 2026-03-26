@@ -304,7 +304,7 @@ fn render_chat(
 }
 
 fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
-    let matches = crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"));
+    let matches = crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"), true);
     if matches.is_empty() {
         return;
     }
@@ -448,7 +448,7 @@ fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let matches = crate::commands::matching_commands(
-            app.textarea.lines().join("\n").split_whitespace().next().unwrap_or("/"),
+            app.textarea.lines().join("\n").split_whitespace().next().unwrap_or("/"), true,
         );
         match key.code {
             KeyCode::Up => {

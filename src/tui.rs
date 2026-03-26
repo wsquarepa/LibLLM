@@ -336,22 +336,27 @@ fn render_chat(
         }
     }
 
-    let inner_width = area.width.saturating_sub(2) as usize;
-    let content_height: u16 = lines
-        .iter()
-        .map(|line| {
-            let line_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
-            if line_width == 0 || inner_width == 0 {
-                1u16
-            } else {
-                ((line_width + inner_width - 1) / inner_width) as u16
-            }
-        })
-        .sum();
     let visible_height = area.height.saturating_sub(2);
 
-    if app.auto_scroll && content_height > visible_height {
-        *chat_scroll = content_height.saturating_sub(visible_height);
+    if app.auto_scroll {
+        let inner_width = area.width.saturating_sub(2) as usize;
+        let content_height: u16 = lines
+            .iter()
+            .map(|line| {
+                let line_width: usize = line.width();
+                if line_width == 0 || inner_width == 0 {
+                    1u16
+                } else {
+                    ((line_width + inner_width - 1) / inner_width) as u16
+                }
+            })
+            .sum();
+
+        if content_height > visible_height {
+            *chat_scroll = content_height.saturating_sub(visible_height);
+        } else {
+            *chat_scroll = 0;
+        }
     }
 
     let paragraph = Paragraph::new(Text::from(lines))

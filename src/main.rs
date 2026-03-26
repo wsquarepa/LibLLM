@@ -99,7 +99,12 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
 
     if let Some(ref passkey) = args.passkey {
         let salt = crypto::load_or_create_salt(&config::salt_path())?;
-        let key = Arc::new(crypto::derive_key(passkey, &salt)?);
+        let key = crypto::derive_key(passkey, &salt)?;
+        let valid = crypto::verify_or_set_key(&config::key_check_path(), &key)?;
+        if !valid {
+            anyhow::bail!("Wrong passkey.");
+        }
+        let key = Arc::new(key);
         let path = config::sessions_dir().join(session::generate_session_name());
         return Ok((session::Session::default(), SaveMode::Encrypted { path, key }));
     }

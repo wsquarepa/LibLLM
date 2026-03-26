@@ -36,6 +36,10 @@ pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
 
+pub fn key_check_path() -> PathBuf {
+    data_dir().join(".key_check")
+}
+
 pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(sessions_dir())
         .context("failed to create sessions directory")

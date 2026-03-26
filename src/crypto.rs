@@ -4,6 +4,7 @@ use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, AeadCore, Nonce};
 use anyhow::{Context, Result, bail};
 use argon2::Argon2;
+use sha2::{Sha256, Digest};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const MAGIC: &[u8; 4] = b"LLMS";
@@ -99,4 +100,34 @@ pub fn decrypt(blob: &[u8], key: &DerivedKey) -> Result<Vec<u8>> {
 
 pub fn is_encrypted(data: &[u8]) -> bool {
     data.len() >= HEADER_LEN && data[0..4] == *MAGIC
+}
+
+const KEY_CHECK_LEN: usize = 32;
+
+fn key_fingerprint(key: &DerivedKey) -> [u8; KEY_CHECK_LEN] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"libllm-key-check");
+    hasher.update(key.as_bytes());
+    let result = hasher.finalize();
+    let mut out = [0u8; KEY_CHECK_LEN];
+    out.copy_from_slice(&result);
+    out
+}
+
+pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {
+    let fingerprint = key_fingerprint(key);
+
+    if let Ok(stored) = std::fs::read(check_path) {
+        if stored.len() == KEY_CHECK_LEN {
+            return Ok(stored == fingerprint);
+        }
+    }
+
+    if let Some(parent) = check_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("failed to create directory for key check file")?;
+    }
+    std::fs::write(check_path, fingerprint)
+        .context("failed to write key check file")?;
+    Ok(true)
 }

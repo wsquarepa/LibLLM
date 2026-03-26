@@ -751,12 +751,25 @@ fn handle_passkey_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<Backgrou
 
             tokio::spawn(async move {
                 let salt_path = crate::config::salt_path();
+                let check_path = crate::config::key_check_path();
                 let result = crate::crypto::load_or_create_salt(&salt_path)
                     .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
                 match result {
                     Ok(derived_key) => {
-                        let key = std::sync::Arc::new(derived_key);
-                        let _ = bg_tx.send(BackgroundEvent::KeyDerived(key, path)).await;
+                        match crate::crypto::verify_or_set_key(&check_path, &derived_key) {
+                            Ok(true) => {
+                                let key = std::sync::Arc::new(derived_key);
+                                let _ = bg_tx.send(BackgroundEvent::KeyDerived(key, path)).await;
+                            }
+                            Ok(false) => {
+                                let _ = bg_tx.send(BackgroundEvent::KeyDeriveFailed(
+                                    "Wrong passkey.".to_owned(),
+                                )).await;
+                            }
+                            Err(e) => {
+                                let _ = bg_tx.send(BackgroundEvent::KeyDeriveFailed(e.to_string())).await;
+                            }
+                        }
                     }
                     Err(e) => {
                         let _ = bg_tx.send(BackgroundEvent::KeyDeriveFailed(e.to_string())).await;

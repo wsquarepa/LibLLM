@@ -400,6 +400,7 @@ fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_a
         )
         .highlight_style(Style::default().fg(Color::Black).bg(Color::Yellow));
 
+    f.render_widget(ratatui::widgets::Clear, picker_area);
     f.render_stateful_widget(list, picker_area, &mut state);
 }
 

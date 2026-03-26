@@ -984,8 +984,13 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
         }
         "/clear" => {
             app.session.tree.clear();
-            app.status_message = "Conversation cleared.".to_owned();
-            let _ = app.session.maybe_save(&app.save_mode);
+            app.session.system_prompt = None;
+            app.chat_scroll = 0;
+            app.auto_scroll = true;
+            let new_name = session::generate_session_name();
+            let new_path = crate::config::sessions_dir().join(&new_name);
+            app.save_mode.set_path(new_path);
+            app.status_message = "New conversation started.".to_owned();
         }
         "/retry" => {
             app.session.pop_trailing_assistant();

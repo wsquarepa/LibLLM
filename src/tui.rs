@@ -715,6 +715,37 @@ fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 }
 
+fn load_sidebar_selection(app: &mut App) {
+    let Some(selected) = app.sidebar_state.selected() else { return };
+    let entry = &app.sidebar_sessions[selected];
+    if entry.is_new_chat {
+        *app.session = Session::default();
+        app.chat_scroll = 0;
+        app.auto_scroll = true;
+        let new_path = crate::config::sessions_dir().join(session::generate_session_name());
+        app.save_mode.set_path(new_path);
+        app.status_message = "New conversation started.".to_owned();
+    } else {
+        let path = entry.path.clone();
+        let load_result = match &app.save_mode {
+            SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
+            _ => session::load(&path),
+        };
+        match load_result {
+            Ok(loaded) => {
+                *app.session = loaded;
+                app.status_message = format!("Loaded: {}", entry.filename);
+                app.save_mode.set_path(path);
+                app.chat_scroll = 0;
+                app.auto_scroll = true;
+            }
+            Err(e) => {
+                app.status_message = format!("Error loading: {e}");
+            }
+        }
+    }
+}
+
 fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let count = app.sidebar_sessions.len();
     if count == 0 {
@@ -726,43 +757,14 @@ fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             let selected = app.sidebar_state.selected().unwrap_or(0);
             let new = if selected == 0 { count - 1 } else { selected - 1 };
             app.sidebar_state.select(Some(new));
+            load_sidebar_selection(app);
             None
         }
         KeyCode::Down => {
             let selected = app.sidebar_state.selected().unwrap_or(0);
             let new = (selected + 1) % count;
             app.sidebar_state.select(Some(new));
-            None
-        }
-        KeyCode::Enter => {
-            if let Some(selected) = app.sidebar_state.selected() {
-                let entry = &app.sidebar_sessions[selected];
-                if entry.is_new_chat {
-                    *app.session = Session::default();
-                    app.chat_scroll = 0;
-                    app.auto_scroll = true;
-                    let new_path = crate::config::sessions_dir().join(session::generate_session_name());
-                    app.save_mode.set_path(new_path);
-                    app.status_message = "New conversation started.".to_owned();
-                } else {
-                    let path = entry.path.clone();
-                    let load_result = match &app.save_mode {
-                        SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
-                        _ => session::load(&path),
-                    };
-                    match load_result {
-                        Ok(loaded) => {
-                            *app.session = loaded;
-                            app.status_message = format!("Loaded: {}", entry.filename);
-                            app.save_mode.set_path(path);
-                            app.auto_scroll = true;
-                        }
-                        Err(e) => {
-                            app.status_message = format!("Error loading: {e}");
-                        }
-                    }
-                }
-            }
+            load_sidebar_selection(app);
             None
         }
         _ => None,

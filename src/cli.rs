@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use crate::sampling::SamplingParams;
+use crate::sampling::SamplingOverrides;
 
 #[derive(Parser)]
 #[command(name = "libllm", about = "CLI chat client for llama.cpp completions API")]
@@ -57,15 +57,15 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn resolve_sampling(&self, base: SamplingParams) -> SamplingParams {
-        SamplingParams {
-            temperature: self.temperature.unwrap_or(base.temperature),
-            top_k: self.top_k.unwrap_or(base.top_k),
-            top_p: self.top_p.unwrap_or(base.top_p),
-            min_p: self.min_p.unwrap_or(base.min_p),
-            repeat_last_n: self.repeat_last_n.unwrap_or(base.repeat_last_n),
-            repeat_penalty: self.repeat_penalty.unwrap_or(base.repeat_penalty),
-            max_tokens: self.max_tokens.unwrap_or(base.max_tokens),
+    pub fn sampling_overrides(&self) -> SamplingOverrides {
+        SamplingOverrides {
+            temperature: self.temperature,
+            top_k: self.top_k,
+            top_p: self.top_p,
+            min_p: self.min_p,
+            repeat_last_n: self.repeat_last_n,
+            repeat_penalty: self.repeat_penalty,
+            max_tokens: self.max_tokens,
         }
     }
 }

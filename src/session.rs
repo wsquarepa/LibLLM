@@ -3,24 +3,32 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    User,
+    Assistant,
+    System,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-    pub role: String,
+    pub role: Role,
     pub content: String,
     pub timestamp: String,
 }
 
 impl Message {
-    pub fn new(role: &str, content: &str) -> Self {
+    pub fn new(role: Role, content: String) -> Self {
         Self {
-            role: role.to_owned(),
-            content: content.to_owned(),
+            role,
+            content,
             timestamp: now_iso8601(),
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Session {
     pub messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,13 +39,17 @@ pub struct Session {
     pub system_prompt: Option<String>,
 }
 
-impl Default for Session {
-    fn default() -> Self {
-        Self {
-            messages: Vec::new(),
-            model: None,
-            template: None,
-            system_prompt: None,
+impl Session {
+    pub fn pop_trailing_assistant(&mut self) {
+        while self.messages.last().is_some_and(|m| m.role == Role::Assistant) {
+            self.messages.pop();
+        }
+    }
+
+    pub fn maybe_save(&self, path: Option<&Path>) -> Result<()> {
+        match path {
+            Some(p) => save(p, self),
+            None => Ok(()),
         }
     }
 }
@@ -64,7 +76,7 @@ pub fn load(path: &Path) -> Result<Session> {
 
     if let Ok(legacy) = serde_json::from_str::<LegacySession>(&contents) {
         return Ok(Session {
-            messages: vec![Message::new("user", &legacy.prompt_history)],
+            messages: vec![Message::new(Role::User, legacy.prompt_history)],
             model: legacy.model,
             template: legacy.template,
             system_prompt: None,
@@ -72,7 +84,7 @@ pub fn load(path: &Path) -> Result<Session> {
     }
 
     Ok(Session {
-        messages: vec![Message::new("user", &contents)],
+        messages: vec![Message::new(Role::User, contents)],
         model: None,
         template: None,
         system_prompt: None,
@@ -89,13 +101,12 @@ fn now_iso8601() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = duration.as_secs();
-    let days = secs / 86400;
     let time_secs = secs % 86400;
     let hours = time_secs / 3600;
     let minutes = (time_secs % 3600) / 60;
     let seconds = time_secs % 60;
 
-    let (year, month, day) = days_to_ymd(days);
+    let (year, month, day) = days_to_ymd(secs / 86400);
     format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 

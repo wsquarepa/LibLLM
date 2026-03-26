@@ -4,12 +4,13 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use termimad::MadSkin;
 
 use crate::client::ApiClient;
 use crate::context::{ContextManager, ContextStatus};
-use crate::prompt::PromptTemplate;
+use crate::prompt::Template;
 use crate::sampling::SamplingParams;
-use crate::session::{self, Message, Session};
+use crate::session::{self, Message, Role, Session};
 
 const GREEN_BOLD: &str = "\x1b[1;32m";
 const BLUE_BOLD: &str = "\x1b[1;34m";
@@ -17,25 +18,37 @@ const YELLOW: &str = "\x1b[33m";
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 
-enum CommandResult {
-    Continue,
-    Handled,
-    Quit,
+struct ChatContext<'a> {
+    client: &'a ApiClient,
+    session: &'a mut Session,
+    session_path: Option<&'a Path>,
+    template: Template,
+    stop_tokens: &'static [&'static str],
+    sampling: &'a SamplingParams,
+    context_mgr: ContextManager,
 }
 
 pub async fn run(
     client: &ApiClient,
     session: &mut Session,
     session_path: Option<&Path>,
-    template: &dyn PromptTemplate,
+    template: Template,
     sampling: &SamplingParams,
 ) -> Result<()> {
     let model_name = client.fetch_model_name().await;
     println!("Chat with {model_name} (Ctrl+C to quit, /help for commands)\n");
 
     let mut editor = DefaultEditor::new()?;
-    let stop_tokens = template.stop_tokens();
-    let context_mgr = ContextManager::default();
+
+    let mut ctx = ChatContext {
+        client,
+        session,
+        session_path,
+        template,
+        stop_tokens: template.stop_tokens(),
+        sampling,
+        context_mgr: ContextManager::default(),
+    };
 
     loop {
         let input = match editor.readline(&format!("{GREEN_BOLD}You:{RESET} ")) {
@@ -52,71 +65,49 @@ pub async fn run(
         editor.add_history_entry(trimmed)?;
 
         if trimmed.starts_with('/') {
-            match handle_command(trimmed, client, session, session_path, template, sampling, &context_mgr).await? {
-                CommandResult::Continue => continue,
-                CommandResult::Handled => continue,
-                CommandResult::Quit => break,
+            if handle_command(trimmed, &mut ctx).await? {
+                break;
             }
+            continue;
         }
 
-        send_message(trimmed, client, session, session_path, template, &stop_tokens, sampling, &context_mgr).await?;
+        send_message(trimmed, &mut ctx).await?;
     }
 
     Ok(())
 }
 
-async fn send_message(
-    content: &str,
-    client: &ApiClient,
-    session: &mut Session,
-    session_path: Option<&Path>,
-    template: &dyn PromptTemplate,
-    stop_tokens: &[String],
-    sampling: &SamplingParams,
-    context_mgr: &ContextManager,
-) -> Result<()> {
-    session.messages.push(Message::new("user", content));
+async fn send_message(content: &str, ctx: &mut ChatContext<'_>) -> Result<()> {
+    ctx.session.messages.push(Message::new(Role::User, content.to_owned()));
 
-    match context_mgr.check_and_truncate(&mut session.messages) {
-        ContextStatus::Truncated { removed_count } => {
-            println!("{YELLOW}[context truncated: ~{removed_count} tokens of old messages removed]{RESET}");
-        }
-        ContextStatus::Warning { used, limit } => {
-            println!("{YELLOW}[context usage: ~{used}/{limit} tokens]{RESET}");
-        }
-        ContextStatus::Ok => {}
+    let removed = ctx.context_mgr.truncate(&mut ctx.session.messages);
+    if removed > 0 {
+        println!("{YELLOW}[context truncated: ~{removed} tokens of old messages removed]{RESET}");
+    } else if let ContextStatus::Warning { used, limit } = ctx.context_mgr.check(&ctx.session.messages) {
+        println!("{YELLOW}[context usage: ~{used}/{limit} tokens]{RESET}");
     }
 
-    let prompt = template.render(&session.messages, session.system_prompt.as_deref());
+    let prompt = ctx.template.render(&ctx.session.messages, ctx.session.system_prompt.as_deref());
 
     print!("{BLUE_BOLD}Assistant:{RESET} ");
     stdout().flush()?;
 
-    let response = client
-        .stream_completion(&prompt, stop_tokens, sampling, &mut stdout().lock())
+    let response = ctx
+        .client
+        .stream_completion(&prompt, ctx.stop_tokens, ctx.sampling, &mut stdout().lock())
         .await?;
 
     println!();
 
-    session.messages.push(Message::new("assistant", &response));
-
-    if let Some(path) = session_path {
-        session::save(path, session)?;
-    }
+    ctx.session.messages.push(Message::new(Role::Assistant, response));
+    ctx.session.maybe_save(ctx.session_path)?;
 
     println!();
     Ok(())
 }
 
-async fn handle_command(
-    input: &str,
-    client: &ApiClient,
-    session: &mut Session,
-    session_path: Option<&Path>,
-    template: &dyn PromptTemplate,
-    sampling: &SamplingParams,
-    context_mgr: &ContextManager,
-) -> Result<CommandResult> {
+/// Returns true if the REPL should quit.
+async fn handle_command(input: &str, ctx: &mut ChatContext<'_>) -> Result<bool> {
     let parts: Vec<&str> = input.splitn(2, ' ').collect();
     let cmd = parts[0];
     let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
@@ -135,133 +126,114 @@ async fn handle_command(
             println!("  /history             Show conversation history");
             println!("  /render              Re-render last response with markdown formatting");
             println!("  /quit                Exit the chat{RESET}");
-            Ok(CommandResult::Handled)
         }
         "/clear" => {
-            session.messages.clear();
+            ctx.session.messages.clear();
             println!("{YELLOW}Conversation cleared.{RESET}");
-            if let Some(path) = session_path {
-                session::save(path, session)?;
-            }
-            Ok(CommandResult::Handled)
+            ctx.session.maybe_save(ctx.session_path)?;
         }
         "/save" => {
             if arg.is_empty() {
-                match session_path {
+                match ctx.session_path {
                     Some(path) => {
-                        session::save(path, session)?;
+                        session::save(path, ctx.session)?;
                         println!("{YELLOW}Session saved to {}.{RESET}", path.display());
                     }
                     None => println!("{YELLOW}Usage: /save <path>{RESET}"),
                 }
             } else {
                 let path = PathBuf::from(arg);
-                session::save(&path, session)?;
+                session::save(&path, ctx.session)?;
                 println!("{YELLOW}Session saved to {arg}.{RESET}");
             }
-            Ok(CommandResult::Handled)
         }
         "/load" => {
             if arg.is_empty() {
                 println!("{YELLOW}Usage: /load <path>{RESET}");
             } else {
                 let path = PathBuf::from(arg);
-                *session = session::load(&path)?;
-                println!("{YELLOW}Session loaded from {arg} ({} messages).{RESET}", session.messages.len());
+                *ctx.session = session::load(&path)?;
+                println!(
+                    "{YELLOW}Session loaded from {arg} ({} messages).{RESET}",
+                    ctx.session.messages.len()
+                );
             }
-            Ok(CommandResult::Handled)
         }
         "/model" => {
-            let model = client.fetch_model_name().await;
+            let model = ctx.client.fetch_model_name().await;
             println!("{YELLOW}Current model: {model}{RESET}");
-            Ok(CommandResult::Handled)
         }
         "/system" => {
             if arg.is_empty() {
-                match &session.system_prompt {
+                match &ctx.session.system_prompt {
                     Some(sp) => println!("{YELLOW}Current system prompt: {sp}{RESET}"),
                     None => println!("{YELLOW}No system prompt set. Usage: /system <prompt>{RESET}"),
                 }
             } else {
-                session.system_prompt = Some(arg.to_owned());
+                ctx.session.system_prompt = Some(arg.to_owned());
                 println!("{YELLOW}System prompt updated.{RESET}");
-                if let Some(path) = session_path {
-                    session::save(path, session)?;
-                }
+                ctx.session.maybe_save(ctx.session_path)?;
             }
-            Ok(CommandResult::Handled)
         }
         "/retry" => {
-            while session.messages.last().is_some_and(|m| m.role == "assistant") {
-                session.messages.pop();
-            }
+            ctx.session.pop_trailing_assistant();
 
-            let last_user = session
+            let last_user = ctx
+                .session
                 .messages
                 .iter()
-                .rposition(|m| m.role == "user")
-                .map(|i| session.messages.remove(i).content);
+                .rposition(|m| m.role == Role::User)
+                .map(|i| ctx.session.messages.remove(i).content);
 
             match last_user {
-                Some(content) => {
-                    let stop_tokens = template.stop_tokens();
-                    send_message(&content, client, session, session_path, template, &stop_tokens, sampling, context_mgr).await?;
-                }
+                Some(content) => send_message(&content, ctx).await?,
                 None => println!("{YELLOW}No user message to retry.{RESET}"),
             }
-            Ok(CommandResult::Handled)
         }
         "/edit" => {
             if arg.is_empty() {
                 println!("{YELLOW}Usage: /edit <new message text>{RESET}");
-                return Ok(CommandResult::Handled);
+            } else {
+                ctx.session.pop_trailing_assistant();
+                if ctx.session.messages.last().is_some_and(|m| m.role == Role::User) {
+                    ctx.session.messages.pop();
+                }
+                send_message(arg, ctx).await?;
             }
-
-            while session.messages.last().is_some_and(|m| m.role == "assistant") {
-                session.messages.pop();
-            }
-            if session.messages.last().is_some_and(|m| m.role == "user") {
-                session.messages.pop();
-            }
-
-            let stop_tokens = template.stop_tokens();
-            send_message(arg, client, session, session_path, template, &stop_tokens, sampling, context_mgr).await?;
-            Ok(CommandResult::Handled)
         }
         "/history" => {
-            if session.messages.is_empty() {
+            if ctx.session.messages.is_empty() {
                 println!("{YELLOW}No messages in history.{RESET}");
             } else {
-                for (i, msg) in session.messages.iter().enumerate() {
-                    let role_color = match msg.role.as_str() {
-                        "user" => GREEN_BOLD,
-                        "assistant" => BLUE_BOLD,
-                        _ => DIM,
+                for (i, msg) in ctx.session.messages.iter().enumerate() {
+                    let role_color = match msg.role {
+                        Role::User => GREEN_BOLD,
+                        Role::Assistant => BLUE_BOLD,
+                        Role::System => DIM,
                     };
-                    let truncated = if msg.content.len() > 100 {
-                        format!("{}...", &msg.content[..100])
-                    } else {
-                        msg.content.clone()
+                    let role_name = match msg.role {
+                        Role::User => "user",
+                        Role::Assistant => "assistant",
+                        Role::System => "system",
                     };
-                    println!("{DIM}{:>3}.{RESET} {role_color}{}{RESET}: {}", i + 1, msg.role, truncated);
+                    let truncated: String = msg.content.chars().take(100).collect();
+                    let ellipsis = if msg.content.chars().count() > 100 { "..." } else { "" };
+                    println!("{DIM}{:>3}.{RESET} {role_color}{role_name}{RESET}: {truncated}{ellipsis}", i + 1);
                 }
             }
-            Ok(CommandResult::Handled)
         }
         "/render" => {
-            match session.messages.iter().rev().find(|m| m.role == "assistant") {
+            match ctx.session.messages.iter().rev().find(|m| m.role == Role::Assistant) {
                 Some(msg) => {
                     println!("{BLUE_BOLD}Assistant:{RESET}");
-                    crate::render::render_markdown(&msg.content);
+                    MadSkin::default().print_text(&msg.content);
                 }
                 None => println!("{YELLOW}No assistant response to render.{RESET}"),
             }
-            Ok(CommandResult::Handled)
         }
-        "/quit" | "/exit" => Ok(CommandResult::Quit),
-        _ => {
-            println!("{YELLOW}Unknown command: {cmd}. Type /help for available commands.{RESET}");
-            Ok(CommandResult::Continue)
-        }
+        "/quit" | "/exit" => return Ok(true),
+        _ => println!("{YELLOW}Unknown command: {cmd}. Type /help for available commands.{RESET}"),
     }
+
+    Ok(false)
 }

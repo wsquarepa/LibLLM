@@ -2,6 +2,7 @@ use std::io::Write;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::sampling::SamplingParams;
@@ -9,6 +10,16 @@ use crate::sampling::SamplingParams;
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
+}
+
+#[derive(Deserialize)]
+struct SseChoice {
+    text: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SseEvent {
+    choices: Vec<SseChoice>,
 }
 
 impl ApiClient {
@@ -42,7 +53,7 @@ impl ApiClient {
     pub async fn stream_completion(
         &self,
         prompt: &str,
-        stop_tokens: &[String],
+        stop_tokens: &[&str],
         sampling: &SamplingParams,
         writer: &mut impl Write,
     ) -> Result<String> {
@@ -77,6 +88,7 @@ impl ApiClient {
 
         let mut stream = resp.bytes_stream();
         let mut buffer = Vec::<u8>::new();
+        let mut line_buf = String::new();
         let mut full_response = String::new();
 
         while let Some(chunk) = stream.next().await {
@@ -84,26 +96,27 @@ impl ApiClient {
             buffer.extend_from_slice(&chunk);
 
             while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
-                let line_bytes: Vec<u8> = buffer.drain(..=newline_pos).collect();
-                let line = String::from_utf8_lossy(&line_bytes);
-                let line = line.trim();
+                line_buf.clear();
+                let line_bytes = &buffer[..newline_pos];
+                line_buf.push_str(&String::from_utf8_lossy(line_bytes));
+                buffer.drain(..=newline_pos);
 
+                let line = line_buf.trim();
                 if line.is_empty() {
                     continue;
                 }
 
                 let data = line.strip_prefix("data: ").unwrap_or(line);
-
                 if data == "[DONE]" {
                     continue;
                 }
 
-                let parsed: serde_json::Value = match serde_json::from_str(data) {
+                let event: SseEvent = match serde_json::from_str(data) {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
 
-                if let Some(text) = parsed["choices"][0]["text"].as_str() {
+                if let Some(text) = event.choices.first().and_then(|c| c.text.as_deref()) {
                     if !text.is_empty() {
                         write!(writer, "{text}")?;
                         writer.flush()?;

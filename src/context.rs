@@ -9,54 +9,66 @@ pub struct ContextManager {
 }
 
 impl ContextManager {
-    pub fn new(token_limit: usize) -> Self {
-        Self { token_limit }
-    }
-
-    pub fn estimate_tokens(text: &str) -> usize {
-        text.len() / CHARS_PER_TOKEN_ESTIMATE
-    }
-
     pub fn estimate_message_tokens(messages: &[Message]) -> usize {
-        messages.iter().map(|m| Self::estimate_tokens(&m.content) + 4).sum()
+        messages
+            .iter()
+            .map(|m| m.content.len() / CHARS_PER_TOKEN_ESTIMATE + 4)
+            .sum()
     }
 
-    pub fn check_and_truncate(&self, messages: &mut Vec<Message>) -> ContextStatus {
+    pub fn check(&self, messages: &[Message]) -> ContextStatus {
         let total = Self::estimate_message_tokens(messages);
+        let ratio = total as f64 / self.token_limit as f64;
 
         if total > self.token_limit {
-            self.truncate_oldest(messages);
-            return ContextStatus::Truncated {
-                removed_count: total - Self::estimate_message_tokens(messages),
-            };
-        }
-
-        let ratio = total as f64 / self.token_limit as f64;
-        if ratio >= WARNING_THRESHOLD {
-            return ContextStatus::Warning {
+            ContextStatus::OverLimit
+        } else if ratio >= WARNING_THRESHOLD {
+            ContextStatus::Warning {
                 used: total,
                 limit: self.token_limit,
-            };
+            }
+        } else {
+            ContextStatus::Ok
         }
-
-        ContextStatus::Ok
     }
 
-    fn truncate_oldest(&self, messages: &mut Vec<Message>) {
-        while Self::estimate_message_tokens(messages) > self.token_limit && messages.len() > 2 {
-            messages.remove(0);
+    pub fn truncate(&self, messages: &mut Vec<Message>) -> usize {
+        let before = Self::estimate_message_tokens(messages);
+        if before <= self.token_limit || messages.len() <= 2 {
+            return 0;
         }
+
+        let mut cumulative = 0usize;
+        let mut remove_count = 0usize;
+        for msg in messages.iter() {
+            let tokens = msg.content.len() / CHARS_PER_TOKEN_ESTIMATE + 4;
+            if before - cumulative - tokens <= self.token_limit {
+                break;
+            }
+            cumulative += tokens;
+            remove_count += 1;
+            if messages.len() - remove_count <= 2 {
+                break;
+            }
+        }
+
+        if remove_count > 0 {
+            messages.drain(..remove_count);
+        }
+        cumulative
     }
 }
 
 impl Default for ContextManager {
     fn default() -> Self {
-        Self::new(DEFAULT_CONTEXT_LIMIT)
+        Self {
+            token_limit: DEFAULT_CONTEXT_LIMIT,
+        }
     }
 }
 
 pub enum ContextStatus {
     Ok,
     Warning { used: usize, limit: usize },
-    Truncated { removed_count: usize },
+    OverLimit,
 }

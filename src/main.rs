@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    tui::run(&client, &mut session, save_mode, template, &sampling).await
+    tui::run(&client, &mut session, save_mode, template, sampling).await
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {

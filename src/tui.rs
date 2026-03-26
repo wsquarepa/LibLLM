@@ -58,7 +58,7 @@ struct App<'a> {
     save_mode: SaveMode,
     template: Template,
     stop_tokens: &'static [&'static str],
-    sampling: &'a SamplingParams,
+    sampling: SamplingParams,
     context_mgr: ContextManager,
 
     focus: Focus,
@@ -87,7 +87,7 @@ pub async fn run(
     session: &mut Session,
     save_mode: SaveMode,
     template: Template,
-    sampling: &SamplingParams,
+    sampling: SamplingParams,
 ) -> Result<()> {
     let model_name = client.fetch_model_name().await;
     let sidebar_sessions = discover_sidebar_sessions(&save_mode);
@@ -340,11 +340,11 @@ fn render_chat(
     let content_height: u16 = lines
         .iter()
         .map(|line| {
-            let line_width: usize = line.spans.iter().map(|s| s.content.len()).sum();
-            if inner_width == 0 {
+            let line_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+            if line_width == 0 || inner_width == 0 {
                 1u16
             } else {
-                ((line_width.max(1) + inner_width - 1) / inner_width) as u16
+                ((line_width + inner_width - 1) / inner_width) as u16
             }
         })
         .sum();
@@ -825,6 +825,7 @@ fn handle_config_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Esc => {
             save_config_from_fields(app);
+            apply_config(app);
             app.focus = Focus::Input;
             app.status_message = "Configuration saved.".to_owned();
         }
@@ -870,6 +871,18 @@ fn save_config_from_fields(app: &App) {
     let path = crate::config::config_path();
     if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
         let _ = std::fs::write(path, toml_str);
+    }
+}
+
+fn apply_config(app: &mut App) {
+    let cfg = crate::config::load();
+    let template_name = cfg.template.as_deref().unwrap_or("llama2");
+    app.template = Template::from_name(template_name);
+    app.stop_tokens = app.template.stop_tokens();
+    app.sampling = SamplingParams::default().with_overrides(&cfg.sampling);
+
+    if let Some(sp) = cfg.system_prompt {
+        app.session.system_prompt = Some(sp);
     }
 }
 

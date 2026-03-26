@@ -47,6 +47,9 @@ const CONFIG_FIELDS: &[&str] = &[
     "Top-K",
     "Top-P",
     "Min-P",
+    "Repeat Last N",
+    "Repeat Penalty",
+    "Max Tokens",
 ];
 
 struct App<'a> {
@@ -832,14 +835,18 @@ fn handle_config_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
 fn load_config_fields() -> Vec<String> {
     let cfg = crate::config::load();
+    let defaults = crate::sampling::SamplingParams::default();
     vec![
-        cfg.api_url.unwrap_or_default(),
-        cfg.template.unwrap_or_default(),
+        cfg.api_url.unwrap_or_else(|| crate::config::Config::default().api_url().to_owned()),
+        cfg.template.unwrap_or_else(|| "llama2".to_owned()),
         cfg.system_prompt.unwrap_or_default(),
-        cfg.sampling.temperature.map(|v| v.to_string()).unwrap_or_default(),
-        cfg.sampling.top_k.map(|v| v.to_string()).unwrap_or_default(),
-        cfg.sampling.top_p.map(|v| v.to_string()).unwrap_or_default(),
-        cfg.sampling.min_p.map(|v| v.to_string()).unwrap_or_default(),
+        cfg.sampling.temperature.unwrap_or(defaults.temperature).to_string(),
+        cfg.sampling.top_k.unwrap_or(defaults.top_k).to_string(),
+        cfg.sampling.top_p.unwrap_or(defaults.top_p).to_string(),
+        cfg.sampling.min_p.unwrap_or(defaults.min_p).to_string(),
+        cfg.sampling.repeat_last_n.unwrap_or(defaults.repeat_last_n).to_string(),
+        cfg.sampling.repeat_penalty.unwrap_or(defaults.repeat_penalty).to_string(),
+        cfg.sampling.max_tokens.unwrap_or(defaults.max_tokens).to_string(),
     ]
 }
 
@@ -854,9 +861,9 @@ fn save_config_from_fields(app: &App) {
             top_k: fields[4].parse().ok(),
             top_p: fields[5].parse().ok(),
             min_p: fields[6].parse().ok(),
-            repeat_last_n: None,
-            repeat_penalty: None,
-            max_tokens: None,
+            repeat_last_n: fields[7].parse().ok(),
+            repeat_penalty: fields[8].parse().ok(),
+            max_tokens: fields[9].parse().ok(),
         },
     };
 

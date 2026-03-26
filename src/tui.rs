@@ -28,6 +28,8 @@ enum Focus {
     PasskeyDialog,
     ConfigDialog,
     SelfDialog,
+    CharacterDialog,
+    WorldbookDialog,
 }
 
 enum Action {
@@ -87,6 +89,13 @@ struct App<'a> {
     self_fields: Vec<String>,
     self_selected: usize,
     self_editing: bool,
+
+    character_names: Vec<String>,
+    character_slugs: Vec<String>,
+    character_selected: usize,
+
+    worldbook_list: Vec<String>,
+    worldbook_selected: usize,
 }
 
 pub async fn run(
@@ -137,6 +146,11 @@ pub async fn run(
         self_fields: Vec::new(),
         self_selected: 0,
         self_editing: false,
+        character_names: Vec::new(),
+        character_slugs: Vec::new(),
+        character_selected: 0,
+        worldbook_list: Vec::new(),
+        worldbook_selected: 0,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -218,7 +232,7 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
 
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(22), Constraint::Min(30)])
+        .constraints([Constraint::Length(32), Constraint::Min(30)])
         .split(main_area);
 
     let sidebar_area = columns[0];
@@ -265,6 +279,12 @@ fn render(f: &mut ratatui::Frame, app: &mut App) {
     }
     if app.focus == Focus::SelfDialog {
         render_self_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::CharacterDialog {
+        render_character_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::WorldbookDialog {
+        render_worldbook_dialog(f, app, f.area());
     }
 }
 
@@ -741,6 +761,80 @@ fn render_self_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, dialog);
 }
 
+fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let count = app.character_names.len();
+    let dialog = centered_rect(50, count as u16 + 4, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for (i, name) in app.character_names.iter().enumerate() {
+        let is_selected = i == app.character_selected;
+        let marker = if is_selected { "> " } else { "  " };
+        let style = if is_selected {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Up/Down: navigate  Enter: select  Esc: cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Select Character ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+
+    f.render_widget(paragraph, dialog);
+}
+
+fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let count = app.worldbook_list.len();
+    let dialog = centered_rect(50, count as u16 + 4, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for (i, name) in app.worldbook_list.iter().enumerate() {
+        let is_selected = i == app.worldbook_selected;
+        let is_active = app.session.worldbooks.contains(name);
+        let checkbox = if is_active { "[x]" } else { "[ ]" };
+        let marker = if is_selected { "> " } else { "  " };
+        let style = if is_selected {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else if is_active {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(format!("{marker}{checkbox} {name}"), style)));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Up/Down: navigate  Enter: toggle  Esc: close",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Worldbooks ")
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+
+    f.render_widget(paragraph, dialog);
+}
+
 fn border_style(focused: bool) -> Style {
     if focused {
         Style::default().fg(Color::Cyan)
@@ -765,6 +859,12 @@ fn handle_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>
     }
     if app.focus == Focus::SelfDialog {
         return handle_self_key(key, app);
+    }
+    if app.focus == Focus::CharacterDialog {
+        return handle_character_dialog_key(key, app);
+    }
+    if app.focus == Focus::WorldbookDialog {
+        return handle_worldbook_dialog_key(key, app);
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -805,7 +905,8 @@ fn handle_key(key: KeyEvent, app: &mut App, bg_tx: mpsc::Sender<BackgroundEvent>
         Focus::Input => handle_input_key(key, app),
         Focus::Chat => handle_chat_key(key, app),
         Focus::Sidebar => handle_sidebar_key(key, app),
-        Focus::PasskeyDialog | Focus::ConfigDialog | Focus::SelfDialog => None,
+        Focus::PasskeyDialog | Focus::ConfigDialog | Focus::SelfDialog
+        | Focus::CharacterDialog | Focus::WorldbookDialog => None,
     }
 }
 
@@ -1088,6 +1189,89 @@ fn handle_self_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             save_self_fields(app);
             app.focus = Focus::Input;
             app.status_message = "User persona saved.".to_owned();
+        }
+        _ => {}
+    }
+    None
+}
+
+fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if app.character_names.is_empty() {
+        if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Up => {
+            app.character_selected = app.character_selected.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            app.character_selected = (app.character_selected + 1).min(app.character_names.len() - 1);
+        }
+        KeyCode::Enter => {
+            let slug = app.character_slugs[app.character_selected].clone();
+            let card_path = crate::config::characters_dir().join(format!("{slug}.json"));
+            match crate::character::load_card(&card_path) {
+                Ok(card) => {
+                    app.session.tree.clear();
+                    app.session.system_prompt = Some(crate::character::build_system_prompt(&card));
+                    app.session.character = Some(card.name.clone());
+                    app.session.worldbooks.clear();
+                    if !card.first_mes.is_empty() {
+                        app.session.tree.push(None, Message::new(Role::Assistant, card.first_mes));
+                    }
+                    app.chat_scroll = 0;
+                    app.auto_scroll = true;
+                    let new_path = crate::config::sessions_dir()
+                        .join(session::generate_session_name_for_character(&card.name));
+                    app.save_mode.set_path(new_path);
+                    app.status_message = format!("Loaded character: {}", card.name);
+                    app.focus = Focus::Input;
+                }
+                Err(e) => {
+                    app.status_message = format!("Error: {e}");
+                    app.focus = Focus::Input;
+                }
+            }
+        }
+        KeyCode::Esc => {
+            app.focus = Focus::Input;
+        }
+        _ => {}
+    }
+    None
+}
+
+fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if app.worldbook_list.is_empty() {
+        if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Up => {
+            app.worldbook_selected = app.worldbook_selected.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            app.worldbook_selected = (app.worldbook_selected + 1).min(app.worldbook_list.len() - 1);
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            let name = app.worldbook_list[app.worldbook_selected].clone();
+            if app.session.worldbooks.contains(&name) {
+                app.session.worldbooks.retain(|n| n != &name);
+                app.status_message = format!("Disabled: {name}");
+            } else {
+                app.session.worldbooks.push(name.clone());
+                app.status_message = format!("Enabled: {name}");
+            }
+            let _ = app.session.maybe_save(&app.save_mode);
+        }
+        KeyCode::Esc => {
+            app.focus = Focus::Input;
         }
         _ => {}
     }
@@ -1498,114 +1682,43 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
             if app.session.character.is_none() {
                 app.status_message = "Worldbooks are only available in character sessions.".to_owned();
             } else {
-                let parts: Vec<&str> = arg.splitn(2, ' ').collect();
-                match parts.first().copied().unwrap_or("") {
-                    "list" => {
-                        let books = crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir());
-                        if books.is_empty() {
-                            app.status_message = "No worldbooks found in worldinfo/ directory.".to_owned();
-                        } else {
-                            let names: Vec<&str> = books.iter().map(|b| b.name.as_str()).collect();
-                            app.status_message = format!("Worldbooks: {}", names.join(", "));
-                        }
-                    }
-                    "on" => {
-                        let name = parts.get(1).copied().unwrap_or("").trim();
-                        if name.is_empty() {
-                            app.status_message = "Usage: /worldbook on <name>".to_owned();
-                        } else {
-                            let wb_path = crate::config::worldinfo_dir().join(format!("{name}.json"));
-                            match crate::worldinfo::load_worldbook(&wb_path) {
-                                Ok(wb) => {
-                                    if !app.session.worldbooks.contains(&name.to_owned()) {
-                                        app.session.worldbooks.push(name.to_owned());
-                                        let _ = app.session.maybe_save(&app.save_mode);
-                                    }
-                                    app.status_message = format!("Worldbook enabled: {} ({} entries)", wb.name, wb.entries.len());
-                                }
-                                Err(e) => app.status_message = format!("Error: {e}"),
-                            }
-                        }
-                    }
-                    "off" => {
-                        let name = parts.get(1).copied().unwrap_or("").trim();
-                        if name.is_empty() {
-                            app.status_message = "Usage: /worldbook off <name>".to_owned();
-                        } else {
-                            app.session.worldbooks.retain(|n| n != name);
-                            let _ = app.session.maybe_save(&app.save_mode);
-                            app.status_message = format!("Worldbook disabled: {name}");
-                        }
-                    }
-                    "active" => {
-                        if app.session.worldbooks.is_empty() {
-                            app.status_message = "No worldbooks active.".to_owned();
-                        } else {
-                            app.status_message = format!("Active: {}", app.session.worldbooks.join(", "));
-                        }
-                    }
-                    _ => {
-                        app.status_message = "Usage: /worldbook list|on <name>|off <name>|active".to_owned();
-                    }
+                let books = crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir());
+                if books.is_empty() {
+                    app.status_message = "No worldbooks found in worldinfo/ directory.".to_owned();
+                } else {
+                    app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+                    app.worldbook_selected = 0;
+                    app.focus = Focus::WorldbookDialog;
                 }
             }
         }
         "/character" => {
-            let parts: Vec<&str> = arg.splitn(2, ' ').collect();
-            match parts.first().copied().unwrap_or("") {
-                "list" => {
-                    let cards = crate::character::list_cards(&crate::config::characters_dir());
-                    if cards.is_empty() {
-                        app.status_message = "No characters imported. Use /character import <path>".to_owned();
-                    } else {
-                        let names: Vec<&str> = cards.iter().map(|c| c.name.as_str()).collect();
-                        app.status_message = format!("Characters: {}", names.join(", "));
-                    }
-                }
-                "load" => {
-                    let name = parts.get(1).copied().unwrap_or("").trim();
-                    if name.is_empty() {
-                        app.status_message = "Usage: /character load <name>".to_owned();
-                    } else {
-                        let card_path = crate::config::characters_dir().join(format!("{name}.json"));
-                        match crate::character::load_card(&card_path) {
-                            Ok(card) => {
-                                app.session.tree.clear();
-                                app.session.system_prompt = Some(crate::character::build_system_prompt(&card));
-                                app.session.character = Some(card.name.clone());
-                                if !card.first_mes.is_empty() {
-                                    app.session.tree.push(None, Message::new(Role::Assistant, card.first_mes));
-                                }
-                                app.chat_scroll = 0;
-                                app.auto_scroll = true;
-                                let new_path = crate::config::sessions_dir().join(session::generate_session_name());
-                                app.save_mode.set_path(new_path);
-                                app.status_message = format!("Loaded character: {name}");
+            if arg.starts_with("import") {
+                let path_str = arg.strip_prefix("import").unwrap_or("").trim();
+                if path_str.is_empty() {
+                    app.status_message = "Usage: /character import <path>".to_owned();
+                } else {
+                    let source = std::path::Path::new(path_str);
+                    match crate::character::import_card(source) {
+                        Ok(card) => {
+                            let name = card.name.clone();
+                            match crate::character::save_card(&card, &crate::config::characters_dir()) {
+                                Ok(_) => app.status_message = format!("Imported character: {name}"),
+                                Err(e) => app.status_message = format!("Save error: {e}"),
                             }
-                            Err(e) => app.status_message = format!("Error: {e}"),
                         }
+                        Err(e) => app.status_message = format!("Import error: {e}"),
                     }
                 }
-                "import" => {
-                    let path_str = parts.get(1).copied().unwrap_or("").trim();
-                    if path_str.is_empty() {
-                        app.status_message = "Usage: /character import <path>".to_owned();
-                    } else {
-                        let source = std::path::Path::new(path_str);
-                        match crate::character::import_card(source) {
-                            Ok(card) => {
-                                let name = card.name.clone();
-                                match crate::character::save_card(&card, &crate::config::characters_dir()) {
-                                    Ok(_) => app.status_message = format!("Imported character: {name}"),
-                                    Err(e) => app.status_message = format!("Save error: {e}"),
-                                }
-                            }
-                            Err(e) => app.status_message = format!("Import error: {e}"),
-                        }
-                    }
-                }
-                _ => {
-                    app.status_message = "Usage: /character list|load <name>|import <path>".to_owned();
+            } else {
+                let cards = crate::character::list_cards(&crate::config::characters_dir());
+                if cards.is_empty() {
+                    app.status_message = "No characters found. Use /character import <path>".to_owned();
+                } else {
+                    app.character_names = cards.iter().map(|c| c.name.clone()).collect();
+                    app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+                    app.character_selected = 0;
+                    app.focus = Focus::CharacterDialog;
                 }
             }
         }

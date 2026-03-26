@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, save_mode) = resolve_session(&args)?;
+    let (mut session, mut save_mode) = resolve_session(&args)?;
 
     session.template = Some(template.name().to_owned());
 
@@ -61,6 +61,9 @@ async fn main() -> Result<()> {
         if session.tree.head().is_none() && !card.first_mes.is_empty() {
             session.tree.push(None, Message::new(Role::Assistant, card.first_mes.clone()));
         }
+        let char_path = config::sessions_dir()
+            .join(session::generate_session_name_for_character(&card.name));
+        save_mode.set_path(char_path);
     }
 
     if let Some(ref message) = args.message {

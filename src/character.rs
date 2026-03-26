@@ -23,6 +23,7 @@ pub struct CharacterCard {
 
 pub struct CharacterEntry {
     pub name: String,
+    pub slug: String,
 }
 
 #[derive(Deserialize)]
@@ -247,9 +248,11 @@ pub fn list_cards(dir: &Path) -> Vec<CharacterEntry> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
         .filter_map(|path| {
+            let slug = path.file_stem()?.to_string_lossy().to_string();
             let card = load_card(&path).ok()?;
             Some(CharacterEntry {
                 name: card.name,
+                slug,
             })
         })
         .collect();

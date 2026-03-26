@@ -381,6 +381,20 @@ pub fn generate_session_name() -> String {
     format!("{name}.session")
 }
 
+pub fn generate_session_name_for_character(character: &str) -> String {
+    let ts = now_iso8601();
+    let time_part = ts.replace(':', "-").replace('T', "_").trim_end_matches('Z').to_owned();
+    let slug: String = character.to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<&str>>()
+        .join("-");
+    format!("{slug}_{time_part}.session")
+}
+
 pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,

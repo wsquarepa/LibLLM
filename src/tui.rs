@@ -1229,6 +1229,7 @@ fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     app.save_mode.set_path(new_path);
                     app.status_message = format!("Loaded character: {}", card.name);
                     app.focus = Focus::Input;
+                    refresh_sidebar(app);
                 }
                 Err(e) => {
                     app.status_message = format!("Error: {e}");
@@ -1477,6 +1478,7 @@ fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.auto_scroll = true;
             app.status_message.clear();
             app.session.maybe_save(&app.save_mode)?;
+            refresh_sidebar(app);
         }
         StreamToken::Error(err) => {
             app.streaming_buffer.clear();
@@ -1539,12 +1541,15 @@ fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sende
         "/clear" => {
             app.session.tree.clear();
             app.session.system_prompt = None;
+            app.session.character = None;
+            app.session.worldbooks.clear();
             app.chat_scroll = 0;
             app.auto_scroll = true;
             let new_name = session::generate_session_name();
             let new_path = crate::config::sessions_dir().join(&new_name);
             app.save_mode.set_path(new_path);
             app.status_message = "New conversation started.".to_owned();
+            refresh_sidebar(app);
         }
         "/retry" => {
             app.session.pop_trailing_assistant();
@@ -1735,6 +1740,13 @@ fn new_chat_entry() -> SessionEntry {
         filename: "+ New Chat".to_owned(),
         is_new_chat: true,
     }
+}
+
+fn refresh_sidebar(app: &mut App) {
+    let mut sessions = discover_sidebar_sessions(&app.save_mode);
+    sessions.insert(0, new_chat_entry());
+    app.sidebar_sessions = sessions;
+    app.sidebar_state.select(Some(0));
 }
 
 fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {

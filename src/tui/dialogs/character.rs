@@ -73,7 +73,6 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.session.system_prompt =
                         Some(crate::character::build_system_prompt(&card));
                     app.session.character = Some(card.name.clone());
-                    app.session.worldbooks.clear();
                     if !card.first_mes.is_empty() {
                         app.session.tree.push(
                             None,
@@ -83,7 +82,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.chat_scroll = 0;
                     app.auto_scroll = true;
                     let new_path = crate::config::sessions_dir()
-                        .join(session::generate_session_name_for_character(&card.name));
+                        .join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
                     app.status_message = format!("Loaded character: {}", card.name);
                     app.focus = Focus::Input;

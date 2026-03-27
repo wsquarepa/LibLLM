@@ -433,17 +433,10 @@ pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
 }
 
 pub fn generate_session_name() -> String {
-    let ts = now_iso8601();
-    let name = ts.replace(':', "-").replace('T', "_").trim_end_matches('Z').to_owned();
-    format!("{name}.session")
+    let id = uuid::Uuid::new_v4();
+    format!("{id}.session")
 }
 
-pub fn generate_session_name_for_character(character: &str) -> String {
-    let ts = now_iso8601();
-    let time_part = ts.replace(':', "-").replace('T', "_").trim_end_matches('Z').to_owned();
-    let slug = crate::character::slugify(character);
-    format!("{time_part}_{slug}.session")
-}
 
 pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
     let entries = std::fs::read_dir(dir)

@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
             session.tree.push(None, Message::new(Role::Assistant, card.first_mes.clone()));
         }
         let char_path = config::sessions_dir()
-            .join(session::generate_session_name_for_character(&card.name));
+            .join(session::generate_session_name());
         save_mode.set_path(char_path);
     }
 

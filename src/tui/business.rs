@@ -192,8 +192,7 @@ pub fn new_chat_entry() -> SessionEntry {
 }
 
 pub fn refresh_sidebar(app: &mut App) {
-    let mut sessions = discover_sidebar_sessions(&app.save_mode);
-    sessions.insert(0, new_chat_entry());
+    let sessions = discover_sidebar_sessions(&app.save_mode);
     app.sidebar_sessions = sessions;
     app.sidebar_state.select(Some(0));
 }

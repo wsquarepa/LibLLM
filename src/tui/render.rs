@@ -273,11 +273,13 @@ pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, ch
     let items: Vec<ListItem> = matches
         .iter()
         .map(|c| {
-            let label = if c.args.is_empty() {
-                c.name.to_owned()
-            } else {
-                format!("{} {}", c.name, c.args)
-            };
+            let mut label = c.name.to_owned();
+            if !c.args.is_empty() {
+                label.push_str(&format!(" {}", c.args));
+            }
+            if !c.aliases.is_empty() {
+                label.push_str(&format!(" ({})", c.aliases.join(", ")));
+            }
             ListItem::new(format!("{label}  {}", c.description))
         })
         .collect();

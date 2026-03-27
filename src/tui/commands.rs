@@ -11,11 +11,12 @@ use super::dialogs::FieldDialog;
 use super::{App, Focus, CONFIG_FIELDS, SELF_FIELDS};
 
 pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sender<StreamToken>) {
+    let cmd = crate::commands::resolve_alias(cmd);
     match cmd {
         "/help" => {
             app.status_message = "Use Tab to complete commands, Up/Down to navigate.".to_owned();
         }
-        "/quit" | "/exit" => {
+        "/quit" => {
             app.should_quit = true;
         }
         "/clear" => {

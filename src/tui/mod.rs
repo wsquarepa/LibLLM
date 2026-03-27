@@ -411,8 +411,16 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Up => {
+            let content = app
+                .session
+                .tree
+                .head()
+                .and_then(|id| app.session.tree.node(id))
+                .filter(|n| n.message.role == crate::session::Role::User)
+                .map(|n| n.message.content.clone())
+                .unwrap_or_default();
             cancel_generation(app);
-            open_edit_dialog(app);
+            open_edit_dialog_with(app, &content);
             None
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -447,13 +455,16 @@ fn open_edit_dialog(app: &mut App) {
         .filter(|n| n.message.role == crate::session::Role::User)
         .map(|n| n.message.content.clone())
         .unwrap_or_default();
+    open_edit_dialog_with(app, &last_user_content);
+}
 
-    let mut editor = TextArea::from(
-        last_user_content
-            .lines()
-            .map(String::from)
-            .collect::<Vec<_>>(),
-    );
+fn open_edit_dialog_with(app: &mut App, content: &str) {
+    let lines: Vec<String> = content.lines().map(String::from).collect();
+    let mut editor = TextArea::from(if lines.is_empty() {
+        vec![String::new()]
+    } else {
+        lines
+    });
     editor.set_cursor_line_style(ratatui::style::Style::default());
     editor.move_cursor(tui_textarea::CursorMove::Bottom);
     editor.move_cursor(tui_textarea::CursorMove::End);

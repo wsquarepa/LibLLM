@@ -441,22 +441,13 @@ pub fn generate_session_name() -> String {
 pub fn generate_session_name_for_character(character: &str) -> String {
     let ts = now_iso8601();
     let time_part = ts.replace(':', "-").replace('T', "_").trim_end_matches('Z').to_owned();
-    let slug: String = character.to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<&str>>()
-        .join("-");
+    let slug = crate::character::slugify(character);
     format!("{time_part}_{slug}.session")
 }
 
-pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return Vec::new(),
-    };
+pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
+    let entries = std::fs::read_dir(dir)
+        .context(format!("failed to read sessions directory: {}", dir.display()))?;
 
     let mut sessions: Vec<SessionEntry> = entries
         .filter_map(|e| e.ok())
@@ -479,7 +470,7 @@ pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
         };
         mtime(&b.path).cmp(&mtime(&a.path))
     });
-    sessions
+    Ok(sessions)
 }
 
 pub fn load_metadata(path: &Path, key: &DerivedKey) -> Option<SessionMetadata> {

@@ -93,11 +93,19 @@ pub fn load() -> Config {
 
     let path = config_path();
     match std::fs::read_to_string(&path) {
-        Ok(contents) => parse(&contents).unwrap_or_default(),
+        Ok(contents) => match toml::from_str(&contents) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("Warning: failed to parse {}: {e}", path.display());
+                Config::default()
+            }
+        },
         Err(_) => Config::default(),
     }
 }
 
-fn parse(contents: &str) -> Result<Config> {
-    toml::from_str(contents).context("failed to parse config file")
+pub fn save(cfg: &Config) -> Result<()> {
+    let path = config_path();
+    let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
+    std::fs::write(&path, toml_str).context(format!("failed to write config: {}", path.display()))
 }

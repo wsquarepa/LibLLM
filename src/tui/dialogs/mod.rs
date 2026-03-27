@@ -218,10 +218,7 @@ impl<'a> FieldDialog<'a> {
                     } else {
                         lines
                     });
-                    editor.set_cursor_line_style(Style::default());
-                    editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
-                    editor.move_cursor(tui_textarea::CursorMove::Bottom);
-                    editor.move_cursor(tui_textarea::CursorMove::End);
+                    super::configure_textarea_at_end(&mut editor);
                     self.editor = Some(editor);
                 } else {
                     self.editing = true;

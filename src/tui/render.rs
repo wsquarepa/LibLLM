@@ -9,6 +9,7 @@ use crate::session::{Message, NodeId, Role};
 use super::App;
 
 const DIALOGUE_COLOR: Color = Color::LightBlue;
+const SIDEBAR_PREVIEW_CHARS: usize = 28;
 
 pub fn border_style(focused: bool) -> Style {
     if focused {
@@ -52,8 +53,8 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
             if selected_idx == Some(i) {
                 let mut lines = vec![Line::from(label)];
                 if let Some(ref msg) = entry.first_message {
-                    let truncated: String = msg.chars().take(28).collect();
-                    let display = if msg.chars().count() > 28 {
+                    let truncated: String = msg.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
+                    let display = if msg.chars().count() > SIDEBAR_PREVIEW_CHARS {
                         format!("  {truncated}...")
                     } else {
                         format!("  {truncated}")
@@ -205,8 +206,7 @@ pub fn render_chat(
 
     let replace_vars = |text: &str| -> String {
         if has_replacements {
-            text.replace("{{char}}", char_name)
-                .replace("{{user}}", user_name)
+            super::business::apply_template_vars(text, char_name, user_name)
         } else {
             text.to_owned()
         }

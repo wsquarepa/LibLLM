@@ -181,10 +181,15 @@ pub fn scan_entries(worldbook: &WorldBook, messages: &[&str]) -> Vec<ActivatedEn
     activated
 }
 
-pub fn normalize_worldbooks(dir: &Path) {
+pub fn normalize_worldbooks(dir: &Path) -> Vec<String> {
+    let mut warnings: Vec<String> = Vec::new();
+
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => return,
+        Err(e) => {
+            warnings.push(format!("failed to read worldinfo dir: {e}"));
+            return warnings;
+        }
     };
 
     let json_paths: Vec<std::path::PathBuf> = entries
@@ -194,9 +199,10 @@ pub fn normalize_worldbooks(dir: &Path) {
         .collect();
 
     for path in json_paths {
+        let display = path.display().to_string();
         let contents = match std::fs::read_to_string(&path) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
         };
 
         if serde_json::from_str::<WorldBook>(&contents).is_ok() {
@@ -205,13 +211,22 @@ pub fn normalize_worldbooks(dir: &Path) {
 
         let wb = match load_worldbook(&path) {
             Ok(w) => w,
-            Err(_) => continue,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
         };
 
-        if let Ok(json) = serde_json::to_string_pretty(&wb) {
-            let _ = std::fs::write(&path, json);
+        let json = serde_json::to_string_pretty(&wb)
+            .map_err(|e| format!("failed to serialize {display}: {e}"));
+        match json {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    warnings.push(format!("failed to write {display}: {e}"));
+                }
+            }
+            Err(msg) => { warnings.push(msg); }
         }
     }
+
+    warnings
 }
 
 pub fn list_worldbooks(dir: &Path) -> Vec<WorldBookEntry> {

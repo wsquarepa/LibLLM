@@ -10,6 +10,35 @@ use super::business::{load_config_fields, load_self_fields, refresh_sidebar};
 use super::dialogs::FieldDialog;
 use super::{App, Focus, CONFIG_FIELDS, SELF_FIELDS};
 
+pub fn spawn_metadata_loading(
+    sessions: &[super::SessionEntry],
+    key: &std::sync::Arc<crate::crypto::DerivedKey>,
+    bg_tx: &mpsc::Sender<super::BackgroundEvent>,
+) {
+    for i in 0..sessions.len() {
+        if sessions[i].is_new_chat {
+            continue;
+        }
+        let entry_path = sessions[i].path.clone();
+        let key = key.clone();
+        let tx = bg_tx.clone();
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                session::load_metadata(&entry_path, &key)
+            })
+            .await;
+            if let Ok(Some(metadata)) = result {
+                let _ = tx
+                    .send(super::BackgroundEvent::MetadataLoaded {
+                        index: i,
+                        metadata,
+                    })
+                    .await;
+            }
+        });
+    }
+}
+
 pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sender<StreamToken>) {
     let cmd = crate::commands::resolve_alias(cmd);
     match cmd {
@@ -84,8 +113,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 let mut editor = tui_textarea::TextArea::from(
                     content.lines().map(String::from).collect::<Vec<_>>(),
                 );
-                editor.set_cursor_line_style(ratatui::style::Style::default());
-                editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
+                super::configure_textarea(&mut editor);
                 app.system_editor = Some(editor);
                 app.system_editor_roleplay = is_roleplay;
                 app.focus = Focus::SystemDialog;
@@ -119,7 +147,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             app.config_dialog = Some(FieldDialog::new(
                 " Configuration ",
                 CONFIG_FIELDS,
-                load_config_fields(),
+                load_config_fields(&crate::config::load()),
                 &[],
             ));
             app.focus = Focus::ConfigDialog;
@@ -161,14 +189,14 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 return;
             }
 
-            let max_preview = 60;
+            const BRANCH_PREVIEW_CHARS: usize = 60;
             app.branch_dialog_items = siblings
                 .iter()
                 .map(|&sib_id| {
                     let node = app.session.tree.node(sib_id).unwrap();
                     let content = &node.message.content;
-                    let preview = if content.len() > max_preview {
-                        format!("{}...", &content[..max_preview])
+                    let preview = if content.len() > BRANCH_PREVIEW_CHARS {
+                        format!("{}...", &content[..BRANCH_PREVIEW_CHARS])
                     } else {
                         content.clone()
                     };
@@ -189,7 +217,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             app.self_dialog = Some(FieldDialog::new(
                 " User Persona ",
                 SELF_FIELDS,
-                load_self_fields(),
+                load_self_fields(&crate::config::load()),
                 &[1],
             ));
             app.focus = Focus::SelfDialog;
@@ -270,11 +298,12 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.auto_scroll = true;
     app.status_message = "Generating... (Esc: cancel)".to_owned();
 
+    let cfg = crate::config::load();
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt = super::business::build_effective_system_prompt(app.session);
-    let injected = super::business::inject_worldbook_entries(app.session, truncated);
-    let injected = super::business::replace_template_vars(app.session, injected);
+    let effective_prompt = super::business::build_effective_system_prompt(app.session, &cfg);
+    let injected = super::business::inject_worldbook_entries(app.session, truncated, &cfg);
+    let injected = super::business::replace_template_vars(app.session, injected, &cfg);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
         .template
@@ -335,32 +364,15 @@ pub fn handle_background_event(
             app.status_message.clear();
 
             let sessions_dir = crate::config::sessions_dir();
-            let mut sessions = session::list_session_paths(&sessions_dir);
+            let mut sessions = session::list_session_paths(&sessions_dir).unwrap_or_else(|e| {
+                app.status_message = format!("Warning: {e}");
+                Vec::new()
+            });
             sessions.insert(0, super::business::new_chat_entry());
             app.sidebar_sessions = sessions;
             app.sidebar_state.select(Some(0));
 
-            for i in 0..app.sidebar_sessions.len() {
-                if app.sidebar_sessions[i].is_new_chat {
-                    continue;
-                }
-                let entry_path = app.sidebar_sessions[i].path.clone();
-                let key = key.clone();
-                let tx = bg_tx.clone();
-                tokio::spawn(async move {
-                    let result = tokio::task::spawn_blocking(move || {
-                        session::load_metadata(&entry_path, &key)
-                    }).await;
-                    if let Ok(Some(metadata)) = result {
-                        let _ = tx
-                            .send(super::BackgroundEvent::MetadataLoaded {
-                                index: i,
-                                metadata,
-                            })
-                            .await;
-                    }
-                });
-            }
+            spawn_metadata_loading(&app.sidebar_sessions, &key, &bg_tx);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
             app.passkey_error = format!("Failed: {err}");

@@ -66,20 +66,23 @@ pub(in crate::tui) fn handle_system_key(key: KeyEvent, app: &mut App) -> Option<
                     cfg.system_prompt = value;
                 }
 
-                let path = crate::config::config_path();
-                if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
-                    let _ = std::fs::write(path, toml_str);
-                }
-
-                app.system_editor = None;
-                app.focus = Focus::Input;
-
                 let label = if app.system_editor_roleplay {
                     "Roleplay"
                 } else {
                     "Assistant"
                 };
-                app.status_message = format!("{label} system prompt saved.");
+
+                match crate::config::save(&cfg) {
+                    Ok(()) => {
+                        app.status_message = format!("{label} system prompt saved.");
+                    }
+                    Err(e) => {
+                        app.status_message = format!("Failed to save {label} prompt: {e}");
+                    }
+                }
+
+                app.system_editor = None;
+                app.focus = Focus::Input;
             }
             _ => {
                 editor.input(key);

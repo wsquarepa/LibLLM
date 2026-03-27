@@ -66,6 +66,9 @@ const CONFIG_FIELDS: &[&str] = &[
 
 const SELF_FIELDS: &[&str] = &["Name", "Persona"];
 
+const SIDEBAR_WIDTH: u16 = 32;
+const INPUT_HEIGHT: u16 = 5;
+
 struct App<'a> {
     client: &'a ApiClient,
     session: &'a mut Session,
@@ -128,8 +131,7 @@ pub async fn run(
             .borders(Borders::ALL)
             .title(" Input (Enter to send, Alt+Enter for newline) "),
     );
-    textarea.set_cursor_line_style(Style::default());
-    textarea.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
+    configure_textarea(&mut textarea);
 
     let sidebar_state = ratatui::widgets::ListState::default();
 
@@ -191,27 +193,7 @@ pub async fn run(
     let mut event_stream = EventStream::new();
 
     if let SaveMode::Encrypted { key, .. } = &app.save_mode {
-        for i in 0..app.sidebar_sessions.len() {
-            if app.sidebar_sessions[i].is_new_chat {
-                continue;
-            }
-            let entry_path = app.sidebar_sessions[i].path.clone();
-            let key = key.clone();
-            let tx = bg_tx.clone();
-            tokio::spawn(async move {
-                let result = tokio::task::spawn_blocking(move || {
-                    session::load_metadata(&entry_path, &key)
-                }).await;
-                if let Ok(Some(metadata)) = result {
-                    let _ = tx
-                        .send(BackgroundEvent::MetadataLoaded {
-                            index: i,
-                            metadata,
-                        })
-                        .await;
-                }
-            });
-        }
+        commands::spawn_metadata_loading(&app.sidebar_sessions, key, &bg_tx);
     }
 
     let mut frame_tick = tokio::time::interval(std::time::Duration::from_millis(16));
@@ -270,7 +252,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(32), Constraint::Min(30)])
+        .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
         .split(main_area);
 
     let sidebar_area = columns[0];
@@ -278,7 +260,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
     let right_split = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(5)])
+        .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
         .split(right_area);
 
     let chat_area = right_split[0];
@@ -535,12 +517,20 @@ fn open_edit_dialog_with(app: &mut App, content: &str) {
     } else {
         lines
     });
-    editor.set_cursor_line_style(ratatui::style::Style::default());
-    editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
-    editor.move_cursor(tui_textarea::CursorMove::Bottom);
-    editor.move_cursor(tui_textarea::CursorMove::End);
+    configure_textarea_at_end(&mut editor);
     app.edit_editor = Some(editor);
     app.focus = Focus::EditDialog;
+}
+
+fn configure_textarea(ta: &mut TextArea<'_>) {
+    ta.set_cursor_line_style(Style::default());
+    ta.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
+}
+
+fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
+    configure_textarea(ta);
+    ta.move_cursor(tui_textarea::CursorMove::Bottom);
+    ta.move_cursor(tui_textarea::CursorMove::End);
 }
 
 enum DialogKind {
@@ -568,17 +558,29 @@ fn handle_field_dialog_key(
             match kind {
                 DialogKind::Config => {
                     let values = &app.config_dialog.as_ref().unwrap().values;
-                    business::save_config_from_fields(values);
-                    business::apply_config(app);
+                    match business::save_config_from_fields(values) {
+                        Ok(()) => {
+                            business::apply_config(app);
+                            app.status_message = "Configuration saved.".to_owned();
+                        }
+                        Err(e) => {
+                            app.status_message = format!("Failed to save config: {e}");
+                        }
+                    }
                     app.config_dialog = None;
-                    app.status_message = "Configuration saved.".to_owned();
                 }
                 DialogKind::SelfPersona => {
                     let values = &app.self_dialog.as_ref().unwrap().values;
-                    business::save_self_fields(values);
-                    app.user_name = crate::config::load().user_name;
+                    match business::save_self_fields(values) {
+                        Ok(()) => {
+                            app.user_name = crate::config::load().user_name;
+                            app.status_message = "User persona saved.".to_owned();
+                        }
+                        Err(e) => {
+                            app.status_message = format!("Failed to save persona: {e}");
+                        }
+                    }
                     app.self_dialog = None;
-                    app.status_message = "User persona saved.".to_owned();
                 }
             }
             app.focus = Focus::Input;

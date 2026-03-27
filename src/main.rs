@@ -26,8 +26,12 @@ use session::{Message, Role, SaveMode};
 async fn main() -> Result<()> {
     let args = Args::parse();
     config::ensure_dirs()?;
-    character::auto_import_png_cards(&config::characters_dir());
-    worldinfo::normalize_worldbooks(&config::worldinfo_dir());
+    for warning in character::auto_import_png_cards(&config::characters_dir()) {
+        eprintln!("{warning}");
+    }
+    for warning in worldinfo::normalize_worldbooks(&config::worldinfo_dir()) {
+        eprintln!("{warning}");
+    }
     let cfg = config::load();
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());

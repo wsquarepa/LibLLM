@@ -10,8 +10,14 @@ pub fn non_empty(s: &str) -> Option<String> {
     }
 }
 
-pub fn build_effective_system_prompt(session: &Session) -> Option<String> {
-    let cfg = crate::config::load();
+pub fn apply_template_vars(text: &str, char_name: &str, user_name: &str) -> String {
+    text.replace("{{char}}", char_name).replace("{{user}}", user_name)
+}
+
+pub fn build_effective_system_prompt(
+    session: &Session,
+    cfg: &crate::config::Config,
+) -> Option<String> {
     let is_character = session.character.is_some();
 
     let session_prompt = session.system_prompt.as_deref().unwrap_or("");
@@ -52,9 +58,7 @@ pub fn build_effective_system_prompt(session: &Session) -> Option<String> {
     if is_character {
         let char_name = session.character.as_deref().unwrap_or("");
         let user_name = cfg.user_name.as_deref().unwrap_or("User");
-        result = result
-            .replace("{{char}}", char_name)
-            .replace("{{user}}", user_name);
+        result = apply_template_vars(&result, char_name, user_name);
     }
 
     Some(result)
@@ -63,12 +67,12 @@ pub fn build_effective_system_prompt(session: &Session) -> Option<String> {
 pub fn inject_worldbook_entries<'a>(
     session: &Session,
     messages: &[&'a Message],
+    cfg: &crate::config::Config,
 ) -> Vec<Message> {
     if session.character.is_none() || session.worldbooks.is_empty() {
         return messages.iter().map(|m| (*m).clone()).collect();
     }
 
-    let cfg = crate::config::load();
     let char_name = session.character.as_deref().unwrap_or("");
     let user_name = cfg.user_name.as_deref().unwrap_or("User");
 
@@ -93,10 +97,7 @@ pub fn inject_worldbook_entries<'a>(
     let len = result.len();
 
     for entry in all_activated.into_iter().rev() {
-        let content = entry
-            .content
-            .replace("{{char}}", char_name)
-            .replace("{{user}}", user_name);
+        let content = apply_template_vars(&entry.content, char_name, user_name);
         let insert_pos = if entry.depth == 0 || entry.depth >= len {
             0
         } else {
@@ -108,34 +109,34 @@ pub fn inject_worldbook_entries<'a>(
     result
 }
 
-pub fn replace_template_vars(session: &Session, messages: Vec<Message>) -> Vec<Message> {
+pub fn replace_template_vars(
+    session: &Session,
+    messages: Vec<Message>,
+    cfg: &crate::config::Config,
+) -> Vec<Message> {
     if session.character.is_none() {
         return messages;
     }
 
-    let cfg = crate::config::load();
     let char_name = session.character.as_deref().unwrap_or("");
     let user_name = cfg.user_name.as_deref().unwrap_or("User");
 
     messages
         .into_iter()
         .map(|mut msg| {
-            msg.content = msg
-                .content
-                .replace("{{char}}", char_name)
-                .replace("{{user}}", user_name);
+            msg.content = apply_template_vars(&msg.content, char_name, user_name);
             msg
         })
         .collect()
 }
 
-pub fn load_config_fields() -> Vec<String> {
-    let cfg = crate::config::load();
+pub fn load_config_fields(cfg: &crate::config::Config) -> Vec<String> {
     let defaults = crate::sampling::SamplingParams::default();
     vec![
-        cfg.api_url
-            .unwrap_or_else(|| crate::config::Config::default().api_url().to_owned()),
-        cfg.template.unwrap_or_else(|| "llama2".to_owned()),
+        cfg.api_url.as_deref()
+            .unwrap_or(crate::config::Config::default().api_url())
+            .to_owned(),
+        cfg.template.as_deref().unwrap_or("llama2").to_owned(),
         cfg.sampling
             .temperature
             .unwrap_or(defaults.temperature)
@@ -158,7 +159,7 @@ pub fn load_config_fields() -> Vec<String> {
     ]
 }
 
-pub fn save_config_from_fields(fields: &[String]) {
+pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
     let existing = crate::config::load();
     let cfg = crate::config::Config {
         api_url: non_empty(&fields[0]),
@@ -178,10 +179,7 @@ pub fn save_config_from_fields(fields: &[String]) {
         },
     };
 
-    let path = crate::config::config_path();
-    if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
-        let _ = std::fs::write(path, toml_str);
-    }
+    crate::config::save(&cfg)
 }
 
 pub fn apply_config(app: &mut App) {
@@ -203,23 +201,19 @@ pub fn apply_config(app: &mut App) {
     }
 }
 
-pub fn load_self_fields() -> Vec<String> {
-    let cfg = crate::config::load();
+pub fn load_self_fields(cfg: &crate::config::Config) -> Vec<String> {
     vec![
-        cfg.user_name.unwrap_or_default(),
-        cfg.user_persona.unwrap_or_default(),
+        cfg.user_name.clone().unwrap_or_default(),
+        cfg.user_persona.clone().unwrap_or_default(),
     ]
 }
 
-pub fn save_self_fields(fields: &[String]) {
+pub fn save_self_fields(fields: &[String]) -> anyhow::Result<()> {
     let mut cfg = crate::config::load();
     cfg.user_name = non_empty(&fields[0]);
     cfg.user_persona = non_empty(&fields[1]);
 
-    let path = crate::config::config_path();
-    if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
-        let _ = std::fs::write(path, toml_str);
-    }
+    crate::config::save(&cfg)
 }
 
 pub fn new_chat_entry() -> SessionEntry {
@@ -246,46 +240,54 @@ pub fn refresh_sidebar(app: &mut App) {
 pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
     let mut sessions = match save_mode {
         SaveMode::Encrypted { .. } => {
-            session::list_session_paths(&crate::config::sessions_dir())
+            match session::list_session_paths(&crate::config::sessions_dir()) {
+                Ok(sessions) => sessions,
+                Err(e) => {
+                    eprintln!("Warning: {e}");
+                    Vec::new()
+                }
+            }
         }
-        SaveMode::Plaintext(path) => {
-            let dir = match path.parent() {
-                Some(d) => d,
-                None => return Vec::new(),
-            };
-            let mut entries: Vec<SessionEntry> = std::fs::read_dir(dir)
-                .into_iter()
-                .flatten()
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
-                .map(|p| {
-                    let filename = p
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    SessionEntry {
-                        path: p,
-                        filename,
-                        display_name: "Assistant".to_owned(),
-                        message_count: None,
-                        first_message: None,
-                        is_new_chat: false,
-                    }
-                })
-                .collect();
-            entries.sort_by(|a, b| {
-                let mtime = |p: &std::path::Path| {
-                    p.metadata()
-                        .and_then(|m| m.modified())
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                };
-                mtime(&b.path).cmp(&mtime(&a.path))
-            });
-            entries
-        }
+        SaveMode::Plaintext(path) => list_plaintext_sessions(path),
         SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
     };
     sessions.insert(0, new_chat_entry());
     sessions
+}
+
+fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
+    let dir = match path.parent() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    let mut entries: Vec<SessionEntry> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .map(|p| {
+            let filename = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            SessionEntry {
+                path: p,
+                filename,
+                display_name: "Assistant".to_owned(),
+                message_count: None,
+                first_message: None,
+                is_new_chat: false,
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        let mtime = |p: &std::path::Path| {
+            p.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        };
+        mtime(&b.path).cmp(&mtime(&a.path))
+    });
+    entries
 }

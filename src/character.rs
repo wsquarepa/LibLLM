@@ -181,7 +181,7 @@ pub fn build_system_prompt(card: &CharacterCard) -> String {
     parts.join("\n\n")
 }
 
-fn slugify(name: &str) -> String {
+pub fn slugify(name: &str) -> String {
     name.to_lowercase()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -206,10 +206,15 @@ pub fn load_card(path: &Path) -> Result<CharacterCard> {
     serde_json::from_str(&contents).context("failed to parse character card")
 }
 
-pub fn auto_import_png_cards(dir: &Path) {
+pub fn auto_import_png_cards(dir: &Path) -> Vec<String> {
+    let mut warnings: Vec<String> = Vec::new();
+
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => return,
+        Err(e) => {
+            warnings.push(format!("failed to read characters dir: {e}"));
+            return warnings;
+        }
     };
 
     let png_paths: Vec<PathBuf> = entries
@@ -219,22 +224,26 @@ pub fn auto_import_png_cards(dir: &Path) {
         .collect();
 
     for png_path in png_paths {
+        let display = png_path.display().to_string();
         let bytes = match std::fs::read(&png_path) {
             Ok(b) => b,
-            Err(_) => continue,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
         };
         let json = match extract_png_card(&bytes) {
             Ok(j) => j,
-            Err(_) => continue,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
         };
         let card = match parse_card_json(&json) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
         };
-        if save_card(&card, dir).is_ok() {
-            let _ = std::fs::remove_file(&png_path);
+        match save_card(&card, dir) {
+            Ok(_) => { let _ = std::fs::remove_file(&png_path); }
+            Err(e) => { warnings.push(format!("failed to save {display}: {e}")); }
         }
     }
+
+    warnings
 }
 
 pub fn list_cards(dir: &Path) -> Vec<CharacterEntry> {

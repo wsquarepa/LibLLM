@@ -265,7 +265,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.is_streaming = true;
     app.streaming_buffer.clear();
     app.auto_scroll = true;
-    app.status_message = "Generating... (Esc: cancel, Up: edit)".to_owned();
+    app.status_message = "Generating... (Esc: cancel)".to_owned();
 
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);

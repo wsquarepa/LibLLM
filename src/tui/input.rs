@@ -4,9 +4,23 @@ use crossterm::event::KeyModifiers;
 use ratatui::style::Style;
 use tui_textarea::TextArea;
 
-use crate::session::{self, SaveMode, Session};
+use crate::session::{self, NodeId, Role, SaveMode, Session};
 
 use super::{Action, App};
+
+fn user_node_ids(app: &App) -> Vec<NodeId> {
+    app.session
+        .tree
+        .branch_path_ids()
+        .into_iter()
+        .filter(|&id| {
+            app.session
+                .tree
+                .node(id)
+                .is_some_and(|n| n.message.role == Role::User)
+        })
+        .collect()
+}
 
 pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.is_streaming {
@@ -130,24 +144,24 @@ fn recall_last_message(app: &mut App) {
 }
 
 fn navigate_up(app: &mut App) {
-    let path = app.session.tree.branch_path_ids();
-    if path.is_empty() {
+    let user_ids = user_node_ids(app);
+    if user_ids.is_empty() {
         return;
     }
 
     match app.nav_cursor {
         None => {
-            if path.len() >= 2 {
-                app.nav_cursor = Some(path[path.len() - 2]);
+            if let Some(&last) = user_ids.last() {
+                app.nav_cursor = Some(last);
                 app.auto_scroll = false;
                 app.status_message =
-                    "Nav mode: Up/Down move, /branch to switch, Esc to exit".to_owned();
+                    "Up/Down: navigate, Enter: edit, /branch: switch, Esc: exit".to_owned();
             }
         }
         Some(current) => {
-            if let Some(pos) = path.iter().position(|&id| id == current) {
+            if let Some(pos) = user_ids.iter().position(|&id| id == current) {
                 if pos > 0 {
-                    app.nav_cursor = Some(path[pos - 1]);
+                    app.nav_cursor = Some(user_ids[pos - 1]);
                 }
             }
         }
@@ -155,14 +169,14 @@ fn navigate_up(app: &mut App) {
 }
 
 fn navigate_down(app: &mut App) {
-    let path = app.session.tree.branch_path_ids();
+    let user_ids = user_node_ids(app);
     let Some(current) = app.nav_cursor else {
         return;
     };
 
-    if let Some(pos) = path.iter().position(|&id| id == current) {
-        if pos + 1 < path.len() - 1 {
-            app.nav_cursor = Some(path[pos + 1]);
+    if let Some(pos) = user_ids.iter().position(|&id| id == current) {
+        if pos + 1 < user_ids.len() {
+            app.nav_cursor = Some(user_ids[pos + 1]);
         } else {
             app.nav_cursor = None;
             app.status_message.clear();
@@ -177,17 +191,17 @@ pub fn input_has_command_picker(app: &App) -> bool {
 }
 
 pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    let path = app.session.tree.branch_path_ids();
-    if path.is_empty() {
+    let user_ids = user_node_ids(app);
+    if user_ids.is_empty() {
         return None;
     }
 
     match key.code {
         KeyCode::Up => {
             if let Some(current) = app.nav_cursor {
-                if let Some(pos) = path.iter().position(|&id| id == current) {
+                if let Some(pos) = user_ids.iter().position(|&id| id == current) {
                     if pos > 0 {
-                        app.nav_cursor = Some(path[pos - 1]);
+                        app.nav_cursor = Some(user_ids[pos - 1]);
                     }
                 }
             }
@@ -195,9 +209,9 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Down => {
             if let Some(current) = app.nav_cursor {
-                if let Some(pos) = path.iter().position(|&id| id == current) {
-                    if pos + 1 < path.len() {
-                        app.nav_cursor = Some(path[pos + 1]);
+                if let Some(pos) = user_ids.iter().position(|&id| id == current) {
+                    if pos + 1 < user_ids.len() {
+                        app.nav_cursor = Some(user_ids[pos + 1]);
                     }
                 }
             }

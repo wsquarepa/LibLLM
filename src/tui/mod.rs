@@ -281,10 +281,15 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     render::render_sidebar(f, app, sidebar_area);
 
     let border = render::border_style(app.focus == Focus::Input);
+    let input_title = if app.nav_cursor.is_some() {
+        " Input (Enter to edit, Esc to cancel) "
+    } else {
+        " Input (Up arrow to edit, Enter to send) "
+    };
     app.textarea.set_block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline) ")
+            .title(input_title)
             .border_style(border),
     );
     f.render_widget(&app.textarea, input_area);
@@ -403,8 +408,12 @@ fn handle_key(
     if key.code == KeyCode::Tab {
         app.focus = match app.focus {
             Focus::Input => {
-                let path = app.session.tree.branch_path_ids();
-                app.nav_cursor = path.last().copied();
+                let last_user = app.session.tree.branch_path_ids()
+                    .into_iter()
+                    .rev()
+                    .find(|&id| app.session.tree.node(id)
+                        .is_some_and(|n| n.message.role == crate::session::Role::User));
+                app.nav_cursor = last_user;
                 app.auto_scroll = false;
                 Focus::Chat
             }

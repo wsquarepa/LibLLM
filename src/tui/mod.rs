@@ -49,7 +49,7 @@ enum Action {
 enum BackgroundEvent {
     KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
     KeyDeriveFailed(String),
-    PreviewLoaded { index: usize, preview: String },
+    MetadataLoaded { index: usize, metadata: session::SessionMetadata },
 }
 
 const CONFIG_FIELDS: &[&str] = &[
@@ -199,13 +199,17 @@ pub async fn run(
             let key = key.clone();
             let tx = bg_tx.clone();
             tokio::spawn(async move {
-                let preview = session::load_preview(&entry_path, &key);
-                let _ = tx
-                    .send(BackgroundEvent::PreviewLoaded {
-                        index: i,
-                        preview,
-                    })
-                    .await;
+                let result = tokio::task::spawn_blocking(move || {
+                    session::load_metadata(&entry_path, &key)
+                }).await;
+                if let Ok(Some(metadata)) = result {
+                    let _ = tx
+                        .send(BackgroundEvent::MetadataLoaded {
+                            index: i,
+                            metadata,
+                        })
+                        .await;
+                }
             });
         }
     }

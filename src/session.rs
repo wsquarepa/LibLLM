@@ -41,10 +41,19 @@ impl SaveMode {
 
 pub struct SessionEntry {
     pub path: PathBuf,
-    pub preview: String,
     pub filename: String,
+    pub display_name: String,
+    pub message_count: Option<usize>,
+    pub first_message: Option<String>,
     pub is_new_chat: bool,
 }
+
+pub struct SessionMetadata {
+    pub character: Option<String>,
+    pub message_count: usize,
+    pub first_message: Option<String>,
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -259,6 +268,10 @@ impl MessageTree {
         Some(message)
     }
 
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.head = None;
@@ -436,7 +449,7 @@ pub fn generate_session_name_for_character(character: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<&str>>()
         .join("-");
-    format!("{slug}_{time_part}.session")
+    format!("{time_part}_{slug}.session")
 }
 
 pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
@@ -454,38 +467,34 @@ pub fn list_session_paths(dir: &Path) -> Vec<SessionEntry> {
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            SessionEntry { path, preview: String::new(), filename, is_new_chat: false }
+            SessionEntry { path, filename, display_name: "Assistant".to_owned(), message_count: None, first_message: None, is_new_chat: false }
         })
         .collect();
 
-    sessions.sort_by(|a, b| b.filename.cmp(&a.filename));
+    sessions.sort_by(|a, b| {
+        let mtime = |p: &Path| {
+            p.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        };
+        mtime(&b.path).cmp(&mtime(&a.path))
+    });
     sessions
 }
 
-pub fn load_preview(path: &Path, key: &DerivedKey) -> String {
-    extract_preview(path, key)
-}
-
-fn extract_preview(path: &Path, key: &DerivedKey) -> String {
-    let session = match load_encrypted(path, key) {
-        Ok(s) => s,
-        Err(_) => return "[encrypted]".to_owned(),
-    };
-
-    session
+pub fn load_metadata(path: &Path, key: &DerivedKey) -> Option<SessionMetadata> {
+    let session = load_encrypted(path, key).ok()?;
+    let first_message = session
         .tree
         .branch_path()
-        .iter()
+        .into_iter()
         .find(|m| m.role == Role::User)
-        .map(|m| {
-            let truncated: String = m.content.chars().take(40).collect();
-            if m.content.chars().count() > 40 {
-                format!("{truncated}...")
-            } else {
-                truncated
-            }
-        })
-        .unwrap_or_else(|| "[empty]".to_owned())
+        .map(|m| m.content.clone());
+    Some(SessionMetadata {
+        character: session.character,
+        message_count: session.tree.node_count(),
+        first_message,
+    })
 }
 
 fn load_from_str(contents: &str) -> Result<Session> {

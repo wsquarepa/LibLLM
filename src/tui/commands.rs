@@ -348,13 +348,17 @@ pub fn handle_background_event(
                 let key = key.clone();
                 let tx = bg_tx.clone();
                 tokio::spawn(async move {
-                    let preview = session::load_preview(&entry_path, &key);
-                    let _ = tx
-                        .send(super::BackgroundEvent::PreviewLoaded {
-                            index: i,
-                            preview,
-                        })
-                        .await;
+                    let result = tokio::task::spawn_blocking(move || {
+                        session::load_metadata(&entry_path, &key)
+                    }).await;
+                    if let Ok(Some(metadata)) = result {
+                        let _ = tx
+                            .send(super::BackgroundEvent::MetadataLoaded {
+                                index: i,
+                                metadata,
+                            })
+                            .await;
+                    }
                 });
             }
         }
@@ -362,9 +366,14 @@ pub fn handle_background_event(
             app.passkey_error = format!("Failed: {err}");
             app.status_message.clear();
         }
-        super::BackgroundEvent::PreviewLoaded { index, preview } => {
+        super::BackgroundEvent::MetadataLoaded { index, metadata } => {
             if index < app.sidebar_sessions.len() {
-                app.sidebar_sessions[index].preview = preview;
+                let entry = &mut app.sidebar_sessions[index];
+                if let Some(character) = metadata.character {
+                    entry.display_name = character;
+                }
+                entry.message_count = Some(metadata.message_count);
+                entry.first_message = metadata.first_message;
             }
         }
     }

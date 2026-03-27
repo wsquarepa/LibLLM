@@ -25,18 +25,47 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
+    let selected_idx = app.sidebar_state.selected();
+    let mut name_totals: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for entry in &app.sidebar_sessions {
+        if !entry.is_new_chat {
+            *name_totals.entry(&entry.display_name).or_insert(0) += 1;
+        }
+    }
+    let mut name_remaining = name_totals.clone();
     let items: Vec<ListItem> = app
         .sidebar_sessions
         .iter()
-        .map(|entry| {
-            if entry.preview.is_empty() {
-                ListItem::new(entry.filename.clone())
+        .enumerate()
+        .map(|(i, entry)| {
+            if entry.is_new_chat {
+                return ListItem::new(entry.display_name.clone());
+            }
+            let rem = name_remaining.get_mut(entry.display_name.as_str()).unwrap();
+            let idx = *rem;
+            *rem -= 1;
+            let count_str = match entry.message_count {
+                Some(n) => format!(" ({n})"),
+                None => String::new(),
+            };
+            let label = format!("[{idx}] {}{count_str}", entry.display_name);
+            if selected_idx == Some(i) {
+                let mut lines = vec![Line::from(label)];
+                if let Some(ref msg) = entry.first_message {
+                    let truncated: String = msg.chars().take(28).collect();
+                    let display = if msg.chars().count() > 28 {
+                        format!("  {truncated}...")
+                    } else {
+                        format!("  {truncated}")
+                    };
+                    lines.push(Line::from(Span::styled(
+                        display,
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+                ListItem::new(Text::from(lines))
             } else {
-                ListItem::new(format!(
-                    "{}: {}",
-                    &entry.filename[..entry.filename.len().min(10)],
-                    entry.preview
-                ))
+                ListItem::new(label)
             }
         })
         .collect();

@@ -225,8 +225,10 @@ pub fn save_self_fields(fields: &[String]) {
 pub fn new_chat_entry() -> SessionEntry {
     SessionEntry {
         path: std::path::PathBuf::new(),
-        preview: String::new(),
         filename: "+ New Chat".to_owned(),
+        display_name: "+ New Chat".to_owned(),
+        message_count: None,
+        first_message: None,
         is_new_chat: true,
     }
 }
@@ -264,13 +266,22 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
                         .unwrap_or_default();
                     SessionEntry {
                         path: p,
-                        preview: String::new(),
                         filename,
+                        display_name: "Assistant".to_owned(),
+                        message_count: None,
+                        first_message: None,
                         is_new_chat: false,
                     }
                 })
                 .collect();
-            entries.sort_by(|a, b| b.filename.cmp(&a.filename));
+            entries.sort_by(|a, b| {
+                let mtime = |p: &std::path::Path| {
+                    p.metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                };
+                mtime(&b.path).cmp(&mtime(&a.path))
+            });
             entries
         }
         SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),

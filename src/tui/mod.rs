@@ -49,7 +49,7 @@ enum Action {
 enum BackgroundEvent {
     KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
     KeyDeriveFailed(String),
-    MetadataLoaded { index: usize, metadata: session::SessionMetadata },
+    MetadataLoaded { path: std::path::PathBuf, metadata: session::SessionMetadata },
 }
 
 const CONFIG_FIELDS: &[&str] = &[
@@ -113,6 +113,7 @@ struct App<'a> {
     delete_confirm_selected: usize,
     delete_confirm_filename: String,
     user_name: Option<String>,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
 }
 
 pub async fn run(
@@ -134,6 +135,9 @@ pub async fn run(
     configure_textarea(&mut textarea);
 
     let sidebar_state = ratatui::widgets::ListState::default();
+
+    let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
+    let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
 
     let mut app = App {
         client,
@@ -177,6 +181,7 @@ pub async fn run(
         delete_confirm_selected: 0,
         delete_confirm_filename: String::new(),
         user_name: crate::config::load().user_name,
+        bg_tx: bg_tx.clone(),
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -188,8 +193,6 @@ pub async fn run(
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
-    let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
     let mut event_stream = EventStream::new();
 
     if let SaveMode::Encrypted { key, .. } = &app.save_mode {
@@ -215,7 +218,7 @@ pub async fn run(
                 needs_redraw = true;
             }
             Some(bg_event) = bg_rx.recv() => {
-                commands::handle_background_event(bg_event, &mut app, bg_tx.clone());
+                commands::handle_background_event(bg_event, &mut app);
                 needs_redraw = true;
             }
             _ = frame_tick.tick() => {

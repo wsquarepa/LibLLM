@@ -228,13 +228,55 @@ pub fn new_chat_entry() -> SessionEntry {
 }
 
 pub fn refresh_sidebar(app: &mut App) {
-    let sessions = discover_sidebar_sessions(&app.save_mode);
+    let mut sessions = discover_sidebar_sessions(&app.save_mode);
+
+    for entry in &mut sessions {
+        if entry.is_new_chat {
+            continue;
+        }
+        if let Some(cached) = app.sidebar_sessions.iter().find(|e| e.path == entry.path) {
+            if cached.display_name != "Assistant" {
+                entry.display_name.clone_from(&cached.display_name);
+            }
+            if cached.message_count.is_some() {
+                entry.message_count = cached.message_count;
+            }
+            if cached.first_message.is_some() {
+                entry.first_message.clone_from(&cached.first_message);
+            }
+        }
+    }
+
     let current_path = app.save_mode.path().map(|p| p.to_path_buf());
+
+    if let Some(ref cp) = current_path {
+        if let Some(current_entry) = sessions.iter_mut().find(|e| e.path == *cp) {
+            if let Some(ref character) = app.session.character {
+                current_entry.display_name.clone_from(character);
+            }
+            current_entry.message_count = Some(app.session.tree.node_count());
+            if current_entry.first_message.is_none() {
+                current_entry.first_message = app
+                    .session
+                    .tree
+                    .branch_path()
+                    .into_iter()
+                    .find(|m| m.role == crate::session::Role::User)
+                    .map(|m| m.content.clone());
+            }
+        }
+    }
+
     let selected = current_path
         .and_then(|cp| sessions.iter().position(|s| s.path == cp))
         .unwrap_or(0);
     app.sidebar_sessions = sessions;
     app.sidebar_state.select(Some(selected));
+
+    if let crate::session::SaveMode::Encrypted { key, .. } = &app.save_mode {
+        let bg_tx = app.bg_tx.clone();
+        super::commands::spawn_metadata_loading(&app.sidebar_sessions, key, &bg_tx);
+    }
 }
 
 pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {

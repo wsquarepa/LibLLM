@@ -15,14 +15,15 @@ pub fn spawn_metadata_loading(
     key: &std::sync::Arc<crate::crypto::DerivedKey>,
     bg_tx: &mpsc::Sender<super::BackgroundEvent>,
 ) {
-    for i in 0..sessions.len() {
-        if sessions[i].is_new_chat {
+    for entry in sessions {
+        if entry.is_new_chat || entry.message_count.is_some() {
             continue;
         }
-        let entry_path = sessions[i].path.clone();
+        let entry_path = entry.path.clone();
         let key = key.clone();
         let tx = bg_tx.clone();
         tokio::spawn(async move {
+            let path_for_event = entry_path.clone();
             let result = tokio::task::spawn_blocking(move || {
                 session::load_metadata(&entry_path, &key)
             })
@@ -30,7 +31,7 @@ pub fn spawn_metadata_loading(
             if let Ok(Some(metadata)) = result {
                 let _ = tx
                     .send(super::BackgroundEvent::MetadataLoaded {
-                        index: i,
+                        path: path_for_event,
                         metadata,
                     })
                     .await;
@@ -352,7 +353,6 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
 pub fn handle_background_event(
     event: super::BackgroundEvent,
     app: &mut App,
-    bg_tx: mpsc::Sender<super::BackgroundEvent>,
 ) {
     match event {
         super::BackgroundEvent::KeyDerived(key, path) => {
@@ -362,25 +362,14 @@ pub fn handle_background_event(
             };
             app.focus = Focus::Input;
             app.status_message.clear();
-
-            let sessions_dir = crate::config::sessions_dir();
-            let mut sessions = session::list_session_paths(&sessions_dir).unwrap_or_else(|e| {
-                app.status_message = format!("Warning: {e}");
-                Vec::new()
-            });
-            sessions.insert(0, super::business::new_chat_entry());
-            app.sidebar_sessions = sessions;
-            app.sidebar_state.select(Some(0));
-
-            spawn_metadata_loading(&app.sidebar_sessions, &key, &bg_tx);
+            refresh_sidebar(app);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
             app.passkey_error = format!("Failed: {err}");
             app.status_message.clear();
         }
-        super::BackgroundEvent::MetadataLoaded { index, metadata } => {
-            if index < app.sidebar_sessions.len() {
-                let entry = &mut app.sidebar_sessions[index];
+        super::BackgroundEvent::MetadataLoaded { path, metadata } => {
+            if let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) {
                 if let Some(character) = metadata.character {
                     entry.display_name = character;
                 }

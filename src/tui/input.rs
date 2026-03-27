@@ -62,6 +62,22 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 app.command_picker_selected = 0;
                 return None;
             }
+            KeyCode::Enter if !matches.is_empty() => {
+                let selected = app
+                    .command_picker_selected
+                    .min(matches.len().saturating_sub(1));
+                let cmd = matches[selected];
+                if cmd.args.is_empty() {
+                    app.textarea = TextArea::default();
+                    super::configure_textarea(&mut app.textarea);
+                    app.command_picker_selected = 0;
+                    return Some(Action::SlashCommand(cmd.name.to_owned(), String::new()));
+                }
+                app.textarea = TextArea::from(vec![format!("{} ", cmd.name)]);
+                super::configure_textarea_at_end(&mut app.textarea);
+                app.command_picker_selected = 0;
+                return None;
+            }
             _ => {}
         }
     }

@@ -186,10 +186,8 @@ fn parse_styled_line(text: &str) -> Line<'static> {
 }
 
 fn find_closing(text: &str, delimiter: &str) -> Option<usize> {
-    if text.is_empty() {
-        return None;
-    }
-    text[1..].find(delimiter).map(|pos| pos + 1)
+    let start = text.char_indices().nth(1).map(|(i, _)| i)?;
+    text[start..].find(delimiter).map(|pos| pos + start)
 }
 
 pub fn render_chat(

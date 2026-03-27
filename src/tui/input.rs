@@ -57,7 +57,14 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     match key.code {
         KeyCode::Up if app.textarea.lines().join("").trim().is_empty() => {
-            recall_last_message(app);
+            navigate_up(app);
+            None
+        }
+        KeyCode::Down
+            if app.nav_cursor.is_some()
+                && app.textarea.lines().join("").trim().is_empty() =>
+        {
+            navigate_down(app);
             None
         }
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
@@ -93,27 +100,45 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 }
 
-fn recall_last_message(app: &mut App) {
-    use crate::session::Role;
+fn navigate_up(app: &mut App) {
+    let path = app.session.tree.branch_path_ids();
+    if path.is_empty() {
+        return;
+    }
 
-    app.session.pop_trailing_assistant();
+    match app.nav_cursor {
+        None => {
+            if path.len() >= 2 {
+                app.nav_cursor = Some(path[path.len() - 2]);
+                app.auto_scroll = false;
+                app.status_message =
+                    "Nav mode: Up/Down move, /branch to switch, Esc to exit".to_owned();
+            }
+        }
+        Some(current) => {
+            if let Some(pos) = path.iter().position(|&id| id == current) {
+                if pos > 0 {
+                    app.nav_cursor = Some(path[pos - 1]);
+                }
+            }
+        }
+    }
+}
 
-    let user_content = app
-        .session
-        .tree
-        .head()
-        .and_then(|id| app.session.tree.node(id))
-        .filter(|n| n.message.role == Role::User)
-        .map(|n| n.message.content.clone());
+fn navigate_down(app: &mut App) {
+    let path = app.session.tree.branch_path_ids();
+    let Some(current) = app.nav_cursor else {
+        return;
+    };
 
-    if let Some(content) = user_content {
-        app.session.tree.pop_head();
-        let lines: Vec<String> = content.lines().map(String::from).collect();
-        app.textarea = TextArea::from(lines);
-        app.textarea.set_cursor_line_style(Style::default());
-        app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
-        app.textarea.move_cursor(tui_textarea::CursorMove::End);
-        app.auto_scroll = true;
+    if let Some(pos) = path.iter().position(|&id| id == current) {
+        if pos + 1 < path.len() - 1 {
+            app.nav_cursor = Some(path[pos + 1]);
+        } else {
+            app.nav_cursor = None;
+            app.status_message.clear();
+            app.auto_scroll = true;
+        }
     }
 }
 
@@ -179,6 +204,7 @@ fn load_sidebar_selection(app: &mut App) {
     let Some(selected) = app.sidebar_state.selected() else {
         return;
     };
+    app.nav_cursor = None;
     let entry = &app.sidebar_sessions[selected];
     if entry.is_new_chat {
         *app.session = Session::default();

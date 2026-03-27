@@ -19,7 +19,7 @@ use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
 use crate::prompt::Template;
 use crate::sampling::SamplingParams;
-use crate::session::{self, SaveMode, Session, SessionEntry};
+use crate::session::{self, NodeId, SaveMode, Session, SessionEntry};
 
 use dialogs::FieldDialog;
 
@@ -35,6 +35,7 @@ enum Focus {
     WorldbookDialog,
     SystemDialog,
     EditDialog,
+    BranchDialog,
 }
 
 enum Action {
@@ -101,6 +102,10 @@ struct App<'a> {
 
     worldbook_list: Vec<String>,
     worldbook_selected: usize,
+
+    nav_cursor: Option<NodeId>,
+    branch_dialog_items: Vec<(NodeId, String)>,
+    branch_dialog_selected: usize,
 }
 
 pub async fn run(
@@ -158,6 +163,9 @@ pub async fn run(
         character_selected: 0,
         worldbook_list: Vec::new(),
         worldbook_selected: 0,
+        nav_cursor: None,
+        branch_dialog_items: Vec::new(),
+        branch_dialog_selected: 0,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -202,9 +210,11 @@ pub async fn run(
                     match action {
                         Action::Quit => break,
                         Action::SendMessage(text) => {
+                            app.nav_cursor = None;
                             commands::start_streaming(&mut app, &text, token_tx.clone());
                         }
                         Action::EditMessage(text) => {
+                            app.nav_cursor = None;
                             app.session.pop_trailing_assistant();
                             if app.session.tree.head()
                                 .and_then(|id| app.session.tree.node(id))
@@ -318,6 +328,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     if app.focus == Focus::EditDialog {
         dialogs::edit::render_edit_dialog(f, app, f.area());
     }
+    if app.focus == Focus::BranchDialog {
+        dialogs::branch::render_branch_dialog(f, app, f.area());
+    }
 }
 
 fn handle_event(
@@ -357,6 +370,9 @@ fn handle_key(
     if app.focus == Focus::EditDialog {
         return dialogs::edit::handle_edit_key(key, app);
     }
+    if app.focus == Focus::BranchDialog {
+        return dialogs::branch::handle_branch_dialog_key(key, app);
+    }
 
     if app.is_streaming {
         return handle_streaming_key(key, app);
@@ -370,12 +386,14 @@ fn handle_key(
     }
 
     if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {
+        app.nav_cursor = None;
         app.session.tree.switch_sibling(-1);
         let _ = app.session.maybe_save(&app.save_mode);
         app.status_message.clear();
         return None;
     }
     if key.code == KeyCode::Right && key.modifiers.contains(KeyModifiers::ALT) {
+        app.nav_cursor = None;
         app.session.tree.switch_sibling(1);
         let _ = app.session.maybe_save(&app.save_mode);
         app.status_message.clear();
@@ -392,7 +410,9 @@ fn handle_key(
     }
 
     if key.code == KeyCode::Esc {
+        app.nav_cursor = None;
         app.focus = Focus::Input;
+        app.auto_scroll = true;
         return None;
     }
 

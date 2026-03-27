@@ -1,3 +1,4 @@
+pub mod branch;
 pub mod character;
 pub mod edit;
 pub mod passkey;

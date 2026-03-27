@@ -239,6 +239,18 @@ impl MessageTree {
         !self.nodes[id].children.is_empty() || self.head == Some(id)
     }
 
+    pub fn siblings_of(&self, id: NodeId) -> Vec<NodeId> {
+        match self.nodes.get(id).and_then(|n| n.parent) {
+            Some(pid) => self.nodes[pid].children.clone(),
+            None => self
+                .nodes
+                .iter()
+                .filter(|n| n.parent.is_none() && self.is_reachable(n.id))
+                .map(|n| n.id)
+                .collect(),
+        }
+    }
+
     pub fn deepest_branch_info(&self) -> Option<(usize, usize)> {
         self.head?;
         let path = self.branch_path_ids();

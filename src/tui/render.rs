@@ -205,11 +205,21 @@ pub fn render_chat(
             String::new()
         };
 
-        lines.push(Line::from(vec![Span::styled(
-            format!("{role_label}{branch_indicator}: "),
+        let is_nav_selected = app.nav_cursor == Some(node_id);
+        let nav_marker = if is_nav_selected { ">> " } else { "" };
+        let role_style = if is_nav_selected {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        } else {
             Style::default()
                 .fg(role_color)
-                .add_modifier(Modifier::BOLD),
+                .add_modifier(Modifier::BOLD)
+        };
+
+        lines.push(Line::from(vec![Span::styled(
+            format!("{nav_marker}{role_label}{branch_indicator}: "),
+            role_style,
         )]));
 
         let content = replace_vars(&msg.content);

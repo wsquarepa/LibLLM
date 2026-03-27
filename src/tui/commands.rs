@@ -33,6 +33,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             refresh_sidebar(app);
         }
         "/retry" => {
+            app.nav_cursor = None;
             app.session.pop_trailing_assistant();
 
             let last_user_content = app
@@ -54,6 +55,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             }
         }
         "/edit" => {
+            app.nav_cursor = None;
             if arg.is_empty() {
                 super::open_edit_dialog(app);
             } else {
@@ -136,49 +138,49 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             }
         }
         "/branch" => {
-            match arg {
-                "next" => {
-                    app.session.tree.switch_sibling(1);
-                    app.status_message = "Switched to next branch.".to_owned();
-                    let _ = app.session.maybe_save(&app.save_mode);
+            let path_ids = app.session.tree.branch_path_ids();
+            let target = app.nav_cursor.or_else(|| {
+                if path_ids.len() >= 2 {
+                    Some(path_ids[path_ids.len() - 2])
+                } else {
+                    path_ids.last().copied()
                 }
-                "prev" => {
-                    app.session.tree.switch_sibling(-1);
-                    app.status_message = "Switched to previous branch.".to_owned();
-                    let _ = app.session.maybe_save(&app.save_mode);
-                }
-                "list" => {
-                    let path_ids = app.session.tree.branch_path_ids();
-                    let mut parts: Vec<String> = Vec::new();
-                    for &node_id in &path_ids {
-                        let (idx, total) = app.session.tree.sibling_info(node_id);
-                        if total > 1 {
-                            if let Some(node) = app.session.tree.node(node_id) {
-                                parts.push(format!(
-                                    "#{node_id} ({}): {}/{total}",
-                                    node.message.role,
-                                    idx + 1
-                                ));
-                            }
-                        }
-                    }
-                    if parts.is_empty() {
-                        app.status_message = "No branch points.".to_owned();
-                    } else {
-                        app.status_message = format!("Branches: {}", parts.join(" | "));
-                    }
-                }
-                _ => {
-                    if let Ok(id) = arg.parse::<usize>() {
-                        app.session.tree.switch_to(id);
-                        app.status_message = format!("Switched to node {id}.");
-                        let _ = app.session.maybe_save(&app.save_mode);
-                    } else {
-                        app.status_message =
-                            "Usage: /branch list|next|prev|<id>".to_owned();
-                    }
-                }
+            });
+
+            let Some(target_id) = target else {
+                app.status_message = "No messages to branch.".to_owned();
+                return;
+            };
+
+            let siblings = app.session.tree.siblings_of(target_id);
+            if siblings.len() <= 1 {
+                app.status_message = "No branches at this point.".to_owned();
+                return;
             }
+
+            let max_preview = 60;
+            app.branch_dialog_items = siblings
+                .iter()
+                .map(|&sib_id| {
+                    let node = app.session.tree.node(sib_id).unwrap();
+                    let content = &node.message.content;
+                    let preview = if content.len() > max_preview {
+                        format!("{}...", &content[..max_preview])
+                    } else {
+                        content.clone()
+                    };
+                    let preview = preview.replace('\n', " ");
+                    let label = format!("[{}] {}", node.message.role, preview);
+                    (sib_id, label)
+                })
+                .collect();
+
+            let current_idx = siblings
+                .iter()
+                .position(|&s| s == target_id)
+                .unwrap_or(0);
+            app.branch_dialog_selected = current_idx;
+            app.focus = Focus::BranchDialog;
         }
         "/self" => {
             app.self_dialog = Some(FieldDialog::new(

@@ -46,7 +46,9 @@ impl ApiClient {
     pub async fn fetch_model_name(&self) -> String {
         let url = format!("{}/models", self.base_url);
         let result: Result<String> = async {
-            let resp = self.client.get(&url).send().await.context("GET /models failed")?;
+            let resp = self.client.get(&url)
+                .timeout(std::time::Duration::from_secs(5))
+                .send().await.context("GET /models failed")?;
             let body: serde_json::Value = resp.json().await.context("failed to parse /models response")?;
             body["data"][0]["id"]
                 .as_str()

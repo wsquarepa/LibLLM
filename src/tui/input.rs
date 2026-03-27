@@ -56,6 +56,10 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 
     match key.code {
+        KeyCode::Up if app.textarea.lines().join("").trim().is_empty() => {
+            recall_last_message(app);
+            None
+        }
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
             let lines: Vec<String> = app.textarea.lines().to_vec();
             let text = lines.join("\n");
@@ -86,6 +90,30 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             app.command_picker_selected = 0;
             None
         }
+    }
+}
+
+fn recall_last_message(app: &mut App) {
+    use crate::session::Role;
+
+    app.session.pop_trailing_assistant();
+
+    let user_content = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .filter(|n| n.message.role == Role::User)
+        .map(|n| n.message.content.clone());
+
+    if let Some(content) = user_content {
+        app.session.tree.pop_head();
+        let lines: Vec<String> = content.lines().map(String::from).collect();
+        app.textarea = TextArea::from(lines);
+        app.textarea.set_cursor_line_style(Style::default());
+        app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
+        app.textarea.move_cursor(tui_textarea::CursorMove::End);
+        app.auto_scroll = true;
     }
 }
 

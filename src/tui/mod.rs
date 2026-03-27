@@ -410,19 +410,6 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             cancel_generation(app);
             None
         }
-        KeyCode::Up => {
-            let content = app
-                .session
-                .tree
-                .head()
-                .and_then(|id| app.session.tree.node(id))
-                .filter(|n| n.message.role == crate::session::Role::User)
-                .map(|n| n.message.content.clone())
-                .unwrap_or_default();
-            cancel_generation(app);
-            open_edit_dialog_with(app, &content);
-            None
-        }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::Quit)
         }

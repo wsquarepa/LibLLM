@@ -28,6 +28,8 @@ pub struct FieldDialog<'a> {
     editing: bool,
     multiline_fields: &'static [usize],
     editor: Option<TextArea<'a>>,
+    width: Option<u16>,
+    height: Option<u16>,
 }
 
 impl<'a> FieldDialog<'a> {
@@ -45,7 +47,15 @@ impl<'a> FieldDialog<'a> {
             editing: false,
             multiline_fields,
             editor: None,
+            width: None,
+            height: None,
         }
+    }
+
+    pub fn with_size(mut self, width: u16, height: u16) -> Self {
+        self.width = Some(width);
+        self.height = Some(height);
+        self
     }
 
     fn is_multiline(&self, index: usize) -> bool {
@@ -53,12 +63,20 @@ impl<'a> FieldDialog<'a> {
     }
 
     pub fn render(&self, f: &mut ratatui::Frame, area: Rect) {
-        let editor_extra = if self.editor.is_some() { 8 } else { 0 };
-        let dialog = centered_rect(
-            60,
-            self.labels.len() as u16 + 4 + editor_extra,
-            area,
-        );
+        let default_width = 60;
+        let default_height = self.labels.len() as u16 + 4;
+        let (w, h) = match (self.width, self.height) {
+            (Some(wp), Some(hp)) => {
+                let w = (area.width as f32 * wp as f32 / 100.0) as u16;
+                let h = (area.height as f32 * hp as f32 / 100.0) as u16;
+                (w, h)
+            }
+            _ => {
+                let editor_extra = if self.editor.is_some() { 8 } else { 0 };
+                (default_width, default_height + editor_extra)
+            }
+        };
+        let dialog = centered_rect(w, h, area);
         f.render_widget(ratatui::widgets::Clear, dialog);
 
         if self.editor.is_some() {

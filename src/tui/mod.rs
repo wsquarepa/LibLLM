@@ -32,7 +32,10 @@ enum Focus {
     ConfigDialog,
     SelfDialog,
     CharacterDialog,
+    CharacterEditorDialog,
     WorldbookDialog,
+    WorldbookEditorDialog,
+    WorldbookEntryEditorDialog,
     SystemDialog,
     EditDialog,
     BranchDialog,
@@ -107,6 +110,14 @@ struct App<'a> {
     worldbook_list: Vec<String>,
     worldbook_selected: usize,
 
+    character_editor: Option<FieldDialog<'a>>,
+    character_editor_slug: String,
+    worldbook_editor_entries: Vec<crate::worldinfo::Entry>,
+    worldbook_editor_name: String,
+    worldbook_editor_selected: usize,
+    worldbook_entry_editor: Option<FieldDialog<'a>>,
+    worldbook_entry_editor_index: usize,
+
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
     branch_dialog_selected: usize,
@@ -179,6 +190,13 @@ pub async fn run(
         character_selected: 0,
         worldbook_list: Vec::new(),
         worldbook_selected: 0,
+        character_editor: None,
+        character_editor_slug: String::new(),
+        worldbook_editor_entries: Vec::new(),
+        worldbook_editor_name: String::new(),
+        worldbook_editor_selected: 0,
+        worldbook_entry_editor: None,
+        worldbook_entry_editor_index: 0,
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
@@ -323,8 +341,21 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     if app.focus == Focus::CharacterDialog {
         dialogs::character::render_character_dialog(f, app, f.area());
     }
+    if app.focus == Focus::CharacterEditorDialog {
+        if let Some(ref dialog) = app.character_editor {
+            dialog.render(f, f.area());
+        }
+    }
     if app.focus == Focus::WorldbookDialog {
         dialogs::worldbook::render_worldbook_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::WorldbookEditorDialog {
+        dialogs::worldbook::render_worldbook_editor(f, app, f.area());
+    }
+    if app.focus == Focus::WorldbookEntryEditorDialog {
+        if let Some(ref dialog) = app.worldbook_entry_editor {
+            dialog.render(f, f.area());
+        }
     }
     if app.focus == Focus::SystemDialog {
         dialogs::system::render_system_dialog(f, app, f.area());
@@ -396,8 +427,17 @@ fn handle_key(
     if app.focus == Focus::CharacterDialog {
         return dialogs::character::handle_character_dialog_key(key, app);
     }
+    if app.focus == Focus::CharacterEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::CharacterEditor);
+    }
     if app.focus == Focus::WorldbookDialog {
         return dialogs::worldbook::handle_worldbook_dialog_key(key, app);
+    }
+    if app.focus == Focus::WorldbookEditorDialog {
+        return dialogs::worldbook::handle_worldbook_editor_key(key, app);
+    }
+    if app.focus == Focus::WorldbookEntryEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::WorldbookEntryEditor);
     }
     if app.focus == Focus::SystemDialog {
         return dialogs::system::handle_system_key(key, app);
@@ -544,6 +584,8 @@ fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
 enum DialogKind {
     Config,
     SelfPersona,
+    CharacterEditor,
+    WorldbookEntryEditor,
 }
 
 fn handle_field_dialog_key(
@@ -554,6 +596,8 @@ fn handle_field_dialog_key(
     let dialog = match kind {
         DialogKind::Config => app.config_dialog.as_mut(),
         DialogKind::SelfPersona => app.self_dialog.as_mut(),
+        DialogKind::CharacterEditor => app.character_editor.as_mut(),
+        DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
     };
 
     let Some(dialog) = dialog else {
@@ -590,6 +634,50 @@ fn handle_field_dialog_key(
                         }
                     }
                     app.self_dialog = None;
+                }
+                DialogKind::CharacterEditor => {
+                    let values = &app.character_editor.as_ref().unwrap().values;
+                    let card = crate::character::CharacterCard {
+                        name: values[0].clone(),
+                        description: values[1].clone(),
+                        personality: values[2].clone(),
+                        scenario: values[3].clone(),
+                        first_mes: values[4].clone(),
+                        mes_example: values[5].clone(),
+                        system_prompt: values[6].clone(),
+                        post_history_instructions: values[7].clone(),
+                        alternate_greetings: Vec::new(),
+                    };
+                    match crate::character::save_card(
+                        &card,
+                        &crate::config::characters_dir(),
+                        app.save_mode.key(),
+                    ) {
+                        Ok(_) => app.status_message = format!("Saved character: {}", card.name),
+                        Err(e) => app.status_message = format!("Failed to save character: {e}"),
+                    }
+                    app.character_editor = None;
+                    app.focus = Focus::CharacterDialog;
+                    return None;
+                }
+                DialogKind::WorldbookEntryEditor => {
+                    let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
+                    let idx = app.worldbook_entry_editor_index;
+                    if idx < app.worldbook_editor_entries.len() {
+                        let entry = &mut app.worldbook_editor_entries[idx];
+                        entry.keys = values[0].split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
+                        entry.secondary_keys = values[1].split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
+                        entry.content = values[2].clone();
+                        entry.selective = values[3].eq_ignore_ascii_case("true");
+                        entry.constant = values[4].eq_ignore_ascii_case("true");
+                        entry.enabled = values[5].eq_ignore_ascii_case("true");
+                        entry.order = values[6].parse().unwrap_or(entry.order);
+                        entry.depth = values[7].parse().unwrap_or(entry.depth);
+                        entry.case_sensitive = values[8].eq_ignore_ascii_case("true");
+                    }
+                    app.worldbook_entry_editor = None;
+                    app.focus = Focus::WorldbookEditorDialog;
+                    return None;
                 }
             }
             app.focus = Focus::Input;

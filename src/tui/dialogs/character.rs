@@ -4,10 +4,23 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::centered_rect;
+use super::{FieldDialog, centered_rect};
 use crate::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, Focus};
+
+const CHARACTER_EDITOR_FIELDS: &[&str] = &[
+    "Name",
+    "Description",
+    "Personality",
+    "Scenario",
+    "First Message",
+    "Examples",
+    "System Prompt",
+    "Post-History",
+];
+
+const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
@@ -34,7 +47,7 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: select  Esc: cancel",
+        "  Up/Down: navigate  Enter: select  Right: edit  Esc: cancel",
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -66,8 +79,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         }
         KeyCode::Enter => {
             let slug = app.character_slugs[app.character_selected].clone();
-            let card_path = crate::config::characters_dir().join(format!("{slug}.json"));
-            match crate::character::load_card(&card_path) {
+            let card_path = crate::character::resolve_card_path(
+                &crate::config::characters_dir(), &slug,
+            );
+            match crate::character::load_card(&card_path, app.save_mode.key()) {
                 Ok(card) => {
                     app.session.tree.clear();
                     app.session.system_prompt =
@@ -91,6 +106,37 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 Err(e) => {
                     app.status_message = format!("Error: {e}");
                     app.focus = Focus::Input;
+                }
+            }
+        }
+        KeyCode::Right => {
+            let slug = app.character_slugs[app.character_selected].clone();
+            let card_path = crate::character::resolve_card_path(
+                &crate::config::characters_dir(), &slug,
+            );
+            match crate::character::load_card(&card_path, app.save_mode.key()) {
+                Ok(card) => {
+                    let values = vec![
+                        card.name,
+                        card.description,
+                        card.personality,
+                        card.scenario,
+                        card.first_mes,
+                        card.mes_example,
+                        card.system_prompt,
+                        card.post_history_instructions,
+                    ];
+                    app.character_editor = Some(FieldDialog::new(
+                        " Edit Character ",
+                        CHARACTER_EDITOR_FIELDS,
+                        values,
+                        CHARACTER_EDITOR_MULTILINE,
+                    ).with_size(70, 60));
+                    app.character_editor_slug = slug;
+                    app.focus = Focus::CharacterEditorDialog;
+                }
+                Err(e) => {
+                    app.status_message = format!("Error: {e}");
                 }
             }
         }

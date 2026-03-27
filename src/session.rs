@@ -37,6 +37,13 @@ impl SaveMode {
     pub fn needs_passkey(&self) -> bool {
         matches!(self, Self::PendingPasskey(_))
     }
+
+    pub fn key(&self) -> Option<&DerivedKey> {
+        match self {
+            Self::Encrypted { key, .. } => Some(key),
+            _ => None,
+        }
+    }
 }
 
 pub struct SessionEntry {

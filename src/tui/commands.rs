@@ -225,7 +225,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
         }
         "/worldbook" => {
             let books =
-                crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir());
+                crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
             if books.is_empty() {
                 app.status_message =
                     "No worldbooks found in worldinfo/ directory.".to_owned();
@@ -249,6 +249,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                             match crate::character::save_card(
                                 &card,
                                 &crate::config::characters_dir(),
+                                app.save_mode.key(),
                             ) {
                                 Ok(_) => {
                                     app.status_message =
@@ -264,7 +265,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 }
             } else {
                 let cards =
-                    crate::character::list_cards(&crate::config::characters_dir());
+                    crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
                 if cards.is_empty() {
                     app.status_message =
                         "No characters found. Use /character import <path>".to_owned();
@@ -297,7 +298,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
     let effective_prompt = super::business::build_effective_system_prompt(app.session, &app.config);
-    let injected = super::business::inject_worldbook_entries(app.session, truncated, &app.config);
+    let injected = super::business::inject_worldbook_entries(app.session, truncated, &app.config, app.save_mode.key());
     let injected = super::business::replace_template_vars(app.session, injected, &app.config);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
@@ -354,8 +355,25 @@ pub fn handle_background_event(
                 path,
                 key: key.clone(),
             };
+            for warning in crate::character::auto_import_png_cards(
+                &crate::config::characters_dir(), Some(&key),
+            ) {
+                app.status_message = warning;
+            }
+            for warning in crate::worldinfo::normalize_worldbooks(
+                &crate::config::worldinfo_dir(), Some(&key),
+            ) {
+                app.status_message = warning;
+            }
+            for warning in crate::character::encrypt_plaintext_cards(
+                &crate::config::characters_dir(), &key,
+            ) {
+                app.status_message = warning;
+            }
             app.focus = Focus::Input;
-            app.status_message.clear();
+            if app.status_message.is_empty() {
+                app.status_message.clear();
+            }
             refresh_sidebar(app);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {

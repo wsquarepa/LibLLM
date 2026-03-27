@@ -1,12 +1,25 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 use crate::sampling::SamplingOverrides;
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Edit a character card or worldbook in $EDITOR
+    Edit {
+        /// Type of content to edit: "character" or "worldbook"
+        kind: String,
+        /// Name of the character or worldbook
+        name: String,
+    },
+}
 
 #[derive(Parser)]
 #[command(name = "libllm", about = "CLI chat client for llama.cpp completions API")]
 pub struct Args {
+    #[command(subcommand)]
+    pub command: Option<Command>,
     /// Explicit session file path (plaintext JSON, bypasses encryption)
     #[arg(short = 's', long)]
     pub session: Option<PathBuf>,

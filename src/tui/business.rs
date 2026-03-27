@@ -68,6 +68,7 @@ pub fn inject_worldbook_entries<'a>(
     session: &Session,
     messages: &[&'a Message],
     cfg: &crate::config::Config,
+    key: Option<&crate::crypto::DerivedKey>,
 ) -> Vec<Message> {
     if session.character.is_none() {
         return messages.iter().map(|m| (*m).clone()).collect();
@@ -92,8 +93,8 @@ pub fn inject_worldbook_entries<'a>(
 
     let mut all_activated: Vec<crate::worldinfo::ActivatedEntry> = Vec::new();
     for wb_name in &enabled {
-        let wb_path = wi_dir.join(format!("{wb_name}.json"));
-        if let Ok(wb) = crate::worldinfo::load_worldbook(&wb_path) {
+        let wb_path = crate::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
+        if let Ok(wb) = crate::worldinfo::load_worldbook(&wb_path, key) {
             all_activated.extend(crate::worldinfo::scan_entries(&wb, &msg_texts));
         }
     }

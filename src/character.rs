@@ -5,6 +5,23 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 
+use crate::crypto::DerivedKey;
+
+const EXT_ENCRYPTED: &str = "character";
+const EXT_PLAINTEXT: &str = "json";
+
+pub fn resolve_card_path(dir: &Path, slug: &str) -> PathBuf {
+    let encrypted = dir.join(format!("{slug}.{EXT_ENCRYPTED}"));
+    if encrypted.exists() {
+        return encrypted;
+    }
+    dir.join(format!("{slug}.{EXT_PLAINTEXT}"))
+}
+
+fn card_extension(key: Option<&DerivedKey>) -> &'static str {
+    if key.is_some() { EXT_ENCRYPTED } else { EXT_PLAINTEXT }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterCard {
     pub name: String,
@@ -192,21 +209,33 @@ pub fn slugify(name: &str) -> String {
         .join("-")
 }
 
-pub fn save_card(card: &CharacterCard, dir: &Path) -> Result<PathBuf> {
+pub fn save_card(card: &CharacterCard, dir: &Path, key: Option<&DerivedKey>) -> Result<PathBuf> {
     let slug = slugify(&card.name);
-    let path = dir.join(format!("{slug}.json"));
+    let ext = card_extension(key);
+    let path = dir.join(format!("{slug}.{ext}"));
     let json = serde_json::to_string_pretty(card).context("failed to serialize character card")?;
-    std::fs::write(&path, json).context(format!("failed to write character card: {}", path.display()))?;
+    let data = match key {
+        Some(k) => crate::crypto::encrypt(json.as_bytes(), k)?,
+        None => json.into_bytes(),
+    };
+    std::fs::write(&path, data).context(format!("failed to write character card: {}", path.display()))?;
     Ok(path)
 }
 
-pub fn load_card(path: &Path) -> Result<CharacterCard> {
-    let contents = std::fs::read_to_string(path)
+pub fn load_card(path: &Path, key: Option<&DerivedKey>) -> Result<CharacterCard> {
+    let raw = std::fs::read(path)
         .context(format!("failed to read character card: {}", path.display()))?;
+    let contents = if crate::crypto::is_encrypted(&raw) {
+        let key = key.ok_or_else(|| anyhow::anyhow!("encrypted character card but no passkey available"))?;
+        let decrypted = crate::crypto::decrypt(&raw, key)?;
+        String::from_utf8(decrypted).context("decrypted character card is not valid UTF-8")?
+    } else {
+        String::from_utf8(raw).context("character card is not valid UTF-8")?
+    };
     serde_json::from_str(&contents).context("failed to parse character card")
 }
 
-pub fn auto_import_png_cards(dir: &Path) -> Vec<String> {
+pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<String> {
     let mut warnings: Vec<String> = Vec::new();
 
     let entries = match std::fs::read_dir(dir) {
@@ -237,7 +266,7 @@ pub fn auto_import_png_cards(dir: &Path) -> Vec<String> {
             Ok(c) => c,
             Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
         };
-        match save_card(&card, dir) {
+        match save_card(&card, dir, key) {
             Ok(_) => { let _ = std::fs::remove_file(&png_path); }
             Err(e) => { warnings.push(format!("failed to save {display}: {e}")); }
         }
@@ -246,7 +275,45 @@ pub fn auto_import_png_cards(dir: &Path) -> Vec<String> {
     warnings
 }
 
-pub fn list_cards(dir: &Path) -> Vec<CharacterEntry> {
+pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> Vec<String> {
+    let mut warnings: Vec<String> = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            warnings.push(format!("failed to read characters dir: {e}"));
+            return warnings;
+        }
+    };
+
+    let json_paths: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+
+    for path in json_paths {
+        let display = path.display().to_string();
+        let raw = match std::fs::read(&path) {
+            Ok(r) => r,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+        };
+        if crate::crypto::is_encrypted(&raw) {
+            continue;
+        }
+        let card = match serde_json::from_slice::<CharacterCard>(&raw) {
+            Ok(c) => c,
+            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+        };
+        match save_card(&card, dir, Some(key)) {
+            Ok(_) => { let _ = std::fs::remove_file(&path); }
+            Err(e) => { warnings.push(format!("failed to encrypt {display}: {e}")); }
+        }
+    }
+
+    warnings
+}
+
+pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -255,10 +322,10 @@ pub fn list_cards(dir: &Path) -> Vec<CharacterEntry> {
     let mut cards: Vec<CharacterEntry> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .filter(|p| p.extension().is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT))
         .filter_map(|path| {
             let slug = path.file_stem()?.to_string_lossy().to_string();
-            let card = load_card(&path).ok()?;
+            let card = load_card(&path, key).ok()?;
             Some(CharacterEntry {
                 name: card.name,
                 slug,

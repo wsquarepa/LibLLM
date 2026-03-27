@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It supports single-message mode (`-m`), an interactive REPL (`--repl`), and a full terminal UI (default), with tree-structured conversation history, encrypted session persistence, and branch navigation.
+LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It supports single-message mode (`-m`) and a full terminal UI (default), with tree-structured conversation history, encrypted session persistence, and branch navigation.
 
 ## Build and Run
 
@@ -13,7 +13,6 @@ cargo build
 cargo run -- --help
 cargo run -- -m "Hello"              # single message, ephemeral (no passkey)
 cargo run                            # TUI mode, prompts for passkey
-cargo run -- --repl                  # REPL mode, prompts for passkey
 cargo run -- -s session.json         # plaintext mode, bypasses encryption
 cargo run -- --no-encrypt            # auto-save without encryption
 cargo run -- --template chatml       # use ChatML prompt template
@@ -39,8 +38,8 @@ Old config at `~/.config/libllm/config.toml` is auto-migrated on first run.
 
 The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util).
 
-- **`cli`** -- Clap-derived argument parsing with sampling flags, `--repl`, `--no-encrypt`, `--passkey`
-- **`client`** -- `ApiClient` with two streaming modes: `impl Write` (REPL/single-msg) and `mpsc::Sender<StreamToken>` (TUI)
+- **`cli`** -- Clap-derived argument parsing with sampling flags, `--no-encrypt`, `--passkey`
+- **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
 - **`commands`** -- Shared command registry for `/help` and TUI command picker
 - **`config`** -- TOML config at `~/.local/share/libllm/config.toml`, data/sessions directory management, migration from old config path
 - **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
@@ -48,7 +47,6 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`prompt`** -- `Template` enum (Llama2, ChatML, Mistral, Phi, Raw)
 - **`sampling`** -- `SamplingParams` and `SamplingOverrides` with `with_overrides` merge
 - **`session`** -- `MessageTree` (arena-based branching), `SaveMode` enum (None/Plaintext/Encrypted), encrypted save/load, session listing with previews
-- **`interactive`** -- Legacy REPL mode (`--repl`)
 - **`tui`** -- Full ratatui terminal UI with sidebar, scrollable chat, multi-line input, command picker, status bar, streaming, and branch navigation
 
 ### Encryption

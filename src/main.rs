@@ -203,13 +203,14 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
     let temp_dir = std::env::temp_dir();
     let temp_path = temp_dir.join(format!("libllm-edit-{name}.json"));
 
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&temp_path)?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts.open(&temp_path)?;
     file.write_all(json_content.as_bytes())?;
     drop(file);
 

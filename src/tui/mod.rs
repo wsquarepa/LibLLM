@@ -604,7 +604,16 @@ fn handle_field_dialog_key(
         return None;
     };
 
-    match dialog.handle_key(key) {
+    let result = dialog.handle_key(key);
+
+    if matches!(kind, DialogKind::WorldbookEntryEditor) {
+        if let Some(ref mut d) = app.worldbook_entry_editor {
+            let selective = d.values.get(2).is_some_and(|v| v.eq_ignore_ascii_case("true"));
+            d.hidden_fields = if selective { Vec::new() } else { vec![3] };
+        }
+    }
+
+    match result {
         dialogs::FieldDialogAction::Continue => None,
         dialogs::FieldDialogAction::Close => {
             match kind {
@@ -664,16 +673,7 @@ fn handle_field_dialog_key(
                     let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
                     let idx = app.worldbook_entry_editor_index;
                     if idx < app.worldbook_editor_entries.len() {
-                        let entry = &mut app.worldbook_editor_entries[idx];
-                        entry.keys = values[0].split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
-                        entry.secondary_keys = values[1].split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
-                        entry.content = values[2].clone();
-                        entry.selective = values[3].eq_ignore_ascii_case("true");
-                        entry.constant = values[4].eq_ignore_ascii_case("true");
-                        entry.enabled = values[5].eq_ignore_ascii_case("true");
-                        entry.order = values[6].parse().unwrap_or(entry.order);
-                        entry.depth = values[7].parse().unwrap_or(entry.depth);
-                        entry.case_sensitive = values[8].eq_ignore_ascii_case("true");
+                        dialogs::worldbook::values_to_entry(values, &mut app.worldbook_editor_entries[idx]);
                     }
                     app.worldbook_entry_editor = None;
                     app.focus = Focus::WorldbookEditorDialog;

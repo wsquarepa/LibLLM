@@ -24,7 +24,7 @@ const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
-    let dialog = centered_rect(50, count as u16 + 4, area);
+    let dialog = centered_rect(50, count as u16 + 5, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 
     let mut lines: Vec<Line> = vec![Line::from("")];

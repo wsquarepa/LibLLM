@@ -8,10 +8,10 @@ use super::{FieldDialog, centered_rect};
 use crate::tui::{Action, App, Focus};
 
 const ENTRY_EDITOR_FIELDS: &[&str] = &[
-    "Keys",
-    "Secondary Keys",
+    "Keys [OR]",
     "Content",
     "Selective",
+    "Keys [AND]",
     "Constant",
     "Enabled",
     "Order",
@@ -19,7 +19,8 @@ const ENTRY_EDITOR_FIELDS: &[&str] = &[
     "Case Sensitive",
 ];
 
-const ENTRY_EDITOR_MULTILINE: &[usize] = &[2];
+const ENTRY_EDITOR_MULTILINE: &[usize] = &[1];
+const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
 
 enum WorldbookState {
     Off,
@@ -151,7 +152,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let dialog = centered_rect(60, count as u16 + 6, area);
+    let dialog = centered_rect(60, count as u16 + 7, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -188,9 +189,13 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Right: edit entry  Esc: save & close",
+        "Up/Down: navigate  Right: edit  a: add",
         Style::default().fg(Color::DarkGray),
-    )));
+    )).alignment(ratatui::layout::Alignment::Center));
+    lines.push(Line::from(Span::styled(
+        "Esc: save & close",
+        Style::default().fg(Color::DarkGray),
+    )).alignment(ratatui::layout::Alignment::Center));
 
     let title = format!(" {} ({} entries) ", app.worldbook_editor_name, count);
     let paragraph = Paragraph::new(Text::from(lines)).block(
@@ -223,25 +228,25 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         KeyCode::Right | KeyCode::Enter => {
             let idx = app.worldbook_editor_selected;
             let entry = &app.worldbook_editor_entries[idx];
-            let values = vec![
-                entry.keys.join(", "),
-                entry.secondary_keys.join(", "),
-                entry.content.clone(),
-                entry.selective.to_string(),
-                entry.constant.to_string(),
-                entry.enabled.to_string(),
-                entry.order.to_string(),
-                entry.depth.to_string(),
-                entry.case_sensitive.to_string(),
-            ];
-            app.worldbook_entry_editor = Some(FieldDialog::new(
-                " Edit Entry ",
-                ENTRY_EDITOR_FIELDS,
-                values,
-                ENTRY_EDITOR_MULTILINE,
-            ).with_size(70, 60));
-            app.worldbook_entry_editor_index = idx;
-            app.focus = Focus::WorldbookEntryEditorDialog;
+            open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
+        }
+        KeyCode::Char('a') => {
+            let new_entry = crate::worldinfo::Entry {
+                keys: Vec::new(),
+                secondary_keys: Vec::new(),
+                selective: false,
+                content: String::new(),
+                constant: false,
+                enabled: true,
+                order: 10,
+                depth: 4,
+                case_sensitive: false,
+            };
+            app.worldbook_editor_entries.push(new_entry);
+            let idx = app.worldbook_editor_entries.len() - 1;
+            app.worldbook_editor_selected = idx;
+            let entry = &app.worldbook_editor_entries[idx];
+            open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
         }
         KeyCode::Esc => {
             save_worldbook_editor(app);
@@ -250,6 +255,50 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         _ => {}
     }
     None
+}
+
+fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: bool) {
+    let mut dialog = FieldDialog::new(
+        " Edit Entry ",
+        ENTRY_EDITOR_FIELDS,
+        values,
+        ENTRY_EDITOR_MULTILINE,
+    ).with_size(70, 60).with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS);
+    if !selective {
+        dialog.hidden_fields = vec![3];
+    }
+    app.worldbook_entry_editor = Some(dialog);
+    app.worldbook_entry_editor_index = idx;
+    app.focus = Focus::WorldbookEntryEditorDialog;
+}
+
+fn entry_to_values(entry: &crate::worldinfo::Entry) -> Vec<String> {
+    vec![
+        entry.keys.join(", "),
+        entry.content.clone(),
+        entry.selective.to_string(),
+        entry.secondary_keys.join(", "),
+        entry.constant.to_string(),
+        entry.enabled.to_string(),
+        entry.order.to_string(),
+        entry.depth.to_string(),
+        entry.case_sensitive.to_string(),
+    ]
+}
+
+pub fn values_to_entry(values: &[String], existing: &mut crate::worldinfo::Entry) {
+    let parse_keys = |s: &str| -> Vec<String> {
+        s.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()
+    };
+    existing.keys = parse_keys(&values[0]);
+    existing.content = values[1].clone();
+    existing.selective = values[2].eq_ignore_ascii_case("true");
+    existing.secondary_keys = parse_keys(&values[3]);
+    existing.constant = values[4].eq_ignore_ascii_case("true");
+    existing.enabled = values[5].eq_ignore_ascii_case("true");
+    existing.order = values[6].parse().unwrap_or(existing.order);
+    existing.depth = values[7].parse().unwrap_or(existing.depth);
+    existing.case_sensitive = values[8].eq_ignore_ascii_case("true");
 }
 
 fn save_worldbook_editor(app: &mut App) {

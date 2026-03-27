@@ -30,6 +30,8 @@ pub struct FieldDialog<'a> {
     editor: Option<TextArea<'a>>,
     width: Option<u16>,
     height: Option<u16>,
+    placeholder: Option<(&'static str, &'static [usize])>,
+    pub hidden_fields: Vec<usize>,
 }
 
 impl<'a> FieldDialog<'a> {
@@ -49,12 +51,19 @@ impl<'a> FieldDialog<'a> {
             editor: None,
             width: None,
             height: None,
+            placeholder: None,
+            hidden_fields: Vec::new(),
         }
     }
 
     pub fn with_size(mut self, width: u16, height: u16) -> Self {
         self.width = Some(width);
         self.height = Some(height);
+        self
+    }
+
+    pub fn with_placeholder(mut self, text: &'static str, fields: &'static [usize]) -> Self {
+        self.placeholder = Some((text, fields));
         self
     }
 
@@ -90,6 +99,9 @@ impl<'a> FieldDialog<'a> {
         let mut lines: Vec<Line> = vec![Line::from("")];
 
         for (i, &label) in self.labels.iter().enumerate() {
+            if self.hidden_fields.contains(&i) {
+                continue;
+            }
             let value = &self.values[i];
             let is_selected = i == self.selected;
             let cursor = if is_selected && self.editing { "_" } else { "" };
@@ -108,15 +120,27 @@ impl<'a> FieldDialog<'a> {
                 Style::default()
             };
 
+            let is_empty = value.is_empty();
             let display_value = if self.is_multiline(i) && value.contains('\n') {
                 format!("({} lines)", value.lines().count())
             } else {
                 value.clone()
             };
 
+            let has_placeholder = self.placeholder
+                .is_some_and(|(_, fields)| fields.contains(&i));
+            let show_placeholder = is_empty && !self.editing && has_placeholder;
+
+            let value_span = if show_placeholder {
+                let ph_text = self.placeholder.unwrap().0;
+                Span::styled(ph_text, Style::default().fg(Color::DarkGray))
+            } else {
+                Span::styled(format!("{display_value}{cursor}"), value_style)
+            };
+
             lines.push(Line::from(vec![
                 Span::styled(format!("  {label:<15}"), label_style),
-                Span::styled(format!("{display_value}{cursor}"), value_style),
+                value_span,
             ]));
         }
 
@@ -221,10 +245,18 @@ impl<'a> FieldDialog<'a> {
 
         match key.code {
             KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
+                loop {
+                    if self.selected == 0 { break; }
+                    self.selected -= 1;
+                    if !self.hidden_fields.contains(&self.selected) { break; }
+                }
             }
             KeyCode::Down => {
-                self.selected = (self.selected + 1).min(self.labels.len() - 1);
+                loop {
+                    if self.selected >= self.labels.len() - 1 { break; }
+                    self.selected += 1;
+                    if !self.hidden_fields.contains(&self.selected) { break; }
+                }
             }
             KeyCode::Enter => {
                 if self.is_multiline(self.selected) {

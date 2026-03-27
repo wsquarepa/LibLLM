@@ -132,6 +132,7 @@ struct App<'a> {
     worldbook_entry_editor: Option<FieldDialog<'a>>,
     worldbook_entry_editor_index: usize,
 
+    chat_content_cache: Option<render::ChatContentCache>,
     raw_edit_node: Option<NodeId>,
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
@@ -220,6 +221,7 @@ pub async fn run(
         worldbook_editor_selected: 0,
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
+        chat_content_cache: None,
         raw_edit_node: None,
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
@@ -360,9 +362,11 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let mut chat_scroll = app.chat_scroll;
 
     let msg_count = branch_path.len();
+    let mut cache = app.chat_content_cache.take();
     crate::debug_log::timed("chat", &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"), || {
-        render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids, scroll_dirty);
+        render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids, scroll_dirty, &mut cache);
     });
+    app.chat_content_cache = cache;
 
     crate::debug_log::timed("status", "bar", || {
         render::render_status_bar(f, app, status_area, &branch_path, branch_info);

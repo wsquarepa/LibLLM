@@ -11,6 +11,24 @@ use super::App;
 const DIALOGUE_COLOR: Color = Color::LightBlue;
 const SIDEBAR_PREVIEW_CHARS: usize = 28;
 
+const NAV_CURSOR_STYLE: Style = Style::new()
+    .fg(Color::Black)
+    .bg(Color::Yellow);
+
+struct CachedMessageLines {
+    role_label: String,
+    base_role_style: Style,
+    branch_indicator: String,
+    content_lines: Vec<Line<'static>>,
+}
+
+pub struct ChatContentCache {
+    branch_ids: Vec<NodeId>,
+    char_name: String,
+    user_name: String,
+    entries: Vec<CachedMessageLines>,
+}
+
 pub fn border_style(focused: bool) -> Style {
     if focused {
         Style::default().fg(Color::Cyan)
@@ -198,6 +216,7 @@ pub fn render_chat(
     branch_path: &[&Message],
     branch_ids: &[NodeId],
     scroll_dirty: bool,
+    cache: &mut Option<ChatContentCache>,
 ) {
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.user_name.as_deref().unwrap_or("User");
@@ -223,60 +242,87 @@ pub fn render_chat(
         "Assistant".to_owned()
     };
 
+    let cache_valid = cache.as_ref().is_some_and(|c| {
+        c.branch_ids == branch_ids && c.char_name == char_name && c.user_name == user_name
+    });
+
+    if !cache_valid {
+        crate::debug_log::log("chat.cache", "miss - rebuilding");
+        let entries: Vec<CachedMessageLines> = branch_path.iter().zip(branch_ids.iter())
+            .map(|(msg, &node_id)| {
+                let (role_label, base_role_style) = match msg.role {
+                    Role::User => (
+                        user_label.clone(),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ),
+                    Role::Assistant => (
+                        assistant_label.clone(),
+                        Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD),
+                    ),
+                    Role::System => (
+                        "System".to_owned(),
+                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                    ),
+                };
+
+                let (sib_idx, sib_total) = app.session.tree.sibling_info(node_id);
+                let branch_indicator = if sib_total > 1 {
+                    format!(" [{}/{}]", sib_idx + 1, sib_total)
+                } else {
+                    String::new()
+                };
+
+                let content = replace_vars(&msg.content);
+                let content_lines: Vec<Line<'static>> = content.lines()
+                    .map(|line| {
+                        let styled = parse_styled_line(line);
+                        let mut indented = vec![Span::raw("  ")];
+                        indented.extend(styled.spans);
+                        Line::from(indented)
+                    })
+                    .collect();
+
+                CachedMessageLines { role_label, base_role_style, branch_indicator, content_lines }
+            })
+            .collect();
+
+        *cache = Some(ChatContentCache {
+            branch_ids: branch_ids.to_vec(),
+            char_name: char_name.to_owned(),
+            user_name: user_name.to_owned(),
+            entries,
+        });
+    } else {
+        crate::debug_log::log("chat.cache", "hit");
+    }
+
+    let cached = cache.as_ref().unwrap();
+
     let mut lines: Vec<Line> = Vec::new();
     let mut nav_cursor_line: Option<usize> = None;
     let mut nav_cursor_end: Option<usize> = None;
 
-    for (msg, &node_id) in branch_path.iter().zip(branch_ids.iter()) {
-        let (role_label, base_role_style) = match msg.role {
-            Role::User => (
-                user_label.as_str(),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            ),
-            Role::Assistant => (
-                assistant_label.as_str(),
-                Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD),
-            ),
-            Role::System => (
-                "System",
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
-            ),
-        };
-
-        let (sib_idx, sib_total) = app.session.tree.sibling_info(node_id);
-        let branch_indicator = if sib_total > 1 {
-            format!(" [{}/{}]", sib_idx + 1, sib_total)
-        } else {
-            String::new()
-        };
-
+    for (entry, &node_id) in cached.entries.iter().zip(branch_ids.iter()) {
         let is_nav_selected = app.nav_cursor == Some(node_id);
         if is_nav_selected {
             nav_cursor_line = Some(lines.len());
         }
+
         let nav_marker = if is_nav_selected { ">> " } else { "" };
         let role_style = if is_nav_selected {
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
+            NAV_CURSOR_STYLE.add_modifier(Modifier::BOLD)
         } else {
-            base_role_style
+            entry.base_role_style
         };
 
         lines.push(Line::from(vec![Span::styled(
-            format!("{nav_marker}{role_label}{branch_indicator}: "),
+            format!("{nav_marker}{}{}: ", entry.role_label, entry.branch_indicator),
             role_style,
         )]));
 
-        let content = replace_vars(&msg.content);
-        for content_line in content.lines() {
-            let styled = parse_styled_line(content_line);
-            let mut indented = vec![Span::raw("  ")];
-            indented.extend(styled.spans);
-            lines.push(Line::from(indented));
-        }
+        lines.extend(entry.content_lines.iter().cloned());
         lines.push(Line::from(""));
+
         if is_nav_selected {
             nav_cursor_end = Some(lines.len());
         }

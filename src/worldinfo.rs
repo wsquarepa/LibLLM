@@ -219,6 +219,9 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
         .collect();
 
     for path in file_paths {
+        if key.is_none() && path.extension().is_some_and(|ext| ext == EXT_ENCRYPTED) {
+            continue;
+        }
         let display = path.display().to_string();
         let contents = match crate::crypto::read_and_decrypt(&path, key) {
             Ok(c) => c,

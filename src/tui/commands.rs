@@ -269,6 +269,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let truncated = app.context_mgr.truncated_path(&branch_path);
     let effective_prompt = super::business::build_effective_system_prompt(app.session);
     let injected = super::business::inject_worldbook_entries(app.session, truncated);
+    let injected = super::business::replace_template_vars(app.session, injected);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
         .template

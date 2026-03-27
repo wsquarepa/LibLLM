@@ -95,6 +95,27 @@ pub fn inject_worldbook_entries<'a>(
     result
 }
 
+pub fn replace_template_vars(session: &Session, messages: Vec<Message>) -> Vec<Message> {
+    if session.character.is_none() {
+        return messages;
+    }
+
+    let cfg = crate::config::load();
+    let char_name = session.character.as_deref().unwrap_or("");
+    let user_name = cfg.user_name.as_deref().unwrap_or("User");
+
+    messages
+        .into_iter()
+        .map(|mut msg| {
+            msg.content = msg
+                .content
+                .replace("{{char}}", char_name)
+                .replace("{{user}}", user_name);
+            msg
+        })
+        .collect()
+}
+
 pub fn load_config_fields() -> Vec<String> {
     let cfg = crate::config::load();
     let defaults = crate::sampling::SamplingParams::default();

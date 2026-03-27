@@ -53,7 +53,6 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             app.session.tree.clear();
             app.session.system_prompt = None;
             app.session.character = None;
-            app.session.worldbooks.clear();
             app.chat_scroll = 0;
             app.auto_scroll = true;
             let new_name = session::generate_session_name();

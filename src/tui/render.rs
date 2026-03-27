@@ -405,13 +405,21 @@ pub fn render_status_bar(
         None => "Linear".to_owned(),
     };
 
+    let worldbook_info = if app.session.character.is_some() {
+        let count = app.session.worldbooks.len();
+        format!(" | {count} worldbooks")
+    } else {
+        String::new()
+    };
+
     let status = if app.status_message.is_empty() {
         format!(
-            " {} | {} | ~{} tokens | {} | Tab: switch focus | Ctrl+C: quit",
+            " {} | {} | ~{} tokens | {}{} | Tab: switch focus | Ctrl+C: quit",
             app.model_name,
             app.template.name(),
             token_count,
             branch_info,
+            worldbook_info,
         )
     } else {
         format!(" {} ", app.status_message)

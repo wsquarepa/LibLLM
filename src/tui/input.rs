@@ -307,7 +307,9 @@ fn load_sidebar_selection(app: &mut App) {
     app.nav_cursor = None;
     let entry = &app.sidebar_sessions[selected];
     if entry.is_new_chat {
+        let worldbooks = std::mem::take(&mut app.session.worldbooks);
         *app.session = Session::default();
+        app.session.worldbooks = worldbooks;
         app.chat_scroll = 0;
         app.auto_scroll = true;
         let new_path = crate::config::sessions_dir().join(session::generate_session_name());

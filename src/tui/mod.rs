@@ -36,6 +36,7 @@ enum Focus {
     WorldbookDialog,
     WorldbookEditorDialog,
     WorldbookEntryEditorDialog,
+    WorldbookEntryDeleteDialog,
     SystemDialog,
     EditDialog,
     BranchDialog,
@@ -357,6 +358,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             dialog.render(f, f.area());
         }
     }
+    if app.focus == Focus::WorldbookEntryDeleteDialog {
+        dialogs::worldbook::render_entry_delete_dialog(f, app, f.area());
+    }
     if app.focus == Focus::SystemDialog {
         dialogs::system::render_system_dialog(f, app, f.area());
     }
@@ -438,6 +442,9 @@ fn handle_key(
     }
     if app.focus == Focus::WorldbookEntryEditorDialog {
         return handle_field_dialog_key(key, app, DialogKind::WorldbookEntryEditor);
+    }
+    if app.focus == Focus::WorldbookEntryDeleteDialog {
+        return dialogs::worldbook::handle_entry_delete_key(key, app);
     }
     if app.focus == Focus::SystemDialog {
         return dialogs::system::handle_system_key(key, app);

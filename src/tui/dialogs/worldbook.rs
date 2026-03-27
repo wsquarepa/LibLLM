@@ -189,7 +189,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Up/Down: navigate  Right: edit  a: add",
+        "Up/Down: navigate  Right: edit  a: add  Del: delete",
         Style::default().fg(Color::DarkGray),
     )).alignment(ratatui::layout::Alignment::Center));
     lines.push(Line::from(Span::styled(
@@ -248,6 +248,19 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             let entry = &app.worldbook_editor_entries[idx];
             open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
         }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let idx = app.worldbook_editor_selected;
+            let entry = &app.worldbook_editor_entries[idx];
+            let content_lines = entry.content.lines().count();
+            let keys_desc = if entry.keys.is_empty() {
+                "(no keys)".to_owned()
+            } else {
+                entry.keys.join(", ")
+            };
+            app.delete_confirm_filename = format!("{keys_desc} ({content_lines} lines)");
+            app.delete_confirm_selected = 0;
+            app.focus = Focus::WorldbookEntryDeleteDialog;
+        }
         KeyCode::Esc => {
             save_worldbook_editor(app);
             app.focus = Focus::WorldbookDialog;
@@ -299,6 +312,86 @@ pub fn values_to_entry(values: &[String], existing: &mut crate::worldinfo::Entry
     existing.order = values[6].parse().unwrap_or(existing.order);
     existing.depth = values[7].parse().unwrap_or(existing.depth);
     existing.case_sensitive = values[8].eq_ignore_ascii_case("true");
+}
+
+pub(in crate::tui) fn render_entry_delete_dialog(
+    f: &mut ratatui::Frame,
+    app: &App,
+    area: Rect,
+) {
+    let dialog = centered_rect(50, 7, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let cancel_style = if app.delete_confirm_selected == 0 {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
+    let delete_style = if app.delete_confirm_selected == 1 {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Red)
+    };
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(format!(
+            "  Delete {}?",
+            app.delete_confirm_filename
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("    "),
+            Span::styled(" Cancel ", cancel_style),
+            Span::raw("   "),
+            Span::styled(" Delete ", delete_style),
+        ]),
+        Line::from(""),
+    ];
+
+    let paragraph = Paragraph::new(Text::from(lines)).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Confirm Delete ")
+            .border_style(Style::default().fg(Color::Yellow)),
+    );
+
+    f.render_widget(paragraph, dialog);
+}
+
+pub(in crate::tui) fn handle_entry_delete_key(
+    key: KeyEvent,
+    app: &mut App,
+) -> Option<Action> {
+    match key.code {
+        KeyCode::Left | KeyCode::Right => {
+            app.delete_confirm_selected = 1 - app.delete_confirm_selected;
+        }
+        KeyCode::Enter => {
+            if app.delete_confirm_selected == 1 {
+                let idx = app.worldbook_editor_selected;
+                app.worldbook_editor_entries.remove(idx);
+                if app.worldbook_editor_selected >= app.worldbook_editor_entries.len()
+                    && app.worldbook_editor_selected > 0
+                {
+                    app.worldbook_editor_selected -= 1;
+                }
+            }
+            app.focus = Focus::WorldbookEditorDialog;
+        }
+        KeyCode::Esc => {
+            app.focus = Focus::WorldbookEditorDialog;
+        }
+        _ => {}
+    }
+    None
 }
 
 fn save_worldbook_editor(app: &mut App) {

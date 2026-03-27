@@ -229,10 +229,19 @@ pub fn render_chat(
     let mut nav_cursor_end: Option<usize> = None;
 
     for (msg, &node_id) in branch_path.iter().zip(branch_ids.iter()) {
-        let (role_label, role_color) = match msg.role {
-            Role::User => (user_label.as_str(), Color::Green),
-            Role::Assistant => (assistant_label.as_str(), Color::Blue),
-            Role::System => ("System", Color::DarkGray),
+        let (role_label, base_role_style) = match msg.role {
+            Role::User => (
+                user_label.as_str(),
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            ),
+            Role::Assistant => (
+                assistant_label.as_str(),
+                Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD),
+            ),
+            Role::System => (
+                "System",
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+            ),
         };
 
         let (sib_idx, sib_total) = app.session.tree.sibling_info(node_id);
@@ -253,9 +262,7 @@ pub fn render_chat(
                 .bg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
-                .fg(role_color)
-                .add_modifier(Modifier::BOLD)
+            base_role_style
         };
 
         lines.push(Line::from(vec![Span::styled(
@@ -280,7 +287,8 @@ pub fn render_chat(
         lines.push(Line::from(vec![Span::styled(
             format!("{assistant_label}: "),
             Style::default()
-                .fg(Color::Blue)
+                .fg(Color::White)
+                .bg(Color::Blue)
                 .add_modifier(Modifier::BOLD),
         )]));
         let buffer = replace_vars(&app.streaming_buffer);

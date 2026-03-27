@@ -54,7 +54,34 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
         }
         "/edit" => {
             if arg.is_empty() {
-                app.status_message = "Usage: /edit <new message text>".to_owned();
+                let last_user_content = app
+                    .session
+                    .tree
+                    .head()
+                    .and_then(|id| {
+                        let node = app.session.tree.node(id)?;
+                        if node.message.role == Role::Assistant {
+                            let parent = node.parent?;
+                            app.session.tree.node(parent)
+                        } else {
+                            Some(node)
+                        }
+                    })
+                    .filter(|n| n.message.role == Role::User)
+                    .map(|n| n.message.content.clone())
+                    .unwrap_or_default();
+
+                let mut editor = tui_textarea::TextArea::from(
+                    last_user_content
+                        .lines()
+                        .map(String::from)
+                        .collect::<Vec<_>>(),
+                );
+                editor.set_cursor_line_style(ratatui::style::Style::default());
+                editor.move_cursor(tui_textarea::CursorMove::Bottom);
+                editor.move_cursor(tui_textarea::CursorMove::End);
+                app.edit_editor = Some(editor);
+                app.focus = super::Focus::EditDialog;
             } else {
                 app.session.pop_trailing_assistant();
                 if app

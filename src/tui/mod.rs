@@ -204,6 +204,16 @@ pub async fn run(
                         Action::SendMessage(text) => {
                             commands::start_streaming(&mut app, &text, token_tx.clone());
                         }
+                        Action::EditMessage(text) => {
+                            app.session.pop_trailing_assistant();
+                            if app.session.tree.head()
+                                .and_then(|id| app.session.tree.node(id))
+                                .is_some_and(|n| n.message.role == crate::session::Role::User)
+                            {
+                                app.session.tree.pop_head();
+                            }
+                            commands::start_streaming(&mut app, &text, token_tx.clone());
+                        }
                         Action::SlashCommand(cmd, arg) => {
                             commands::handle_slash_command(&cmd, &arg, &mut app, token_tx.clone());
                         }
@@ -278,8 +288,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     render::render_status_bar(f, app, status_area, &branch_path, branch_info);
     app.chat_scroll = chat_scroll;
 
-    let input_text = app.textarea.lines().join("\n");
-    if input_text.starts_with('/') && app.focus == Focus::Input && !app.is_streaming {
+    if app.focus == Focus::Input && input::input_has_command_picker(app) {
+        let input_text = app.textarea.lines().join("\n");
         render::render_command_picker(f, app, &input_text, chat_area);
     }
 
@@ -304,6 +314,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
     if app.focus == Focus::SystemDialog {
         dialogs::system::render_system_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::EditDialog {
+        dialogs::edit::render_edit_dialog(f, app, f.area());
     }
 }
 
@@ -340,6 +353,9 @@ fn handle_key(
     }
     if app.focus == Focus::SystemDialog {
         return dialogs::system::handle_system_key(key, app);
+    }
+    if app.focus == Focus::EditDialog {
+        return dialogs::edit::handle_edit_key(key, app);
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {

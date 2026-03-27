@@ -1,4 +1,5 @@
 pub mod character;
+pub mod edit;
 pub mod passkey;
 pub mod system;
 pub mod worldbook;

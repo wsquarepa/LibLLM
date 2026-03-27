@@ -39,7 +39,7 @@ impl Template {
                     prompt.push_str(&msg.content);
                     prompt.push_str(self.assistant_end());
                 }
-                Role::System => {}
+                Role::System => prompt.push_str(&self.wrap_system(&msg.content)),
             }
         }
         prompt
@@ -73,6 +73,15 @@ impl Template {
                 Some(sys) => format!("{sys}\n\n"),
                 None => String::new(),
             },
+        }
+    }
+
+    fn wrap_system(self, content: &str) -> String {
+        match self {
+            Self::Llama2 | Self::Mistral => format!("[INST] {content} [/INST]"),
+            Self::ChatMl => format!("<|im_start|>system\n{content}<|im_end|>\n"),
+            Self::Phi => format!("<|system|>\n{content}<|end|>\n"),
+            Self::Raw => format!("{content}\n"),
         }
     }
 

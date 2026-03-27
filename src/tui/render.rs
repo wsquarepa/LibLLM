@@ -270,7 +270,11 @@ pub fn render_chat(
         let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
 
         if wrapped_offset < *chat_scroll {
-            *chat_scroll = wrapped_offset;
+            *chat_scroll = if wrapped_offset <= visible_height {
+                0
+            } else {
+                wrapped_offset
+            };
         } else {
             let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
             let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);

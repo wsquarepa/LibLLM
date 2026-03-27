@@ -402,9 +402,20 @@ fn handle_key(
 
     if key.code == KeyCode::Tab {
         app.focus = match app.focus {
-            Focus::Input => Focus::Chat,
-            Focus::Chat => Focus::Sidebar,
-            _ => Focus::Input,
+            Focus::Input => {
+                let path = app.session.tree.branch_path_ids();
+                app.nav_cursor = path.last().copied();
+                app.auto_scroll = false;
+                Focus::Chat
+            }
+            Focus::Chat => {
+                app.nav_cursor = None;
+                Focus::Sidebar
+            }
+            _ => {
+                app.nav_cursor = None;
+                Focus::Input
+            }
         };
         return None;
     }

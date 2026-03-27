@@ -190,6 +190,7 @@ pub fn render_chat(
     };
 
     let mut lines: Vec<Line> = Vec::new();
+    let mut nav_cursor_line: Option<usize> = None;
 
     for (msg, &node_id) in branch_path.iter().zip(branch_ids.iter()) {
         let (role_label, role_color) = match msg.role {
@@ -206,11 +207,15 @@ pub fn render_chat(
         };
 
         let is_nav_selected = app.nav_cursor == Some(node_id);
+        if is_nav_selected {
+            nav_cursor_line = Some(lines.len());
+        }
         let nav_marker = if is_nav_selected { ">> " } else { "" };
         let role_style = if is_nav_selected {
             Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
                 .fg(role_color)
@@ -257,6 +262,14 @@ pub fn render_chat(
             *chat_scroll = content_height.saturating_sub(visible_height);
         } else {
             *chat_scroll = 0;
+        }
+    } else if let Some(cursor_line_idx) = nav_cursor_line {
+        let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
+
+        if wrapped_offset < *chat_scroll {
+            *chat_scroll = wrapped_offset;
+        } else if wrapped_offset >= *chat_scroll + visible_height {
+            *chat_scroll = wrapped_offset.saturating_sub(visible_height) + 1;
         }
     }
 
@@ -351,6 +364,15 @@ pub fn render_status_bar(
         Paragraph::new(status).style(Style::default().fg(Color::White).bg(Color::DarkGray));
 
     f.render_widget(paragraph, area);
+}
+
+fn measure_wrapped_offset(lines: &[Line], up_to: usize, area: Rect) -> u16 {
+    if up_to == 0 {
+        return 0;
+    }
+    let mut slice = lines[..up_to].to_vec();
+    slice.push(Line::from("X"));
+    measure_wrapped_height(&slice, area).saturating_sub(1)
 }
 
 fn measure_wrapped_height(lines: &[Line], area: Rect) -> u16 {

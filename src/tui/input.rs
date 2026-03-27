@@ -73,6 +73,9 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             let trimmed = text.trim().to_owned();
 
             if trimmed.is_empty() {
+                if app.nav_cursor.is_some() {
+                    recall_last_message(app);
+                }
                 return None;
             }
 
@@ -97,6 +100,32 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             app.command_picker_selected = 0;
             None
         }
+    }
+}
+
+fn recall_last_message(app: &mut App) {
+    use crate::session::Role;
+
+    app.nav_cursor = None;
+    app.session.pop_trailing_assistant();
+
+    let user_content = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .filter(|n| n.message.role == Role::User)
+        .map(|n| n.message.content.clone());
+
+    if let Some(content) = user_content {
+        app.session.tree.pop_head();
+        let lines: Vec<String> = content.lines().map(String::from).collect();
+        app.textarea = TextArea::from(lines);
+        app.textarea.set_cursor_line_style(Style::default());
+        app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
+        app.textarea.move_cursor(tui_textarea::CursorMove::End);
+        app.auto_scroll = true;
+        app.status_message.clear();
     }
 }
 
@@ -148,27 +177,58 @@ pub fn input_has_command_picker(app: &App) -> bool {
 }
 
 pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    let path = app.session.tree.branch_path_ids();
+    if path.is_empty() {
+        return None;
+    }
+
     match key.code {
         KeyCode::Up => {
-            app.chat_scroll = app.chat_scroll.saturating_sub(1);
-            app.auto_scroll = false;
+            if let Some(current) = app.nav_cursor {
+                if let Some(pos) = path.iter().position(|&id| id == current) {
+                    if pos > 0 {
+                        app.nav_cursor = Some(path[pos - 1]);
+                    }
+                }
+            }
             None
         }
         KeyCode::Down => {
-            app.chat_scroll = app.chat_scroll.saturating_add(1);
+            if let Some(current) = app.nav_cursor {
+                if let Some(pos) = path.iter().position(|&id| id == current) {
+                    if pos + 1 < path.len() {
+                        app.nav_cursor = Some(path[pos + 1]);
+                    }
+                }
+            }
             None
         }
-        KeyCode::PageUp => {
-            app.chat_scroll = app.chat_scroll.saturating_sub(10);
-            app.auto_scroll = false;
+        KeyCode::Left => {
+            if let Some(current) = app.nav_cursor {
+                let siblings = app.session.tree.siblings_of(current);
+                if siblings.len() > 1 {
+                    if let Some(idx) = siblings.iter().position(|&s| s == current) {
+                        let new_idx = if idx == 0 { siblings.len() - 1 } else { idx - 1 };
+                        app.session.tree.switch_to(siblings[new_idx]);
+                        app.nav_cursor = Some(siblings[new_idx]);
+                        let _ = app.session.maybe_save(&app.save_mode);
+                    }
+                }
+            }
             None
         }
-        KeyCode::PageDown => {
-            app.chat_scroll = app.chat_scroll.saturating_add(10);
-            None
-        }
-        KeyCode::End => {
-            app.auto_scroll = true;
+        KeyCode::Right => {
+            if let Some(current) = app.nav_cursor {
+                let siblings = app.session.tree.siblings_of(current);
+                if siblings.len() > 1 {
+                    if let Some(idx) = siblings.iter().position(|&s| s == current) {
+                        let new_idx = (idx + 1) % siblings.len();
+                        app.session.tree.switch_to(siblings[new_idx]);
+                        app.nav_cursor = Some(siblings[new_idx]);
+                        let _ = app.session.maybe_save(&app.save_mode);
+                    }
+                }
+            }
             None
         }
         _ => None,

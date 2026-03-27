@@ -358,6 +358,10 @@ fn handle_key(
         return dialogs::edit::handle_edit_key(key, app);
     }
 
+    if app.is_streaming {
+        return handle_streaming_key(key, app);
+    }
+
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return Some(Action::Quit);
     }
@@ -398,6 +402,63 @@ fn handle_key(
         Focus::Sidebar => input::handle_sidebar_key(key, app),
         _ => None,
     }
+}
+
+fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    match key.code {
+        KeyCode::Esc => {
+            cancel_generation(app);
+            None
+        }
+        KeyCode::Up => {
+            cancel_generation(app);
+            open_edit_dialog(app);
+            None
+        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::Quit)
+        }
+        _ => None,
+    }
+}
+
+fn cancel_generation(app: &mut App) {
+    app.streaming_buffer.clear();
+    app.is_streaming = false;
+    app.session.tree.pop_head();
+    app.auto_scroll = true;
+    app.status_message = "Generation cancelled.".to_owned();
+}
+
+fn open_edit_dialog(app: &mut App) {
+    let last_user_content = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| {
+            let node = app.session.tree.node(id)?;
+            if node.message.role == crate::session::Role::Assistant {
+                let parent = node.parent?;
+                app.session.tree.node(parent)
+            } else {
+                Some(node)
+            }
+        })
+        .filter(|n| n.message.role == crate::session::Role::User)
+        .map(|n| n.message.content.clone())
+        .unwrap_or_default();
+
+    let mut editor = TextArea::from(
+        last_user_content
+            .lines()
+            .map(String::from)
+            .collect::<Vec<_>>(),
+    );
+    editor.set_cursor_line_style(ratatui::style::Style::default());
+    editor.move_cursor(tui_textarea::CursorMove::Bottom);
+    editor.move_cursor(tui_textarea::CursorMove::End);
+    app.edit_editor = Some(editor);
+    app.focus = Focus::EditDialog;
 }
 
 enum DialogKind {

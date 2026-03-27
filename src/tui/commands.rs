@@ -55,34 +55,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
         }
         "/edit" => {
             if arg.is_empty() {
-                let last_user_content = app
-                    .session
-                    .tree
-                    .head()
-                    .and_then(|id| {
-                        let node = app.session.tree.node(id)?;
-                        if node.message.role == Role::Assistant {
-                            let parent = node.parent?;
-                            app.session.tree.node(parent)
-                        } else {
-                            Some(node)
-                        }
-                    })
-                    .filter(|n| n.message.role == Role::User)
-                    .map(|n| n.message.content.clone())
-                    .unwrap_or_default();
-
-                let mut editor = tui_textarea::TextArea::from(
-                    last_user_content
-                        .lines()
-                        .map(String::from)
-                        .collect::<Vec<_>>(),
-                );
-                editor.set_cursor_line_style(ratatui::style::Style::default());
-                editor.move_cursor(tui_textarea::CursorMove::Bottom);
-                editor.move_cursor(tui_textarea::CursorMove::End);
-                app.edit_editor = Some(editor);
-                app.focus = super::Focus::EditDialog;
+                super::open_edit_dialog(app);
             } else {
                 app.session.pop_trailing_assistant();
                 if app
@@ -290,7 +263,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.is_streaming = true;
     app.streaming_buffer.clear();
     app.auto_scroll = true;
-    app.status_message = "Generating...".to_owned();
+    app.status_message = "Generating... (Esc: cancel, Up: edit)".to_owned();
 
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
@@ -312,6 +285,9 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
 }
 
 pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
+    if !app.is_streaming {
+        return Ok(());
+    }
     match token {
         StreamToken::Token(text) => {
             app.streaming_buffer.push_str(&text);

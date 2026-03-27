@@ -47,12 +47,19 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
         Style::default().fg(Color::Cyan)
     };
 
+    let sidebar_focused = app.focus == super::Focus::Sidebar;
+    let sidebar_title = if sidebar_focused {
+        " Sessions (Del: delete) "
+    } else {
+        " Sessions "
+    };
+
     let list = List::new(items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Sessions ")
-                .border_style(border_style(app.focus == super::Focus::Sidebar)),
+                .title(sidebar_title)
+                .border_style(border_style(sidebar_focused)),
         )
         .highlight_style(highlight_style)
         .highlight_symbol("> ");

@@ -36,6 +36,7 @@ enum Focus {
     SystemDialog,
     EditDialog,
     BranchDialog,
+    DeleteConfirmDialog,
 }
 
 enum Action {
@@ -106,6 +107,8 @@ struct App<'a> {
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
     branch_dialog_selected: usize,
+    delete_confirm_selected: usize,
+    delete_confirm_filename: String,
     user_name: Option<String>,
 }
 
@@ -169,6 +172,8 @@ pub async fn run(
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
+        delete_confirm_selected: 0,
+        delete_confirm_filename: String::new(),
         user_name: crate::config::load().user_name,
     };
 
@@ -333,6 +338,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     if app.focus == Focus::BranchDialog {
         dialogs::branch::render_branch_dialog(f, app, f.area());
     }
+    if app.focus == Focus::DeleteConfirmDialog {
+        dialogs::delete_confirm::render_delete_confirm_dialog(f, app, f.area());
+    }
 }
 
 fn handle_event(
@@ -402,6 +410,9 @@ fn handle_key(
     }
     if app.focus == Focus::BranchDialog {
         return dialogs::branch::handle_branch_dialog_key(key, app);
+    }
+    if app.focus == Focus::DeleteConfirmDialog {
+        return dialogs::delete_confirm::handle_delete_confirm_key(key, app);
     }
 
     if app.is_streaming {

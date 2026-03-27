@@ -1,5 +1,6 @@
 pub mod branch;
 pub mod character;
+pub mod delete_confirm;
 pub mod edit;
 pub mod passkey;
 pub mod system;

@@ -277,6 +277,17 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             load_sidebar_selection(app);
             None
         }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let selected = app.sidebar_state.selected().unwrap_or(0);
+            let entry = &app.sidebar_sessions[selected];
+            if entry.is_new_chat {
+                return None;
+            }
+            app.delete_confirm_filename = entry.filename.clone();
+            app.delete_confirm_selected = 0;
+            app.focus = super::Focus::DeleteConfirmDialog;
+            None
+        }
         _ => None,
     }
 }

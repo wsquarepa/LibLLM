@@ -92,9 +92,11 @@ jobs:
           gh release delete nightly --yes 2>/dev/null || true
           git tag -f nightly
           git push -f origin nightly
+          HASH=$(git rev-parse --short HEAD)
+          TIME=$(git log -1 --format=%ci)
+          MSG=$(git log -1 --format=%B | sed '/^$/d')
+          printf -v NOTES 'Commit `%s` at `%s`\n\n```\n%s\n```' "$HASH" "$TIME" "$MSG"
           gh release create nightly artifacts/* \
             --title "Nightly Build" \
-            --notes "Rolling pre-release built from \`master\` at $(git rev-parse --short HEAD).
-
-          Updated on every push to master." \
+            --notes "$NOTES" \
             --prerelease

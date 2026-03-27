@@ -54,7 +54,6 @@ enum BackgroundEvent {
 const CONFIG_FIELDS: &[&str] = &[
     "API URL",
     "Template",
-    "System Prompt",
     "Temperature",
     "Top-K",
     "Top-P",
@@ -94,6 +93,7 @@ struct App<'a> {
     config_dialog: Option<FieldDialog<'a>>,
     self_dialog: Option<FieldDialog<'a>>,
     system_editor: Option<TextArea<'a>>,
+    system_editor_roleplay: bool,
     edit_editor: Option<TextArea<'a>>,
 
     character_names: Vec<String>,
@@ -126,6 +126,7 @@ pub async fn run(
             .title(" Input (Enter to send, Alt+Enter for newline) "),
     );
     textarea.set_cursor_line_style(Style::default());
+    textarea.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
 
     let sidebar_state = ratatui::widgets::ListState::default();
 
@@ -158,6 +159,7 @@ pub async fn run(
         config_dialog: None,
         self_dialog: None,
         system_editor: None,
+        system_editor_roleplay: false,
         edit_editor: None,
         character_names: Vec::new(),
         character_slugs: Vec::new(),
@@ -516,6 +518,7 @@ fn open_edit_dialog_with(app: &mut App, content: &str) {
         lines
     });
     editor.set_cursor_line_style(ratatui::style::Style::default());
+    editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
     editor.move_cursor(tui_textarea::CursorMove::Bottom);
     editor.move_cursor(tui_textarea::CursorMove::End);
     app.edit_editor = Some(editor);

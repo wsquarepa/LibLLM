@@ -13,9 +13,15 @@ pub(in crate::tui) fn render_system_dialog(f: &mut ratatui::Frame, app: &App, ar
     let dialog = centered_rect(width, height, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 
+    let title = if app.system_editor_roleplay {
+        " System Prompt - Roleplay (Esc to save & close) "
+    } else {
+        " System Prompt - Assistant (Esc to save & close) "
+    };
+
     let border = Block::default()
         .borders(Borders::ALL)
-        .title(" System Prompt (Esc to save & close) ")
+        .title(title)
         .border_style(Style::default().fg(Color::Yellow));
     f.render_widget(border, dialog);
 
@@ -47,15 +53,33 @@ pub(in crate::tui) fn handle_system_key(key: KeyEvent, app: &mut App) -> Option<
         match key.code {
             KeyCode::Esc => {
                 let content = editor.lines().join("\n");
-                if content.trim().is_empty() {
-                    app.session.system_prompt = None;
+                let value = if content.trim().is_empty() {
+                    None
                 } else {
-                    app.session.system_prompt = Some(content);
+                    Some(content)
+                };
+
+                let mut cfg = crate::config::load();
+                if app.system_editor_roleplay {
+                    cfg.roleplay_system_prompt = value;
+                } else {
+                    cfg.system_prompt = value;
                 }
+
+                let path = crate::config::config_path();
+                if let Ok(toml_str) = toml::to_string_pretty(&cfg) {
+                    let _ = std::fs::write(path, toml_str);
+                }
+
                 app.system_editor = None;
                 app.focus = Focus::Input;
-                app.status_message = "System prompt updated.".to_owned();
-                let _ = app.session.maybe_save(&app.save_mode);
+
+                let label = if app.system_editor_roleplay {
+                    "Roleplay"
+                } else {
+                    "Assistant"
+                };
+                app.status_message = format!("{label} system prompt saved.");
             }
             _ => {
                 editor.input(key);

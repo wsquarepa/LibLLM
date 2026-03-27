@@ -10,6 +10,7 @@ pub struct Config {
     pub api_url: Option<String>,
     pub template: Option<String>,
     pub system_prompt: Option<String>,
+    pub roleplay_system_prompt: Option<String>,
     pub user_name: Option<String>,
     pub user_persona: Option<String>,
     #[serde(default)]

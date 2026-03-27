@@ -74,17 +74,20 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
         }
         "/system" => {
             if arg.is_empty() {
-                let content = app
-                    .session
-                    .system_prompt
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_owned();
+                let cfg = crate::config::load();
+                let is_roleplay = app.session.character.is_some();
+                let content = if is_roleplay {
+                    cfg.roleplay_system_prompt.unwrap_or_default()
+                } else {
+                    cfg.system_prompt.unwrap_or_default()
+                };
                 let mut editor = tui_textarea::TextArea::from(
                     content.lines().map(String::from).collect::<Vec<_>>(),
                 );
                 editor.set_cursor_line_style(ratatui::style::Style::default());
+                editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
                 app.system_editor = Some(editor);
+                app.system_editor_roleplay = is_roleplay;
                 app.focus = Focus::SystemDialog;
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
@@ -117,7 +120,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 " Configuration ",
                 CONFIG_FIELDS,
                 load_config_fields(),
-                &[2],
+                &[],
             ));
             app.focus = Focus::ConfigDialog;
         }

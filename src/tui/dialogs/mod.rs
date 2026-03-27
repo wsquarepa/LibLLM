@@ -218,6 +218,7 @@ impl<'a> FieldDialog<'a> {
                         lines
                     });
                     editor.set_cursor_line_style(Style::default());
+                    editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
                     editor.move_cursor(tui_textarea::CursorMove::Bottom);
                     editor.move_cursor(tui_textarea::CursorMove::End);
                     self.editor = Some(editor);

@@ -12,8 +12,21 @@ pub fn non_empty(s: &str) -> Option<String> {
 
 pub fn build_effective_system_prompt(session: &Session) -> Option<String> {
     let cfg = crate::config::load();
-    let base = session.system_prompt.as_deref().unwrap_or("");
     let is_character = session.character.is_some();
+
+    let session_prompt = session.system_prompt.as_deref().unwrap_or("");
+    let config_default = if is_character {
+        cfg.roleplay_system_prompt.as_deref().unwrap_or("")
+    } else {
+        cfg.system_prompt.as_deref().unwrap_or("")
+    };
+
+    let base = if session_prompt.is_empty() {
+        config_default
+    } else {
+        session_prompt
+    };
+
     let has_persona = is_character && (cfg.user_name.is_some() || cfg.user_persona.is_some());
 
     if base.is_empty() && !has_persona {
@@ -123,7 +136,6 @@ pub fn load_config_fields() -> Vec<String> {
         cfg.api_url
             .unwrap_or_else(|| crate::config::Config::default().api_url().to_owned()),
         cfg.template.unwrap_or_else(|| "llama2".to_owned()),
-        cfg.system_prompt.unwrap_or_default(),
         cfg.sampling
             .temperature
             .unwrap_or(defaults.temperature)
@@ -151,17 +163,18 @@ pub fn save_config_from_fields(fields: &[String]) {
     let cfg = crate::config::Config {
         api_url: non_empty(&fields[0]),
         template: non_empty(&fields[1]),
-        system_prompt: non_empty(&fields[2]),
+        system_prompt: existing.system_prompt,
+        roleplay_system_prompt: existing.roleplay_system_prompt,
         user_name: existing.user_name,
         user_persona: existing.user_persona,
         sampling: crate::sampling::SamplingOverrides {
-            temperature: fields[3].parse().ok(),
-            top_k: fields[4].parse().ok(),
-            top_p: fields[5].parse().ok(),
-            min_p: fields[6].parse().ok(),
-            repeat_last_n: fields[7].parse().ok(),
-            repeat_penalty: fields[8].parse().ok(),
-            max_tokens: fields[9].parse().ok(),
+            temperature: fields[2].parse().ok(),
+            top_k: fields[3].parse().ok(),
+            top_p: fields[4].parse().ok(),
+            min_p: fields[5].parse().ok(),
+            repeat_last_n: fields[6].parse().ok(),
+            repeat_penalty: fields[7].parse().ok(),
+            max_tokens: fields[8].parse().ok(),
         },
     };
 
@@ -179,7 +192,13 @@ pub fn apply_config(app: &mut App) {
     app.sampling =
         crate::sampling::SamplingParams::default().with_overrides(&cfg.sampling);
 
-    if let Some(sp) = cfg.system_prompt {
+    let is_character = app.session.character.is_some();
+    let prompt = if is_character {
+        cfg.roleplay_system_prompt
+    } else {
+        cfg.system_prompt
+    };
+    if let Some(sp) = prompt {
         app.session.system_prompt = Some(sp);
     }
 }

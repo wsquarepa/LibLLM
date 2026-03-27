@@ -60,6 +60,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 };
                 app.textarea = TextArea::from(vec![format!("{cmd_name}{suffix}")]);
                 app.textarea.set_cursor_line_style(Style::default());
+                app.textarea.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
                 app.textarea
                     .move_cursor(tui_textarea::CursorMove::End);
                 app.command_picker_selected = 0;
@@ -109,6 +110,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
             app.textarea = TextArea::default();
             app.textarea.set_cursor_line_style(Style::default());
+            app.textarea.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
             app.command_picker_selected = 0;
 
             if trimmed.starts_with('/') {
@@ -147,6 +149,7 @@ fn recall_last_message(app: &mut App) {
     let lines: Vec<String> = content.lines().map(String::from).collect();
     app.textarea = TextArea::from(lines);
     app.textarea.set_cursor_line_style(Style::default());
+    app.textarea.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
     app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
     app.textarea.move_cursor(tui_textarea::CursorMove::End);
     app.auto_scroll = true;

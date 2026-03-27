@@ -34,10 +34,12 @@ enum Focus {
     CharacterDialog,
     WorldbookDialog,
     SystemDialog,
+    EditDialog,
 }
 
 enum Action {
     SendMessage(String),
+    EditMessage(String),
     SlashCommand(String, String),
     Quit,
 }
@@ -91,6 +93,7 @@ struct App<'a> {
     config_dialog: Option<FieldDialog<'a>>,
     self_dialog: Option<FieldDialog<'a>>,
     system_editor: Option<TextArea<'a>>,
+    edit_editor: Option<TextArea<'a>>,
 
     character_names: Vec<String>,
     character_slugs: Vec<String>,
@@ -149,6 +152,7 @@ pub async fn run(
         config_dialog: None,
         self_dialog: None,
         system_editor: None,
+        edit_editor: None,
         character_names: Vec::new(),
         character_slugs: Vec::new(),
         character_selected: 0,

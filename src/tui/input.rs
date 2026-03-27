@@ -34,7 +34,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     (app.command_picker_selected + 1).min(matches.len().saturating_sub(1));
                 return None;
             }
-            KeyCode::Tab if !matches.is_empty() => {
+            KeyCode::Tab | KeyCode::Char(' ') if !matches.is_empty() => {
                 let selected = app
                     .command_picker_selected
                     .min(matches.len().saturating_sub(1));
@@ -91,7 +91,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
 pub fn input_has_command_picker(app: &App) -> bool {
     let text = app.textarea.lines().join("\n");
-    text.starts_with('/') && !app.is_streaming
+    text.starts_with('/') && !text.contains(' ') && !app.is_streaming
 }
 
 pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {

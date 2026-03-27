@@ -34,7 +34,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
         }
         "/retry" => {
             app.nav_cursor = None;
-            app.session.pop_trailing_assistant();
+            app.session.retreat_trailing_assistant();
 
             let last_user_content = app
                 .session
@@ -46,7 +46,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
 
             match last_user_content {
                 Some(content) => {
-                    app.session.tree.pop_head();
+                    app.session.tree.retreat_head();
                     start_streaming(app, &content, sender);
                 }
                 None => {
@@ -59,7 +59,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             if arg.is_empty() {
                 super::open_edit_dialog(app);
             } else {
-                app.session.pop_trailing_assistant();
+                app.session.retreat_trailing_assistant();
                 if app
                     .session
                     .tree
@@ -67,7 +67,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                     .and_then(|id| app.session.tree.node(id))
                     .is_some_and(|n| n.message.role == Role::User)
                 {
-                    app.session.tree.pop_head();
+                    app.session.tree.retreat_head();
                 }
                 start_streaming(app, arg, sender);
             }

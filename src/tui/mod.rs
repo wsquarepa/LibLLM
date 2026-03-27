@@ -355,14 +355,14 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
         }
         Action::EditMessage(text) => {
             app.nav_cursor = None;
-            app.session.pop_trailing_assistant();
+            app.session.retreat_trailing_assistant();
             if app.session
                 .tree
                 .head()
                 .and_then(|id| app.session.tree.node(id))
                 .is_some_and(|n| n.message.role == crate::session::Role::User)
             {
-                app.session.tree.pop_head();
+                app.session.tree.retreat_head();
             }
             commands::start_streaming(app, &text, token_tx);
         }

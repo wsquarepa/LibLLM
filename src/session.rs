@@ -91,10 +91,14 @@ pub struct Node {
     pub message: Message,
 }
 
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTree {
     nodes: Vec<Node>,
     head: Option<NodeId>,
+    #[serde(skip)]
+    preferred_child: HashMap<NodeId, NodeId>,
 }
 
 impl MessageTree {
@@ -102,6 +106,16 @@ impl MessageTree {
         Self {
             nodes: Vec::new(),
             head: None,
+            preferred_child: HashMap::new(),
+        }
+    }
+
+    pub fn update_preferred_children(&mut self) {
+        let Some(head) = self.head else { return };
+        let mut current = head;
+        while let Some(pid) = self.nodes[current].parent {
+            self.preferred_child.insert(pid, current);
+            current = pid;
         }
     }
 
@@ -125,6 +139,7 @@ impl MessageTree {
             self.nodes[parent_id].children.push(id);
         }
         self.head = Some(id);
+        self.update_preferred_children();
         id
     }
 
@@ -175,9 +190,15 @@ impl MessageTree {
         }
         let mut current = id;
         while !self.nodes[current].children.is_empty() {
-            current = self.nodes[current].children[0];
+            current = self
+                .preferred_child
+                .get(&current)
+                .filter(|&&c| self.nodes[current].children.contains(&c))
+                .copied()
+                .unwrap_or(self.nodes[current].children[0]);
         }
         self.head = Some(current);
+        self.update_preferred_children();
     }
 
     pub fn switch_sibling(&mut self, offset: isize) {
@@ -207,6 +228,17 @@ impl MessageTree {
         let new_node = siblings[new_idx];
 
         self.switch_to(new_node);
+    }
+
+    pub fn retreat_head(&mut self) -> Option<&Message> {
+        let head = self.head?;
+        self.head = self.nodes[head].parent;
+        Some(&self.nodes[head].message)
+    }
+
+    pub fn set_head(&mut self, id: Option<NodeId>) {
+        self.head = id;
+        self.update_preferred_children();
     }
 
     pub fn pop_head(&mut self) -> Option<Message> {
@@ -308,11 +340,11 @@ impl Default for Session {
 }
 
 impl Session {
-    pub fn pop_trailing_assistant(&mut self) {
+    pub fn retreat_trailing_assistant(&mut self) {
         while self.tree.head()
             .is_some_and(|id| self.tree.node(id).is_some_and(|n| n.message.role == Role::Assistant))
         {
-            self.tree.pop_head();
+            self.tree.retreat_head();
         }
     }
 
@@ -457,7 +489,8 @@ fn extract_preview(path: &Path, key: &DerivedKey) -> String {
 }
 
 fn load_from_str(contents: &str) -> Result<Session> {
-    if let Ok(session) = serde_json::from_str::<Session>(contents) {
+    if let Ok(mut session) = serde_json::from_str::<Session>(contents) {
+        session.tree.update_preferred_children();
         return Ok(session);
     }
 

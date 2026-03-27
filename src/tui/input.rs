@@ -81,6 +81,20 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             navigate_down(app);
             None
         }
+        KeyCode::Left
+            if app.nav_cursor.is_some()
+                && app.textarea.lines().join("").trim().is_empty() =>
+        {
+            switch_nav_sibling(app, -1);
+            None
+        }
+        KeyCode::Right
+            if app.nav_cursor.is_some()
+                && app.textarea.lines().join("").trim().is_empty() =>
+        {
+            switch_nav_sibling(app, 1);
+            None
+        }
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
             let lines: Vec<String> = app.textarea.lines().to_vec();
             let text = lines.join("\n");
@@ -118,29 +132,38 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn recall_last_message(app: &mut App) {
-    use crate::session::Role;
+    let target = app.nav_cursor.take();
 
-    app.nav_cursor = None;
-    app.session.pop_trailing_assistant();
-
-    let user_content = app
-        .session
-        .tree
-        .head()
+    let (content, parent) = match target
         .and_then(|id| app.session.tree.node(id))
         .filter(|n| n.message.role == Role::User)
-        .map(|n| n.message.content.clone());
+    {
+        Some(node) => (node.message.content.clone(), node.parent),
+        None => return,
+    };
 
-    if let Some(content) = user_content {
-        app.session.tree.pop_head();
-        let lines: Vec<String> = content.lines().map(String::from).collect();
-        app.textarea = TextArea::from(lines);
-        app.textarea.set_cursor_line_style(Style::default());
-        app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
-        app.textarea.move_cursor(tui_textarea::CursorMove::End);
-        app.auto_scroll = true;
-        app.status_message.clear();
+    app.session.tree.set_head(parent);
+
+    let lines: Vec<String> = content.lines().map(String::from).collect();
+    app.textarea = TextArea::from(lines);
+    app.textarea.set_cursor_line_style(Style::default());
+    app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
+    app.textarea.move_cursor(tui_textarea::CursorMove::End);
+    app.auto_scroll = true;
+    app.status_message.clear();
+}
+
+fn switch_nav_sibling(app: &mut App, offset: isize) {
+    let Some(current) = app.nav_cursor else { return };
+    let siblings = app.session.tree.siblings_of(current);
+    if siblings.len() <= 1 {
+        return;
     }
+    let Some(idx) = siblings.iter().position(|&s| s == current) else { return };
+    let new_idx = (idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
+    app.session.tree.switch_to(siblings[new_idx]);
+    app.nav_cursor = Some(siblings[new_idx]);
+    let _ = app.session.maybe_save(&app.save_mode);
 }
 
 fn navigate_up(app: &mut App) {
@@ -155,7 +178,8 @@ fn navigate_up(app: &mut App) {
                 app.nav_cursor = Some(last);
                 app.auto_scroll = false;
                 app.status_message =
-                    "Up/Down: navigate, Enter: edit, /branch: switch, Esc: exit".to_owned();
+                    "Up/Down: navigate, Left/Right: cycle branches, Enter: edit, Esc: exit"
+                        .to_owned();
             }
         }
         Some(current) => {
@@ -218,31 +242,11 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Left => {
-            if let Some(current) = app.nav_cursor {
-                let siblings = app.session.tree.siblings_of(current);
-                if siblings.len() > 1 {
-                    if let Some(idx) = siblings.iter().position(|&s| s == current) {
-                        let new_idx = if idx == 0 { siblings.len() - 1 } else { idx - 1 };
-                        app.session.tree.switch_to(siblings[new_idx]);
-                        app.nav_cursor = Some(siblings[new_idx]);
-                        let _ = app.session.maybe_save(&app.save_mode);
-                    }
-                }
-            }
+            switch_nav_sibling(app, -1);
             None
         }
         KeyCode::Right => {
-            if let Some(current) = app.nav_cursor {
-                let siblings = app.session.tree.siblings_of(current);
-                if siblings.len() > 1 {
-                    if let Some(idx) = siblings.iter().position(|&s| s == current) {
-                        let new_idx = (idx + 1) % siblings.len();
-                        app.session.tree.switch_to(siblings[new_idx]);
-                        app.nav_cursor = Some(siblings[new_idx]);
-                        let _ = app.session.maybe_save(&app.save_mode);
-                    }
-                }
-            }
+            switch_nav_sibling(app, 1);
             None
         }
         _ => None,

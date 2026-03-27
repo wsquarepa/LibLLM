@@ -214,8 +214,12 @@ pub fn new_chat_entry() -> SessionEntry {
 
 pub fn refresh_sidebar(app: &mut App) {
     let sessions = discover_sidebar_sessions(&app.save_mode);
+    let current_path = app.save_mode.path().map(|p| p.to_path_buf());
+    let selected = current_path
+        .and_then(|cp| sessions.iter().position(|s| s.path == cp))
+        .unwrap_or(0);
     app.sidebar_sessions = sessions;
-    app.sidebar_state.select(Some(0));
+    app.sidebar_state.select(Some(selected));
 }
 
 pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {

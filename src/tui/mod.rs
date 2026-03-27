@@ -113,6 +113,7 @@ struct App<'a> {
     delete_confirm_selected: usize,
     delete_confirm_filename: String,
     user_name: Option<String>,
+    config: crate::config::Config,
     bg_tx: mpsc::Sender<BackgroundEvent>,
 }
 
@@ -138,6 +139,9 @@ pub async fn run(
 
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
     let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
+
+    let config = crate::config::load();
+    let user_name = config.user_name.clone();
 
     let mut app = App {
         client,
@@ -180,7 +184,8 @@ pub async fn run(
         branch_dialog_selected: 0,
         delete_confirm_selected: 0,
         delete_confirm_filename: String::new(),
-        user_name: crate::config::load().user_name,
+        user_name,
+        config,
         bg_tx: bg_tx.clone(),
     };
 
@@ -576,7 +581,8 @@ fn handle_field_dialog_key(
                     let values = &app.self_dialog.as_ref().unwrap().values;
                     match business::save_self_fields(values) {
                         Ok(()) => {
-                            app.user_name = crate::config::load().user_name;
+                            app.config = crate::config::load();
+                            app.user_name = app.config.user_name.clone();
                             app.status_message = "User persona saved.".to_owned();
                         }
                         Err(e) => {

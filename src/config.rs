@@ -15,6 +15,8 @@ pub struct Config {
     pub user_persona: Option<String>,
     #[serde(default)]
     pub sampling: SamplingOverrides,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub worldbooks: Vec<String>,
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

@@ -53,6 +53,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             app.session.tree.clear();
             app.session.system_prompt = None;
             app.session.character = None;
+            app.session.worldbooks.clear();
             app.chat_scroll = 0;
             app.auto_scroll = true;
             let new_name = session::generate_session_name();
@@ -223,21 +224,16 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             app.focus = Focus::SelfDialog;
         }
         "/worldbook" => {
-            if app.session.character.is_none() {
+            let books =
+                crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir());
+            if books.is_empty() {
                 app.status_message =
-                    "Worldbooks are only available in character sessions.".to_owned();
+                    "No worldbooks found in worldinfo/ directory.".to_owned();
             } else {
-                let books =
-                    crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir());
-                if books.is_empty() {
-                    app.status_message =
-                        "No worldbooks found in worldinfo/ directory.".to_owned();
-                } else {
-                    app.worldbook_list =
-                        books.into_iter().map(|b| b.name).collect();
-                    app.worldbook_selected = 0;
-                    app.focus = Focus::WorldbookDialog;
-                }
+                app.worldbook_list =
+                    books.into_iter().map(|b| b.name).collect();
+                app.worldbook_selected = 0;
+                app.focus = Focus::WorldbookDialog;
             }
         }
         "/character" => {
@@ -298,12 +294,11 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.auto_scroll = true;
     app.status_message = "Generating... (Esc: cancel)".to_owned();
 
-    let cfg = crate::config::load();
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt = super::business::build_effective_system_prompt(app.session, &cfg);
-    let injected = super::business::inject_worldbook_entries(app.session, truncated, &cfg);
-    let injected = super::business::replace_template_vars(app.session, injected, &cfg);
+    let effective_prompt = super::business::build_effective_system_prompt(app.session, &app.config);
+    let injected = super::business::inject_worldbook_entries(app.session, truncated, &app.config);
+    let injected = super::business::replace_template_vars(app.session, injected, &app.config);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
         .template

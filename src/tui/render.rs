@@ -406,7 +406,12 @@ pub fn render_status_bar(
     };
 
     let worldbook_info = if app.session.character.is_some() {
-        let count = app.session.worldbooks.len();
+        let mut count = app.config.worldbooks.len();
+        for name in &app.session.worldbooks {
+            if !app.config.worldbooks.contains(name) {
+                count += 1;
+            }
+        }
         format!(" | {count} worldbooks")
     } else {
         String::new()

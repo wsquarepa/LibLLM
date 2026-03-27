@@ -69,7 +69,18 @@ pub fn inject_worldbook_entries<'a>(
     messages: &[&'a Message],
     cfg: &crate::config::Config,
 ) -> Vec<Message> {
-    if session.character.is_none() || session.worldbooks.is_empty() {
+    if session.character.is_none() {
+        return messages.iter().map(|m| (*m).clone()).collect();
+    }
+
+    let mut enabled: Vec<&String> = cfg.worldbooks.iter().collect();
+    for name in &session.worldbooks {
+        if !enabled.iter().any(|n| *n == name) {
+            enabled.push(name);
+        }
+    }
+
+    if enabled.is_empty() {
         return messages.iter().map(|m| (*m).clone()).collect();
     }
 
@@ -80,7 +91,7 @@ pub fn inject_worldbook_entries<'a>(
     let wi_dir = crate::config::worldinfo_dir();
 
     let mut all_activated: Vec<crate::worldinfo::ActivatedEntry> = Vec::new();
-    for wb_name in &session.worldbooks {
+    for wb_name in &enabled {
         let wb_path = wi_dir.join(format!("{wb_name}.json"));
         if let Ok(wb) = crate::worldinfo::load_worldbook(&wb_path) {
             all_activated.extend(crate::worldinfo::scan_entries(&wb, &msg_texts));
@@ -178,6 +189,7 @@ pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
         roleplay_system_prompt: existing.roleplay_system_prompt,
         user_name: existing.user_name,
         user_persona: existing.user_persona,
+        worldbooks: existing.worldbooks,
         sampling: crate::sampling::SamplingOverrides {
             temperature: fields[2].parse().ok(),
             top_k: fields[3].parse().ok(),
@@ -202,13 +214,16 @@ pub fn apply_config(app: &mut App) {
 
     let is_character = app.session.character.is_some();
     let prompt = if is_character {
-        cfg.roleplay_system_prompt
+        cfg.roleplay_system_prompt.clone()
     } else {
-        cfg.system_prompt
+        cfg.system_prompt.clone()
     };
     if let Some(sp) = prompt {
         app.session.system_prompt = Some(sp);
     }
+
+    app.user_name = cfg.user_name.clone();
+    app.config = cfg;
 }
 
 pub fn load_self_fields(cfg: &crate::config::Config) -> Vec<String> {

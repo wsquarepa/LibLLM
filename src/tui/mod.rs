@@ -5,7 +5,7 @@ mod input;
 mod render;
 
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -106,6 +106,7 @@ struct App<'a> {
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
     branch_dialog_selected: usize,
+    user_name: Option<String>,
 }
 
 pub async fn run(
@@ -166,6 +167,7 @@ pub async fn run(
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
+        user_name: crate::config::load().user_name,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -201,40 +203,33 @@ pub async fn run(
         }
     }
 
-    loop {
-        terminal.draw(|f| render_frame(f, &mut app))?;
+    let mut frame_tick = tokio::time::interval(std::time::Duration::from_millis(16));
+    frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut needs_redraw = false;
 
+    terminal.draw(|f| render_frame(f, &mut app))?;
+
+    loop {
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
                 if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
-                    match action {
-                        Action::Quit => break,
-                        Action::SendMessage(text) => {
-                            app.nav_cursor = None;
-                            commands::start_streaming(&mut app, &text, token_tx.clone());
-                        }
-                        Action::EditMessage(text) => {
-                            app.nav_cursor = None;
-                            app.session.pop_trailing_assistant();
-                            if app.session.tree.head()
-                                .and_then(|id| app.session.tree.node(id))
-                                .is_some_and(|n| n.message.role == crate::session::Role::User)
-                            {
-                                app.session.tree.pop_head();
-                            }
-                            commands::start_streaming(&mut app, &text, token_tx.clone());
-                        }
-                        Action::SlashCommand(cmd, arg) => {
-                            commands::handle_slash_command(&cmd, &arg, &mut app, token_tx.clone());
-                        }
-                    }
+                    process_action(action, &mut app, token_tx.clone());
                 }
+                needs_redraw = true;
             }
             Some(stream_token) = token_rx.recv() => {
                 commands::handle_stream_token(stream_token, &mut app)?;
+                needs_redraw = true;
             }
             Some(bg_event) = bg_rx.recv() => {
                 commands::handle_background_event(bg_event, &mut app, bg_tx.clone());
+                needs_redraw = true;
+            }
+            _ = frame_tick.tick() => {
+                if needs_redraw {
+                    terminal.draw(|f| render_frame(f, &mut app))?;
+                    needs_redraw = false;
+                }
             }
         }
 
@@ -344,8 +339,36 @@ fn handle_event(
     bg_tx: mpsc::Sender<BackgroundEvent>,
 ) -> Option<Action> {
     match event {
-        Event::Key(key) => handle_key(key, app, bg_tx),
+        Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(key, app, bg_tx),
         _ => None,
+    }
+}
+
+fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamToken>) {
+    match action {
+        Action::Quit => {
+            app.should_quit = true;
+        }
+        Action::SendMessage(text) => {
+            app.nav_cursor = None;
+            commands::start_streaming(app, &text, token_tx);
+        }
+        Action::EditMessage(text) => {
+            app.nav_cursor = None;
+            app.session.pop_trailing_assistant();
+            if app.session
+                .tree
+                .head()
+                .and_then(|id| app.session.tree.node(id))
+                .is_some_and(|n| n.message.role == crate::session::Role::User)
+            {
+                app.session.tree.pop_head();
+            }
+            commands::start_streaming(app, &text, token_tx);
+        }
+        Action::SlashCommand(cmd, arg) => {
+            commands::handle_slash_command(&cmd, &arg, app, token_tx);
+        }
     }
 }
 
@@ -532,6 +555,7 @@ fn handle_field_dialog_key(
                 DialogKind::SelfPersona => {
                     let values = &app.self_dialog.as_ref().unwrap().values;
                     business::save_self_fields(values);
+                    app.user_name = crate::config::load().user_name;
                     app.self_dialog = None;
                     app.status_message = "User persona saved.".to_owned();
                 }

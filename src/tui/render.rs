@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::context::ContextManager;
 use crate::session::{Message, NodeId, Role};
@@ -163,9 +163,8 @@ pub fn render_chat(
     branch_path: &[&Message],
     branch_ids: &[NodeId],
 ) {
-    let cfg = crate::config::load();
     let char_name = app.session.character.as_deref().unwrap_or("");
-    let user_name = cfg.user_name.as_deref().unwrap_or("User");
+    let user_name = app.user_name.as_deref().unwrap_or("User");
     let has_replacements = app.session.character.is_some();
 
     let replace_vars = |text: &str| -> String {
@@ -177,7 +176,7 @@ pub fn render_chat(
         }
     };
 
-    let user_label = if has_replacements && cfg.user_name.is_some() {
+    let user_label = if has_replacements && app.user_name.is_some() {
         user_name.to_owned()
     } else {
         "You".to_owned()
@@ -370,31 +369,12 @@ fn measure_wrapped_offset(lines: &[Line], up_to: usize, area: Rect) -> u16 {
     if up_to == 0 {
         return 0;
     }
-    let mut slice = lines[..up_to].to_vec();
-    slice.push(Line::from("X"));
-    measure_wrapped_height(&slice, area).saturating_sub(1)
+    measure_wrapped_height(&lines[..up_to], area)
 }
 
 fn measure_wrapped_height(lines: &[Line], area: Rect) -> u16 {
-    let inner_width = area.width.saturating_sub(2);
-    let max_height = (lines.len() as u16).saturating_mul(4).saturating_add(100);
-    let measure_area = Rect::new(0, 0, inner_width, max_height);
-
-    let paragraph = Paragraph::new(Text::from(lines.to_vec())).wrap(Wrap { trim: false });
-
-    let mut buf = ratatui::buffer::Buffer::empty(measure_area);
-    paragraph.render(measure_area, &mut buf);
-
-    let mut last_non_empty: u16 = 0;
-    for y in 0..max_height {
-        for x in 0..inner_width {
-            let cell = &buf[(x, y)];
-            if cell.symbol() != " " {
-                last_non_empty = y + 1;
-                break;
-            }
-        }
-    }
-
-    last_non_empty
+    let inner_width = area.width.saturating_sub(2).max(1);
+    Paragraph::new(Text::from(lines.to_vec()))
+        .wrap(Wrap { trim: false })
+        .line_count(inner_width) as u16
 }

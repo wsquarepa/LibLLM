@@ -143,6 +143,41 @@ impl MessageTree {
         self.nodes.get(id)
     }
 
+    pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+        self.nodes.get_mut(id)
+    }
+
+    pub fn duplicate_subtree(&mut self, root_id: NodeId) -> Option<NodeId> {
+        let parent = self.nodes.get(root_id)?.parent;
+        let mut queue = std::collections::VecDeque::new();
+        let new_root = self.push_raw(parent, self.nodes[root_id].message.clone());
+        queue.push_back((root_id, new_root));
+        while let Some((orig, new_parent)) = queue.pop_front() {
+            let children = self.nodes[orig].children.clone();
+            for child_id in children {
+                let new_child = self.push_raw(Some(new_parent), self.nodes[child_id].message.clone());
+                queue.push_back((child_id, new_child));
+            }
+        }
+        self.head = Some(new_root);
+        self.update_preferred_children();
+        Some(new_root)
+    }
+
+    fn push_raw(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Node {
+            id,
+            parent,
+            children: Vec::new(),
+            message,
+        });
+        if let Some(parent_id) = parent {
+            self.nodes[parent_id].children.push(id);
+        }
+        id
+    }
+
     pub fn push(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
         let id = self.nodes.len();
         self.nodes.push(Node {

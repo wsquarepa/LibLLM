@@ -226,17 +226,17 @@ pub fn input_has_command_picker(app: &App) -> bool {
 }
 
 pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    let user_ids = user_node_ids(app);
-    if user_ids.is_empty() {
+    let all_ids = app.session.tree.branch_path_ids();
+    if all_ids.is_empty() {
         return None;
     }
 
     match key.code {
         KeyCode::Up => {
             if let Some(current) = app.nav_cursor {
-                if let Some(pos) = user_ids.iter().position(|&id| id == current) {
+                if let Some(pos) = all_ids.iter().position(|&id| id == current) {
                     if pos > 0 {
-                        app.nav_cursor = Some(user_ids[pos - 1]);
+                        app.nav_cursor = Some(all_ids[pos - 1]);
                     }
                 }
             }
@@ -244,9 +244,9 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Down => {
             if let Some(current) = app.nav_cursor {
-                if let Some(pos) = user_ids.iter().position(|&id| id == current) {
-                    if pos + 1 < user_ids.len() {
-                        app.nav_cursor = Some(user_ids[pos + 1]);
+                if let Some(pos) = all_ids.iter().position(|&id| id == current) {
+                    if pos + 1 < all_ids.len() {
+                        app.nav_cursor = Some(all_ids[pos + 1]);
                     }
                 }
             }
@@ -258,6 +258,17 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Right => {
             switch_nav_sibling(app, 1);
+            None
+        }
+        KeyCode::Enter => {
+            if let Some(node_id) = app.nav_cursor {
+                if let Some(node) = app.session.tree.node(node_id) {
+                    let content = node.message.content.clone();
+                    app.raw_edit_node = Some(node_id);
+                    super::open_edit_dialog_with(app, &content);
+                    app.focus = super::Focus::RawEditDialog;
+                }
+            }
             None
         }
         _ => None,

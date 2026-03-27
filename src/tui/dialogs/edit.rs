@@ -42,6 +42,73 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area
     }
 }
 
+pub(in crate::tui) fn render_raw_edit_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let width = (area.width as f32 * 0.7) as u16;
+    let height = (area.height as f32 * 0.6) as u16;
+    let dialog = centered_rect(width, height, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+
+    let border = Block::default()
+        .borders(Borders::ALL)
+        .title(" Edit Message (Esc to cancel, Alt+Enter to save) ")
+        .border_style(Style::default().fg(Color::Yellow));
+    f.render_widget(border, dialog);
+
+    if let Some(ref editor) = app.edit_editor {
+        let editor_area = Rect {
+            x: dialog.x + 2,
+            y: dialog.y + 1,
+            width: dialog.width.saturating_sub(4),
+            height: dialog.height.saturating_sub(3),
+        };
+        f.render_widget(editor, editor_area);
+
+        let hint_area = Rect {
+            x: dialog.x + 2,
+            y: dialog.y + dialog.height - 2,
+            width: dialog.width.saturating_sub(4),
+            height: 1,
+        };
+        let hint = Paragraph::new(Line::from(Span::styled(
+            "Alt+Enter: save edit  Esc: cancel",
+            Style::default().fg(Color::DarkGray),
+        )));
+        f.render_widget(hint, hint_area);
+    }
+}
+
+pub(in crate::tui) fn handle_raw_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if let Some(ref mut editor) = app.edit_editor {
+        match key.code {
+            KeyCode::Esc => {
+                app.edit_editor = None;
+                app.raw_edit_node = None;
+                app.focus = Focus::Chat;
+                app.status_message = "Edit cancelled.".to_owned();
+            }
+            KeyCode::Enter
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::ALT) =>
+            {
+                let content = editor.lines().join("\n").trim().to_owned();
+                let node_id = app.raw_edit_node.take().unwrap_or(0);
+                app.edit_editor = None;
+                if content.is_empty() {
+                    app.focus = Focus::Chat;
+                    app.status_message = "Edit cancelled (empty message).".to_owned();
+                } else {
+                    return Some(Action::RawEditMessage { node_id, content });
+                }
+            }
+            _ => {
+                editor.input(key);
+            }
+        }
+    }
+    None
+}
+
 pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if let Some(ref mut editor) = app.edit_editor {
         match key.code {

@@ -71,6 +71,18 @@ impl<'a> FieldDialog<'a> {
         self.multiline_fields.contains(&index)
     }
 
+    fn open_multiline_editor(&mut self) {
+        let content = &self.values[self.selected];
+        let lines: Vec<String> = content.lines().map(String::from).collect();
+        let mut editor = TextArea::from(if lines.is_empty() {
+            vec![String::new()]
+        } else {
+            lines
+        });
+        super::configure_textarea_at_end(&mut editor);
+        self.editor = Some(editor);
+    }
+
     pub fn render(&self, f: &mut ratatui::Frame, area: Rect) {
         let default_width = 60;
         let default_height = self.labels.len() as u16 + 4;
@@ -260,16 +272,7 @@ impl<'a> FieldDialog<'a> {
             }
             KeyCode::Enter => {
                 if self.is_multiline(self.selected) {
-                    let content = &self.values[self.selected];
-                    let lines: Vec<String> =
-                        content.lines().map(String::from).collect();
-                    let mut editor = TextArea::from(if lines.is_empty() {
-                        vec![String::new()]
-                    } else {
-                        lines
-                    });
-                    super::configure_textarea_at_end(&mut editor);
-                    self.editor = Some(editor);
+                    self.open_multiline_editor();
                 } else {
                     self.editing = true;
                 }

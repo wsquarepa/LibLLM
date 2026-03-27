@@ -39,6 +39,7 @@ enum Focus {
     WorldbookEntryDeleteDialog,
     SystemDialog,
     EditDialog,
+    RawEditDialog,
     BranchDialog,
     DeleteConfirmDialog,
 }
@@ -46,6 +47,7 @@ enum Focus {
 enum Action {
     SendMessage(String),
     EditMessage(String),
+    RawEditMessage { node_id: crate::session::NodeId, content: String },
     SlashCommand(String, String),
     Quit,
 }
@@ -86,6 +88,7 @@ struct App<'a> {
     textarea: TextArea<'a>,
     chat_scroll: u16,
     auto_scroll: bool,
+    last_scroll_state: (bool, Option<NodeId>, Option<NodeId>, usize, u16, u16),
     sidebar_sessions: Vec<SessionEntry>,
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
@@ -119,6 +122,7 @@ struct App<'a> {
     worldbook_entry_editor: Option<FieldDialog<'a>>,
     worldbook_entry_editor_index: usize,
 
+    raw_edit_node: Option<NodeId>,
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
     branch_dialog_selected: usize,
@@ -171,6 +175,7 @@ pub async fn run(
         textarea,
         chat_scroll: 0,
         auto_scroll: true,
+        last_scroll_state: (false, None, None, 0, 0, 0),
         sidebar_sessions,
         sidebar_state,
         streaming_buffer: String::new(),
@@ -198,6 +203,7 @@ pub async fn run(
         worldbook_editor_selected: 0,
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
+        raw_edit_node: None,
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
@@ -316,10 +322,16 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let branch_ids = app.session.tree.branch_path_ids();
     let branch_info = app.session.tree.deepest_branch_info();
 
+    let current_scroll_state = (
+        app.auto_scroll, app.nav_cursor, app.session.tree.head(),
+        app.streaming_buffer.len(), chat_area.width, chat_area.height,
+    );
+    let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
-    render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids);
+    render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids, scroll_dirty);
     render::render_status_bar(f, app, status_area, &branch_path, branch_info);
     app.chat_scroll = chat_scroll;
+    app.last_scroll_state = current_scroll_state;
 
     if app.focus == Focus::Input && input::input_has_command_picker(app) {
         let input_text = app.textarea.lines().join("\n");
@@ -367,6 +379,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     if app.focus == Focus::EditDialog {
         dialogs::edit::render_edit_dialog(f, app, f.area());
     }
+    if app.focus == Focus::RawEditDialog {
+        dialogs::edit::render_raw_edit_dialog(f, app, f.area());
+    }
     if app.focus == Focus::BranchDialog {
         dialogs::branch::render_branch_dialog(f, app, f.area());
     }
@@ -394,6 +409,18 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
         Action::SendMessage(text) => {
             app.nav_cursor = None;
             commands::start_streaming(app, &text, token_tx);
+        }
+        Action::RawEditMessage { node_id, content } => {
+            if let Some(new_root) = app.session.tree.duplicate_subtree(node_id) {
+                if let Some(node) = app.session.tree.node_mut(new_root) {
+                    node.message.content = content;
+                }
+                app.session.tree.switch_to(new_root);
+                app.nav_cursor = Some(new_root);
+                app.focus = Focus::Chat;
+                let _ = app.session.maybe_save(&app.save_mode);
+                app.status_message = "Message edited (new branch created).".to_owned();
+            }
         }
         Action::EditMessage(text) => {
             app.nav_cursor = None;
@@ -449,6 +476,9 @@ fn handle_key(
     if app.focus == Focus::SystemDialog {
         return dialogs::system::handle_system_key(key, app);
     }
+    if app.focus == Focus::RawEditDialog {
+        return dialogs::edit::handle_raw_edit_key(key, app);
+    }
     if app.focus == Focus::EditDialog {
         return dialogs::edit::handle_edit_key(key, app);
     }
@@ -488,12 +518,7 @@ fn handle_key(
     if key.code == KeyCode::Tab {
         app.focus = match app.focus {
             Focus::Input => {
-                let last_user = app.session.tree.branch_path_ids()
-                    .into_iter()
-                    .rev()
-                    .find(|&id| app.session.tree.node(id)
-                        .is_some_and(|n| n.message.role == crate::session::Role::User));
-                app.nav_cursor = last_user;
+                app.nav_cursor = app.session.tree.branch_path_ids().last().copied();
                 app.auto_scroll = false;
                 Focus::Chat
             }

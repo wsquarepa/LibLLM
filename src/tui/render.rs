@@ -197,6 +197,7 @@ pub fn render_chat(
     chat_scroll: &mut u16,
     branch_path: &[&Message],
     branch_ids: &[NodeId],
+    scroll_dirty: bool,
 ) {
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.user_name.as_deref().unwrap_or("User");
@@ -300,28 +301,30 @@ pub fn render_chat(
 
     let visible_height = area.height.saturating_sub(2);
 
-    if app.auto_scroll {
-        let content_height = measure_wrapped_height(&lines, area);
+    if scroll_dirty {
+        if app.auto_scroll {
+            let content_height = measure_wrapped_height(&lines, area);
 
-        if content_height > visible_height {
-            *chat_scroll = content_height.saturating_sub(visible_height);
-        } else {
-            *chat_scroll = 0;
-        }
-    } else if let Some(cursor_line_idx) = nav_cursor_line {
-        let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
-
-        if wrapped_offset < *chat_scroll {
-            *chat_scroll = if wrapped_offset <= visible_height {
-                0
+            if content_height > visible_height {
+                *chat_scroll = content_height.saturating_sub(visible_height);
             } else {
-                wrapped_offset
-            };
-        } else {
-            let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
-            let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
-            if wrapped_end > *chat_scroll + visible_height {
-                *chat_scroll = wrapped_offset;
+                *chat_scroll = 0;
+            }
+        } else if let Some(cursor_line_idx) = nav_cursor_line {
+            let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
+
+            if wrapped_offset < *chat_scroll {
+                *chat_scroll = if wrapped_offset <= visible_height {
+                    0
+                } else {
+                    wrapped_offset
+                };
+            } else {
+                let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
+                let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
+                if wrapped_end > *chat_scroll + visible_height {
+                    *chat_scroll = wrapped_offset;
+                }
             }
         }
     }

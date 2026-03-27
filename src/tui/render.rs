@@ -190,6 +190,7 @@ pub fn render_chat(
 
     let mut lines: Vec<Line> = Vec::new();
     let mut nav_cursor_line: Option<usize> = None;
+    let mut nav_cursor_end: Option<usize> = None;
 
     for (msg, &node_id) in branch_path.iter().zip(branch_ids.iter()) {
         let (role_label, role_color) = match msg.role {
@@ -234,6 +235,9 @@ pub fn render_chat(
             lines.push(Line::from(indented));
         }
         lines.push(Line::from(""));
+        if is_nav_selected {
+            nav_cursor_end = Some(lines.len());
+        }
     }
 
     if app.is_streaming && !app.streaming_buffer.is_empty() {
@@ -267,8 +271,12 @@ pub fn render_chat(
 
         if wrapped_offset < *chat_scroll {
             *chat_scroll = wrapped_offset;
-        } else if wrapped_offset >= *chat_scroll + visible_height {
-            *chat_scroll = wrapped_offset.saturating_sub(visible_height) + 1;
+        } else {
+            let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
+            let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
+            if wrapped_end > *chat_scroll + visible_height {
+                *chat_scroll = wrapped_offset;
+            }
         }
     }
 

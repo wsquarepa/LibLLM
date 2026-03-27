@@ -84,24 +84,6 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 }
             }
         }
-        "/edit" => {
-            app.nav_cursor = None;
-            if arg.is_empty() {
-                super::open_edit_dialog(app);
-            } else {
-                app.session.retreat_trailing_assistant();
-                if app
-                    .session
-                    .tree
-                    .head()
-                    .and_then(|id| app.session.tree.node(id))
-                    .is_some_and(|n| n.message.role == Role::User)
-                {
-                    app.session.tree.retreat_head();
-                }
-                start_streaming(app, arg, sender);
-            }
-        }
         "/system" => {
             if arg.is_empty() {
                 let cfg = crate::config::load();

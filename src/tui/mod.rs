@@ -39,15 +39,13 @@ enum Focus {
     WorldbookEntryDeleteDialog,
     SystemDialog,
     EditDialog,
-    RawEditDialog,
     BranchDialog,
     DeleteConfirmDialog,
 }
 
 enum Action {
     SendMessage(String),
-    EditMessage(String),
-    RawEditMessage { node_id: crate::session::NodeId, content: String },
+    EditMessage { node_id: crate::session::NodeId, content: String },
     SlashCommand(String, String),
     Quit,
 }
@@ -392,7 +390,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::WorldbookEntryDeleteDialog => Some("worldbook_entry_delete"),
         Focus::SystemDialog => Some("system"),
         Focus::EditDialog => Some("edit"),
-        Focus::RawEditDialog => Some("raw_edit"),
         Focus::BranchDialog => Some("branch"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         _ => None,
@@ -451,9 +448,6 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         Focus::EditDialog => {
             dialogs::edit::render_edit_dialog(f, app, f.area());
         }
-        Focus::RawEditDialog => {
-            dialogs::edit::render_raw_edit_dialog(f, app, f.area());
-        }
         Focus::BranchDialog => {
             dialogs::branch::render_branch_dialog(f, app, f.area());
         }
@@ -484,7 +478,7 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
             app.nav_cursor = None;
             commands::start_streaming(app, &text, token_tx);
         }
-        Action::RawEditMessage { node_id, content } => {
+        Action::EditMessage { node_id, content } => {
             if let Some(new_root) = app.session.tree.duplicate_subtree(node_id) {
                 if let Some(node) = app.session.tree.node_mut(new_root) {
                     node.message.content = content;
@@ -495,19 +489,6 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
                 let _ = app.session.maybe_save(&app.save_mode);
                 app.status_message = "Message edited (new branch created).".to_owned();
             }
-        }
-        Action::EditMessage(text) => {
-            app.nav_cursor = None;
-            app.session.retreat_trailing_assistant();
-            if app.session
-                .tree
-                .head()
-                .and_then(|id| app.session.tree.node(id))
-                .is_some_and(|n| n.message.role == crate::session::Role::User)
-            {
-                app.session.tree.retreat_head();
-            }
-            commands::start_streaming(app, &text, token_tx);
         }
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx);
@@ -549,9 +530,6 @@ fn handle_key(
     }
     if app.focus == Focus::SystemDialog {
         return dialogs::system::handle_system_key(key, app);
-    }
-    if app.focus == Focus::RawEditDialog {
-        return dialogs::edit::handle_raw_edit_key(key, app);
     }
     if app.focus == Focus::EditDialog {
         return dialogs::edit::handle_edit_key(key, app);
@@ -642,26 +620,6 @@ fn cancel_generation(app: &mut App) {
     app.session.tree.pop_head();
     app.auto_scroll = true;
     app.status_message = "Generation cancelled.".to_owned();
-}
-
-fn open_edit_dialog(app: &mut App) {
-    let last_user_content = app
-        .session
-        .tree
-        .head()
-        .and_then(|id| {
-            let node = app.session.tree.node(id)?;
-            if node.message.role == crate::session::Role::Assistant {
-                let parent = node.parent?;
-                app.session.tree.node(parent)
-            } else {
-                Some(node)
-            }
-        })
-        .filter(|n| n.message.role == crate::session::Role::User)
-        .map(|n| n.message.content.clone())
-        .unwrap_or_default();
-    open_edit_dialog_with(app, &last_user_content);
 }
 
 fn open_edit_dialog_with(app: &mut App, content: &str) {

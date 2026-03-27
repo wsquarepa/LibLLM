@@ -13,7 +13,6 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "/model", aliases: &[], args: "", description: "Show current model name" },
     CommandInfo { name: "/system", aliases: &[], args: "<prompt>", description: "Set or show system prompt" },
     CommandInfo { name: "/retry", aliases: &[], args: "", description: "Regenerate last response (new branch)" },
-    CommandInfo { name: "/edit", aliases: &[], args: "<text>", description: "Replace last message and regenerate" },
     CommandInfo { name: "/branch", aliases: &[], args: "", description: "Browse branches at current position" },
     CommandInfo { name: "/character", aliases: &[], args: "[import <path>]", description: "Select a character or import a card" },
     CommandInfo { name: "/self", aliases: &["/user", "/me"], args: "", description: "Set your name and persona" },

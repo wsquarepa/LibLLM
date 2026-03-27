@@ -266,7 +266,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     let content = node.message.content.clone();
                     app.raw_edit_node = Some(node_id);
                     super::open_edit_dialog_with(app, &content);
-                    app.focus = super::Focus::RawEditDialog;
+                    app.focus = super::Focus::EditDialog;
                 }
             }
             None

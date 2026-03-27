@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It supports single-message mode (`-m`) and a full terminal UI (default), with tree-structured conversation history, encrypted session persistence, and branch navigation.
+LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It supports single-message mode (`-m`) and a full terminal UI (default), with tree-structured conversation history, encrypted session persistence, branch navigation, character cards, and worldbook/lorebook support.
 
 ## Build and Run
 
@@ -17,10 +17,13 @@ cargo run -- -s session.json         # plaintext mode, bypasses encryption
 cargo run -- --no-encrypt            # auto-save without encryption
 cargo run -- --template chatml       # use ChatML prompt template
 cargo run -- --temperature 0.5       # override sampling params
+cargo run -- -c character_name       # load a character card
 LIBLLM_PASSKEY=foo cargo run         # passkey via env var (for scripting)
 ```
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
+
+No tests or CI exist -- verify changes with `cargo build` and manual testing.
 
 ## Data Directory
 
@@ -28,8 +31,12 @@ The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--
 ~/.local/share/libllm/
 ├── config.toml              # API URL, template, sampling defaults (NOT encrypted)
 ├── .salt                    # 16-byte random salt (generated on first run)
-└── sessions/
-    └── *.session            # AES-256-GCM encrypted session files
+├── sessions/
+│   └── *.session            # AES-256-GCM encrypted session files
+├── characters/
+│   └── *.json / *.png       # Character cards (PNG with embedded JSON supported)
+└── worldinfo/
+    └── *.json               # Worldbook/lorebook files
 ```
 
 Old config at `~/.config/libllm/config.toml` is auto-migrated on first run.
@@ -38,16 +45,24 @@ Old config at `~/.config/libllm/config.toml` is auto-migrated on first run.
 
 The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util).
 
-- **`cli`** -- Clap-derived argument parsing with sampling flags, `--no-encrypt`, `--passkey`
+- **`cli`** -- Clap-derived argument parsing with sampling flags, `--no-encrypt`, `--passkey`, `-c` for character cards
 - **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
-- **`commands`** -- Shared command registry for `/help` and TUI command picker
-- **`config`** -- TOML config at `~/.local/share/libllm/config.toml`, data/sessions directory management, migration from old config path
+- **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`
+- **`config`** -- TOML config at `~/.local/share/libllm/config.toml`, data/sessions/characters/worldinfo directory management, migration from old config path
 - **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
-- **`crypto`** -- AES-256-GCM encryption/decryption, Argon2id key derivation, salt management
+- **`crypto`** -- AES-256-GCM encryption/decryption, Argon2id key derivation, salt management. Encrypted file format: magic "LLMS" (4 bytes) + version (1 byte) + nonce (12 bytes) + ciphertext
+- **`character`** -- `CharacterCard` parsing from JSON and PNG (base64 text chunk extraction). Supports old (top-level) and new (nested `data` object) formats. Auto-imports PNG cards on startup
+- **`worldinfo`** -- `WorldBook` with entry scanning by keyword match. `scan_entries()` activates entries whose keys appear in message text. `normalize_worldbooks()` converts legacy field names
 - **`prompt`** -- `Template` enum (Llama2, ChatML, Mistral, Phi, Raw)
 - **`sampling`** -- `SamplingParams` and `SamplingOverrides` with `with_overrides` merge
-- **`session`** -- `MessageTree` (arena-based branching), `SaveMode` enum (None/Plaintext/Encrypted), encrypted save/load, session listing with previews
-- **`tui`** -- Full ratatui terminal UI with sidebar, scrollable chat, multi-line input, command picker, status bar, streaming, and branch navigation
+- **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Plaintext/Encrypted/PendingPasskey), encrypted save/load, session listing with previews. Supports legacy flat session format migration
+- **`tui`** -- Full ratatui terminal UI:
+  - `mod.rs` -- App state, Focus enum (Input/Chat/Sidebar/dialogs), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status)
+  - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution
+  - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save
+  - `input.rs` -- Keyboard handling, tree navigation (`switch_sibling`, `navigate_up`, `navigate_down`), command picker with Tab
+  - `render.rs` -- Styled text parsing (bold/italic markdown), chat rendering, status bar with branch indicators
+  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, message editor, system prompt editor, worldbook toggle list, config editor
 
 ### Encryption
 

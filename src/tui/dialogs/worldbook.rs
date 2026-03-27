@@ -29,9 +29,9 @@ enum WorldbookState {
 }
 
 fn worldbook_state(app: &App, name: &str) -> WorldbookState {
-    if app.config.worldbooks.contains(&name.to_owned()) {
+    if app.config.worldbooks.iter().any(|n| n == name) {
         WorldbookState::Global
-    } else if app.session.worldbooks.contains(&name.to_owned()) {
+    } else if app.session.worldbooks.iter().any(|n| n == name) {
         WorldbookState::Session
     } else {
         WorldbookState::Off
@@ -299,19 +299,21 @@ fn entry_to_values(entry: &crate::worldinfo::Entry) -> Vec<String> {
     ]
 }
 
-pub fn values_to_entry(values: &[String], existing: &mut crate::worldinfo::Entry) {
+pub fn values_to_entry(values: &[String], existing: &crate::worldinfo::Entry) -> crate::worldinfo::Entry {
     let parse_keys = |s: &str| -> Vec<String> {
         s.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()
     };
-    existing.keys = parse_keys(&values[0]);
-    existing.content = values[1].clone();
-    existing.selective = values[2].eq_ignore_ascii_case("true");
-    existing.secondary_keys = parse_keys(&values[3]);
-    existing.constant = values[4].eq_ignore_ascii_case("true");
-    existing.enabled = values[5].eq_ignore_ascii_case("true");
-    existing.order = values[6].parse().unwrap_or(existing.order);
-    existing.depth = values[7].parse().unwrap_or(existing.depth);
-    existing.case_sensitive = values[8].eq_ignore_ascii_case("true");
+    crate::worldinfo::Entry {
+        keys: parse_keys(&values[0]),
+        content: values[1].clone(),
+        selective: values[2].eq_ignore_ascii_case("true"),
+        secondary_keys: parse_keys(&values[3]),
+        constant: values[4].eq_ignore_ascii_case("true"),
+        enabled: values[5].eq_ignore_ascii_case("true"),
+        order: values[6].parse().unwrap_or(existing.order),
+        depth: values[7].parse().unwrap_or(existing.depth),
+        case_sensitive: values[8].eq_ignore_ascii_case("true"),
+    }
 }
 
 pub(in crate::tui) fn render_entry_delete_dialog(
@@ -319,77 +321,33 @@ pub(in crate::tui) fn render_entry_delete_dialog(
     app: &App,
     area: Rect,
 ) {
-    let dialog = centered_rect(50, 7, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
-
-    let cancel_style = if app.delete_confirm_selected == 0 {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-
-    let delete_style = if app.delete_confirm_selected == 1 {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Red)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-
-    let lines = vec![
-        Line::from(""),
-        Line::from(format!(
-            "  Delete {}?",
-            app.delete_confirm_filename
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("    "),
-            Span::styled(" Cancel ", cancel_style),
-            Span::raw("   "),
-            Span::styled(" Delete ", delete_style),
-        ]),
-        Line::from(""),
-    ];
-
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Confirm Delete ")
-            .border_style(Style::default().fg(Color::Yellow)),
+    super::delete_confirm::render_confirm_dialog(
+        f, area,
+        &format!("Delete {}?", app.delete_confirm_filename),
+        None,
+        app.delete_confirm_selected,
     );
-
-    f.render_widget(paragraph, dialog);
 }
 
 pub(in crate::tui) fn handle_entry_delete_key(
     key: KeyEvent,
     app: &mut App,
 ) -> Option<Action> {
-    match key.code {
-        KeyCode::Left | KeyCode::Right => {
-            app.delete_confirm_selected = 1 - app.delete_confirm_selected;
-        }
-        KeyCode::Enter => {
-            if app.delete_confirm_selected == 1 {
-                let idx = app.worldbook_editor_selected;
-                app.worldbook_editor_entries.remove(idx);
-                if app.worldbook_editor_selected >= app.worldbook_editor_entries.len()
-                    && app.worldbook_editor_selected > 0
-                {
-                    app.worldbook_editor_selected -= 1;
-                }
+    match super::delete_confirm::handle_confirm_key(key, &mut app.delete_confirm_selected) {
+        super::delete_confirm::ConfirmResult::Confirmed => {
+            let idx = app.worldbook_editor_selected;
+            app.worldbook_editor_entries.remove(idx);
+            if app.worldbook_editor_selected >= app.worldbook_editor_entries.len()
+                && app.worldbook_editor_selected > 0
+            {
+                app.worldbook_editor_selected -= 1;
             }
             app.focus = Focus::WorldbookEditorDialog;
         }
-        KeyCode::Esc => {
+        super::delete_confirm::ConfirmResult::Cancelled => {
             app.focus = Focus::WorldbookEditorDialog;
         }
-        _ => {}
+        super::delete_confirm::ConfirmResult::Pending => {}
     }
     None
 }

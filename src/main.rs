@@ -1,5 +1,6 @@
 mod character;
 mod cli;
+mod debug_log;
 mod worldinfo;
 mod client;
 mod commands;
@@ -25,6 +26,10 @@ use session::{Message, Role, SaveMode};
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    #[cfg(debug_assertions)]
+    if let Some(ref path) = args.debug {
+        debug_log::init(path);
+    }
     config::ensure_dirs()?;
 
     if let Some(cli::Command::Edit { kind, name }) = &args.command {

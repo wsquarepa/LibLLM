@@ -68,6 +68,16 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 
 Sessions are encrypted with AES-256-GCM. A single salt (`.salt` file) is created on first run. The user's passkey + salt derive one key via Argon2id at startup. Each session file gets a unique random nonce. The `-s` flag bypasses encryption for backward compatibility.
 
+### Render Debug Logging
+
+Dev builds support `--debug <out_path>` for render performance diagnostics:
+```sh
+cargo run -- --debug log.txt
+```
+The `--debug` flag and all associated logging are behind `#[cfg(debug_assertions)]` -- automatically available in dev builds, compiled out of release builds.
+
+When modifying the rendering pipeline (`tui/render.rs`, `tui/mod.rs::render_frame`, dialog render functions), add corresponding `debug_log::timed()` or `debug_log::log()` calls gated behind `#[cfg(debug_assertions)]` to maintain diagnostics coverage.
+
 ### Conversation Branching
 
 Messages form a tree (`MessageTree`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root. `/branch next|prev|list|<id>` and Alt+Left/Right navigate branches. Branch indicators `[1/3]` show at branch points.

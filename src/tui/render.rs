@@ -302,31 +302,39 @@ pub fn render_chat(
     let visible_height = area.height.saturating_sub(2);
 
     if scroll_dirty {
-        if app.auto_scroll {
-            let content_height = measure_wrapped_height(&lines, area);
+        crate::debug_log::timed("scroll", &format!("dirty={scroll_dirty}, auto={}", app.auto_scroll), || {
+            if app.auto_scroll {
+                let content_height = crate::debug_log::timed(
+                    "chat.measure",
+                    &format!("{} lines", lines.len()),
+                    || measure_wrapped_height(&lines, area),
+                );
+                crate::debug_log::log("chat.measure", &format!("height={content_height}, visible={visible_height}"));
 
-            if content_height > visible_height {
-                *chat_scroll = content_height.saturating_sub(visible_height);
-            } else {
-                *chat_scroll = 0;
-            }
-        } else if let Some(cursor_line_idx) = nav_cursor_line {
-            let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
-
-            if wrapped_offset < *chat_scroll {
-                *chat_scroll = if wrapped_offset <= visible_height {
-                    0
+                if content_height > visible_height {
+                    *chat_scroll = content_height.saturating_sub(visible_height);
                 } else {
-                    wrapped_offset
-                };
-            } else {
-                let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
-                let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
-                if wrapped_end > *chat_scroll + visible_height {
-                    *chat_scroll = wrapped_offset;
+                    *chat_scroll = 0;
+                }
+            } else if let Some(cursor_line_idx) = nav_cursor_line {
+                let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
+
+                if wrapped_offset < *chat_scroll {
+                    *chat_scroll = if wrapped_offset <= visible_height {
+                        0
+                    } else {
+                        wrapped_offset
+                    };
+                } else {
+                    let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
+                    let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
+                    if wrapped_end > *chat_scroll + visible_height {
+                        *chat_scroll = wrapped_offset;
+                    }
                 }
             }
-        }
+        });
+        crate::debug_log::log("scroll", &format!("val={}", *chat_scroll));
     }
 
     let paragraph = Paragraph::new(Text::from(lines))
@@ -401,7 +409,9 @@ pub fn render_status_bar(
     branch_path: &[&Message],
     branch_info: Option<(usize, usize)>,
 ) {
-    let token_count = ContextManager::estimate_message_tokens(branch_path);
+    let token_count = crate::debug_log::timed("status.tokens", "estimate", || {
+        ContextManager::estimate_message_tokens(branch_path)
+    });
 
     let branch_info = match branch_info {
         Some((idx, total)) => format!("Branch {}/{total}", idx + 1),
@@ -447,8 +457,9 @@ fn measure_wrapped_offset(lines: &[Line], up_to: usize, area: Rect) -> u16 {
 }
 
 fn measure_wrapped_height(lines: &[Line], area: Rect) -> u16 {
-    let inner_width = area.width.saturating_sub(2).max(1);
-    Paragraph::new(Text::from(lines.to_vec()))
-        .wrap(Wrap { trim: false })
-        .line_count(inner_width) as u16
+    let inner_width = area.width.saturating_sub(2).max(1) as usize;
+    lines.iter().map(|line| {
+        let width: usize = line.spans.iter().map(|s| s.content.len()).sum();
+        if width == 0 { 1 } else { ((width + inner_width - 1) / inner_width) as u16 }
+    }).sum()
 }

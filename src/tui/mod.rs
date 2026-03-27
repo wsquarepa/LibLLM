@@ -72,6 +72,16 @@ const CONFIG_FIELDS: &[&str] = &[
 
 const SELF_FIELDS: &[&str] = &["Name", "Persona"];
 
+#[derive(PartialEq, Eq)]
+struct ScrollState {
+    auto_scroll: bool,
+    nav_cursor: Option<NodeId>,
+    head: Option<NodeId>,
+    buffer_len: usize,
+    width: u16,
+    height: u16,
+}
+
 const SIDEBAR_WIDTH: u16 = 32;
 const INPUT_HEIGHT: u16 = 5;
 
@@ -88,7 +98,7 @@ struct App<'a> {
     textarea: TextArea<'a>,
     chat_scroll: u16,
     auto_scroll: bool,
-    last_scroll_state: (bool, Option<NodeId>, Option<NodeId>, usize, u16, u16),
+    last_scroll_state: ScrollState,
     sidebar_sessions: Vec<SessionEntry>,
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
@@ -175,7 +185,14 @@ pub async fn run(
         textarea,
         chat_scroll: 0,
         auto_scroll: true,
-        last_scroll_state: (false, None, None, 0, 0, 0),
+        last_scroll_state: ScrollState {
+            auto_scroll: false,
+            nav_cursor: None,
+            head: None,
+            buffer_len: 0,
+            width: 0,
+            height: 0,
+        },
         sidebar_sessions,
         sidebar_state,
         streaming_buffer: String::new(),
@@ -238,13 +255,17 @@ pub async fn run(
     loop {
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
-                if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
-                    process_action(action, &mut app, token_tx.clone());
-                }
+                crate::debug_log::timed("event", "handle", || {
+                    if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
+                        process_action(action, &mut app, token_tx.clone());
+                    }
+                });
                 needs_redraw = true;
             }
             Some(stream_token) = token_rx.recv() => {
-                commands::handle_stream_token(stream_token, &mut app)?;
+                crate::debug_log::timed("stream", "token", || {
+                    commands::handle_stream_token(stream_token, &mut app)
+                })?;
                 needs_redraw = true;
             }
             Some(bg_event) = bg_rx.recv() => {
@@ -275,31 +296,33 @@ pub async fn run(
 }
 
 fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Length(1)])
-        .split(f.area());
+    let _frame_start = std::time::Instant::now();
 
-    let main_area = outer[0];
+    let (outer, columns, right_split) = crate::debug_log::timed("layout", "splits", || {
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(5), Constraint::Length(1)])
+            .split(f.area());
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
+            .split(outer[0]);
+        let right_split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
+            .split(columns[1]);
+        (outer, columns, right_split)
+    });
+
     let status_area = outer[1];
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
-        .split(main_area);
-
     let sidebar_area = columns[0];
-    let right_area = columns[1];
-
-    let right_split = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
-        .split(right_area);
-
     let chat_area = right_split[0];
     let input_area = right_split[1];
 
-    render::render_sidebar(f, app, sidebar_area);
+    let session_count = app.sidebar_sessions.len();
+    crate::debug_log::timed("sidebar", &format!("{session_count} sessions"), || {
+        render::render_sidebar(f, app, sidebar_area);
+    });
 
     let input_focused = app.focus == Focus::Input;
     let border = render::border_style(input_focused);
@@ -318,75 +341,122 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     );
     f.render_widget(&app.textarea, input_area);
 
-    let branch_path = app.session.tree.branch_path();
-    let branch_ids = app.session.tree.branch_path_ids();
-    let branch_info = app.session.tree.deepest_branch_info();
+    let branch_ids = crate::debug_log::timed("chat.branch", "tree traversal", || {
+        app.session.tree.branch_path_ids()
+    });
+    let branch_path = app.session.tree.messages_for_ids(&branch_ids);
+    let branch_info = app.session.tree.deepest_branch_info_from(&branch_ids);
+    crate::debug_log::log("chat.branch", &format!("{} nodes in path", branch_ids.len()));
 
-    let current_scroll_state = (
-        app.auto_scroll, app.nav_cursor, app.session.tree.head(),
-        app.streaming_buffer.len(), chat_area.width, chat_area.height,
-    );
+    let current_scroll_state = ScrollState {
+        auto_scroll: app.auto_scroll,
+        nav_cursor: app.nav_cursor,
+        head: app.session.tree.head(),
+        buffer_len: app.streaming_buffer.len(),
+        width: chat_area.width,
+        height: chat_area.height,
+    };
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
-    render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids, scroll_dirty);
-    render::render_status_bar(f, app, status_area, &branch_path, branch_info);
+
+    let msg_count = branch_path.len();
+    crate::debug_log::timed("chat", &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"), || {
+        render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids, scroll_dirty);
+    });
+
+    crate::debug_log::timed("status", "bar", || {
+        render::render_status_bar(f, app, status_area, &branch_path, branch_info);
+    });
     app.chat_scroll = chat_scroll;
     app.last_scroll_state = current_scroll_state;
 
     if app.focus == Focus::Input && input::input_has_command_picker(app) {
-        let input_text = app.textarea.lines().join("\n");
-        render::render_command_picker(f, app, &input_text, chat_area);
+        crate::debug_log::timed("picker", "command picker", || {
+            render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
+        });
     }
 
-    if app.focus == Focus::PasskeyDialog {
-        dialogs::passkey::render_passkey_dialog(f, app, f.area());
+    let dialog_name = match app.focus {
+        Focus::PasskeyDialog => Some("passkey"),
+        Focus::ConfigDialog => Some("config"),
+        Focus::SelfDialog => Some("self"),
+        Focus::CharacterDialog => Some("character"),
+        Focus::CharacterEditorDialog => Some("character_editor"),
+        Focus::WorldbookDialog => Some("worldbook"),
+        Focus::WorldbookEditorDialog => Some("worldbook_editor"),
+        Focus::WorldbookEntryEditorDialog => Some("worldbook_entry_editor"),
+        Focus::WorldbookEntryDeleteDialog => Some("worldbook_entry_delete"),
+        Focus::SystemDialog => Some("system"),
+        Focus::EditDialog => Some("edit"),
+        Focus::RawEditDialog => Some("raw_edit"),
+        Focus::BranchDialog => Some("branch"),
+        Focus::DeleteConfirmDialog => Some("delete_confirm"),
+        _ => None,
+    };
+
+    if let Some(name) = dialog_name {
+        crate::debug_log::timed("dialog", name, || {
+            render_dialog(f, app);
+        });
     }
-    if app.focus == Focus::ConfigDialog {
-        if let Some(ref dialog) = app.config_dialog {
-            dialog.render(f, f.area());
+
+    let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
+    crate::debug_log::log("frame", &format!("{frame_ms:.3}ms total"));
+}
+
+fn render_dialog(f: &mut ratatui::Frame, app: &App) {
+    match app.focus {
+        Focus::PasskeyDialog => {
+            dialogs::passkey::render_passkey_dialog(f, app, f.area());
         }
-    }
-    if app.focus == Focus::SelfDialog {
-        if let Some(ref dialog) = app.self_dialog {
-            dialog.render(f, f.area());
+        Focus::ConfigDialog => {
+            if let Some(ref dialog) = app.config_dialog {
+                dialog.render(f, f.area());
+            }
         }
-    }
-    if app.focus == Focus::CharacterDialog {
-        dialogs::character::render_character_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::CharacterEditorDialog {
-        if let Some(ref dialog) = app.character_editor {
-            dialog.render(f, f.area());
+        Focus::SelfDialog => {
+            if let Some(ref dialog) = app.self_dialog {
+                dialog.render(f, f.area());
+            }
         }
-    }
-    if app.focus == Focus::WorldbookDialog {
-        dialogs::worldbook::render_worldbook_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::WorldbookEditorDialog {
-        dialogs::worldbook::render_worldbook_editor(f, app, f.area());
-    }
-    if app.focus == Focus::WorldbookEntryEditorDialog {
-        if let Some(ref dialog) = app.worldbook_entry_editor {
-            dialog.render(f, f.area());
+        Focus::CharacterDialog => {
+            dialogs::character::render_character_dialog(f, app, f.area());
         }
-    }
-    if app.focus == Focus::WorldbookEntryDeleteDialog {
-        dialogs::worldbook::render_entry_delete_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::SystemDialog {
-        dialogs::system::render_system_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::EditDialog {
-        dialogs::edit::render_edit_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::RawEditDialog {
-        dialogs::edit::render_raw_edit_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::BranchDialog {
-        dialogs::branch::render_branch_dialog(f, app, f.area());
-    }
-    if app.focus == Focus::DeleteConfirmDialog {
-        dialogs::delete_confirm::render_delete_confirm_dialog(f, app, f.area());
+        Focus::CharacterEditorDialog => {
+            if let Some(ref dialog) = app.character_editor {
+                dialog.render(f, f.area());
+            }
+        }
+        Focus::WorldbookDialog => {
+            dialogs::worldbook::render_worldbook_dialog(f, app, f.area());
+        }
+        Focus::WorldbookEditorDialog => {
+            dialogs::worldbook::render_worldbook_editor(f, app, f.area());
+        }
+        Focus::WorldbookEntryEditorDialog => {
+            if let Some(ref dialog) = app.worldbook_entry_editor {
+                dialog.render(f, f.area());
+            }
+        }
+        Focus::WorldbookEntryDeleteDialog => {
+            dialogs::worldbook::render_entry_delete_dialog(f, app, f.area());
+        }
+        Focus::SystemDialog => {
+            dialogs::system::render_system_dialog(f, app, f.area());
+        }
+        Focus::EditDialog => {
+            dialogs::edit::render_edit_dialog(f, app, f.area());
+        }
+        Focus::RawEditDialog => {
+            dialogs::edit::render_raw_edit_dialog(f, app, f.area());
+        }
+        Focus::BranchDialog => {
+            dialogs::branch::render_branch_dialog(f, app, f.area());
+        }
+        Focus::DeleteConfirmDialog => {
+            dialogs::delete_confirm::render_delete_confirm_dialog(f, app, f.area());
+        }
+        _ => {}
     }
 }
 
@@ -705,7 +775,7 @@ fn handle_field_dialog_key(
                     let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
                     let idx = app.worldbook_entry_editor_index;
                     if idx < app.worldbook_editor_entries.len() {
-                        dialogs::worldbook::values_to_entry(values, &mut app.worldbook_editor_entries[idx]);
+                        app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(values, &app.worldbook_editor_entries[idx]);
                     }
                     app.worldbook_entry_editor = None;
                     app.focus = Focus::WorldbookEditorDialog;

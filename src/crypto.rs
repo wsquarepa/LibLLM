@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, AeadCore, Nonce};
@@ -6,6 +6,8 @@ use anyhow::{Context, Result, bail};
 use argon2::Argon2;
 use sha2::{Sha256, Digest};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+const EXT_PLAINTEXT: &str = "json";
 
 const MAGIC: &[u8; 4] = b"LLMS";
 const VERSION: u8 = 0x01;
@@ -112,6 +114,38 @@ fn key_fingerprint(key: &DerivedKey) -> [u8; KEY_CHECK_LEN] {
     let mut out = [0u8; KEY_CHECK_LEN];
     out.copy_from_slice(&result);
     out
+}
+
+pub fn resolve_encrypted_path(dir: &Path, slug: &str, encrypted_ext: &str) -> PathBuf {
+    let encrypted = dir.join(format!("{slug}.{encrypted_ext}"));
+    if encrypted.exists() {
+        return encrypted;
+    }
+    dir.join(format!("{slug}.{EXT_PLAINTEXT}"))
+}
+
+pub fn encrypted_extension<'a>(key: Option<&DerivedKey>, encrypted_ext: &'a str) -> &'a str {
+    if key.is_some() { encrypted_ext } else { EXT_PLAINTEXT }
+}
+
+pub fn read_and_decrypt(path: &Path, key: Option<&DerivedKey>) -> Result<String> {
+    let raw = std::fs::read(path)
+        .context(format!("failed to read file: {}", path.display()))?;
+    if is_encrypted(&raw) {
+        let key = key.ok_or_else(|| anyhow::anyhow!("file is encrypted but no passkey available: {}", path.display()))?;
+        let decrypted = decrypt(&raw, key)?;
+        String::from_utf8(decrypted).context("decrypted content is not valid UTF-8")
+    } else {
+        String::from_utf8(raw).context("file content is not valid UTF-8")
+    }
+}
+
+pub fn encrypt_and_write(path: &Path, plaintext: &[u8], key: Option<&DerivedKey>) -> Result<()> {
+    let data = match key {
+        Some(k) => encrypt(plaintext, k)?,
+        None => plaintext.to_vec(),
+    };
+    std::fs::write(path, data).context(format!("failed to write file: {}", path.display()))
 }
 
 pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {

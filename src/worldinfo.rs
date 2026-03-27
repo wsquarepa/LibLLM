@@ -10,15 +10,7 @@ const EXT_ENCRYPTED: &str = "worldbook";
 const EXT_PLAINTEXT: &str = "json";
 
 pub fn resolve_worldbook_path(dir: &Path, name: &str) -> std::path::PathBuf {
-    let encrypted = dir.join(format!("{name}.{EXT_ENCRYPTED}"));
-    if encrypted.exists() {
-        return encrypted;
-    }
-    dir.join(format!("{name}.{EXT_PLAINTEXT}"))
-}
-
-fn worldbook_extension(key: Option<&DerivedKey>) -> &'static str {
-    if key.is_some() { EXT_ENCRYPTED } else { EXT_PLAINTEXT }
+    crate::crypto::resolve_encrypted_path(dir, name, EXT_ENCRYPTED)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,30 +77,18 @@ const DEFAULT_SCAN_DEPTH: usize = 4;
 
 pub fn save_worldbook_to(worldbook: &WorldBook, path: &Path, key: Option<&DerivedKey>) -> Result<()> {
     let json = serde_json::to_string_pretty(worldbook).context("failed to serialize worldbook")?;
-    let data = match key {
-        Some(k) => crate::crypto::encrypt(json.as_bytes(), k)?,
-        None => json.into_bytes(),
-    };
-    std::fs::write(path, data).context(format!("failed to write worldbook: {}", path.display()))
+    crate::crypto::encrypt_and_write(path, json.as_bytes(), key)
 }
 
 pub fn save_worldbook(worldbook: &WorldBook, dir: &Path, key: Option<&DerivedKey>) -> Result<std::path::PathBuf> {
-    let ext = worldbook_extension(key);
+    let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
     let path = dir.join(format!("{}.{ext}", worldbook.name));
     save_worldbook_to(worldbook, &path, key)?;
     Ok(path)
 }
 
 pub fn load_worldbook(path: &Path, key: Option<&DerivedKey>) -> Result<WorldBook> {
-    let raw_bytes = std::fs::read(path)
-        .context(format!("failed to read worldbook: {}", path.display()))?;
-    let contents = if crate::crypto::is_encrypted(&raw_bytes) {
-        let key = key.ok_or_else(|| anyhow::anyhow!("encrypted worldbook but no passkey available"))?;
-        let decrypted = crate::crypto::decrypt(&raw_bytes, key)?;
-        String::from_utf8(decrypted).context("decrypted worldbook is not valid UTF-8")?
-    } else {
-        String::from_utf8(raw_bytes).context("worldbook is not valid UTF-8")?
-    };
+    let contents = crate::crypto::read_and_decrypt(path, key)?;
 
     if let Ok(normalized) = serde_json::from_str::<WorldBook>(&contents) {
         return Ok(normalized);
@@ -240,26 +220,9 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
 
     for path in file_paths {
         let display = path.display().to_string();
-        let raw_bytes = match std::fs::read(&path) {
-            Ok(b) => b,
+        let contents = match crate::crypto::read_and_decrypt(&path, key) {
+            Ok(c) => c,
             Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
-        };
-
-        let is_enc = crate::crypto::is_encrypted(&raw_bytes);
-        let contents = if is_enc {
-            let Some(k) = key else { continue; };
-            match crate::crypto::decrypt(&raw_bytes, k) {
-                Ok(d) => match String::from_utf8(d) {
-                    Ok(s) => s,
-                    Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
-                },
-                Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
-            }
-        } else {
-            match String::from_utf8(raw_bytes) {
-                Ok(s) => s,
-                Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
-            }
         };
 
         let needs_normalize = serde_json::from_str::<WorldBook>(&contents).is_err();

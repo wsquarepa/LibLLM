@@ -7,15 +7,24 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use super::centered_rect;
 use crate::tui::{business, Action, App, Focus};
 
-pub(in crate::tui) fn render_delete_confirm_dialog(
+pub(in crate::tui) enum ConfirmResult {
+    Confirmed,
+    Cancelled,
+    Pending,
+}
+
+pub(in crate::tui) fn render_confirm_dialog(
     f: &mut ratatui::Frame,
-    app: &App,
     area: Rect,
+    prompt: &str,
+    hint: Option<&str>,
+    selected: usize,
 ) {
-    let dialog = centered_rect(50, 7, area);
+    let height = if hint.is_some() { 7 } else { 6 };
+    let dialog = centered_rect(50, height, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 
-    let cancel_style = if app.delete_confirm_selected == 0 {
+    let cancel_style = if selected == 0 {
         Style::default()
             .fg(Color::Black)
             .bg(Color::Cyan)
@@ -24,7 +33,7 @@ pub(in crate::tui) fn render_delete_confirm_dialog(
         Style::default()
     };
 
-    let delete_style = if app.delete_confirm_selected == 1 {
+    let delete_style = if selected == 1 {
         Style::default()
             .fg(Color::Black)
             .bg(Color::Red)
@@ -33,12 +42,9 @@ pub(in crate::tui) fn render_delete_confirm_dialog(
         Style::default().fg(Color::Red)
     };
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(""),
-        Line::from(format!(
-            "  Delete \"{}\"?",
-            app.delete_confirm_filename
-        )),
+        Line::from(format!("  {prompt}")),
         Line::from(""),
         Line::from(vec![
             Span::raw("    "),
@@ -47,11 +53,14 @@ pub(in crate::tui) fn render_delete_confirm_dialog(
             Span::styled(" Delete ", delete_style),
         ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "  Left/Right: navigate  Enter: confirm  Esc: cancel",
-            Style::default().fg(Color::DarkGray),
-        )),
     ];
+
+    if let Some(hint_text) = hint {
+        lines.push(Line::from(Span::styled(
+            format!("  {hint_text}"),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
 
     let paragraph = Paragraph::new(Text::from(lines)).block(
         Block::default()
@@ -63,24 +72,53 @@ pub(in crate::tui) fn render_delete_confirm_dialog(
     f.render_widget(paragraph, dialog);
 }
 
+pub(in crate::tui) fn handle_confirm_key(
+    key: KeyEvent,
+    selected: &mut usize,
+) -> ConfirmResult {
+    match key.code {
+        KeyCode::Left | KeyCode::Right => {
+            *selected = 1 - *selected;
+            ConfirmResult::Pending
+        }
+        KeyCode::Enter => {
+            if *selected == 1 {
+                ConfirmResult::Confirmed
+            } else {
+                ConfirmResult::Cancelled
+            }
+        }
+        KeyCode::Esc => ConfirmResult::Cancelled,
+        _ => ConfirmResult::Pending,
+    }
+}
+
+pub(in crate::tui) fn render_delete_confirm_dialog(
+    f: &mut ratatui::Frame,
+    app: &App,
+    area: Rect,
+) {
+    render_confirm_dialog(
+        f, area,
+        &format!("Delete \"{}\"?", app.delete_confirm_filename),
+        Some("Left/Right: navigate  Enter: confirm  Esc: cancel"),
+        app.delete_confirm_selected,
+    );
+}
+
 pub(in crate::tui) fn handle_delete_confirm_key(
     key: KeyEvent,
     app: &mut App,
 ) -> Option<Action> {
-    match key.code {
-        KeyCode::Left | KeyCode::Right => {
-            app.delete_confirm_selected = 1 - app.delete_confirm_selected;
-        }
-        KeyCode::Enter => {
-            if app.delete_confirm_selected == 1 {
-                delete_selected_session(app);
-            }
+    match handle_confirm_key(key, &mut app.delete_confirm_selected) {
+        ConfirmResult::Confirmed => {
+            delete_selected_session(app);
             app.focus = Focus::Sidebar;
         }
-        KeyCode::Esc => {
+        ConfirmResult::Cancelled => {
             app.focus = Focus::Sidebar;
         }
-        _ => {}
+        ConfirmResult::Pending => {}
     }
     None
 }

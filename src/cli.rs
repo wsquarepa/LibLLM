@@ -79,6 +79,11 @@ pub struct Args {
     /// Character card to use (name or path to .json/.png file)
     #[arg(short = 'c', long)]
     pub character: Option<String>,
+
+    /// Write render debug log to file (dev builds only)
+    #[cfg(debug_assertions)]
+    #[arg(long)]
+    pub debug: Option<String>,
 }
 
 impl Args {

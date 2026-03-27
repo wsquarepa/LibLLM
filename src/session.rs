@@ -150,21 +150,19 @@ impl MessageTree {
     pub fn duplicate_subtree(&mut self, root_id: NodeId) -> Option<NodeId> {
         let parent = self.nodes.get(root_id)?.parent;
         let mut queue = std::collections::VecDeque::new();
-        let new_root = self.push_raw(parent, self.nodes[root_id].message.clone());
+        let new_root = self.insert(parent, self.nodes[root_id].message.clone());
         queue.push_back((root_id, new_root));
         while let Some((orig, new_parent)) = queue.pop_front() {
             let children = self.nodes[orig].children.clone();
             for child_id in children {
-                let new_child = self.push_raw(Some(new_parent), self.nodes[child_id].message.clone());
+                let new_child = self.insert(Some(new_parent), self.nodes[child_id].message.clone());
                 queue.push_back((child_id, new_child));
             }
         }
-        self.head = Some(new_root);
-        self.update_preferred_children();
         Some(new_root)
     }
 
-    fn push_raw(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
+    fn insert(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
         let id = self.nodes.len();
         self.nodes.push(Node {
             id,
@@ -179,16 +177,7 @@ impl MessageTree {
     }
 
     pub fn push(&mut self, parent: Option<NodeId>, message: Message) -> NodeId {
-        let id = self.nodes.len();
-        self.nodes.push(Node {
-            id,
-            parent,
-            children: Vec::new(),
-            message,
-        });
-        if let Some(parent_id) = parent {
-            self.nodes[parent_id].children.push(id);
-        }
+        let id = self.insert(parent, message);
         self.head = Some(id);
         self.update_preferred_children();
         id
@@ -338,15 +327,17 @@ impl MessageTree {
         }
     }
 
-    pub fn deepest_branch_info(&self) -> Option<(usize, usize)> {
-        self.head?;
-        let path = self.branch_path_ids();
+    pub fn deepest_branch_info_from(&self, path: &[NodeId]) -> Option<(usize, usize)> {
         path.iter().rev()
             .find(|&&id| {
                 let (_, total) = self.sibling_info(id);
                 total > 1
             })
             .map(|&id| self.sibling_info(id))
+    }
+
+    pub fn messages_for_ids<'a>(&'a self, ids: &[NodeId]) -> Vec<&'a Message> {
+        ids.iter().map(|&id| &self.nodes[id].message).collect()
     }
 
     pub fn from_messages(messages: Vec<Message>) -> Self {

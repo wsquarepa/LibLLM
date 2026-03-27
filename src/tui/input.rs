@@ -29,13 +29,9 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let picker_active = input_has_command_picker(app);
 
     if picker_active {
+        let prefix = app.textarea.lines()[0].as_str();
         let matches = crate::commands::matching_commands(
-            app.textarea
-                .lines()
-                .join("\n")
-                .split_whitespace()
-                .next()
-                .unwrap_or("/"),
+            prefix.split_whitespace().next().unwrap_or("/"),
         );
         match key.code {
             KeyCode::Up => {
@@ -83,27 +79,24 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 
     match key.code {
-        KeyCode::Up if app.textarea.lines().join("").trim().is_empty() => {
+        KeyCode::Up if textarea_is_empty(app) => {
             navigate_up(app);
             None
         }
         KeyCode::Down
-            if app.nav_cursor.is_some()
-                && app.textarea.lines().join("").trim().is_empty() =>
+            if app.nav_cursor.is_some() && textarea_is_empty(app) =>
         {
             navigate_down(app);
             None
         }
         KeyCode::Left
-            if app.nav_cursor.is_some()
-                && app.textarea.lines().join("").trim().is_empty() =>
+            if app.nav_cursor.is_some() && textarea_is_empty(app) =>
         {
             switch_nav_sibling(app, -1);
             None
         }
         KeyCode::Right
-            if app.nav_cursor.is_some()
-                && app.textarea.lines().join("").trim().is_empty() =>
+            if app.nav_cursor.is_some() && textarea_is_empty(app) =>
         {
             switch_nav_sibling(app, 1);
             None
@@ -221,8 +214,15 @@ fn navigate_down(app: &mut App) {
 }
 
 pub fn input_has_command_picker(app: &App) -> bool {
-    let text = app.textarea.lines().join("\n");
-    text.starts_with('/') && !text.contains(' ') && !app.is_streaming
+    if app.is_streaming {
+        return false;
+    }
+    let lines = app.textarea.lines();
+    lines.len() == 1 && lines[0].starts_with('/') && !lines[0].contains(' ')
+}
+
+fn textarea_is_empty(app: &App) -> bool {
+    app.textarea.lines().iter().all(|l| l.trim().is_empty())
 }
 
 pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {

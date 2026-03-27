@@ -11,15 +11,7 @@ const EXT_ENCRYPTED: &str = "character";
 const EXT_PLAINTEXT: &str = "json";
 
 pub fn resolve_card_path(dir: &Path, slug: &str) -> PathBuf {
-    let encrypted = dir.join(format!("{slug}.{EXT_ENCRYPTED}"));
-    if encrypted.exists() {
-        return encrypted;
-    }
-    dir.join(format!("{slug}.{EXT_PLAINTEXT}"))
-}
-
-fn card_extension(key: Option<&DerivedKey>) -> &'static str {
-    if key.is_some() { EXT_ENCRYPTED } else { EXT_PLAINTEXT }
+    crate::crypto::resolve_encrypted_path(dir, slug, EXT_ENCRYPTED)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,27 +203,15 @@ pub fn slugify(name: &str) -> String {
 
 pub fn save_card(card: &CharacterCard, dir: &Path, key: Option<&DerivedKey>) -> Result<PathBuf> {
     let slug = slugify(&card.name);
-    let ext = card_extension(key);
+    let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
     let path = dir.join(format!("{slug}.{ext}"));
     let json = serde_json::to_string_pretty(card).context("failed to serialize character card")?;
-    let data = match key {
-        Some(k) => crate::crypto::encrypt(json.as_bytes(), k)?,
-        None => json.into_bytes(),
-    };
-    std::fs::write(&path, data).context(format!("failed to write character card: {}", path.display()))?;
+    crate::crypto::encrypt_and_write(&path, json.as_bytes(), key)?;
     Ok(path)
 }
 
 pub fn load_card(path: &Path, key: Option<&DerivedKey>) -> Result<CharacterCard> {
-    let raw = std::fs::read(path)
-        .context(format!("failed to read character card: {}", path.display()))?;
-    let contents = if crate::crypto::is_encrypted(&raw) {
-        let key = key.ok_or_else(|| anyhow::anyhow!("encrypted character card but no passkey available"))?;
-        let decrypted = crate::crypto::decrypt(&raw, key)?;
-        String::from_utf8(decrypted).context("decrypted character card is not valid UTF-8")?
-    } else {
-        String::from_utf8(raw).context("character card is not valid UTF-8")?
-    };
+    let contents = crate::crypto::read_and_decrypt(path, key)?;
     serde_json::from_str(&contents).context("failed to parse character card")
 }
 

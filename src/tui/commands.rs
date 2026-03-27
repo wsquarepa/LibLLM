@@ -371,9 +371,6 @@ pub fn handle_background_event(
                 app.status_message = warning;
             }
             app.focus = Focus::Input;
-            if app.status_message.is_empty() {
-                app.status_message.clear();
-            }
             refresh_sidebar(app);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {

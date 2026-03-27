@@ -1,0 +1,424 @@
+mod business;
+mod commands;
+mod dialogs;
+mod input;
+mod render;
+
+use anyhow::Result;
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
+use futures_util::StreamExt;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::Style;
+use ratatui::widgets::{Block, Borders};
+use ratatui::Terminal;
+use tokio::sync::mpsc;
+use tui_textarea::TextArea;
+
+use crate::client::{ApiClient, StreamToken};
+use crate::context::ContextManager;
+use crate::prompt::Template;
+use crate::sampling::SamplingParams;
+use crate::session::{self, SaveMode, Session, SessionEntry};
+
+use dialogs::FieldDialog;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    Input,
+    Chat,
+    Sidebar,
+    PasskeyDialog,
+    ConfigDialog,
+    SelfDialog,
+    CharacterDialog,
+    WorldbookDialog,
+    SystemDialog,
+}
+
+enum Action {
+    SendMessage(String),
+    SlashCommand(String, String),
+    Quit,
+}
+
+enum BackgroundEvent {
+    KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
+    KeyDeriveFailed(String),
+    PreviewLoaded { index: usize, preview: String },
+}
+
+const CONFIG_FIELDS: &[&str] = &[
+    "API URL",
+    "Template",
+    "System Prompt",
+    "Temperature",
+    "Top-K",
+    "Top-P",
+    "Min-P",
+    "Repeat Last N",
+    "Repeat Penalty",
+    "Max Tokens",
+];
+
+const SELF_FIELDS: &[&str] = &["Name", "Persona"];
+
+struct App<'a> {
+    client: &'a ApiClient,
+    session: &'a mut Session,
+    save_mode: SaveMode,
+    template: Template,
+    stop_tokens: &'static [&'static str],
+    sampling: SamplingParams,
+    context_mgr: ContextManager,
+
+    focus: Focus,
+    textarea: TextArea<'a>,
+    chat_scroll: u16,
+    auto_scroll: bool,
+    sidebar_sessions: Vec<SessionEntry>,
+    sidebar_state: ratatui::widgets::ListState,
+    streaming_buffer: String,
+    is_streaming: bool,
+    model_name: String,
+    status_message: String,
+    should_quit: bool,
+    command_picker_selected: usize,
+
+    passkey_input: String,
+    passkey_error: String,
+
+    config_dialog: Option<FieldDialog<'a>>,
+    self_dialog: Option<FieldDialog<'a>>,
+    system_editor: Option<TextArea<'a>>,
+
+    character_names: Vec<String>,
+    character_slugs: Vec<String>,
+    character_selected: usize,
+
+    worldbook_list: Vec<String>,
+    worldbook_selected: usize,
+}
+
+pub async fn run(
+    client: &ApiClient,
+    session: &mut Session,
+    save_mode: SaveMode,
+    template: Template,
+    sampling: SamplingParams,
+) -> Result<()> {
+    let model_name = client.fetch_model_name().await;
+    let sidebar_sessions = business::discover_sidebar_sessions(&save_mode);
+
+    let mut textarea = TextArea::default();
+    textarea.set_block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Input (Enter to send, Alt+Enter for newline) "),
+    );
+    textarea.set_cursor_line_style(Style::default());
+
+    let sidebar_state = ratatui::widgets::ListState::default();
+
+    let mut app = App {
+        client,
+        session,
+        focus: if save_mode.needs_passkey() {
+            Focus::PasskeyDialog
+        } else {
+            Focus::Input
+        },
+        save_mode,
+        template,
+        stop_tokens: template.stop_tokens(),
+        sampling,
+        context_mgr: ContextManager::default(),
+        textarea,
+        chat_scroll: 0,
+        auto_scroll: true,
+        sidebar_sessions,
+        sidebar_state,
+        streaming_buffer: String::new(),
+        is_streaming: false,
+        model_name,
+        status_message: String::new(),
+        should_quit: false,
+        command_picker_selected: 0,
+        passkey_input: String::new(),
+        passkey_error: String::new(),
+        config_dialog: None,
+        self_dialog: None,
+        system_editor: None,
+        character_names: Vec::new(),
+        character_slugs: Vec::new(),
+        character_selected: 0,
+        worldbook_list: Vec::new(),
+        worldbook_selected: 0,
+    };
+
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::event::EnableMouseCapture
+    )?;
+    let backend = CrosstermBackend::new(std::io::stdout());
+    let mut terminal = Terminal::new(backend)?;
+
+    let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
+    let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
+    let mut event_stream = EventStream::new();
+
+    if let SaveMode::Encrypted { key, .. } = &app.save_mode {
+        for i in 0..app.sidebar_sessions.len() {
+            if app.sidebar_sessions[i].is_new_chat {
+                continue;
+            }
+            let entry_path = app.sidebar_sessions[i].path.clone();
+            let key = key.clone();
+            let tx = bg_tx.clone();
+            tokio::spawn(async move {
+                let preview = session::load_preview(&entry_path, &key);
+                let _ = tx
+                    .send(BackgroundEvent::PreviewLoaded {
+                        index: i,
+                        preview,
+                    })
+                    .await;
+            });
+        }
+    }
+
+    loop {
+        terminal.draw(|f| render_frame(f, &mut app))?;
+
+        tokio::select! {
+            Some(Ok(event)) = event_stream.next() => {
+                if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
+                    match action {
+                        Action::Quit => break,
+                        Action::SendMessage(text) => {
+                            commands::start_streaming(&mut app, &text, token_tx.clone());
+                        }
+                        Action::SlashCommand(cmd, arg) => {
+                            commands::handle_slash_command(&cmd, &arg, &mut app, token_tx.clone());
+                        }
+                    }
+                }
+            }
+            Some(stream_token) = token_rx.recv() => {
+                commands::handle_stream_token(stream_token, &mut app)?;
+            }
+            Some(bg_event) = bg_rx.recv() => {
+                commands::handle_background_event(bg_event, &mut app, bg_tx.clone());
+            }
+        }
+
+        if app.should_quit {
+            break;
+        }
+    }
+
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )?;
+
+    Ok(())
+}
+
+fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(1)])
+        .split(f.area());
+
+    let main_area = outer[0];
+    let status_area = outer[1];
+
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(32), Constraint::Min(30)])
+        .split(main_area);
+
+    let sidebar_area = columns[0];
+    let right_area = columns[1];
+
+    let right_split = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(5)])
+        .split(right_area);
+
+    let chat_area = right_split[0];
+    let input_area = right_split[1];
+
+    render::render_sidebar(f, app, sidebar_area);
+
+    let border = render::border_style(app.focus == Focus::Input);
+    app.textarea.set_block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Input (Enter to send, Alt+Enter for newline) ")
+            .border_style(border),
+    );
+    f.render_widget(&app.textarea, input_area);
+
+    let branch_path = app.session.tree.branch_path();
+    let branch_ids = app.session.tree.branch_path_ids();
+    let branch_info = app.session.tree.deepest_branch_info();
+
+    let mut chat_scroll = app.chat_scroll;
+    render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids);
+    render::render_status_bar(f, app, status_area, &branch_path, branch_info);
+    app.chat_scroll = chat_scroll;
+
+    let input_text = app.textarea.lines().join("\n");
+    if input_text.starts_with('/') && app.focus == Focus::Input && !app.is_streaming {
+        render::render_command_picker(f, app, &input_text, chat_area);
+    }
+
+    if app.focus == Focus::PasskeyDialog {
+        dialogs::passkey::render_passkey_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::ConfigDialog {
+        if let Some(ref dialog) = app.config_dialog {
+            dialog.render(f, f.area());
+        }
+    }
+    if app.focus == Focus::SelfDialog {
+        if let Some(ref dialog) = app.self_dialog {
+            dialog.render(f, f.area());
+        }
+    }
+    if app.focus == Focus::CharacterDialog {
+        dialogs::character::render_character_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::WorldbookDialog {
+        dialogs::worldbook::render_worldbook_dialog(f, app, f.area());
+    }
+    if app.focus == Focus::SystemDialog {
+        dialogs::system::render_system_dialog(f, app, f.area());
+    }
+}
+
+fn handle_event(
+    event: Event,
+    app: &mut App,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
+) -> Option<Action> {
+    match event {
+        Event::Key(key) => handle_key(key, app, bg_tx),
+        _ => None,
+    }
+}
+
+fn handle_key(
+    key: KeyEvent,
+    app: &mut App,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
+) -> Option<Action> {
+    if app.focus == Focus::PasskeyDialog {
+        return dialogs::passkey::handle_passkey_key(key, app, bg_tx);
+    }
+    if app.focus == Focus::ConfigDialog {
+        return handle_field_dialog_key(key, app, DialogKind::Config);
+    }
+    if app.focus == Focus::SelfDialog {
+        return handle_field_dialog_key(key, app, DialogKind::SelfPersona);
+    }
+    if app.focus == Focus::CharacterDialog {
+        return dialogs::character::handle_character_dialog_key(key, app);
+    }
+    if app.focus == Focus::WorldbookDialog {
+        return dialogs::worldbook::handle_worldbook_dialog_key(key, app);
+    }
+    if app.focus == Focus::SystemDialog {
+        return dialogs::system::handle_system_key(key, app);
+    }
+
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return Some(Action::Quit);
+    }
+    if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return Some(Action::Quit);
+    }
+
+    if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {
+        app.session.tree.switch_sibling(-1);
+        let _ = app.session.maybe_save(&app.save_mode);
+        app.status_message.clear();
+        return None;
+    }
+    if key.code == KeyCode::Right && key.modifiers.contains(KeyModifiers::ALT) {
+        app.session.tree.switch_sibling(1);
+        let _ = app.session.maybe_save(&app.save_mode);
+        app.status_message.clear();
+        return None;
+    }
+
+    if key.code == KeyCode::Tab {
+        app.focus = match app.focus {
+            Focus::Input => Focus::Chat,
+            Focus::Chat => Focus::Sidebar,
+            _ => Focus::Input,
+        };
+        return None;
+    }
+
+    if key.code == KeyCode::Esc {
+        app.focus = Focus::Input;
+        return None;
+    }
+
+    match app.focus {
+        Focus::Input => input::handle_input_key(key, app),
+        Focus::Chat => input::handle_chat_key(key, app),
+        Focus::Sidebar => input::handle_sidebar_key(key, app),
+        _ => None,
+    }
+}
+
+enum DialogKind {
+    Config,
+    SelfPersona,
+}
+
+fn handle_field_dialog_key(
+    key: KeyEvent,
+    app: &mut App,
+    kind: DialogKind,
+) -> Option<Action> {
+    let dialog = match kind {
+        DialogKind::Config => app.config_dialog.as_mut(),
+        DialogKind::SelfPersona => app.self_dialog.as_mut(),
+    };
+
+    let Some(dialog) = dialog else {
+        return None;
+    };
+
+    match dialog.handle_key(key) {
+        dialogs::FieldDialogAction::Continue => None,
+        dialogs::FieldDialogAction::Close => {
+            match kind {
+                DialogKind::Config => {
+                    let values = &app.config_dialog.as_ref().unwrap().values;
+                    business::save_config_from_fields(values);
+                    business::apply_config(app);
+                    app.config_dialog = None;
+                    app.status_message = "Configuration saved.".to_owned();
+                }
+                DialogKind::SelfPersona => {
+                    let values = &app.self_dialog.as_ref().unwrap().values;
+                    business::save_self_fields(values);
+                    app.self_dialog = None;
+                    app.status_message = "User persona saved.".to_owned();
+                }
+            }
+            app.focus = Focus::Input;
+            None
+        }
+    }
+}

@@ -96,14 +96,24 @@ pub fn inject_worldbook_entries<'a>(
     let mut result: Vec<Message> = messages.iter().map(|m| (*m).clone()).collect();
     let len = result.len();
 
-    for entry in all_activated.into_iter().rev() {
-        let content = apply_template_vars(&entry.content, char_name, user_name);
-        let insert_pos = if entry.depth == 0 || entry.depth >= len {
-            0
-        } else {
-            len - entry.depth
-        };
-        result.insert(insert_pos, Message::new(Role::System, content));
+    let mut insertions: Vec<(usize, usize, Message)> = all_activated
+        .into_iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let content = apply_template_vars(&entry.content, char_name, user_name);
+            let pos = if entry.depth == 0 || entry.depth >= len {
+                0
+            } else {
+                len - entry.depth
+            };
+            (pos, i, Message::new(Role::System, content))
+        })
+        .collect();
+
+    insertions.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+
+    for (pos, _, msg) in insertions {
+        result.insert(pos, msg);
     }
 
     result

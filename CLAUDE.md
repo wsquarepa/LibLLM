@@ -23,7 +23,7 @@ LIBLLM_PASSKEY=foo cargo run         # passkey via env var (for scripting)
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
 
-No tests or CI exist -- verify changes with `cargo build` and manual testing.
+No tests exist -- verify changes with `cargo build` and manual testing. CI builds on push to master and on PRs via GitHub Actions (`.github/workflows/build.yml`).
 
 ## Data Directory
 

@@ -286,8 +286,11 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
     render::render_sidebar(f, app, sidebar_area);
 
-    let border = render::border_style(app.focus == Focus::Input);
-    let input_title = if app.nav_cursor.is_some() {
+    let input_focused = app.focus == Focus::Input;
+    let border = render::border_style(input_focused);
+    let input_title = if !input_focused {
+        " Input "
+    } else if app.nav_cursor.is_some() {
         " Input (Enter to edit, Esc to cancel) "
     } else {
         " Input (Up arrow to edit, Enter to send) "

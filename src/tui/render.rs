@@ -324,7 +324,11 @@ pub fn render_chat(
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Chat ")
+                .title(if app.focus == super::Focus::Chat {
+                    " Chat (Up/Down: navigate, Left/Right: branch) "
+                } else {
+                    " Chat "
+                })
                 .border_style(border_style(app.focus == super::Focus::Chat)),
         )
         .wrap(Wrap { trim: false })

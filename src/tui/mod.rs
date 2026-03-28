@@ -10,6 +10,7 @@ use futures_util::StreamExt;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::Style;
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders};
 use ratatui::Terminal;
 use tokio::sync::mpsc;
@@ -156,7 +157,8 @@ pub async fn run(
     textarea.set_block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Input (Enter to send, Alt+Enter for newline) "),
+            .title(" Input ")
+            .title_bottom(Line::from(" Enter to send, Alt+Enter for newline ").centered()),
     );
     configure_textarea(&mut textarea);
 
@@ -326,19 +328,19 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
     let input_focused = app.focus == Focus::Input;
     let border = render::border_style(input_focused);
-    let input_title = if !input_focused {
-        " Input "
-    } else if app.nav_cursor.is_some() {
-        " Input (Enter to edit, Esc to cancel) "
-    } else {
-        " Input (Up arrow to edit, Enter to send) "
-    };
-    app.textarea.set_block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(input_title)
-            .border_style(border),
-    );
+    let mut input_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Input ")
+        .border_style(border);
+    if input_focused {
+        let hint = if app.nav_cursor.is_some() {
+            " Enter to edit, Esc to cancel "
+        } else {
+            " Up arrow to edit, Enter to send "
+        };
+        input_block = input_block.title_bottom(Line::from(hint).centered());
+    }
+    app.textarea.set_block(input_block);
     f.render_widget(&app.textarea, input_area);
 
     let branch_ids = crate::debug_log::timed("chat.branch", "tree traversal", || {

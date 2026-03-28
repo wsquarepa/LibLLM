@@ -96,19 +96,16 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     };
 
     let sidebar_focused = app.focus == super::Focus::Sidebar;
-    let sidebar_title = if sidebar_focused {
-        " Sessions (Del: delete) "
-    } else {
-        " Sessions "
-    };
+    let mut sidebar_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Sessions ")
+        .border_style(border_style(sidebar_focused));
+    if sidebar_focused {
+        sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete ").centered());
+    }
 
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(sidebar_title)
-                .border_style(border_style(sidebar_focused)),
-        )
+        .block(sidebar_block)
         .highlight_style(highlight_style)
         .highlight_symbol("> ");
 
@@ -383,17 +380,19 @@ pub fn render_chat(
         crate::debug_log::log("scroll", &format!("val={}", *chat_scroll));
     }
 
+    let chat_focused = app.focus == super::Focus::Chat;
+    let mut chat_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Chat ")
+        .border_style(border_style(chat_focused));
+    if chat_focused {
+        chat_block = chat_block.title_bottom(
+            Line::from(" Up/Down: navigate, Left/Right: branch ").centered(),
+        );
+    }
+
     let paragraph = Paragraph::new(Text::from(lines))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(if app.focus == super::Focus::Chat {
-                    " Chat (Up/Down: navigate, Left/Right: branch) "
-                } else {
-                    " Chat "
-                })
-                .border_style(border_style(app.focus == super::Focus::Chat)),
-        )
+        .block(chat_block)
         .wrap(Wrap { trim: false })
         .scroll((*chat_scroll, 0));
 

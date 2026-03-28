@@ -30,6 +30,7 @@ enum Focus {
     Chat,
     Sidebar,
     PasskeyDialog,
+    SetPasskeyDialog,
     ConfigDialog,
     SelfDialog,
     CharacterDialog,
@@ -67,6 +68,9 @@ struct StatusMessage {
 enum BackgroundEvent {
     KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
     KeyDeriveFailed(String),
+    PasskeySet(std::sync::Arc<crate::crypto::DerivedKey>),
+    PasskeySetFailed(String),
+    ReEncryptionComplete(Vec<String>),
     MetadataLoaded { path: std::path::PathBuf, metadata: session::SessionMetadata },
 }
 
@@ -118,11 +122,19 @@ struct App<'a> {
     model_name: String,
     status_message: Option<StatusMessage>,
     should_quit: bool,
+    passkey_changed: bool,
     command_picker_selected: usize,
 
     passkey_input: String,
     passkey_error: String,
     passkey_deriving: bool,
+
+    set_passkey_input: String,
+    set_passkey_confirm: String,
+    set_passkey_active_field: u8,
+    set_passkey_error: String,
+    set_passkey_deriving: bool,
+    set_passkey_is_initial: bool,
 
     config_dialog: Option<FieldDialog<'a>>,
     self_dialog: Option<FieldDialog<'a>>,
@@ -196,11 +208,17 @@ pub async fn run(
     let config = crate::config::load();
     let user_name = config.user_name.clone();
 
+    let initial_passkey_setup = save_mode.needs_passkey() && !crate::config::key_check_path().exists();
+
     let mut app = App {
         client,
         session,
         focus: if save_mode.needs_passkey() {
-            Focus::PasskeyDialog
+            if initial_passkey_setup {
+                Focus::SetPasskeyDialog
+            } else {
+                Focus::PasskeyDialog
+            }
         } else {
             Focus::Input
         },
@@ -227,10 +245,17 @@ pub async fn run(
         model_name,
         status_message: None,
         should_quit: false,
+        passkey_changed: false,
         command_picker_selected: 0,
         passkey_input: String::new(),
         passkey_error: String::new(),
         passkey_deriving: false,
+        set_passkey_input: String::new(),
+        set_passkey_confirm: String::new(),
+        set_passkey_active_field: 0,
+        set_passkey_error: String::new(),
+        set_passkey_deriving: false,
+        set_passkey_is_initial: initial_passkey_setup,
         config_dialog: None,
         self_dialog: None,
         system_editor: None,
@@ -327,6 +352,10 @@ pub async fn run(
         crossterm::event::DisableMouseCapture
     )?;
 
+    if app.passkey_changed {
+        println!("Passkey changed. Please re-launch to authenticate with your new passkey.");
+    }
+
     Ok(())
 }
 
@@ -415,6 +444,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
     let dialog_name = match app.focus {
         Focus::PasskeyDialog => Some("passkey"),
+        Focus::SetPasskeyDialog => Some("set_passkey"),
         Focus::ConfigDialog => Some("config"),
         Focus::SelfDialog => Some("self"),
         Focus::CharacterDialog => Some("character"),
@@ -444,6 +474,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
     match app.focus {
         Focus::PasskeyDialog => {
             dialogs::passkey::render_passkey_dialog(f, app, f.area());
+        }
+        Focus::SetPasskeyDialog => {
+            dialogs::set_passkey::render_set_passkey_dialog(f, app, f.area());
         }
         Focus::ConfigDialog => {
             if let Some(ref dialog) = app.config_dialog {
@@ -536,7 +569,10 @@ fn handle_key(
     bg_tx: mpsc::Sender<BackgroundEvent>,
 ) -> Option<Action> {
     if app.focus == Focus::PasskeyDialog {
-        return dialogs::passkey::handle_passkey_key(key, app, bg_tx);
+        return dialogs::passkey::handle_passkey_key(key, app, bg_tx.clone());
+    }
+    if app.focus == Focus::SetPasskeyDialog {
+        return dialogs::set_passkey::handle_set_passkey_key(key, app, bg_tx);
     }
     if app.focus == Focus::ConfigDialog {
         return handle_field_dialog_key(key, app, DialogKind::Config);

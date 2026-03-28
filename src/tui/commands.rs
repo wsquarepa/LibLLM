@@ -251,6 +251,25 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 }
             }
         }
+        "/passkey" => {
+            match &app.save_mode {
+                SaveMode::Encrypted { .. } => {
+                    app.set_passkey_input.clear();
+                    app.set_passkey_confirm.clear();
+                    app.set_passkey_active_field = 0;
+                    app.set_passkey_error.clear();
+                    app.set_passkey_deriving = false;
+                    app.set_passkey_is_initial = false;
+                    app.focus = Focus::SetPasskeyDialog;
+                }
+                SaveMode::Plaintext(_) | SaveMode::None => {
+                    app.set_status("Encryption is disabled for this session.".to_owned(), super::StatusLevel::Warning);
+                }
+                SaveMode::PendingPasskey(_) => {
+                    app.set_status("Please unlock sessions first.".to_owned(), super::StatusLevel::Warning);
+                }
+            }
+        }
         _ => {
             app.set_status(format!("Unknown command: {cmd}"), super::StatusLevel::Warning);
         }
@@ -347,6 +366,87 @@ pub fn handle_background_event(
         super::BackgroundEvent::KeyDeriveFailed(err) => {
             app.passkey_deriving = false;
             app.passkey_error = format!("Failed: {err}");
+        }
+        super::BackgroundEvent::PasskeySet(new_key) => {
+            app.set_passkey_deriving = false;
+            if app.set_passkey_is_initial {
+                let path = match &app.save_mode {
+                    SaveMode::PendingPasskey(p) => p.clone(),
+                    _ => crate::config::sessions_dir().join(session::generate_session_name()),
+                };
+                app.save_mode = SaveMode::Encrypted {
+                    path,
+                    key: new_key.clone(),
+                };
+                for warning in crate::character::auto_import_png_cards(
+                    &crate::config::characters_dir(), Some(&new_key),
+                ) {
+                    app.set_status(warning, super::StatusLevel::Warning);
+                }
+                for warning in crate::worldinfo::normalize_worldbooks(
+                    &crate::config::worldinfo_dir(), Some(&new_key),
+                ) {
+                    app.set_status(warning, super::StatusLevel::Warning);
+                }
+                for warning in crate::character::encrypt_plaintext_cards(
+                    &crate::config::characters_dir(), &new_key,
+                ) {
+                    app.set_status(warning, super::StatusLevel::Warning);
+                }
+                app.focus = Focus::Input;
+                refresh_sidebar(app);
+                spawn_metadata_loading(&app.sidebar_sessions, &new_key, &app.bg_tx);
+            } else {
+                let old_key = match &app.save_mode {
+                    SaveMode::Encrypted { key, .. } => key.clone(),
+                    _ => {
+                        app.set_status("No existing key to re-encrypt from.".to_owned(), super::StatusLevel::Error);
+                        return;
+                    }
+                };
+                app.save_mode = match &app.save_mode {
+                    SaveMode::Encrypted { path, .. } => SaveMode::Encrypted {
+                        path: path.clone(),
+                        key: new_key.clone(),
+                    },
+                    _ => return,
+                };
+                let _ = app.session.maybe_save(&app.save_mode);
+                app.focus = Focus::Input;
+                app.set_status("Re-encrypting files...".to_owned(), super::StatusLevel::Info);
+
+                let bg_tx = app.bg_tx.clone();
+                tokio::spawn(async move {
+                    let mut warnings = Vec::new();
+                    warnings.extend(crate::crypto::re_encrypt_directory(
+                        &crate::config::sessions_dir(),
+                        &["session"],
+                        &old_key,
+                        &new_key,
+                    ));
+                    warnings.extend(crate::crypto::re_encrypt_directory(
+                        &crate::config::characters_dir(),
+                        &["character"],
+                        &old_key,
+                        &new_key,
+                    ));
+                    warnings.extend(crate::crypto::re_encrypt_directory(
+                        &crate::config::worldinfo_dir(),
+                        &["worldbook"],
+                        &old_key,
+                        &new_key,
+                    ));
+                    let _ = bg_tx.send(super::BackgroundEvent::ReEncryptionComplete(warnings)).await;
+                });
+            }
+        }
+        super::BackgroundEvent::PasskeySetFailed(err) => {
+            app.set_passkey_deriving = false;
+            app.set_passkey_error = format!("Failed: {err}");
+        }
+        super::BackgroundEvent::ReEncryptionComplete(_warnings) => {
+            app.passkey_changed = true;
+            app.should_quit = true;
         }
         super::BackgroundEvent::MetadataLoaded { path, metadata } => {
             if let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) {

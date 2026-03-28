@@ -15,6 +15,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "/character", aliases: &[], args: "[import <path>]", description: "Select a character or import a card" },
     CommandInfo { name: "/self", aliases: &["/user", "/me"], args: "", description: "Set your name and persona" },
     CommandInfo { name: "/worldbook", aliases: &["/lore", "/world", "/lorebook"], args: "", description: "Toggle worldbooks for this session" },
+    CommandInfo { name: "/passkey", aliases: &["/password", "/pass", "/auth"], args: "", description: "Set or change encryption passkey" },
     CommandInfo { name: "/config", aliases: &[], args: "", description: "Open configuration dialog" },
     CommandInfo { name: "/quit", aliases: &["/exit"], args: "", description: "Exit the chat" },
 ];

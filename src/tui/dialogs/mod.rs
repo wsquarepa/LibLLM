@@ -3,6 +3,7 @@ pub mod character;
 pub mod delete_confirm;
 pub mod edit;
 pub mod passkey;
+pub mod set_passkey;
 pub mod system;
 pub mod worldbook;
 

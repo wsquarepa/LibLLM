@@ -165,3 +165,49 @@ pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {
         .context("failed to write key check file")?;
     Ok(true)
 }
+
+pub fn set_key_fingerprint(check_path: &Path, key: &DerivedKey) -> Result<()> {
+    let fingerprint = key_fingerprint(key);
+    if let Some(parent) = check_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("failed to create directory for key check file")?;
+    }
+    std::fs::write(check_path, fingerprint)
+        .context("failed to write key check file")
+}
+
+pub fn re_encrypt_file(path: &Path, old_key: &DerivedKey, new_key: &DerivedKey) -> Result<()> {
+    let raw = std::fs::read(path)
+        .context(format!("failed to read file: {}", path.display()))?;
+    if !is_encrypted(&raw) {
+        return Ok(());
+    }
+    let plaintext = decrypt(&raw, old_key)?;
+    let new_blob = encrypt(&plaintext, new_key)?;
+    std::fs::write(path, new_blob)
+        .context(format!("failed to write file: {}", path.display()))
+}
+
+pub fn re_encrypt_directory(dir: &Path, extensions: &[&str], old_key: &DerivedKey, new_key: &DerivedKey) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            warnings.push(format!("{}: {e}", dir.display()));
+            return warnings;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let matches = path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| extensions.contains(&ext));
+        if !matches {
+            continue;
+        }
+        if let Err(e) = re_encrypt_file(&path, old_key, new_key) {
+            warnings.push(format!("{}: {e}", path.display()));
+        }
+    }
+    warnings
+}

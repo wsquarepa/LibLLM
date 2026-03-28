@@ -193,6 +193,3 @@ Debug builds include a render performance logger:
 ```sh
 cargo run -- --debug log.txt
 ```
-
-CI builds run on every push to `master` via GitHub Actions, producing binaries for all supported platforms.
-

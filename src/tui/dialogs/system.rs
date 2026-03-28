@@ -74,10 +74,10 @@ pub(in crate::tui) fn handle_system_key(key: KeyEvent, app: &mut App) -> Option<
 
                 match crate::config::save(&cfg) {
                     Ok(()) => {
-                        app.status_message = format!("{label} system prompt saved.");
+                        app.set_status(format!("{label} system prompt saved."), super::super::StatusLevel::Info);
                     }
                     Err(e) => {
-                        app.status_message = format!("Failed to save {label} prompt: {e}");
+                        app.set_status(format!("Failed to save {label} prompt: {e}"), super::super::StatusLevel::Error);
                     }
                 }
 

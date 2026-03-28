@@ -18,17 +18,26 @@ pub(in crate::tui) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, a
         Line::from(vec![
             Span::raw("  Passkey: "),
             Span::styled(&masked, Style::default().fg(Color::Cyan)),
-            Span::styled(
-                "_",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::SLOW_BLINK),
-            ),
+            if app.passkey_deriving {
+                Span::raw("")
+            } else {
+                Span::styled(
+                    "_",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::SLOW_BLINK),
+                )
+            },
         ]),
         Line::from(""),
     ];
 
-    if !app.passkey_error.is_empty() {
+    if app.passkey_deriving {
+        lines.push(Line::from(Span::styled(
+            "  Deriving key...",
+            Style::default().fg(Color::Yellow),
+        )));
+    } else if !app.passkey_error.is_empty() {
         lines.push(Line::from(Span::styled(
             format!("  {}", app.passkey_error),
             Style::default().fg(Color::Red),
@@ -55,6 +64,9 @@ pub(in crate::tui) fn handle_passkey_key(
     app: &mut App,
     bg_tx: mpsc::Sender<BackgroundEvent>,
 ) -> Option<Action> {
+    if app.passkey_deriving {
+        return None;
+    }
     match key.code {
         KeyCode::Enter => {
             let passkey = app.passkey_input.clone();
@@ -64,7 +76,7 @@ pub(in crate::tui) fn handle_passkey_key(
             };
             app.passkey_input.clear();
             app.passkey_error.clear();
-            app.status_message = "Deriving key...".to_owned();
+            app.passkey_deriving = true;
 
             tokio::spawn(async move {
                 let salt_path = crate::config::salt_path();

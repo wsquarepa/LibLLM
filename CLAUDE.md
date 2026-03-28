@@ -78,6 +78,10 @@ The `--debug` flag and all associated logging are behind `#[cfg(debug_assertions
 
 When modifying the rendering pipeline (`tui/render.rs`, `tui/mod.rs::render_frame`, dialog render functions), add corresponding `debug_log::timed()` or `debug_log::log()` calls gated behind `#[cfg(debug_assertions)]` to maintain diagnostics coverage.
 
+### Statusbar
+
+The statusbar shows persistent info (model, template, tokens, branch) by default. Temporary messages use `App::set_status()` with a `StatusLevel` (Info/Warning/Error) and auto-clear after 5 seconds. Do not use the statusbar for hints that duplicate information already visible in block borders or obvious UI state changes. The statusbar default info line is sacred -- it should always be visible unless a temporary message is actively displayed.
+
 ### Conversation Branching
 
 Messages form a tree (`MessageTree`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root. `/branch next|prev|list|<id>` and Alt+Left/Right navigate branches. Branch indicators `[1/3]` show at branch points.

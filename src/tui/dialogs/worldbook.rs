@@ -109,19 +109,16 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
                     let _ = app.session.maybe_save(&app.save_mode);
-                    app.status_message = format!("Session: {name}");
                 }
                 WorldbookState::Session => {
                     app.session.worldbooks.retain(|n| n != &name);
                     app.config.worldbooks.push(name.clone());
                     let _ = app.session.maybe_save(&app.save_mode);
                     let _ = crate::config::save(&app.config);
-                    app.status_message = format!("Global: {name}");
                 }
                 WorldbookState::Global => {
                     app.config.worldbooks.retain(|n| n != &name);
                     let _ = crate::config::save(&app.config);
-                    app.status_message = format!("Disabled: {name}");
                 }
             }
         }
@@ -138,7 +135,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.focus = Focus::WorldbookEditorDialog;
                 }
                 Err(e) => {
-                    app.status_message = format!("Error: {e}");
+                    app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
                 }
             }
         }
@@ -358,7 +355,7 @@ fn save_worldbook_editor(app: &mut App) {
         entries: app.worldbook_editor_entries.clone(),
     };
     match crate::worldinfo::save_worldbook(&wb, &crate::config::worldinfo_dir(), app.save_mode.key()) {
-        Ok(_) => app.status_message = format!("Saved worldbook: {}", wb.name),
-        Err(e) => app.status_message = format!("Failed to save worldbook: {e}"),
+        Ok(_) => app.set_status(format!("Saved worldbook: {}", wb.name), super::super::StatusLevel::Info),
+        Err(e) => app.set_status(format!("Failed to save worldbook: {e}"), super::super::StatusLevel::Error),
     }
 }

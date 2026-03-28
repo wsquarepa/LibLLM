@@ -137,7 +137,7 @@ fn delete_selected_session(app: &mut App) {
     let is_current = app.save_mode.path().is_some_and(|p| p == path);
 
     if let Err(e) = std::fs::remove_file(&path) {
-        app.status_message = format!("Error deleting: {e}");
+        app.set_status(format!("Error deleting: {e}"), super::super::StatusLevel::Error);
         return;
     }
 
@@ -151,5 +151,5 @@ fn delete_selected_session(app: &mut App) {
     }
 
     business::refresh_sidebar(app);
-    app.status_message = format!("Deleted: {filename}");
+    app.set_status(format!("Deleted: {filename}"), super::super::StatusLevel::Info);
 }

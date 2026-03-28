@@ -43,9 +43,6 @@ pub fn spawn_metadata_loading(
 pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::Sender<StreamToken>) {
     let cmd = crate::commands::resolve_alias(cmd);
     match cmd {
-        "/help" => {
-            app.status_message = "Use Tab to complete commands, Up/Down to navigate.".to_owned();
-        }
         "/quit" => {
             app.should_quit = true;
         }
@@ -59,7 +56,6 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             let new_name = session::generate_session_name();
             let new_path = crate::config::sessions_dir().join(&new_name);
             app.save_mode.set_path(new_path);
-            app.status_message = "New conversation started.".to_owned();
             refresh_sidebar(app);
         }
         "/retry" => {
@@ -80,7 +76,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                     start_streaming(app, &content, sender);
                 }
                 None => {
-                    app.status_message = "No user message to retry.".to_owned();
+                    app.set_status("No user message to retry.".to_owned(), super::StatusLevel::Warning);
                 }
             }
         }
@@ -102,7 +98,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                 app.focus = Focus::SystemDialog;
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
-                app.status_message = "System prompt updated.".to_owned();
+                app.set_status("System prompt updated.".to_owned(), super::StatusLevel::Info);
                 let _ = app.session.maybe_save(&app.save_mode);
             }
         }
@@ -110,21 +106,18 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             if arg.is_empty() {
                 match app.session.maybe_save(&app.save_mode) {
                     Ok(()) => match app.save_mode.path() {
-                        Some(p) => app.status_message = format!("Saved to {}.", p.display()),
-                        None => app.status_message = "No session path set.".to_owned(),
+                        Some(p) => app.set_status(format!("Saved to {}.", p.display()), super::StatusLevel::Info),
+                        None => app.set_status("No session path set.".to_owned(), super::StatusLevel::Warning),
                     },
-                    Err(e) => app.status_message = format!("Save error: {e}"),
+                    Err(e) => app.set_status(format!("Save error: {e}"), super::StatusLevel::Error),
                 }
             } else {
                 let path = PathBuf::from(arg);
                 match session::save(&path, app.session) {
-                    Ok(()) => app.status_message = format!("Saved to {arg}."),
-                    Err(e) => app.status_message = format!("Save error: {e}"),
+                    Ok(()) => app.set_status(format!("Saved to {arg}."), super::StatusLevel::Info),
+                    Err(e) => app.set_status(format!("Save error: {e}"), super::StatusLevel::Error),
                 }
             }
-        }
-        "/model" => {
-            app.status_message = format!("Model: {}", app.model_name);
         }
         "/config" => {
             app.config_dialog = Some(FieldDialog::new(
@@ -137,17 +130,17 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
         }
         "/load" => {
             if arg.is_empty() {
-                app.status_message = "Usage: /load <path>".to_owned();
+                app.set_status("Usage: /load <path>".to_owned(), super::StatusLevel::Warning);
             } else {
                 let path = PathBuf::from(arg);
                 match session::load(&path) {
                     Ok(loaded) => {
                         *app.session = loaded;
                         let count = app.session.tree.branch_path().len();
-                        app.status_message = format!("Loaded from {arg} ({count} messages).");
+                        app.set_status(format!("Loaded from {arg} ({count} messages)."), super::StatusLevel::Info);
                         app.auto_scroll = true;
                     }
-                    Err(e) => app.status_message = format!("Load error: {e}"),
+                    Err(e) => app.set_status(format!("Load error: {e}"), super::StatusLevel::Error),
                 }
             }
         }
@@ -162,13 +155,13 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             });
 
             let Some(target_id) = target else {
-                app.status_message = "No messages to branch.".to_owned();
+                app.set_status("No messages to branch.".to_owned(), super::StatusLevel::Warning);
                 return;
             };
 
             let siblings = app.session.tree.siblings_of(target_id);
             if siblings.len() <= 1 {
-                app.status_message = "No branches at this point.".to_owned();
+                app.set_status("No branches at this point.".to_owned(), super::StatusLevel::Warning);
                 return;
             }
 
@@ -209,8 +202,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             let books =
                 crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
             if books.is_empty() {
-                app.status_message =
-                    "No worldbooks found in worldinfo/ directory.".to_owned();
+                app.set_status("No worldbooks found in worldinfo/ directory.".to_owned(), super::StatusLevel::Warning);
             } else {
                 app.worldbook_list =
                     books.into_iter().map(|b| b.name).collect();
@@ -222,7 +214,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             if arg.starts_with("import") {
                 let path_str = arg.strip_prefix("import").unwrap_or("").trim();
                 if path_str.is_empty() {
-                    app.status_message = "Usage: /character import <path>".to_owned();
+                    app.set_status("Usage: /character import <path>".to_owned(), super::StatusLevel::Warning);
                 } else {
                     let source = std::path::Path::new(path_str);
                     match crate::character::import_card(source) {
@@ -234,23 +226,21 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
                                 app.save_mode.key(),
                             ) {
                                 Ok(_) => {
-                                    app.status_message =
-                                        format!("Imported character: {name}")
+                                    app.set_status(format!("Imported character: {name}"), super::StatusLevel::Info);
                                 }
                                 Err(e) => {
-                                    app.status_message = format!("Save error: {e}")
+                                    app.set_status(format!("Save error: {e}"), super::StatusLevel::Error);
                                 }
                             }
                         }
-                        Err(e) => app.status_message = format!("Import error: {e}"),
+                        Err(e) => app.set_status(format!("Import error: {e}"), super::StatusLevel::Error),
                     }
                 }
             } else {
                 let cards =
                     crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
                 if cards.is_empty() {
-                    app.status_message =
-                        "No characters found. Use /character import <path>".to_owned();
+                    app.set_status("No characters found. Use /character import <path>".to_owned(), super::StatusLevel::Warning);
                 } else {
                     app.character_names =
                         cards.iter().map(|c| c.name.clone()).collect();
@@ -262,7 +252,7 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
             }
         }
         _ => {
-            app.status_message = format!("Unknown command: {cmd}");
+            app.set_status(format!("Unknown command: {cmd}"), super::StatusLevel::Warning);
         }
     }
 }
@@ -275,7 +265,6 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.is_streaming = true;
     app.streaming_buffer.clear();
     app.auto_scroll = true;
-    app.status_message = "Generating... (Esc: cancel)".to_owned();
 
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
@@ -314,14 +303,13 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.auto_scroll = true;
-            app.status_message.clear();
             app.session.maybe_save(&app.save_mode)?;
             refresh_sidebar(app);
         }
         StreamToken::Error(err) => {
             app.streaming_buffer.clear();
             app.is_streaming = false;
-            app.status_message = format!("Error: {err}");
+            app.set_status(format!("Error: {err}"), super::StatusLevel::Error);
         }
     }
     Ok(())
@@ -340,24 +328,25 @@ pub fn handle_background_event(
             for warning in crate::character::auto_import_png_cards(
                 &crate::config::characters_dir(), Some(&key),
             ) {
-                app.status_message = warning;
+                app.set_status(warning, super::StatusLevel::Warning);
             }
             for warning in crate::worldinfo::normalize_worldbooks(
                 &crate::config::worldinfo_dir(), Some(&key),
             ) {
-                app.status_message = warning;
+                app.set_status(warning, super::StatusLevel::Warning);
             }
             for warning in crate::character::encrypt_plaintext_cards(
                 &crate::config::characters_dir(), &key,
             ) {
-                app.status_message = warning;
+                app.set_status(warning, super::StatusLevel::Warning);
             }
+            app.passkey_deriving = false;
             app.focus = Focus::Input;
             refresh_sidebar(app);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
+            app.passkey_deriving = false;
             app.passkey_error = format!("Failed: {err}");
-            app.status_message.clear();
         }
         super::BackgroundEvent::MetadataLoaded { path, metadata } => {
             if let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) {

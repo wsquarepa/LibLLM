@@ -475,21 +475,29 @@ pub fn render_status_bar(
         String::new()
     };
 
-    let status = if app.status_message.is_empty() {
-        format!(
-            " {} | {} | ~{} tokens | {}{} | Tab: switch focus | Ctrl+C: quit",
-            app.model_name,
-            app.template.name(),
-            token_count,
-            branch_info,
-            worldbook_info,
-        )
-    } else {
-        format!(" {} ", app.status_message)
+    let (status, style) = match &app.status_message {
+        Some(msg) => {
+            let style = match msg.level {
+                super::StatusLevel::Info => Style::default().fg(Color::White).bg(Color::Blue),
+                super::StatusLevel::Warning => Style::default().fg(Color::Black).bg(Color::Yellow),
+                super::StatusLevel::Error => Style::default().fg(Color::White).bg(Color::Red),
+            };
+            (format!(" {} ", msg.text), style)
+        }
+        None => {
+            let text = format!(
+                " {} | {} | ~{} tokens | {}{} | Tab: switch focus | Ctrl+C: quit",
+                app.model_name,
+                app.template.name(),
+                token_count,
+                branch_info,
+                worldbook_info,
+            );
+            (text, Style::default().fg(Color::White).bg(Color::DarkGray))
+        }
     };
 
-    let paragraph =
-        Paragraph::new(status).style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    let paragraph = Paragraph::new(status).style(style);
 
     f.render_widget(paragraph, area);
 }

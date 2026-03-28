@@ -69,7 +69,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.nav_cursor = None;
             app.auto_scroll = true;
             app.focus = Focus::Input;
-            app.status_message = "Switched branch.".to_owned();
+            app.set_status("Switched branch.".to_owned(), super::super::StatusLevel::Info);
             let _ = app.session.maybe_save(&app.save_mode);
         }
         KeyCode::Esc => {

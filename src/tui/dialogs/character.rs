@@ -99,12 +99,12 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     let new_path = crate::config::sessions_dir()
                         .join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
-                    app.status_message = format!("Loaded character: {}", card.name);
+                    app.set_status(format!("Loaded character: {}", card.name), super::super::StatusLevel::Info);
                     app.focus = Focus::Input;
                     refresh_sidebar(app);
                 }
                 Err(e) => {
-                    app.status_message = format!("Error: {e}");
+                    app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
                     app.focus = Focus::Input;
                 }
             }
@@ -136,7 +136,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.focus = Focus::CharacterEditorDialog;
                 }
                 Err(e) => {
-                    app.status_message = format!("Error: {e}");
+                    app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
                 }
             }
         }

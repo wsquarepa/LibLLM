@@ -51,6 +51,19 @@ enum Action {
     Quit,
 }
 
+#[derive(Clone, Copy)]
+enum StatusLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+struct StatusMessage {
+    text: String,
+    level: StatusLevel,
+    expires: std::time::Instant,
+}
+
 enum BackgroundEvent {
     KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
     KeyDeriveFailed(String),
@@ -103,12 +116,13 @@ struct App<'a> {
     streaming_buffer: String,
     is_streaming: bool,
     model_name: String,
-    status_message: String,
+    status_message: Option<StatusMessage>,
     should_quit: bool,
     command_picker_selected: usize,
 
     passkey_input: String,
     passkey_error: String,
+    passkey_deriving: bool,
 
     config_dialog: Option<FieldDialog<'a>>,
     self_dialog: Option<FieldDialog<'a>>,
@@ -141,6 +155,18 @@ struct App<'a> {
     user_name: Option<String>,
     config: crate::config::Config,
     bg_tx: mpsc::Sender<BackgroundEvent>,
+}
+
+const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl App<'_> {
+    fn set_status(&mut self, text: String, level: StatusLevel) {
+        self.status_message = Some(StatusMessage {
+            text,
+            level,
+            expires: std::time::Instant::now() + STATUS_DURATION,
+        });
+    }
 }
 
 pub async fn run(
@@ -199,11 +225,12 @@ pub async fn run(
         streaming_buffer: String::new(),
         is_streaming: false,
         model_name,
-        status_message: String::new(),
+        status_message: None,
         should_quit: false,
         command_picker_selected: 0,
         passkey_input: String::new(),
         passkey_error: String::new(),
+        passkey_deriving: false,
         config_dialog: None,
         self_dialog: None,
         system_editor: None,
@@ -275,6 +302,12 @@ pub async fn run(
                 needs_redraw = true;
             }
             _ = frame_tick.tick() => {
+                if let Some(ref msg) = app.status_message {
+                    if std::time::Instant::now() >= msg.expires {
+                        app.status_message = None;
+                        needs_redraw = true;
+                    }
+                }
                 if needs_redraw {
                     terminal.draw(|f| render_frame(f, &mut app))?;
                     needs_redraw = false;
@@ -489,7 +522,6 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
                 app.nav_cursor = Some(new_root);
                 app.focus = Focus::Chat;
                 let _ = app.session.maybe_save(&app.save_mode);
-                app.status_message = "Message edited (new branch created).".to_owned();
             }
         }
         Action::SlashCommand(cmd, arg) => {
@@ -558,14 +590,12 @@ fn handle_key(
         app.nav_cursor = None;
         app.session.tree.switch_sibling(-1);
         let _ = app.session.maybe_save(&app.save_mode);
-        app.status_message.clear();
         return None;
     }
     if key.code == KeyCode::Right && key.modifiers.contains(KeyModifiers::ALT) {
         app.nav_cursor = None;
         app.session.tree.switch_sibling(1);
         let _ = app.session.maybe_save(&app.save_mode);
-        app.status_message.clear();
         return None;
     }
 
@@ -621,7 +651,6 @@ fn cancel_generation(app: &mut App) {
     app.is_streaming = false;
     app.session.tree.pop_head();
     app.auto_scroll = true;
-    app.status_message = "Generation cancelled.".to_owned();
 }
 
 fn open_edit_dialog_with(app: &mut App, content: &str) {
@@ -688,10 +717,10 @@ fn handle_field_dialog_key(
                     match business::save_config_from_fields(values) {
                         Ok(()) => {
                             business::apply_config(app);
-                            app.status_message = "Configuration saved.".to_owned();
+                            app.set_status("Configuration saved.".to_owned(), StatusLevel::Info);
                         }
                         Err(e) => {
-                            app.status_message = format!("Failed to save config: {e}");
+                            app.set_status(format!("Failed to save config: {e}"), StatusLevel::Error);
                         }
                     }
                     app.config_dialog = None;
@@ -702,10 +731,10 @@ fn handle_field_dialog_key(
                         Ok(()) => {
                             app.config = crate::config::load();
                             app.user_name = app.config.user_name.clone();
-                            app.status_message = "User persona saved.".to_owned();
+                            app.set_status("User persona saved.".to_owned(), StatusLevel::Info);
                         }
                         Err(e) => {
-                            app.status_message = format!("Failed to save persona: {e}");
+                            app.set_status(format!("Failed to save persona: {e}"), StatusLevel::Error);
                         }
                     }
                     app.self_dialog = None;
@@ -728,8 +757,8 @@ fn handle_field_dialog_key(
                         &crate::config::characters_dir(),
                         app.save_mode.key(),
                     ) {
-                        Ok(_) => app.status_message = format!("Saved character: {}", card.name),
-                        Err(e) => app.status_message = format!("Failed to save character: {e}"),
+                        Ok(_) => app.set_status(format!("Saved character: {}", card.name), StatusLevel::Info),
+                        Err(e) => app.set_status(format!("Failed to save character: {e}"), StatusLevel::Error),
                     }
                     app.character_editor = None;
                     app.focus = Focus::CharacterDialog;

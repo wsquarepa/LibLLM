@@ -53,7 +53,6 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
         app.edit_editor = None;
         app.raw_edit_node = None;
         app.focus = Focus::Chat;
-        app.status_message = "Edit cancelled.".to_owned();
         return None;
     }
 
@@ -64,7 +63,6 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
 
         if content.is_empty() {
             app.focus = Focus::Chat;
-            app.status_message = "Edit cancelled (empty message).".to_owned();
             return None;
         }
 

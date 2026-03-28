@@ -154,7 +154,6 @@ fn recall_last_message(app: &mut App) {
     app.textarea = TextArea::from(lines);
     super::configure_textarea_at_end(&mut app.textarea);
     app.auto_scroll = true;
-    app.status_message.clear();
 }
 
 fn switch_nav_sibling(app: &mut App, offset: isize) {
@@ -181,9 +180,6 @@ fn navigate_up(app: &mut App) {
             if let Some(&last) = user_ids.last() {
                 app.nav_cursor = Some(last);
                 app.auto_scroll = false;
-                app.status_message =
-                    "Up/Down: navigate, Left/Right: cycle branches, Enter: edit, Esc: exit"
-                        .to_owned();
             }
         }
         Some(current) => {
@@ -207,7 +203,6 @@ fn navigate_down(app: &mut App) {
             app.nav_cursor = Some(user_ids[pos + 1]);
         } else {
             app.nav_cursor = None;
-            app.status_message.clear();
             app.auto_scroll = true;
         }
     }
@@ -323,7 +318,6 @@ fn load_sidebar_selection(app: &mut App) {
         app.auto_scroll = true;
         let new_path = crate::config::sessions_dir().join(session::generate_session_name());
         app.save_mode.set_path(new_path);
-        app.status_message = "New conversation started.".to_owned();
     } else {
         let path = entry.path.clone();
         let load_result = match &app.save_mode {
@@ -333,13 +327,13 @@ fn load_sidebar_selection(app: &mut App) {
         match load_result {
             Ok(loaded) => {
                 *app.session = loaded;
-                app.status_message = format!("Loaded: {}", entry.filename);
+                app.set_status(format!("Loaded: {}", entry.filename), super::StatusLevel::Info);
                 app.save_mode.set_path(path);
                 app.chat_scroll = 0;
                 app.auto_scroll = true;
             }
             Err(e) => {
-                app.status_message = format!("Error loading: {e}");
+                app.set_status(format!("Error loading: {e}"), super::StatusLevel::Error);
             }
         }
     }

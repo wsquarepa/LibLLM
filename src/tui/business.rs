@@ -362,10 +362,8 @@ pub fn refresh_sidebar(app: &mut App) {
                 current_entry.first_message = app
                     .session
                     .tree
-                    .branch_path()
-                    .into_iter()
-                    .find(|m| m.role == crate::session::Role::User)
-                    .map(|m| m.content.clone());
+                    .current_first_user_preview()
+                    .map(str::to_owned);
             }
         }
     }

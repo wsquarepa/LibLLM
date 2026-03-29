@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::context::ContextManager;
-use crate::session::{Message, NodeId, Role};
+use crate::session::{NodeId, Role};
 
 use super::App;
 
@@ -200,7 +200,6 @@ pub fn render_chat(
     app: &App,
     area: Rect,
     chat_scroll: &mut u16,
-    branch_path: &[&Message],
     branch_ids: &[NodeId],
     scroll_dirty: bool,
     cache: &mut Option<ChatContentCache>,
@@ -238,10 +237,15 @@ pub fn render_chat(
 
     if !cache_valid {
         crate::debug_log::log("chat.cache", "miss - rebuilding");
-        let entries: Vec<CachedMessageLines> = branch_path
+        let entries: Vec<CachedMessageLines> = branch_ids
             .iter()
-            .zip(branch_ids.iter())
-            .map(|(msg, &node_id)| {
+            .map(|&node_id| {
+                let msg = &app
+                    .session
+                    .tree
+                    .node(node_id)
+                    .expect("branch id should resolve to a message node")
+                    .message;
                 let (role_label, base_role_style) = match msg.role {
                     Role::User => (
                         user_label.clone(),
@@ -482,11 +486,15 @@ pub fn render_status_bar(
     f: &mut ratatui::Frame,
     app: &App,
     area: Rect,
-    branch_path: &[&Message],
+    branch_ids: &[NodeId],
     branch_info: Option<(usize, usize)>,
 ) {
     let token_count = crate::debug_log::timed("status.tokens", "estimate", || {
-        ContextManager::estimate_message_tokens(branch_path)
+        ContextManager::estimate_tokens_for_messages(
+            branch_ids
+                .iter()
+                .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
+        )
     });
 
     let branch_info = match branch_info {

@@ -458,16 +458,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.textarea.set_block(input_block);
     f.render_widget(&app.textarea, input_area);
 
-    let branch_ids = crate::debug_log::timed("chat.branch", "tree traversal", || {
-        app.session.tree.branch_path_ids()
-    });
-    let branch_path = app.session.tree.messages_for_ids(&branch_ids);
-    let branch_info = app.session.tree.deepest_branch_info_from(&branch_ids);
-    crate::debug_log::log(
-        "chat.branch",
-        &format!("{} nodes in path", branch_ids.len()),
-    );
-
     let current_scroll_state = ScrollState {
         auto_scroll: app.auto_scroll,
         nav_cursor: app.nav_cursor,
@@ -479,29 +469,34 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
 
-    let msg_count = branch_path.len();
     let mut cache = app.chat_content_cache.take();
-    crate::debug_log::timed(
-        "chat",
-        &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"),
-        || {
-            render::render_chat(
-                f,
-                app,
-                chat_area,
-                &mut chat_scroll,
-                &branch_path,
-                &branch_ids,
-                scroll_dirty,
-                &mut cache,
-            );
-        },
-    );
-    app.chat_content_cache = cache;
+    {
+        let branch_ids = app.session.tree.current_branch_ids();
+        let branch_info = app.session.tree.current_deepest_branch_info();
+        let msg_count = branch_ids.len();
+        crate::debug_log::log("chat.branch", &format!("{msg_count} nodes in path"));
 
-    crate::debug_log::timed("status", "bar", || {
-        render::render_status_bar(f, app, status_area, &branch_path, branch_info);
-    });
+        crate::debug_log::timed(
+            "chat",
+            &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"),
+            || {
+                render::render_chat(
+                    f,
+                    app,
+                    chat_area,
+                    &mut chat_scroll,
+                    branch_ids,
+                    scroll_dirty,
+                    &mut cache,
+                );
+            },
+        );
+
+        crate::debug_log::timed("status", "bar", || {
+            render::render_status_bar(f, app, status_area, branch_ids, branch_info);
+        });
+    }
+    app.chat_content_cache = cache;
     app.chat_scroll = chat_scroll;
     app.last_scroll_state = current_scroll_state;
 
@@ -625,13 +620,12 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
         }
         Action::EditMessage { node_id, content } => {
             if let Some(new_root) = app.session.tree.duplicate_subtree(node_id) {
-                if let Some(node) = app.session.tree.node_mut(new_root) {
-                    node.message.content = content;
+                if app.session.tree.set_message_content(new_root, content) {
+                    app.session.tree.switch_to(new_root);
+                    app.nav_cursor = Some(new_root);
+                    app.focus = Focus::Chat;
+                    let _ = app.session.maybe_save(&app.save_mode);
                 }
-                app.session.tree.switch_to(new_root);
-                app.nav_cursor = Some(new_root);
-                app.focus = Focus::Chat;
-                let _ = app.session.maybe_save(&app.save_mode);
             }
         }
         Action::SlashCommand(cmd, arg) => {
@@ -721,7 +715,7 @@ fn handle_key(
     if key.code == KeyCode::Tab {
         app.focus = match app.focus {
             Focus::Input => {
-                app.nav_cursor = app.session.tree.branch_path_ids().last().copied();
+                app.nav_cursor = app.session.tree.current_branch_ids().last().copied();
                 app.auto_scroll = false;
                 Focus::Chat
             }

@@ -188,7 +188,7 @@ pub fn handle_slash_command(
                         *app.session = loaded;
                         app.invalidate_chat_cache();
                         app.invalidate_worldbook_cache();
-                        let count = app.session.tree.branch_path().len();
+                        let count = app.session.tree.current_branch_ids().len();
                         app.set_status(
                             format!("Loaded from {arg} ({count} messages)."),
                             super::StatusLevel::Info,
@@ -200,14 +200,16 @@ pub fn handle_slash_command(
             }
         }
         "/branch" => {
-            let path_ids = app.session.tree.branch_path_ids();
-            let target = app.nav_cursor.or_else(|| {
-                if path_ids.len() >= 2 {
-                    Some(path_ids[path_ids.len() - 2])
-                } else {
-                    path_ids.last().copied()
-                }
-            });
+            let target = {
+                let path_ids = app.session.tree.current_branch_ids();
+                app.nav_cursor.or_else(|| {
+                    if path_ids.len() >= 2 {
+                        Some(path_ids[path_ids.len() - 2])
+                    } else {
+                        path_ids.last().copied()
+                    }
+                })
+            };
 
             let Some(target_id) = target else {
                 app.set_status(

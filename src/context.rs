@@ -9,8 +9,15 @@ pub struct ContextManager {
 
 impl ContextManager {
     pub fn estimate_message_tokens(messages: &[&Message]) -> usize {
+        Self::estimate_tokens_for_messages(messages.iter().copied())
+    }
+
+    pub fn estimate_tokens_for_messages<'a, I>(messages: I) -> usize
+    where
+        I: IntoIterator<Item = &'a Message>,
+    {
         messages
-            .iter()
+            .into_iter()
             .map(|m| m.content.len() / CHARS_PER_TOKEN_ESTIMATE + 4)
             .sum()
     }

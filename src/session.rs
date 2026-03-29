@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -108,14 +109,20 @@ pub struct Node {
     pub message: Message,
 }
 
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTree {
     nodes: Vec<Node>,
     head: Option<NodeId>,
-    #[serde(skip)]
+    #[serde(default)]
     preferred_child: HashMap<NodeId, NodeId>,
+    #[serde(skip)]
+    current_branch_ids: Vec<NodeId>,
+    #[serde(skip)]
+    current_user_branch_ids: Vec<NodeId>,
+    #[serde(skip)]
+    current_deepest_branch_info: Option<(usize, usize)>,
+    #[serde(skip)]
+    current_first_user_preview: Option<String>,
 }
 
 impl MessageTree {
@@ -124,7 +131,21 @@ impl MessageTree {
             nodes: Vec::new(),
             head: None,
             preferred_child: HashMap::new(),
+            current_branch_ids: Vec::new(),
+            current_user_branch_ids: Vec::new(),
+            current_deepest_branch_info: None,
+            current_first_user_preview: None,
         }
+    }
+
+    fn validate_preferred_children(&mut self) {
+        let nodes = &self.nodes;
+        self.preferred_child.retain(|&parent_id, child_id| {
+            let child_id = *child_id;
+            parent_id < nodes.len()
+                && child_id < nodes.len()
+                && nodes[parent_id].children.contains(&child_id)
+        });
     }
 
     pub fn update_preferred_children(&mut self) {
@@ -136,6 +157,50 @@ impl MessageTree {
         }
     }
 
+    fn refresh_runtime_caches(&mut self) {
+        self.current_branch_ids.clear();
+        self.current_user_branch_ids.clear();
+        self.current_deepest_branch_info = None;
+        self.current_first_user_preview = None;
+
+        let Some(head) = self.head else {
+            return;
+        };
+
+        let mut current = head;
+        loop {
+            self.current_branch_ids.push(current);
+            match self.nodes[current].parent {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        self.current_branch_ids.reverse();
+
+        for &id in &self.current_branch_ids {
+            let node = &self.nodes[id];
+            if node.message.role == Role::User {
+                self.current_user_branch_ids.push(id);
+                if self.current_first_user_preview.is_none() {
+                    self.current_first_user_preview = Some(node.message.content.clone());
+                }
+            }
+        }
+
+        self.current_deepest_branch_info = self.current_branch_ids.iter().rev().find_map(|&id| {
+            let info = self.sibling_info(id);
+            (info.1 > 1).then_some(info)
+        });
+    }
+
+    fn rehydrate_runtime_state(&mut self) {
+        self.validate_preferred_children();
+        if self.preferred_child.is_empty() {
+            self.update_preferred_children();
+        }
+        self.refresh_runtime_caches();
+    }
+
     pub fn head(&self) -> Option<NodeId> {
         self.head
     }
@@ -144,22 +209,42 @@ impl MessageTree {
         self.nodes.get(id)
     }
 
-    pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
-        self.nodes.get_mut(id)
+    pub fn set_message_content(&mut self, id: NodeId, content: String) -> bool {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return false;
+        };
+        node.message.content = content;
+        self.refresh_runtime_caches();
+        true
     }
 
     pub fn duplicate_subtree(&mut self, root_id: NodeId) -> Option<NodeId> {
         let parent = self.nodes.get(root_id)?.parent;
         let mut queue = std::collections::VecDeque::new();
+        let mut id_map = HashMap::new();
         let new_root = self.insert(parent, self.nodes[root_id].message.clone());
+        id_map.insert(root_id, new_root);
         queue.push_back((root_id, new_root));
         while let Some((orig, new_parent)) = queue.pop_front() {
             let children = self.nodes[orig].children.clone();
             for child_id in children {
                 let new_child = self.insert(Some(new_parent), self.nodes[child_id].message.clone());
+                id_map.insert(child_id, new_child);
                 queue.push_back((child_id, new_child));
             }
         }
+
+        for (&orig_id, &new_id) in &id_map {
+            let Some(&orig_preferred_child) = self.preferred_child.get(&orig_id) else {
+                continue;
+            };
+            let Some(&new_preferred_child) = id_map.get(&orig_preferred_child) else {
+                continue;
+            };
+            self.preferred_child.insert(new_id, new_preferred_child);
+        }
+
+        self.refresh_runtime_caches();
         Some(new_root)
     }
 
@@ -181,29 +266,32 @@ impl MessageTree {
         let id = self.insert(parent, message);
         self.head = Some(id);
         self.update_preferred_children();
+        self.refresh_runtime_caches();
         id
     }
 
     pub fn branch_path(&self) -> Vec<&Message> {
-        let path = self.branch_path_ids();
-        path.iter().map(|&id| &self.nodes[id].message).collect()
+        self.messages_for_ids(self.current_branch_ids())
     }
 
     pub fn branch_path_ids(&self) -> Vec<NodeId> {
-        let Some(head) = self.head else {
-            return Vec::new();
-        };
-        let mut path = Vec::new();
-        let mut current = head;
-        loop {
-            path.push(current);
-            match self.nodes[current].parent {
-                Some(parent) => current = parent,
-                None => break,
-            }
-        }
-        path.reverse();
-        path
+        self.current_branch_ids.clone()
+    }
+
+    pub fn current_branch_ids(&self) -> &[NodeId] {
+        &self.current_branch_ids
+    }
+
+    pub fn current_user_branch_ids(&self) -> &[NodeId] {
+        &self.current_user_branch_ids
+    }
+
+    pub fn current_deepest_branch_info(&self) -> Option<(usize, usize)> {
+        self.current_deepest_branch_info
+    }
+
+    pub fn current_first_user_preview(&self) -> Option<&str> {
+        self.current_first_user_preview.as_deref()
     }
 
     pub fn sibling_info(&self, id: NodeId) -> (usize, usize) {
@@ -242,6 +330,7 @@ impl MessageTree {
         }
         self.head = Some(current);
         self.update_preferred_children();
+        self.refresh_runtime_caches();
     }
 
     pub fn switch_sibling(&mut self, offset: isize) {
@@ -282,12 +371,15 @@ impl MessageTree {
     pub fn retreat_head(&mut self) -> Option<&Message> {
         let head = self.head?;
         self.head = self.nodes[head].parent;
+        self.update_preferred_children();
+        self.refresh_runtime_caches();
         Some(&self.nodes[head].message)
     }
 
     pub fn set_head(&mut self, id: Option<NodeId>) {
         self.head = id;
         self.update_preferred_children();
+        self.refresh_runtime_caches();
     }
 
     pub fn pop_head(&mut self) -> Option<Message> {
@@ -302,9 +394,16 @@ impl MessageTree {
 
         if let Some(pid) = parent {
             self.nodes[pid].children.retain(|&c| c != head);
+            if self.preferred_child.get(&pid) == Some(&head) {
+                self.preferred_child.remove(&pid);
+            }
         }
 
+        self.preferred_child.remove(&head);
+
         self.head = parent;
+        self.update_preferred_children();
+        self.refresh_runtime_caches();
         Some(message)
     }
 
@@ -315,6 +414,8 @@ impl MessageTree {
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.head = None;
+        self.preferred_child.clear();
+        self.refresh_runtime_caches();
     }
 
     fn is_reachable(&self, id: NodeId) -> bool {
@@ -334,16 +435,6 @@ impl MessageTree {
                 .map(|n| n.id)
                 .collect(),
         }
-    }
-
-    pub fn deepest_branch_info_from(&self, path: &[NodeId]) -> Option<(usize, usize)> {
-        path.iter()
-            .rev()
-            .find(|&&id| {
-                let (_, total) = self.sibling_info(id);
-                total > 1
-            })
-            .map(|&id| self.sibling_info(id))
     }
 
     pub fn messages_for_ids<'a>(&'a self, ids: &[NodeId]) -> Vec<&'a Message> {
@@ -475,7 +566,7 @@ pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
     if crate::crypto::is_encrypted(&data) {
         let plaintext = crate::crypto::decrypt(&data, key)?;
         let json = String::from_utf8(plaintext).context("decrypted session is not valid UTF-8")?;
-        serde_json::from_str::<Session>(&json).context("failed to parse decrypted session")
+        load_from_str(&json)
     } else {
         let contents = String::from_utf8_lossy(&data);
         load_from_str(&contents)
@@ -528,12 +619,7 @@ pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
 
 pub fn load_metadata(path: &Path, key: &DerivedKey) -> Option<SessionMetadata> {
     let session = load_encrypted(path, key).ok()?;
-    let first_message = session
-        .tree
-        .branch_path()
-        .into_iter()
-        .find(|m| m.role == Role::User)
-        .map(|m| m.content.clone());
+    let first_message = session.tree.current_first_user_preview().map(str::to_owned);
     Some(SessionMetadata {
         character: session.character,
         message_count: session.tree.node_count(),
@@ -543,7 +629,7 @@ pub fn load_metadata(path: &Path, key: &DerivedKey) -> Option<SessionMetadata> {
 
 fn load_from_str(contents: &str) -> Result<Session> {
     if let Ok(mut session) = serde_json::from_str::<Session>(contents) {
-        session.tree.update_preferred_children();
+        session.tree.rehydrate_runtime_state();
         return Ok(session);
     }
 
@@ -617,4 +703,158 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 
 fn is_leap(year: u64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypto::derive_key;
+    use serde_json::json;
+
+    struct BranchingIds {
+        branch_parent: NodeId,
+        branch_leaf: NodeId,
+    }
+
+    fn build_branching_session() -> (Session, BranchingIds) {
+        let mut session = Session::default();
+        let root = session
+            .tree
+            .push(None, Message::new(Role::User, "root".to_owned()));
+        let intro = session.tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "intro".to_owned()),
+        );
+        let branch_parent = session.tree.push(
+            Some(intro),
+            Message::new(Role::User, "branch here".to_owned()),
+        );
+
+        session.tree.push(
+            Some(branch_parent),
+            Message::new(Role::Assistant, "left branch".to_owned()),
+        );
+        session.tree.set_head(Some(branch_parent));
+
+        let right_branch = session.tree.push(
+            Some(branch_parent),
+            Message::new(Role::Assistant, "right branch".to_owned()),
+        );
+        let right_user = session.tree.push(
+            Some(right_branch),
+            Message::new(Role::User, "right follow-up".to_owned()),
+        );
+        let right_leaf = session.tree.push(
+            Some(right_user),
+            Message::new(Role::Assistant, "right leaf".to_owned()),
+        );
+
+        (
+            session,
+            BranchingIds {
+                branch_parent,
+                branch_leaf: right_leaf,
+            },
+        )
+    }
+
+    #[test]
+    fn persists_preferred_branch_choices_across_reload() {
+        let (session, ids) = build_branching_session();
+
+        let json = serde_json::to_string(&session).expect("session should serialize");
+        assert!(json.contains("preferred_child"));
+
+        let mut loaded = load_from_str(&json).expect("session should deserialize");
+        loaded.tree.switch_to(ids.branch_parent);
+
+        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+    }
+
+    #[test]
+    fn seeds_preferred_branch_choices_for_old_sessions() {
+        let (session, ids) = build_branching_session();
+
+        let mut value = serde_json::to_value(&session).expect("session should serialize");
+        value["tree"]
+            .as_object_mut()
+            .expect("tree should be an object")
+            .remove("preferred_child");
+
+        let mut loaded = load_from_str(&value.to_string()).expect("session should deserialize");
+        assert!(!loaded.tree.preferred_child.is_empty());
+
+        loaded.tree.switch_to(ids.branch_parent);
+
+        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+    }
+
+    #[test]
+    fn repairs_invalid_preferred_branch_choices_on_load() {
+        let (session, ids) = build_branching_session();
+
+        let mut value = serde_json::to_value(&session).expect("session should serialize");
+        value["tree"]["preferred_child"] = json!({"999": 1000, "2": 999});
+
+        let mut loaded = load_from_str(&value.to_string()).expect("session should deserialize");
+        assert!(loaded.tree.preferred_child.iter().all(|(&parent, &child)| {
+            parent < loaded.tree.nodes.len()
+                && child < loaded.tree.nodes.len()
+                && loaded.tree.nodes[parent].children.contains(&child)
+        }));
+
+        loaded.tree.switch_to(ids.branch_parent);
+
+        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+    }
+
+    #[test]
+    fn duplicate_subtree_preserves_nested_branch_selection() {
+        let (mut session, ids) = build_branching_session();
+
+        let new_root = session
+            .tree
+            .duplicate_subtree(ids.branch_parent)
+            .expect("subtree should duplicate");
+        session.tree.switch_to(new_root);
+
+        let head = session.tree.head().expect("head should exist");
+        let head_message = &session
+            .tree
+            .node(head)
+            .expect("head node should exist")
+            .message
+            .content;
+
+        assert_eq!(head_message, "right leaf");
+    }
+
+    #[test]
+    fn clear_drops_runtime_caches_and_preferred_branches() {
+        let (mut session, _) = build_branching_session();
+
+        session.tree.clear();
+
+        assert!(session.tree.current_branch_ids().is_empty());
+        assert!(session.tree.current_user_branch_ids().is_empty());
+        assert!(session.tree.preferred_child.is_empty());
+        assert_eq!(session.tree.current_deepest_branch_info(), None);
+        assert_eq!(session.tree.current_first_user_preview(), None);
+    }
+
+    #[test]
+    fn encrypted_load_rehydrates_preferred_branch_choices() {
+        let (session, ids) = build_branching_session();
+        let path = std::env::temp_dir().join(format!("{}.session", uuid::Uuid::new_v4()));
+        let salt = [7u8; 16];
+        let key = derive_key("passkey", &salt).expect("key derivation should succeed");
+
+        save_encrypted(&path, &session, &key).expect("session should save");
+        let mut loaded = load_encrypted(&path, &key).expect("session should load");
+        std::fs::remove_file(&path).expect("temp file should be removed");
+
+        loaded.tree.switch_to(ids.branch_parent);
+
+        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+    }
 }

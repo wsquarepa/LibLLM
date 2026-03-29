@@ -2,9 +2,9 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use super::centered_rect;
+use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus, business};
 
 pub(in crate::tui) enum ConfirmResult {
@@ -21,8 +21,7 @@ pub(in crate::tui) fn render_confirm_dialog(
     selected: usize,
 ) {
     let height = if hint.is_some() { 7 } else { 6 };
-    let dialog = centered_rect(50, height, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, 50, height, area);
 
     let cancel_style = if selected == 0 {
         Style::default()
@@ -62,12 +61,8 @@ pub(in crate::tui) fn render_confirm_dialog(
         )));
     }
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Confirm Delete ")
-            .border_style(Style::default().fg(Color::Yellow)),
-    );
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Confirm Delete ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 }

@@ -2,14 +2,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use super::centered_rect;
+use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let dialog = centered_rect(60, 8, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, 60, 8, area);
 
     let lines = vec![
         Line::from(""),
@@ -31,12 +30,8 @@ pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App,
         )),
     ];
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" API Error ")
-            .border_style(Style::default().fg(Color::Red)),
-    );
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" API Error ", Color::Red));
 
     f.render_widget(paragraph, dialog);
 }
@@ -52,8 +47,7 @@ pub(in crate::tui) fn handle_api_error_key(key: KeyEvent, app: &mut App) -> Opti
 }
 
 pub(in crate::tui) fn render_loading_dialog(f: &mut ratatui::Frame, area: Rect) {
-    let dialog = centered_rect(40, 5, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, 40, 5, area);
 
     let lines = vec![
         Line::from(""),
@@ -61,12 +55,8 @@ pub(in crate::tui) fn render_loading_dialog(f: &mut ratatui::Frame, area: Rect) 
         Line::from(""),
     ];
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Loading ")
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Loading ", Color::Cyan));
 
     f.render_widget(paragraph, dialog);
 }

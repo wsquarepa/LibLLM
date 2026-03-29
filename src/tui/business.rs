@@ -327,7 +327,9 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
             continue;
         }
 
-        let rem = name_remaining.get_mut(&entry.display_name).unwrap();
+        let Some(rem) = name_remaining.get_mut(&entry.display_name) else {
+            continue;
+        };
         let idx = *rem;
         *rem -= 1;
         let count_str = entry

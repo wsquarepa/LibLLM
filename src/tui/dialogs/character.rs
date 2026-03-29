@@ -2,9 +2,9 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use super::{FieldDialog, centered_rect};
+use super::{FieldDialog, clear_centered, dialog_block};
 use crate::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, Focus};
@@ -24,8 +24,7 @@ const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
-    let dialog = centered_rect(50, count as u16 + 5, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, 50, count as u16 + 5, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -48,12 +47,8 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         Style::default().fg(Color::DarkGray),
     )));
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Select Character ")
-            .border_style(Style::default().fg(Color::Yellow)),
-    );
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Select Character ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 }
@@ -99,7 +94,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     let new_path =
                         crate::config::sessions_dir().join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
-                    app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
+                    app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
                     app.set_status(
                         format!("Loaded character: {}", card.name),
                         super::super::StatusLevel::Info,

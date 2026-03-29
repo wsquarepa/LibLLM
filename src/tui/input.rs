@@ -149,7 +149,7 @@ fn switch_nav_sibling(app: &mut App, offset: isize) {
     let new_idx = (idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
     app.session.tree.switch_to(siblings[new_idx]);
     app.nav_cursor = Some(siblings[new_idx]);
-    app.mark_session_dirty_debounced(super::SaveTrigger::Debounced);
+    app.mark_session_dirty(super::SaveTrigger::Debounced, false);
 }
 
 fn navigate_up(app: &mut App) {

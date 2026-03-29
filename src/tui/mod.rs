@@ -241,6 +241,7 @@ struct App<'a> {
     worldbook_entry_editor_index: usize,
 
     chat_content_cache: Option<render::ChatContentCache>,
+    cached_token_count: Option<usize>,
     sidebar_cache: Option<render::SidebarCache>,
     raw_edit_node: Option<NodeId>,
     nav_cursor: Option<NodeId>,
@@ -283,6 +284,7 @@ impl App<'_> {
 
     fn invalidate_chat_cache(&mut self) {
         self.chat_content_cache = None;
+        self.cached_token_count = None;
     }
 
     fn invalidate_sidebar_cache(&mut self) {
@@ -293,32 +295,16 @@ impl App<'_> {
         self.worldbook_cache = None;
     }
 
-    fn mark_session_dirty_debounced(&mut self, trigger: SaveTrigger) {
+    fn mark_session_dirty(&mut self, trigger: SaveTrigger, immediate: bool) {
         self.session_dirty = true;
         self.pending_save_trigger = Some(trigger);
         if self.can_persist_session() {
-            self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_DEBOUNCE);
-        }
-        #[cfg(debug_assertions)]
-        if self.autosave_debug.dirty_since.is_none() {
-            self.autosave_debug.dirty_since = Some(std::time::Instant::now());
-        }
-        crate::debug_log::log_kv(
-            "autosave",
-            &[
-                crate::debug_log::field("phase", "schedule"),
-                crate::debug_log::field("trigger", trigger.as_str()),
-                crate::debug_log::field("persistable", self.can_persist_session()),
-                crate::debug_log::field("session_dirty", self.session_dirty),
-            ],
-        );
-    }
-
-    fn mark_session_dirty_immediate(&mut self, trigger: SaveTrigger) {
-        self.session_dirty = true;
-        self.pending_save_trigger = Some(trigger);
-        if self.can_persist_session() {
-            self.pending_save_deadline = Some(std::time::Instant::now());
+            let deadline = if immediate {
+                std::time::Instant::now()
+            } else {
+                std::time::Instant::now() + AUTOSAVE_DEBOUNCE
+            };
+            self.pending_save_deadline = Some(deadline);
         }
         #[cfg(debug_assertions)]
         if self.autosave_debug.dirty_since.is_none() {
@@ -561,6 +547,7 @@ pub async fn run(
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
         chat_content_cache: None,
+        cached_token_count: None,
         sidebar_cache: None,
         raw_edit_node: None,
         nav_cursor: None,
@@ -782,8 +769,16 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             },
         );
 
+        let token_count = *app.cached_token_count.get_or_insert_with(|| {
+            ContextManager::estimate_tokens_for_messages(
+                branch_ids
+                    .iter()
+                    .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
+            )
+        });
+
         crate::debug_log::timed_kv("status", &[crate::debug_log::field("phase", "bar")], || {
-            render::render_status_bar(f, app, status_area, branch_ids, branch_info);
+            render::render_status_bar(f, app, status_area, branch_info, token_count);
         });
     }
     app.chat_content_cache = cache;
@@ -924,7 +919,7 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
                     app.session.tree.switch_to(new_root);
                     app.nav_cursor = Some(new_root);
                     app.focus = Focus::Chat;
-                    app.mark_session_dirty_debounced(SaveTrigger::Debounced);
+                    app.mark_session_dirty(SaveTrigger::Debounced, false);
                 }
             }
         }
@@ -1004,7 +999,7 @@ fn handle_key(
         let previous_head = app.session.tree.head();
         app.session.tree.switch_sibling(-1);
         if app.session.tree.head() != previous_head {
-            app.mark_session_dirty_debounced(SaveTrigger::Debounced);
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
         }
         return None;
     }
@@ -1013,7 +1008,7 @@ fn handle_key(
         let previous_head = app.session.tree.head();
         app.session.tree.switch_sibling(1);
         if app.session.tree.head() != previous_head {
-            app.mark_session_dirty_debounced(SaveTrigger::Debounced);
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
         }
         return None;
     }
@@ -1067,7 +1062,7 @@ fn cancel_generation(app: &mut App) {
     app.streaming_buffer.clear();
     app.is_streaming = false;
     if app.session.tree.pop_head().is_some() {
-        app.mark_session_dirty_debounced(SaveTrigger::Debounced);
+        app.mark_session_dirty(SaveTrigger::Debounced, false);
     }
     app.auto_scroll = true;
 }

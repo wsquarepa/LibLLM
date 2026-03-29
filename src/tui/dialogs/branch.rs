@@ -2,15 +2,14 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use super::centered_rect;
+use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.branch_dialog_items.len();
-    let dialog = centered_rect((area.width as f32 * 0.7) as u16, count as u16 + 4, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, (area.width as f32 * 0.7) as u16, count as u16 + 4, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -33,12 +32,7 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
         Style::default().fg(Color::DarkGray),
     )));
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Select Branch ")
-            .border_style(Style::default().fg(Color::Yellow)),
-    );
+    let paragraph = Paragraph::new(Text::from(lines)).block(dialog_block(" Select Branch ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 }
@@ -65,7 +59,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.nav_cursor = None;
             app.auto_scroll = true;
             app.focus = Focus::Input;
-            app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
+            app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
             app.set_status(
                 "Switched branch.".to_owned(),
                 super::super::StatusLevel::Info,

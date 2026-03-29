@@ -2,22 +2,17 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use super::centered_rect;
+use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let width = (area.width as f32 * 0.7) as u16;
     let height = (area.height as f32 * 0.6) as u16;
-    let dialog = centered_rect(width, height, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, width, height, area);
 
-    let border = Block::default()
-        .borders(Borders::ALL)
-        .title(" Edit Message ")
-        .border_style(Style::default().fg(Color::Yellow));
-    f.render_widget(border, dialog);
+    f.render_widget(dialog_block(" Edit Message ", Color::Yellow), dialog);
 
     if let Some(ref editor) = app.edit_editor {
         let editor_area = Rect {

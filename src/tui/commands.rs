@@ -298,7 +298,7 @@ pub fn handle_slash_command(
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
                 app.invalidate_chat_cache();
-                app.mark_session_dirty_debounced(super::SaveTrigger::Debounced);
+                app.mark_session_dirty(super::SaveTrigger::Debounced, false);
                 app.set_status(
                     "System prompt updated.".to_owned(),
                     super::StatusLevel::Info,
@@ -307,7 +307,7 @@ pub fn handle_slash_command(
         }
         "/save" => {
             if arg.is_empty() {
-                app.mark_session_dirty_immediate(super::SaveTrigger::Explicit);
+                app.mark_session_dirty(super::SaveTrigger::Explicit, true);
                 match app.flush_session_save(super::SaveTrigger::Explicit) {
                     Ok(()) => match app.save_mode.path() {
                         Some(p) => app.set_status(
@@ -548,7 +548,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.session
         .tree
         .push(parent, Message::new(Role::User, content.to_owned()));
-    app.mark_session_dirty_debounced(super::SaveTrigger::Debounced);
+    app.mark_session_dirty(super::SaveTrigger::Debounced, false);
     app.invalidate_chat_cache();
     app.is_streaming = true;
     app.streaming_buffer.clear();
@@ -594,7 +594,7 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.session
                 .tree
                 .push(Some(head), Message::new(Role::Assistant, full_response));
-            app.mark_session_dirty_immediate(super::SaveTrigger::StreamDone);
+            app.mark_session_dirty(super::SaveTrigger::StreamDone, true);
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
             app.is_streaming = false;
@@ -713,7 +713,7 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                     },
                     _ => return,
                 };
-                app.mark_session_dirty_immediate(super::SaveTrigger::Explicit);
+                app.mark_session_dirty(super::SaveTrigger::Explicit, true);
                 match app.flush_session_save(super::SaveTrigger::Explicit) {
                     Ok(()) => app.discard_pending_session_save(),
                     Err(err) => {

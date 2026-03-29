@@ -3,7 +3,6 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::context::ContextManager;
 use crate::session::{NodeId, Role};
 
 use super::App;
@@ -44,6 +43,19 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
+
+pub fn clear_centered(f: &mut ratatui::Frame, width: u16, height: u16, area: Rect) -> Rect {
+    let dialog = centered_rect(width, height, area);
+    f.render_widget(ratatui::widgets::Clear, dialog);
+    dialog
+}
+
+pub fn dialog_block(title: impl Into<Line<'static>>, color: Color) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(color))
 }
 
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
@@ -498,12 +510,7 @@ pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, ch
     state.select(Some(selected));
 
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Commands ")
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
+        .block(dialog_block(" Commands ", Color::Yellow))
         .highlight_style(Style::default().fg(Color::Black).bg(Color::Yellow));
 
     f.render_widget(ratatui::widgets::Clear, picker_area);
@@ -514,21 +521,9 @@ pub fn render_status_bar(
     f: &mut ratatui::Frame,
     app: &App,
     area: Rect,
-    branch_ids: &[NodeId],
     branch_info: Option<(usize, usize)>,
+    token_count: usize,
 ) {
-    let token_count = crate::debug_log::timed_kv(
-        "status.tokens",
-        &[crate::debug_log::field("phase", "estimate")],
-        || {
-            ContextManager::estimate_tokens_for_messages(
-                branch_ids
-                    .iter()
-                    .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
-            )
-        },
-    );
-
     let branch_info = match branch_info {
         Some((idx, total)) => format!("Branch {}/{total}", idx + 1),
         None => "Linear".to_owned(),

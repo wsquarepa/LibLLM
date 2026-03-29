@@ -12,10 +12,13 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use tui_textarea::TextArea;
 
-use super::render::centered_rect;
+use crate::crypto::DerivedKey;
+use crate::tui::BackgroundEvent;
+
+use super::render::{clear_centered, dialog_block};
 
 pub enum FieldDialogAction {
     Continue,
@@ -99,8 +102,7 @@ impl<'a> FieldDialog<'a> {
                 (default_width, default_height + editor_extra)
             }
         };
-        let dialog = centered_rect(w, h, area);
-        f.render_widget(ratatui::widgets::Clear, dialog);
+        let dialog = clear_centered(f, w, h, area);
 
         if self.editor.is_some() {
             self.render_with_editor(f, dialog);
@@ -165,12 +167,8 @@ impl<'a> FieldDialog<'a> {
             Style::default().fg(Color::DarkGray),
         )));
 
-        let paragraph = Paragraph::new(Text::from(lines)).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(self.title)
-                .border_style(Style::default().fg(Color::Yellow)),
-        );
+        let paragraph =
+            Paragraph::new(Text::from(lines)).block(dialog_block(self.title, Color::Yellow));
 
         f.render_widget(paragraph, dialog);
     }
@@ -217,11 +215,7 @@ impl<'a> FieldDialog<'a> {
         };
         f.render_widget(Paragraph::new(hint_line), hint_area);
 
-        let border = Block::default()
-            .borders(Borders::ALL)
-            .title(self.title)
-            .border_style(Style::default().fg(Color::Yellow));
-        f.render_widget(border, dialog);
+        f.render_widget(dialog_block(self.title, Color::Yellow), dialog);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FieldDialogAction {
@@ -289,4 +283,117 @@ impl<'a> FieldDialog<'a> {
 
         FieldDialogAction::Continue
     }
+}
+
+fn log_phase(kind: &str, phase: &str, result: &str, elapsed: std::time::Duration) {
+    crate::debug_log::log_kv(
+        "unlock.phase",
+        &[
+            crate::debug_log::field("kind", kind),
+            crate::debug_log::field("phase", phase),
+            crate::debug_log::field("result", result),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
+}
+
+fn log_phase_with_path(
+    kind: &str,
+    phase: &str,
+    result: &str,
+    elapsed: std::time::Duration,
+    path: std::path::Display<'_>,
+) {
+    crate::debug_log::log_kv(
+        "unlock.phase",
+        &[
+            crate::debug_log::field("kind", kind),
+            crate::debug_log::field("phase", phase),
+            crate::debug_log::field("result", result),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
+            ),
+            crate::debug_log::field("path", path),
+        ],
+    );
+}
+
+fn log_phase_with_error(
+    kind: &str,
+    phase: &str,
+    elapsed: std::time::Duration,
+    error: &anyhow::Error,
+) {
+    crate::debug_log::log_kv(
+        "unlock.phase",
+        &[
+            crate::debug_log::field("kind", kind),
+            crate::debug_log::field("phase", phase),
+            crate::debug_log::field("result", "error"),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
+            ),
+            crate::debug_log::field("error", error),
+        ],
+    );
+}
+
+pub(in crate::tui) fn derive_key_blocking<F>(
+    passkey: String,
+    debug_kind: &str,
+    apply: F,
+) -> BackgroundEvent
+where
+    F: FnOnce(DerivedKey, &std::path::Path) -> BackgroundEvent,
+{
+    let total_start = std::time::Instant::now();
+    let salt_path = crate::config::salt_path();
+    let check_path = crate::config::key_check_path();
+
+    let salt_start = std::time::Instant::now();
+    let salt_result = crate::crypto::load_or_create_salt(&salt_path);
+    log_phase_with_path(
+        debug_kind,
+        "salt",
+        if salt_result.is_ok() { "ok" } else { "error" },
+        salt_start.elapsed(),
+        salt_path.display(),
+    );
+    let salt = match salt_result {
+        Ok(salt) => salt,
+        Err(err) => {
+            log_phase_with_error(debug_kind, "blocking_total", total_start.elapsed(), &err);
+            return BackgroundEvent::KeyDeriveFailed(err.to_string());
+        }
+    };
+
+    let derive_start = std::time::Instant::now();
+    let derive_result = crate::crypto::derive_key(&passkey, &salt);
+    log_phase(
+        debug_kind,
+        "argon2",
+        if derive_result.is_ok() { "ok" } else { "error" },
+        derive_start.elapsed(),
+    );
+    let derived_key = match derive_result {
+        Ok(key) => key,
+        Err(err) => {
+            log_phase_with_error(debug_kind, "blocking_total", total_start.elapsed(), &err);
+            return BackgroundEvent::KeyDeriveFailed(err.to_string());
+        }
+    };
+
+    let result = apply(derived_key, &check_path);
+    log_phase(
+        debug_kind,
+        "blocking_total",
+        "done",
+        total_start.elapsed(),
+    );
+    result
 }

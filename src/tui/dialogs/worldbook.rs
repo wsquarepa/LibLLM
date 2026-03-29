@@ -2,9 +2,9 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use super::{FieldDialog, centered_rect};
+use super::{FieldDialog, clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus};
 
 const ENTRY_EDITOR_FIELDS: &[&str] = &[
@@ -40,8 +40,7 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let dialog = centered_rect(50, count as u16 + 6, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, 50, count as u16 + 6, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -75,12 +74,8 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         Style::default().fg(Color::DarkGray),
     )));
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Worldbooks ")
-            .border_style(Style::default().fg(Color::Yellow)),
-    );
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Worldbooks ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 }
@@ -106,13 +101,13 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
-                    app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
+                    app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
                 }
                 WorldbookState::Session => {
                     app.session.worldbooks.retain(|n| n != &name);
                     app.config.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
-                    app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
+                    app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
                     let _ = crate::config::save(&app.config);
                 }
                 WorldbookState::Global => {
@@ -148,8 +143,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let dialog = centered_rect(60, count as u16 + 7, area);
-    f.render_widget(ratatui::widgets::Clear, dialog);
+    let dialog = clear_centered(f, 60, count as u16 + 7, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -197,12 +191,8 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     );
 
     let title = format!(" {} ({} entries) ", app.worldbook_editor_name, count);
-    let paragraph = Paragraph::new(Text::from(lines)).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(Style::default().fg(Color::Yellow)),
-    );
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 }

@@ -8,8 +8,7 @@ use crate::client::StreamToken;
 use crate::session::{self, Message, Role, SaveMode};
 
 use super::business::{load_config_fields, load_self_fields, refresh_sidebar};
-use super::dialogs::FieldDialog;
-use super::{App, CONFIG_FIELDS, Focus, SELF_FIELDS, maintenance};
+use super::{App, Focus, dialogs, maintenance};
 
 const SIDEBAR_METADATA_WORKERS: usize = 4;
 
@@ -330,12 +329,8 @@ pub fn handle_slash_command(
             }
         }
         "/config" => {
-            app.config_dialog = Some(FieldDialog::new(
-                " Configuration ",
-                CONFIG_FIELDS,
-                load_config_fields(&crate::config::load()),
-                &[],
-            ));
+            app.config_dialog =
+                Some(dialogs::open_config_editor(load_config_fields(&crate::config::load())));
             app.focus = Focus::ConfigDialog;
         }
         "/load" => {
@@ -418,12 +413,8 @@ pub fn handle_slash_command(
             app.focus = Focus::BranchDialog;
         }
         "/self" => {
-            app.self_dialog = Some(FieldDialog::new(
-                " User Persona ",
-                SELF_FIELDS,
-                load_self_fields(&crate::config::load()),
-                &[1],
-            ));
+            app.self_dialog =
+                Some(dialogs::open_self_editor(load_self_fields(&crate::config::load())));
             app.focus = Focus::SelfDialog;
         }
         "/worldbook" => {

@@ -4,23 +4,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{FieldDialog, clear_centered, dialog_block};
+use super::{clear_centered, dialog_block};
 use crate::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, Focus};
-
-const CHARACTER_EDITOR_FIELDS: &[&str] = &[
-    "Name",
-    "Description",
-    "Personality",
-    "Scenario",
-    "First Message",
-    "Examples",
-    "System Prompt",
-    "Post-History",
-];
-
-const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
@@ -124,15 +111,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         card.system_prompt,
                         card.post_history_instructions,
                     ];
-                    app.character_editor = Some(
-                        FieldDialog::new(
-                            " Edit Character ",
-                            CHARACTER_EDITOR_FIELDS,
-                            values,
-                            CHARACTER_EDITOR_MULTILINE,
-                        )
-                        .with_size(70, 60),
-                    );
+                    app.character_editor = Some(super::open_character_editor(values));
                     app.character_editor_slug = slug;
                     app.focus = Focus::CharacterEditorDialog;
                 }

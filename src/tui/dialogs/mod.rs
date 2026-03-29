@@ -20,6 +20,81 @@ use crate::tui::BackgroundEvent;
 
 use super::render::{clear_centered, dialog_block};
 
+const MULTILINE_WIDTH_PERCENT: u16 = 70;
+const MULTILINE_HEIGHT_PERCENT: u16 = 60;
+
+const CONFIG_FIELDS: &[&str] = &[
+    "API URL",
+    "Template",
+    "Temperature",
+    "Top-K",
+    "Top-P",
+    "Min-P",
+    "Repeat Last N",
+    "Repeat Penalty",
+    "Max Tokens",
+];
+
+const SELF_FIELDS: &[&str] = &["Name", "Persona"];
+const SELF_MULTILINE: &[usize] = &[1];
+
+const CHARACTER_EDITOR_FIELDS: &[&str] = &[
+    "Name",
+    "Description",
+    "Personality",
+    "Scenario",
+    "First Message",
+    "Examples",
+    "System Prompt",
+    "Post-History",
+];
+const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
+
+const ENTRY_EDITOR_FIELDS: &[&str] = &[
+    "Keys [OR]",
+    "Content",
+    "Selective",
+    "Keys [AND]",
+    "Constant",
+    "Enabled",
+    "Order",
+    "Depth",
+    "Case Sensitive",
+];
+const ENTRY_EDITOR_MULTILINE: &[usize] = &[1];
+const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
+
+pub fn open_config_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
+}
+
+pub fn open_self_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(" User Persona ", SELF_FIELDS, values, SELF_MULTILINE)
+}
+
+pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit Character ",
+        CHARACTER_EDITOR_FIELDS,
+        values,
+        CHARACTER_EDITOR_MULTILINE,
+    )
+}
+
+pub fn open_entry_editor(values: Vec<String>, selective: bool) -> FieldDialog<'static> {
+    let mut dialog = FieldDialog::new(
+        " Edit Entry ",
+        ENTRY_EDITOR_FIELDS,
+        values,
+        ENTRY_EDITOR_MULTILINE,
+    )
+    .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS);
+    if !selective {
+        dialog.hidden_fields = vec![3];
+    }
+    dialog
+}
+
 pub enum FieldDialogAction {
     Continue,
     Close,
@@ -40,12 +115,20 @@ pub struct FieldDialog<'a> {
 }
 
 impl<'a> FieldDialog<'a> {
-    pub fn new(
+    fn new(
         title: &'static str,
         labels: &'static [&'static str],
         values: Vec<String>,
         multiline_fields: &'static [usize],
     ) -> Self {
+        let (width, height) = if multiline_fields.is_empty() {
+            (None, None)
+        } else {
+            (
+                Some(MULTILINE_WIDTH_PERCENT),
+                Some(MULTILINE_HEIGHT_PERCENT),
+            )
+        };
         Self {
             title,
             labels,
@@ -54,20 +137,14 @@ impl<'a> FieldDialog<'a> {
             editing: false,
             multiline_fields,
             editor: None,
-            width: None,
-            height: None,
+            width,
+            height,
             placeholder: None,
             hidden_fields: Vec::new(),
         }
     }
 
-    pub fn with_size(mut self, width: u16, height: u16) -> Self {
-        self.width = Some(width);
-        self.height = Some(height);
-        self
-    }
-
-    pub fn with_placeholder(mut self, text: &'static str, fields: &'static [usize]) -> Self {
+    fn with_placeholder(mut self, text: &'static str, fields: &'static [usize]) -> Self {
         self.placeholder = Some((text, fields));
         self
     }

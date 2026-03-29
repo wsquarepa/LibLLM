@@ -151,20 +151,6 @@ enum BackgroundEvent {
     ModelFetched(std::result::Result<String, String>),
 }
 
-const CONFIG_FIELDS: &[&str] = &[
-    "API URL",
-    "Template",
-    "Temperature",
-    "Top-K",
-    "Top-P",
-    "Min-P",
-    "Repeat Last N",
-    "Repeat Penalty",
-    "Max Tokens",
-];
-
-const SELF_FIELDS: &[&str] = &["Name", "Persona"];
-
 #[derive(PartialEq, Eq)]
 struct ScrollState {
     auto_scroll: bool,

@@ -4,23 +4,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{FieldDialog, clear_centered, dialog_block};
+use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus};
-
-const ENTRY_EDITOR_FIELDS: &[&str] = &[
-    "Keys [OR]",
-    "Content",
-    "Selective",
-    "Keys [AND]",
-    "Constant",
-    "Enabled",
-    "Order",
-    "Depth",
-    "Case Sensitive",
-];
-
-const ENTRY_EDITOR_MULTILINE: &[usize] = &[1];
-const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
 
 enum WorldbookState {
     Off,
@@ -260,18 +245,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
 }
 
 fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: bool) {
-    let mut dialog = FieldDialog::new(
-        " Edit Entry ",
-        ENTRY_EDITOR_FIELDS,
-        values,
-        ENTRY_EDITOR_MULTILINE,
-    )
-    .with_size(70, 60)
-    .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS);
-    if !selective {
-        dialog.hidden_fields = vec![3];
-    }
-    app.worldbook_entry_editor = Some(dialog);
+    app.worldbook_entry_editor = Some(super::open_entry_editor(values, selective));
     app.worldbook_entry_editor_index = idx;
     app.focus = Focus::WorldbookEntryEditorDialog;
 }

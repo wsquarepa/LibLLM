@@ -6,6 +6,7 @@ mod config;
 mod context;
 mod crypto;
 mod debug_log;
+mod index;
 mod prompt;
 mod sampling;
 mod session;
@@ -15,7 +16,7 @@ mod worldinfo;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 
 use cli::Args;
@@ -243,8 +244,17 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("Invalid character JSON: {e}"))?;
             let old_path = file_path;
             let new_path = character::save_card(&card, &config::characters_dir(), key_ref)?;
-            if new_path != old_path && old_path.exists() {
-                let _ = std::fs::remove_file(&old_path);
+            if new_path != old_path {
+                if old_path.exists() {
+                    std::fs::remove_file(&old_path).context(format!(
+                        "failed to remove old character file: {}",
+                        old_path.display()
+                    ))?;
+                }
+                index::warn_if_save_fails(
+                    index::remove_character(&old_path),
+                    "failed to remove character index entry",
+                );
             }
             eprintln!("Saved character: {}", card.name);
         }
@@ -253,8 +263,17 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("Invalid worldbook JSON: {e}"))?;
             let old_path = file_path;
             let new_path = worldinfo::save_worldbook(&wb, &config::worldinfo_dir(), key_ref)?;
-            if new_path != old_path && old_path.exists() {
-                let _ = std::fs::remove_file(&old_path);
+            if new_path != old_path {
+                if old_path.exists() {
+                    std::fs::remove_file(&old_path).context(format!(
+                        "failed to remove old worldbook file: {}",
+                        old_path.display()
+                    ))?;
+                }
+                index::warn_if_save_fails(
+                    index::remove_worldbook(&old_path),
+                    "failed to remove worldbook index entry",
+                );
             }
             eprintln!("Saved worldbook: {}", wb.name);
         }

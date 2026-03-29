@@ -6,6 +6,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::DerivedKey;
+use crate::index;
 
 const EXT_ENCRYPTED: &str = "character";
 const EXT_PLAINTEXT: &str = "json";
@@ -240,6 +241,12 @@ pub fn save_card(card: &CharacterCard, dir: &Path, key: Option<&DerivedKey>) -> 
     let path = dir.join(format!("{slug}.{ext}"));
     let json = serde_json::to_string_pretty(card).context("failed to serialize character card")?;
     crate::crypto::encrypt_and_write(&path, json.as_bytes(), key)?;
+    if let Ok(stamp) = index::file_stamp(&path) {
+        index::warn_if_save_fails(
+            index::upsert_character(&path, stamp, slug, card.name.clone()),
+            "failed to update character index",
+        );
+    }
     Ok(path)
 }
 
@@ -254,7 +261,12 @@ fn remove_source_file(path: &Path, warnings: &mut Vec<String>, action: &str) {
             "failed to remove {action} {}: {err}",
             path.display()
         ));
+        return;
     }
+    index::warn_if_save_fails(
+        index::remove_character(path),
+        "failed to remove character index entry",
+    );
 }
 
 pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> PngImportReport {
@@ -380,22 +392,88 @@ pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
         Err(_) => return Vec::new(),
     };
 
-    let mut cards: Vec<CharacterEntry> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
+    let mut cards: Vec<CharacterEntry> = Vec::new();
+    let mut index_state = index::load_index();
+    let mut hit_count = 0usize;
+    let mut miss_count = 0usize;
+    let mut refreshed_count = 0usize;
+    let mut changed = false;
+
+    for path in entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
                 .is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT)
         })
-        .filter_map(|path| {
-            let slug = path.file_stem()?.to_string_lossy().to_string();
-            let card = load_card(&path, key).ok()?;
-            Some(CharacterEntry {
-                name: card.name,
-                slug,
-            })
-        })
-        .collect();
+    {
+        let stamp = match index::file_stamp(&path) {
+            Ok(stamp) => stamp,
+            Err(err) => {
+                miss_count += 1;
+                crate::debug_log::log("index.characters", &format!("stamp failed: {err}"));
+                continue;
+            }
+        };
+
+        let Some(relative_path) = index::relative_data_path(&path) else {
+            miss_count += 1;
+            continue;
+        };
+
+        if let Some(indexed) = index_state.characters.get(&relative_path) {
+            if indexed.stamp == stamp {
+                hit_count += 1;
+                cards.push(CharacterEntry {
+                    name: indexed.display_name.clone(),
+                    slug: indexed.slug.clone(),
+                });
+                continue;
+            }
+        }
+
+        miss_count += 1;
+        let Some(slug) = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+        else {
+            continue;
+        };
+        match load_card(&path, key) {
+            Ok(card) => {
+                refreshed_count += 1;
+                changed = true;
+                index_state.characters.insert(
+                    relative_path,
+                    index::CharacterIndexEntry {
+                        stamp,
+                        slug: slug.clone(),
+                        display_name: card.name.clone(),
+                    },
+                );
+                cards.push(CharacterEntry {
+                    name: card.name,
+                    slug,
+                });
+            }
+            Err(err) => {
+                crate::debug_log::log("index.characters", &format!("refresh failed: {err}"));
+                changed |= index_state.characters.remove(&relative_path).is_some();
+            }
+        }
+    }
+
+    crate::debug_log::log(
+        "index.characters",
+        &format!("hits={hit_count} misses={miss_count} refreshed={refreshed_count}"),
+    );
+
+    if changed {
+        index::warn_if_save_fails(
+            index::save_index(&index_state),
+            "failed to refresh character index",
+        );
+    }
 
     cards.sort_by(|a, b| a.name.cmp(&b.name));
     cards

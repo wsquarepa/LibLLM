@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use super::centered_rect;
-use crate::tui::{business, Action, App, Focus};
+use crate::tui::{Action, App, Focus, business};
 
 pub(in crate::tui) enum ConfirmResult {
     Confirmed,
@@ -134,6 +134,10 @@ fn delete_selected_session(app: &mut App) {
         );
         return;
     }
+    crate::index::warn_if_save_fails(
+        crate::index::remove_session(&path),
+        "failed to remove session index entry",
+    );
 
     if is_current {
         app.discard_pending_session_save();

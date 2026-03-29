@@ -406,29 +406,50 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
         Some(d) => d,
         None => return Vec::new(),
     };
-    let mut entries: Vec<SessionEntry> = std::fs::read_dir(dir)
+    let index = crate::index::load_index();
+    let mut hit_count = 0usize;
+    let mut miss_count = 0usize;
+    let mut entries: Vec<SessionEntry> = Vec::new();
+
+    for entry_path in std::fs::read_dir(dir)
         .into_iter()
         .flatten()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
-        .map(|p| {
-            let filename = p
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-            SessionEntry {
-                path: p,
-                filename,
-                display_name: "Assistant".to_owned(),
-                message_count: None,
-                first_message: None,
-                sidebar_label: String::new(),
-                sidebar_preview: None,
-                is_new_chat: false,
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|entry_path| entry_path.extension().is_some_and(|ext| ext == "json"))
+    {
+        let filename = entry_path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let mut entry = SessionEntry {
+            path: entry_path,
+            filename,
+            display_name: "Assistant".to_owned(),
+            message_count: None,
+            first_message: None,
+            sidebar_label: String::new(),
+            sidebar_preview: None,
+            is_new_chat: false,
+        };
+
+        match session::apply_indexed_session_metadata(&mut entry, &index) {
+            Ok(true) => hit_count += 1,
+            Ok(false) => miss_count += 1,
+            Err(err) => {
+                miss_count += 1;
+                crate::debug_log::log("index.sessions", &format!("lookup failed: {err}"));
             }
-        })
-        .collect();
+        }
+
+        entries.push(entry);
+    }
+
+    crate::debug_log::log(
+        "index.sessions",
+        &format!("plaintext hits={hit_count} misses={miss_count}"),
+    );
+
     entries.sort_by(|a, b| {
         let mtime = |p: &std::path::Path| {
             p.metadata()

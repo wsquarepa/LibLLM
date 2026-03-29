@@ -952,15 +952,67 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         post_history_instructions: values[7].clone(),
                         alternate_greetings: Vec::new(),
                     };
+                    let old_path = crate::character::resolve_card_path(
+                        &crate::config::characters_dir(),
+                        &app.character_editor_slug,
+                    );
                     match crate::character::save_card(
                         &card,
                         &crate::config::characters_dir(),
                         app.save_mode.key(),
                     ) {
-                        Ok(_) => app.set_status(
-                            format!("Saved character: {}", card.name),
-                            StatusLevel::Info,
-                        ),
+                        Ok(new_path) => {
+                            let mut saved_with_warning = false;
+                            if new_path != old_path {
+                                if old_path.exists() {
+                                    if let Err(err) = std::fs::remove_file(&old_path) {
+                                        saved_with_warning = true;
+                                        app.set_status(
+                                            format!(
+                                                "Saved character but failed to remove old file: {err}"
+                                            ),
+                                            StatusLevel::Warning,
+                                        );
+                                    } else {
+                                        crate::index::warn_if_save_fails(
+                                            crate::index::remove_character(&old_path),
+                                            "failed to remove character index entry",
+                                        );
+                                    }
+                                } else {
+                                    crate::index::warn_if_save_fails(
+                                        crate::index::remove_character(&old_path),
+                                        "failed to remove character index entry",
+                                    );
+                                }
+                            }
+
+                            let cards = crate::character::list_cards(
+                                &crate::config::characters_dir(),
+                                app.save_mode.key(),
+                            );
+                            app.character_names =
+                                cards.iter().map(|entry| entry.name.clone()).collect();
+                            app.character_slugs =
+                                cards.into_iter().map(|entry| entry.slug).collect();
+                            let new_slug = new_path
+                                .file_stem()
+                                .map(|stem| stem.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            app.character_selected = app
+                                .character_slugs
+                                .iter()
+                                .position(|existing| existing == &new_slug)
+                                .unwrap_or(0)
+                                .min(app.character_slugs.len().saturating_sub(1));
+                            app.character_editor_slug = new_slug;
+                            if !saved_with_warning {
+                                app.set_status(
+                                    format!("Saved character: {}", card.name),
+                                    StatusLevel::Info,
+                                );
+                            }
+                        }
                         Err(e) => app.set_status(
                             format!("Failed to save character: {e}"),
                             StatusLevel::Error,

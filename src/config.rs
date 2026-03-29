@@ -49,6 +49,10 @@ pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
 
+pub fn index_path() -> PathBuf {
+    data_dir().join("index.json")
+}
+
 pub fn key_check_path() -> PathBuf {
     data_dir().join(".key_check")
 }

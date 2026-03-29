@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::DerivedKey;
+use crate::index::{self, MetadataIndex, SessionStorageMode};
 
 #[derive(Clone)]
 pub enum SaveMode {
@@ -62,6 +63,95 @@ pub struct SessionMetadata {
     pub character: Option<String>,
     pub message_count: usize,
     pub first_message: Option<String>,
+}
+
+fn session_display_name(character: Option<&str>) -> String {
+    character.unwrap_or("Assistant").to_owned()
+}
+
+fn placeholder_session_entry(path: PathBuf) -> SessionEntry {
+    let filename = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    SessionEntry {
+        path,
+        filename,
+        display_name: "Assistant".to_owned(),
+        message_count: None,
+        first_message: None,
+        sidebar_label: String::new(),
+        sidebar_preview: None,
+        is_new_chat: false,
+    }
+}
+
+pub fn apply_indexed_session_metadata(
+    entry: &mut SessionEntry,
+    index: &MetadataIndex,
+) -> Result<bool> {
+    let stamp = index::file_stamp(&entry.path)?;
+    let Some(relative_path) = index::relative_data_path(&entry.path) else {
+        return Ok(false);
+    };
+    let Some(indexed) = index.sessions.get(&relative_path) else {
+        return Ok(false);
+    };
+    if indexed.stamp != stamp {
+        return Ok(false);
+    }
+
+    entry.display_name.clone_from(&indexed.display_name);
+    entry.message_count = Some(indexed.message_count);
+    entry.first_message.clone_from(&indexed.first_user_preview);
+    Ok(true)
+}
+
+fn persist_session_index(
+    path: &Path,
+    metadata: &SessionMetadata,
+    storage_mode: SessionStorageMode,
+) {
+    let stamp = match index::file_stamp(path) {
+        Ok(stamp) => stamp,
+        Err(err) => {
+            crate::debug_log::log("index.sessions", &format!("stamp failed: {err}"));
+            return;
+        }
+    };
+
+    index::warn_if_save_fails(
+        index::upsert_session(
+            path,
+            stamp,
+            session_display_name(metadata.character.as_deref()),
+            metadata.message_count,
+            metadata.first_message.clone(),
+            storage_mode,
+        ),
+        "failed to update session index",
+    );
+}
+
+pub fn persist_saved_session_index(
+    path: &Path,
+    session: &Session,
+    storage_mode: SessionStorageMode,
+) {
+    let metadata = SessionMetadata {
+        character: session.character.clone(),
+        message_count: session.tree.node_count(),
+        first_message: session.tree.current_first_user_preview().map(str::to_owned),
+    };
+    persist_session_index(path, &metadata, storage_mode);
+}
+
+pub fn persist_loaded_metadata_index(
+    path: &Path,
+    metadata: &SessionMetadata,
+    storage_mode: SessionStorageMode,
+) {
+    persist_session_index(path, metadata, storage_mode);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -545,7 +635,9 @@ pub fn load(path: &Path) -> Result<Session> {
 pub fn save(path: &Path, session: &Session) -> Result<()> {
     let json = serde_json::to_string_pretty(session).context("failed to serialize session")?;
     crate::crypto::write_atomic(path, json.as_bytes())
-        .context(format!("failed to write session file: {}", path.display()))
+        .context(format!("failed to write session file: {}", path.display()))?;
+    persist_saved_session_index(path, session, SessionStorageMode::Plaintext);
+    Ok(())
 }
 
 pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Result<()> {
@@ -554,7 +646,9 @@ pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Resul
     crate::crypto::write_atomic(path, &blob).context(format!(
         "failed to write encrypted session: {}",
         path.display()
-    ))
+    ))?;
+    persist_saved_session_index(path, session, SessionStorageMode::Encrypted);
+    Ok(())
 }
 
 pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
@@ -585,27 +679,32 @@ pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
         dir.display()
     ))?;
 
-    let mut sessions: Vec<SessionEntry> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "session"))
-        .map(|path| {
-            let filename = path
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-            SessionEntry {
-                path,
-                filename,
-                display_name: "Assistant".to_owned(),
-                message_count: None,
-                first_message: None,
-                sidebar_label: String::new(),
-                sidebar_preview: None,
-                is_new_chat: false,
+    let index = index::load_index();
+    let mut hit_count = 0usize;
+    let mut miss_count = 0usize;
+    let mut sessions: Vec<SessionEntry> = Vec::new();
+
+    for path in entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "session"))
+    {
+        let mut entry = placeholder_session_entry(path);
+        match apply_indexed_session_metadata(&mut entry, &index) {
+            Ok(true) => hit_count += 1,
+            Ok(false) => miss_count += 1,
+            Err(err) => {
+                miss_count += 1;
+                crate::debug_log::log("index.sessions", &format!("lookup failed: {err}"));
             }
-        })
-        .collect();
+        }
+        sessions.push(entry);
+    }
+
+    crate::debug_log::log(
+        "index.sessions",
+        &format!("hits={hit_count} misses={miss_count}"),
+    );
 
     sessions.sort_by(|a, b| {
         let mtime = |p: &Path| {

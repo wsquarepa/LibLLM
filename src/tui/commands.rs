@@ -568,12 +568,17 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
         }
         super::BackgroundEvent::MetadataLoaded { path, metadata } => {
             if let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) {
-                if let Some(character) = metadata.character {
-                    entry.display_name = character;
+                if let Some(character) = &metadata.character {
+                    entry.display_name = character.clone();
                 }
                 entry.message_count = Some(metadata.message_count);
-                entry.first_message = metadata.first_message;
+                entry.first_message = metadata.first_message.clone();
             }
+            session::persist_loaded_metadata_index(
+                &path,
+                &metadata,
+                crate::index::SessionStorageMode::Encrypted,
+            );
             super::business::prepare_sidebar_entries(&mut app.sidebar_sessions);
             app.invalidate_sidebar_cache();
         }

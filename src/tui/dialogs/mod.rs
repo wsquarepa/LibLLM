@@ -141,7 +141,8 @@ impl<'a> FieldDialog<'a> {
                 value.clone()
             };
 
-            let has_placeholder = self.placeholder
+            let has_placeholder = self
+                .placeholder
                 .is_some_and(|(_, fields)| fields.contains(&i));
             let show_placeholder = is_empty && !self.editing && has_placeholder;
 
@@ -197,10 +198,7 @@ impl<'a> FieldDialog<'a> {
         ));
 
         let header = Paragraph::new(Text::from(vec![Line::from(""), title_line]));
-        let header_area = Rect {
-            height: 2,
-            ..inner
-        };
+        let header_area = Rect { height: 2, ..inner };
         f.render_widget(header, header_area);
 
         let editor_area = Rect {
@@ -258,20 +256,24 @@ impl<'a> FieldDialog<'a> {
         }
 
         match key.code {
-            KeyCode::Up => {
-                loop {
-                    if self.selected == 0 { break; }
-                    self.selected -= 1;
-                    if !self.hidden_fields.contains(&self.selected) { break; }
+            KeyCode::Up => loop {
+                if self.selected == 0 {
+                    break;
                 }
-            }
-            KeyCode::Down => {
-                loop {
-                    if self.selected >= self.labels.len() - 1 { break; }
-                    self.selected += 1;
-                    if !self.hidden_fields.contains(&self.selected) { break; }
+                self.selected -= 1;
+                if !self.hidden_fields.contains(&self.selected) {
+                    break;
                 }
-            }
+            },
+            KeyCode::Down => loop {
+                if self.selected >= self.labels.len() - 1 {
+                    break;
+                }
+                self.selected += 1;
+                if !self.hidden_fields.contains(&self.selected) {
+                    break;
+                }
+            },
             KeyCode::Enter => {
                 if self.is_multiline(self.selected) {
                     self.open_multiline_editor();

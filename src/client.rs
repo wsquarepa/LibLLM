@@ -46,10 +46,17 @@ impl ApiClient {
     pub async fn fetch_model_name(&self) -> std::result::Result<String, String> {
         let url = format!("{}/models", self.base_url);
         let result: Result<String> = async {
-            let resp = self.client.get(&url)
+            let resp = self
+                .client
+                .get(&url)
                 .timeout(std::time::Duration::from_secs(5))
-                .send().await.context("GET /models failed")?;
-            let body: serde_json::Value = resp.json().await.context("failed to parse /models response")?;
+                .send()
+                .await
+                .context("GET /models failed")?;
+            let body: serde_json::Value = resp
+                .json()
+                .await
+                .context("failed to parse /models response")?;
             body["data"][0]["id"]
                 .as_str()
                 .map(String::from)
@@ -68,22 +75,14 @@ impl ApiClient {
         writer: &mut impl Write,
     ) -> Result<String> {
         let resp = self.start_completion(prompt, stop_tokens, sampling).await?;
-        let mut stream = resp.bytes_stream();
-        let mut buffer = Vec::<u8>::new();
-        let mut line_buf = String::new();
         let mut full_response = String::new();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("stream read error")?;
-            buffer.extend_from_slice(&chunk);
-
-            while let Some(text) = parse_next_token(&mut buffer, &mut line_buf) {
-                write!(writer, "{text}")?;
-                writer.flush()?;
-                full_response.push_str(&text);
-            }
-        }
-
+        consume_completion_stream(resp, |text| {
+            write!(writer, "{text}")?;
+            writer.flush()?;
+            full_response.push_str(text);
+            Ok(true)
+        })
+        .await?;
         Ok(full_response)
     }
 
@@ -94,10 +93,16 @@ impl ApiClient {
         sampling: &SamplingParams,
         sender: mpsc::Sender<StreamToken>,
     ) {
-        let result = self.stream_completion_channel_inner(prompt, stop_tokens, sampling, &sender).await;
+        let result = self
+            .stream_completion_channel_inner(prompt, stop_tokens, sampling, &sender)
+            .await;
         match result {
-            Ok(full) => { let _ = sender.send(StreamToken::Done(full)).await; }
-            Err(e) => { let _ = sender.send(StreamToken::Error(e.to_string())).await; }
+            Ok(full) => {
+                let _ = sender.send(StreamToken::Done(full)).await;
+            }
+            Err(e) => {
+                let _ = sender.send(StreamToken::Error(e.to_string())).await;
+            }
         }
     }
 
@@ -111,18 +116,28 @@ impl ApiClient {
         let resp = self.start_completion(prompt, stop_tokens, sampling).await?;
         let mut stream = resp.bytes_stream();
         let mut buffer = Vec::<u8>::new();
-        let mut line_buf = String::new();
+        let mut consumed = 0usize;
         let mut full_response = String::new();
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("stream read error")?;
             buffer.extend_from_slice(&chunk);
 
-            while let Some(text) = parse_next_token(&mut buffer, &mut line_buf) {
-                full_response.push_str(&text);
-                if sender.send(StreamToken::Token(text)).await.is_err() {
-                    return Ok(full_response);
+            while let Some((line_start, line_end)) = next_line_bounds(&buffer, consumed) {
+                let line_bytes = &buffer[line_start..line_end];
+                consumed = line_end + 1;
+
+                if let Some(text) = parse_token_line(line_bytes) {
+                    full_response.push_str(&text);
+                    if sender.send(StreamToken::Token(text)).await.is_err() {
+                        return Ok(full_response);
+                    }
                 }
+            }
+
+            if consumed > 0 {
+                buffer.drain(..consumed);
+                consumed = 0;
             }
         }
 
@@ -168,34 +183,55 @@ impl ApiClient {
     }
 }
 
-fn parse_next_token(buffer: &mut Vec<u8>, line_buf: &mut String) -> Option<String> {
-    loop {
-        let newline_pos = buffer.iter().position(|&b| b == b'\n')?;
+async fn consume_completion_stream<F>(resp: reqwest::Response, mut on_token: F) -> Result<()>
+where
+    F: FnMut(&str) -> Result<bool>,
+{
+    let mut stream = resp.bytes_stream();
+    let mut buffer = Vec::<u8>::new();
+    let mut consumed = 0usize;
 
-        line_buf.clear();
-        let line_bytes = &buffer[..newline_pos];
-        line_buf.push_str(&String::from_utf8_lossy(line_bytes));
-        buffer.drain(..=newline_pos);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("stream read error")?;
+        buffer.extend_from_slice(&chunk);
 
-        let line = line_buf.trim();
-        if line.is_empty() {
-            continue;
-        }
+        while let Some((line_start, line_end)) = next_line_bounds(&buffer, consumed) {
+            let line_bytes = &buffer[line_start..line_end];
+            consumed = line_end + 1;
 
-        let data = line.strip_prefix("data: ").unwrap_or(line);
-        if data == "[DONE]" {
-            continue;
-        }
-
-        let event: SseEvent = match serde_json::from_str(data) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        if let Some(text) = event.choices.first().and_then(|c| c.text.as_deref()) {
-            if !text.is_empty() {
-                return Some(text.to_owned());
+            if let Some(text) = parse_token_line(line_bytes) {
+                if !on_token(&text)? {
+                    return Ok(());
+                }
             }
         }
+
+        if consumed > 0 {
+            buffer.drain(..consumed);
+            consumed = 0;
+        }
     }
+
+    Ok(())
+}
+
+fn next_line_bounds(buffer: &[u8], start: usize) -> Option<(usize, usize)> {
+    let rel_end = buffer.get(start..)?.iter().position(|&b| b == b'\n')?;
+    Some((start, start + rel_end))
+}
+
+fn parse_token_line(line_bytes: &[u8]) -> Option<String> {
+    let line = std::str::from_utf8(line_bytes).ok()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    let data = line.strip_prefix("data: ").unwrap_or(line);
+    if data == "[DONE]" {
+        return None;
+    }
+
+    let event: SseEvent = serde_json::from_str(data).ok()?;
+    let text = event.choices.first().and_then(|c| c.text.as_deref())?;
+    (!text.is_empty()).then(|| text.to_owned())
 }

@@ -22,12 +22,16 @@ pub(in crate::tui) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &Ap
     let confirm_masked: String = "*".repeat(app.set_passkey_confirm.len());
 
     let new_label_style = if app.set_passkey_active_field == 0 {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
     let confirm_label_style = if app.set_passkey_active_field == 1 {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -45,7 +49,12 @@ pub(in crate::tui) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &Ap
 
     let cursor = |active: bool| -> Span {
         if active && !app.set_passkey_deriving {
-            Span::styled("_", Style::default().fg(Color::Cyan).add_modifier(Modifier::SLOW_BLINK))
+            Span::styled(
+                "_",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::SLOW_BLINK),
+            )
         } else {
             Span::raw("")
         }
@@ -129,7 +138,9 @@ pub(in crate::tui) fn handle_set_passkey_key(
                     .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
                 match result {
                     Ok(derived_key) => {
-                        if let Err(e) = crate::crypto::set_key_fingerprint(&check_path, &derived_key) {
+                        if let Err(e) =
+                            crate::crypto::set_key_fingerprint(&check_path, &derived_key)
+                        {
                             let _ = bg_tx
                                 .send(BackgroundEvent::PasskeySetFailed(e.to_string()))
                                 .await;

@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::{Aes256Gcm, AeadCore, Nonce};
+use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use anyhow::{Context, Result, bail};
 use argon2::Argon2;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const EXT_PLAINTEXT: &str = "json";
@@ -37,11 +37,9 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
 
     let salt: [u8; SALT_LEN] = rand::random();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("failed to create directory for salt file")?;
+        std::fs::create_dir_all(parent).context("failed to create directory for salt file")?;
     }
-    std::fs::write(path, salt)
-        .context("failed to write salt file")?;
+    std::fs::write(path, salt).context("failed to write salt file")?;
     Ok(salt)
 }
 
@@ -125,14 +123,22 @@ pub fn resolve_encrypted_path(dir: &Path, slug: &str, encrypted_ext: &str) -> Pa
 }
 
 pub fn encrypted_extension<'a>(key: Option<&DerivedKey>, encrypted_ext: &'a str) -> &'a str {
-    if key.is_some() { encrypted_ext } else { EXT_PLAINTEXT }
+    if key.is_some() {
+        encrypted_ext
+    } else {
+        EXT_PLAINTEXT
+    }
 }
 
 pub fn read_and_decrypt(path: &Path, key: Option<&DerivedKey>) -> Result<String> {
-    let raw = std::fs::read(path)
-        .context(format!("failed to read file: {}", path.display()))?;
+    let raw = std::fs::read(path).context(format!("failed to read file: {}", path.display()))?;
     if is_encrypted(&raw) {
-        let key = key.ok_or_else(|| anyhow::anyhow!("file is encrypted but no passkey available: {}", path.display()))?;
+        let key = key.ok_or_else(|| {
+            anyhow::anyhow!(
+                "file is encrypted but no passkey available: {}",
+                path.display()
+            )
+        })?;
         let decrypted = decrypt(&raw, key)?;
         String::from_utf8(decrypted).context("decrypted content is not valid UTF-8")
     } else {
@@ -158,37 +164,36 @@ pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {
     }
 
     if let Some(parent) = check_path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("failed to create directory for key check file")?;
+        std::fs::create_dir_all(parent).context("failed to create directory for key check file")?;
     }
-    std::fs::write(check_path, fingerprint)
-        .context("failed to write key check file")?;
+    std::fs::write(check_path, fingerprint).context("failed to write key check file")?;
     Ok(true)
 }
 
 pub fn set_key_fingerprint(check_path: &Path, key: &DerivedKey) -> Result<()> {
     let fingerprint = key_fingerprint(key);
     if let Some(parent) = check_path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("failed to create directory for key check file")?;
+        std::fs::create_dir_all(parent).context("failed to create directory for key check file")?;
     }
-    std::fs::write(check_path, fingerprint)
-        .context("failed to write key check file")
+    std::fs::write(check_path, fingerprint).context("failed to write key check file")
 }
 
 pub fn re_encrypt_file(path: &Path, old_key: &DerivedKey, new_key: &DerivedKey) -> Result<()> {
-    let raw = std::fs::read(path)
-        .context(format!("failed to read file: {}", path.display()))?;
+    let raw = std::fs::read(path).context(format!("failed to read file: {}", path.display()))?;
     if !is_encrypted(&raw) {
         return Ok(());
     }
     let plaintext = decrypt(&raw, old_key)?;
     let new_blob = encrypt(&plaintext, new_key)?;
-    std::fs::write(path, new_blob)
-        .context(format!("failed to write file: {}", path.display()))
+    std::fs::write(path, new_blob).context(format!("failed to write file: {}", path.display()))
 }
 
-pub fn re_encrypt_directory(dir: &Path, extensions: &[&str], old_key: &DerivedKey, new_key: &DerivedKey) -> Vec<String> {
+pub fn re_encrypt_directory(
+    dir: &Path,
+    extensions: &[&str],
+    old_key: &DerivedKey,
+    new_key: &DerivedKey,
+) -> Vec<String> {
     let mut warnings = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -199,7 +204,8 @@ pub fn re_encrypt_directory(dir: &Path, extensions: &[&str], old_key: &DerivedKe
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let matches = path.extension()
+        let matches = path
+            .extension()
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| extensions.contains(&ext));
         if !matches {

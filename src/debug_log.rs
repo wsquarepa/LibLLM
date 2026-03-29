@@ -19,8 +19,13 @@ mod debug_impl {
     }
 
     pub fn log(category: &str, message: &str) {
-        let Some(mutex) = DEBUG_FILE.get() else { return };
-        let elapsed = START_TIME.get().map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0);
+        let Some(mutex) = DEBUG_FILE.get() else {
+            return;
+        };
+        let elapsed = START_TIME
+            .get()
+            .map(|s| s.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
         if let Ok(mut file) = mutex.lock() {
             let _ = writeln!(file, "[{elapsed:.3}s] {category}: {message}");
         }
@@ -48,4 +53,6 @@ pub fn log(_: &str, _: &str) {}
 
 #[cfg(not(debug_assertions))]
 #[inline(always)]
-pub fn timed<T>(_: &str, _: &str, f: impl FnOnce() -> T) -> T { f() }
+pub fn timed<T>(_: &str, _: &str, f: impl FnOnce() -> T) -> T {
+    f()
+}

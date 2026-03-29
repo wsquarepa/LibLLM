@@ -7,12 +7,12 @@ mod render;
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders};
-use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
@@ -21,6 +21,7 @@ use crate::context::ContextManager;
 use crate::prompt::Template;
 use crate::sampling::SamplingParams;
 use crate::session::{self, NodeId, SaveMode, Session, SessionEntry};
+use crate::worldinfo::RuntimeWorldBook;
 
 use dialogs::FieldDialog;
 
@@ -49,7 +50,10 @@ enum Focus {
 
 enum Action {
     SendMessage(String),
-    EditMessage { node_id: crate::session::NodeId, content: String },
+    EditMessage {
+        node_id: crate::session::NodeId,
+        content: String,
+    },
     SlashCommand(String, String),
     Quit,
 }
@@ -67,13 +71,24 @@ struct StatusMessage {
     expires: std::time::Instant,
 }
 
+struct WorldbookCache {
+    enabled_names: Vec<String>,
+    books: Vec<RuntimeWorldBook>,
+}
+
 enum BackgroundEvent {
-    KeyDerived(std::sync::Arc<crate::crypto::DerivedKey>, std::path::PathBuf),
+    KeyDerived(
+        std::sync::Arc<crate::crypto::DerivedKey>,
+        std::path::PathBuf,
+    ),
     KeyDeriveFailed(String),
     PasskeySet(std::sync::Arc<crate::crypto::DerivedKey>),
     PasskeySetFailed(String),
     ReEncryptionComplete(Vec<String>),
-    MetadataLoaded { path: std::path::PathBuf, metadata: session::SessionMetadata },
+    MetadataLoaded {
+        path: std::path::PathBuf,
+        metadata: session::SessionMetadata,
+    },
     ModelFetched(std::result::Result<String, String>),
 }
 
@@ -163,6 +178,7 @@ struct App<'a> {
     worldbook_entry_editor_index: usize,
 
     chat_content_cache: Option<render::ChatContentCache>,
+    sidebar_cache: Option<render::SidebarCache>,
     raw_edit_node: Option<NodeId>,
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
@@ -171,10 +187,12 @@ struct App<'a> {
     delete_confirm_filename: String,
     user_name: Option<String>,
     config: crate::config::Config,
+    worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
 }
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+const STREAM_REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
 
 impl App<'_> {
     fn set_status(&mut self, text: String, level: StatusLevel) {
@@ -183,6 +201,18 @@ impl App<'_> {
             level,
             expires: std::time::Instant::now() + STATUS_DURATION,
         });
+    }
+
+    fn invalidate_chat_cache(&mut self) {
+        self.chat_content_cache = None;
+    }
+
+    fn invalidate_sidebar_cache(&mut self) {
+        self.sidebar_cache = None;
+    }
+
+    fn invalidate_worldbook_cache(&mut self) {
+        self.worldbook_cache = None;
     }
 }
 
@@ -221,7 +251,8 @@ pub async fn run(
     let config = crate::config::load();
     let user_name = config.user_name.clone();
 
-    let initial_passkey_setup = save_mode.needs_passkey() && !crate::config::key_check_path().exists();
+    let initial_passkey_setup =
+        save_mode.needs_passkey() && !crate::config::key_check_path().exists();
 
     let mut app = App {
         client,
@@ -289,6 +320,7 @@ pub async fn run(
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
         chat_content_cache: None,
+        sidebar_cache: None,
         raw_edit_node: None,
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
@@ -297,6 +329,7 @@ pub async fn run(
         delete_confirm_filename: String::new(),
         user_name,
         config,
+        worldbook_cache: None,
         bg_tx: bg_tx.clone(),
     };
 
@@ -315,9 +348,10 @@ pub async fn run(
         commands::spawn_metadata_loading(&app.sidebar_sessions, key, &bg_tx);
     }
 
-    let mut frame_tick = tokio::time::interval(std::time::Duration::from_millis(16));
+    let mut frame_tick = tokio::time::interval(STREAM_REDRAW_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut needs_redraw = false;
+    let mut stream_redraw_pending = false;
 
     terminal.draw(|f| render_frame(f, &mut app))?;
 
@@ -329,17 +363,20 @@ pub async fn run(
                         process_action(action, &mut app, token_tx.clone());
                     }
                 });
-                needs_redraw = true;
+                terminal.draw(|f| render_frame(f, &mut app))?;
+                needs_redraw = false;
             }
             Some(stream_token) = token_rx.recv() => {
                 crate::debug_log::timed("stream", "token", || {
                     commands::handle_stream_token(stream_token, &mut app)
                 })?;
+                stream_redraw_pending = true;
                 needs_redraw = true;
             }
             Some(bg_event) = bg_rx.recv() => {
                 commands::handle_background_event(bg_event, &mut app);
-                needs_redraw = true;
+                terminal.draw(|f| render_frame(f, &mut app))?;
+                needs_redraw = false;
             }
             _ = frame_tick.tick() => {
                 if let Some(ref msg) = app.status_message {
@@ -348,9 +385,10 @@ pub async fn run(
                         needs_redraw = true;
                     }
                 }
-                if needs_redraw {
+                if needs_redraw && (stream_redraw_pending || app.status_message.is_none()) {
                     terminal.draw(|f| render_frame(f, &mut app))?;
                     needs_redraw = false;
+                    stream_redraw_pending = false;
                 }
             }
         }
@@ -425,7 +463,10 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     });
     let branch_path = app.session.tree.messages_for_ids(&branch_ids);
     let branch_info = app.session.tree.deepest_branch_info_from(&branch_ids);
-    crate::debug_log::log("chat.branch", &format!("{} nodes in path", branch_ids.len()));
+    crate::debug_log::log(
+        "chat.branch",
+        &format!("{} nodes in path", branch_ids.len()),
+    );
 
     let current_scroll_state = ScrollState {
         auto_scroll: app.auto_scroll,
@@ -440,9 +481,22 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
     let msg_count = branch_path.len();
     let mut cache = app.chat_content_cache.take();
-    crate::debug_log::timed("chat", &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"), || {
-        render::render_chat(f, app, chat_area, &mut chat_scroll, &branch_path, &branch_ids, scroll_dirty, &mut cache);
-    });
+    crate::debug_log::timed(
+        "chat",
+        &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"),
+        || {
+            render::render_chat(
+                f,
+                app,
+                chat_area,
+                &mut chat_scroll,
+                &branch_path,
+                &branch_ids,
+                scroll_dirty,
+                &mut cache,
+            );
+        },
+    );
     app.chat_content_cache = cache;
 
     crate::debug_log::timed("status", "bar", || {
@@ -704,9 +758,7 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             cancel_generation(app);
             None
         }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::Quit)
-        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
         _ => None,
     }
 }
@@ -748,11 +800,7 @@ enum DialogKind {
     WorldbookEntryEditor,
 }
 
-fn handle_field_dialog_key(
-    key: KeyEvent,
-    app: &mut App,
-    kind: DialogKind,
-) -> Option<Action> {
+fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Option<Action> {
     let dialog = match kind {
         DialogKind::Config => app.config_dialog.as_mut(),
         DialogKind::SelfPersona => app.self_dialog.as_mut(),
@@ -768,7 +816,10 @@ fn handle_field_dialog_key(
 
     if matches!(kind, DialogKind::WorldbookEntryEditor) {
         if let Some(ref mut d) = app.worldbook_entry_editor {
-            let selective = d.values.get(2).is_some_and(|v| v.eq_ignore_ascii_case("true"));
+            let selective = d
+                .values
+                .get(2)
+                .is_some_and(|v| v.eq_ignore_ascii_case("true"));
             d.hidden_fields = if selective { Vec::new() } else { vec![3] };
         }
     }
@@ -785,7 +836,10 @@ fn handle_field_dialog_key(
                             app.set_status("Configuration saved.".to_owned(), StatusLevel::Info);
                         }
                         Err(e) => {
-                            app.set_status(format!("Failed to save config: {e}"), StatusLevel::Error);
+                            app.set_status(
+                                format!("Failed to save config: {e}"),
+                                StatusLevel::Error,
+                            );
                         }
                     }
                     app.config_dialog = None;
@@ -796,10 +850,14 @@ fn handle_field_dialog_key(
                         Ok(()) => {
                             app.config = crate::config::load();
                             app.user_name = app.config.user_name.clone();
+                            app.invalidate_chat_cache();
                             app.set_status("User persona saved.".to_owned(), StatusLevel::Info);
                         }
                         Err(e) => {
-                            app.set_status(format!("Failed to save persona: {e}"), StatusLevel::Error);
+                            app.set_status(
+                                format!("Failed to save persona: {e}"),
+                                StatusLevel::Error,
+                            );
                         }
                     }
                     app.self_dialog = None;
@@ -822,8 +880,14 @@ fn handle_field_dialog_key(
                         &crate::config::characters_dir(),
                         app.save_mode.key(),
                     ) {
-                        Ok(_) => app.set_status(format!("Saved character: {}", card.name), StatusLevel::Info),
-                        Err(e) => app.set_status(format!("Failed to save character: {e}"), StatusLevel::Error),
+                        Ok(_) => app.set_status(
+                            format!("Saved character: {}", card.name),
+                            StatusLevel::Info,
+                        ),
+                        Err(e) => app.set_status(
+                            format!("Failed to save character: {e}"),
+                            StatusLevel::Error,
+                        ),
                     }
                     app.character_editor = None;
                     app.focus = Focus::CharacterDialog;
@@ -833,7 +897,10 @@ fn handle_field_dialog_key(
                     let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
                     let idx = app.worldbook_entry_editor_index;
                     if idx < app.worldbook_editor_entries.len() {
-                        app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(values, &app.worldbook_editor_entries[idx]);
+                        app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(
+                            values,
+                            &app.worldbook_editor_entries[idx],
+                        );
                     }
                     app.worldbook_entry_editor = None;
                     app.focus = Focus::WorldbookEditorDialog;

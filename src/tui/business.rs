@@ -1,6 +1,9 @@
 use crate::session::{self, Message, Role, SaveMode, Session, SessionEntry};
+use crate::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
 use super::App;
+
+const SIDEBAR_PREVIEW_CHARS: usize = 28;
 
 pub fn non_empty(s: &str) -> Option<String> {
     if s.trim().is_empty() {
@@ -11,7 +14,31 @@ pub fn non_empty(s: &str) -> Option<String> {
 }
 
 pub fn apply_template_vars(text: &str, char_name: &str, user_name: &str) -> String {
-    text.replace("{{char}}", char_name).replace("{{user}}", user_name)
+    if !text.contains("{{char}}") && !text.contains("{{user}}") {
+        return text.to_owned();
+    }
+
+    let mut rendered = String::with_capacity(text.len());
+    let mut cursor = 0;
+
+    while let Some(rel_idx) = text[cursor..].find("{{") {
+        let idx = cursor + rel_idx;
+        rendered.push_str(&text[cursor..idx]);
+
+        if text[idx..].starts_with("{{char}}") {
+            rendered.push_str(char_name);
+            cursor = idx + "{{char}}".len();
+        } else if text[idx..].starts_with("{{user}}") {
+            rendered.push_str(user_name);
+            cursor = idx + "{{user}}".len();
+        } else {
+            rendered.push_str("{{");
+            cursor = idx + 2;
+        }
+    }
+
+    rendered.push_str(&text[cursor..]);
+    rendered
 }
 
 pub fn build_effective_system_prompt(
@@ -64,40 +91,50 @@ pub fn build_effective_system_prompt(
     Some(result)
 }
 
-pub fn inject_worldbook_entries<'a>(
-    session: &Session,
-    messages: &[&'a Message],
-    cfg: &crate::config::Config,
-    key: Option<&crate::crypto::DerivedKey>,
-) -> Vec<Message> {
-    if session.character.is_none() {
-        return messages.iter().map(|m| (*m).clone()).collect();
-    }
-
-    let mut enabled: Vec<&String> = cfg.worldbooks.iter().collect();
+pub fn enabled_worldbook_names(session: &Session, cfg: &crate::config::Config) -> Vec<String> {
+    let mut enabled = cfg.worldbooks.clone();
     for name in &session.worldbooks {
-        if !enabled.iter().any(|n| *n == name) {
-            enabled.push(name);
+        if !enabled.iter().any(|existing| existing == name) {
+            enabled.push(name.clone());
         }
     }
+    enabled
+}
 
-    if enabled.is_empty() {
+pub fn load_runtime_worldbooks(
+    enabled: &[String],
+    key: Option<&crate::crypto::DerivedKey>,
+) -> Vec<RuntimeWorldBook> {
+    let wi_dir = crate::config::worldinfo_dir();
+    enabled
+        .iter()
+        .filter_map(|wb_name| {
+            let wb_path = crate::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
+            crate::worldinfo::load_worldbook(&wb_path, key)
+                .ok()
+                .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
+        })
+        .collect()
+}
+
+pub fn inject_loaded_worldbook_entries(
+    session: &Session,
+    messages: &[&Message],
+    cfg: &crate::config::Config,
+    worldbooks: &[RuntimeWorldBook],
+) -> Vec<Message> {
+    if session.character.is_none() || worldbooks.is_empty() {
         return messages.iter().map(|m| (*m).clone()).collect();
     }
 
     let char_name = session.character.as_deref().unwrap_or("");
     let user_name = cfg.user_name.as_deref().unwrap_or("User");
-
     let msg_texts: Vec<&str> = messages.iter().map(|m| m.content.as_str()).collect();
-    let wi_dir = crate::config::worldinfo_dir();
 
-    let mut all_activated: Vec<crate::worldinfo::ActivatedEntry> = Vec::new();
-    for wb_name in &enabled {
-        let wb_path = crate::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
-        if let Ok(wb) = crate::worldinfo::load_worldbook(&wb_path, key) {
-            all_activated.extend(crate::worldinfo::scan_entries(&wb, &msg_texts));
-        }
-    }
+    let mut all_activated: Vec<ActivatedEntry> = worldbooks
+        .iter()
+        .flat_map(|wb| crate::worldinfo::scan_runtime_entries(wb, &msg_texts))
+        .collect();
 
     if all_activated.is_empty() {
         return messages.iter().map(|m| (*m).clone()).collect();
@@ -155,7 +192,8 @@ pub fn replace_template_vars(
 pub fn load_config_fields(cfg: &crate::config::Config) -> Vec<String> {
     let defaults = crate::sampling::SamplingParams::default();
     vec![
-        cfg.api_url.as_deref()
+        cfg.api_url
+            .as_deref()
             .unwrap_or(crate::config::Config::default().api_url())
             .to_owned(),
         cfg.template.as_deref().unwrap_or("llama2").to_owned(),
@@ -210,8 +248,7 @@ pub fn apply_config(app: &mut App) {
     let template_name = cfg.template.as_deref().unwrap_or("llama2");
     app.template = crate::prompt::Template::from_name(template_name);
     app.stop_tokens = app.template.stop_tokens();
-    app.sampling =
-        crate::sampling::SamplingParams::default().with_overrides(&cfg.sampling);
+    app.sampling = crate::sampling::SamplingParams::default().with_overrides(&cfg.sampling);
 
     let is_character = app.session.character.is_some();
     let prompt = if is_character {
@@ -225,6 +262,8 @@ pub fn apply_config(app: &mut App) {
 
     app.user_name = cfg.user_name.clone();
     app.config = cfg;
+    app.invalidate_worldbook_cache();
+    app.invalidate_chat_cache();
 }
 
 pub fn load_self_fields(cfg: &crate::config::Config) -> Vec<String> {
@@ -249,7 +288,45 @@ pub fn new_chat_entry() -> SessionEntry {
         display_name: "+ New Chat".to_owned(),
         message_count: None,
         first_message: None,
+        sidebar_label: "+ New Chat".to_owned(),
+        sidebar_preview: None,
         is_new_chat: true,
+    }
+}
+
+fn truncate_preview(msg: &str) -> String {
+    let truncated: String = msg.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
+    if msg.chars().count() > SIDEBAR_PREVIEW_CHARS {
+        format!("  {truncated}...")
+    } else {
+        format!("  {truncated}")
+    }
+}
+
+pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
+    let mut name_totals: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for entry in entries.iter().filter(|entry| !entry.is_new_chat) {
+        *name_totals.entry(entry.display_name.clone()).or_insert(0) += 1;
+    }
+
+    let mut name_remaining = name_totals;
+    for entry in entries.iter_mut() {
+        if entry.is_new_chat {
+            entry.sidebar_label.clone_from(&entry.display_name);
+            entry.sidebar_preview = None;
+            continue;
+        }
+
+        let rem = name_remaining.get_mut(&entry.display_name).unwrap();
+        let idx = *rem;
+        *rem -= 1;
+        let count_str = entry
+            .message_count
+            .map(|n| format!(" ({n})"))
+            .unwrap_or_default();
+        entry.sidebar_label = format!("[{idx}] {}{count_str}", entry.display_name);
+        entry.sidebar_preview = entry.first_message.as_deref().map(truncate_preview);
     }
 }
 
@@ -296,8 +373,10 @@ pub fn refresh_sidebar(app: &mut App) {
     let selected = current_path
         .and_then(|cp| sessions.iter().position(|s| s.path == cp))
         .unwrap_or(0);
+    prepare_sidebar_entries(&mut sessions);
     app.sidebar_sessions = sessions;
     app.sidebar_state.select(Some(selected));
+    app.sidebar_cache = None;
 
     if let crate::session::SaveMode::Encrypted { key, .. } = &app.save_mode {
         let bg_tx = app.bg_tx.clone();
@@ -320,6 +399,7 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
         SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
     };
     sessions.insert(0, new_chat_entry());
+    prepare_sidebar_entries(&mut sessions);
     sessions
 }
 
@@ -345,6 +425,8 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
                 display_name: "Assistant".to_owned(),
                 message_count: None,
                 first_message: None,
+                sidebar_label: String::new(),
+                sidebar_preview: None,
                 is_new_chat: false,
             }
         })

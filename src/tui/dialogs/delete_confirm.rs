@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use super::centered_rect;
-use crate::tui::{business, Action, App, Focus};
+use crate::tui::{Action, App, Focus, business};
 
 pub(in crate::tui) enum ConfirmResult {
     Confirmed,
@@ -72,10 +72,7 @@ pub(in crate::tui) fn render_confirm_dialog(
     f.render_widget(paragraph, dialog);
 }
 
-pub(in crate::tui) fn handle_confirm_key(
-    key: KeyEvent,
-    selected: &mut usize,
-) -> ConfirmResult {
+pub(in crate::tui) fn handle_confirm_key(key: KeyEvent, selected: &mut usize) -> ConfirmResult {
     match key.code {
         KeyCode::Left | KeyCode::Right => {
             *selected = 1 - *selected;
@@ -93,23 +90,17 @@ pub(in crate::tui) fn handle_confirm_key(
     }
 }
 
-pub(in crate::tui) fn render_delete_confirm_dialog(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_delete_confirm_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     render_confirm_dialog(
-        f, area,
+        f,
+        area,
         &format!("Delete \"{}\"?", app.delete_confirm_filename),
         Some("Left/Right: navigate  Enter: confirm  Esc: cancel"),
         app.delete_confirm_selected,
     );
 }
 
-pub(in crate::tui) fn handle_delete_confirm_key(
-    key: KeyEvent,
-    app: &mut App,
-) -> Option<Action> {
+pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match handle_confirm_key(key, &mut app.delete_confirm_selected) {
         ConfirmResult::Confirmed => {
             delete_selected_session(app);
@@ -137,7 +128,10 @@ fn delete_selected_session(app: &mut App) {
     let is_current = app.save_mode.path().is_some_and(|p| p == path);
 
     if let Err(e) = std::fs::remove_file(&path) {
-        app.set_status(format!("Error deleting: {e}"), super::super::StatusLevel::Error);
+        app.set_status(
+            format!("Error deleting: {e}"),
+            super::super::StatusLevel::Error,
+        );
         return;
     }
 
@@ -145,11 +139,13 @@ fn delete_selected_session(app: &mut App) {
         *app.session = crate::session::Session::default();
         app.chat_scroll = 0;
         app.auto_scroll = true;
-        let new_path =
-            crate::config::sessions_dir().join(crate::session::generate_session_name());
+        let new_path = crate::config::sessions_dir().join(crate::session::generate_session_name());
         app.save_mode.set_path(new_path);
     }
 
     business::refresh_sidebar(app);
-    app.set_status(format!("Deleted: {filename}"), super::super::StatusLevel::Info);
+    app.set_status(
+        format!("Deleted: {filename}"),
+        super::super::StatusLevel::Info,
+    );
 }

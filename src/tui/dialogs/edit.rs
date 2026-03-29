@@ -67,7 +67,10 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
         }
 
         return match node_id {
-            Some(id) => Some(Action::EditMessage { node_id: id, content }),
+            Some(id) => Some(Action::EditMessage {
+                node_id: id,
+                content,
+            }),
             None => {
                 app.focus = Focus::Chat;
                 None

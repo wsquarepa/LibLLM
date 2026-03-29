@@ -60,7 +60,8 @@ struct RawCardData {
 }
 
 pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
-    let raw: RawCard = serde_json::from_str(json_str).context("failed to parse character card JSON")?;
+    let raw: RawCard =
+        serde_json::from_str(json_str).context("failed to parse character card JSON")?;
 
     let data = raw.data.as_ref();
     let pick = |data_field: Option<&str>, top_field: Option<&str>| -> String {
@@ -71,24 +72,44 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
             .to_owned()
     };
 
-    let name = pick(
-        data.and_then(|d| d.name.as_deref()),
-        raw.name.as_deref(),
-    );
+    let name = pick(data.and_then(|d| d.name.as_deref()), raw.name.as_deref());
     if name.is_empty() {
         bail!("character card has no name");
     }
 
     Ok(CharacterCard {
         name,
-        description: pick(data.and_then(|d| d.description.as_deref()), raw.description.as_deref()),
-        personality: pick(data.and_then(|d| d.personality.as_deref()), raw.personality.as_deref()),
-        scenario: pick(data.and_then(|d| d.scenario.as_deref()), raw.scenario.as_deref()),
-        first_mes: pick(data.and_then(|d| d.first_mes.as_deref()), raw.first_mes.as_deref()),
-        mes_example: pick(data.and_then(|d| d.mes_example.as_deref()), raw.mes_example.as_deref()),
-        system_prompt: data.and_then(|d| d.system_prompt.as_deref()).unwrap_or("").to_owned(),
-        post_history_instructions: data.and_then(|d| d.post_history_instructions.as_deref()).unwrap_or("").to_owned(),
-        alternate_greetings: data.and_then(|d| d.alternate_greetings.clone()).unwrap_or_default(),
+        description: pick(
+            data.and_then(|d| d.description.as_deref()),
+            raw.description.as_deref(),
+        ),
+        personality: pick(
+            data.and_then(|d| d.personality.as_deref()),
+            raw.personality.as_deref(),
+        ),
+        scenario: pick(
+            data.and_then(|d| d.scenario.as_deref()),
+            raw.scenario.as_deref(),
+        ),
+        first_mes: pick(
+            data.and_then(|d| d.first_mes.as_deref()),
+            raw.first_mes.as_deref(),
+        ),
+        mes_example: pick(
+            data.and_then(|d| d.mes_example.as_deref()),
+            raw.mes_example.as_deref(),
+        ),
+        system_prompt: data
+            .and_then(|d| d.system_prompt.as_deref())
+            .unwrap_or("")
+            .to_owned(),
+        post_history_instructions: data
+            .and_then(|d| d.post_history_instructions.as_deref())
+            .unwrap_or("")
+            .to_owned(),
+        alternate_greetings: data
+            .and_then(|d| d.alternate_greetings.clone())
+            .unwrap_or_default(),
     })
 }
 
@@ -148,8 +169,10 @@ pub fn import_card(source: &Path) -> Result<CharacterCard> {
 
     match ext.as_str() {
         "json" => {
-            let contents = std::fs::read_to_string(source)
-                .context(format!("failed to read character card: {}", source.display()))?;
+            let contents = std::fs::read_to_string(source).context(format!(
+                "failed to read character card: {}",
+                source.display()
+            ))?;
             parse_card_json(&contents)
         }
         "png" => {
@@ -236,19 +259,32 @@ pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<String
         let display = png_path.display().to_string();
         let bytes = match std::fs::read(&png_path) {
             Ok(b) => b,
-            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+            Err(e) => {
+                warnings.push(format!("skipped {display}: {e}"));
+                continue;
+            }
         };
         let json = match extract_png_card(&bytes) {
             Ok(j) => j,
-            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+            Err(e) => {
+                warnings.push(format!("skipped {display}: {e}"));
+                continue;
+            }
         };
         let card = match parse_card_json(&json) {
             Ok(c) => c,
-            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+            Err(e) => {
+                warnings.push(format!("skipped {display}: {e}"));
+                continue;
+            }
         };
         match save_card(&card, dir, key) {
-            Ok(_) => { let _ = std::fs::remove_file(&png_path); }
-            Err(e) => { warnings.push(format!("failed to save {display}: {e}")); }
+            Ok(_) => {
+                let _ = std::fs::remove_file(&png_path);
+            }
+            Err(e) => {
+                warnings.push(format!("failed to save {display}: {e}"));
+            }
         }
     }
 
@@ -275,18 +311,28 @@ pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> Vec<String> {
         let display = path.display().to_string();
         let raw = match std::fs::read(&path) {
             Ok(r) => r,
-            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+            Err(e) => {
+                warnings.push(format!("skipped {display}: {e}"));
+                continue;
+            }
         };
         if crate::crypto::is_encrypted(&raw) {
             continue;
         }
         let card = match serde_json::from_slice::<CharacterCard>(&raw) {
             Ok(c) => c,
-            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+            Err(e) => {
+                warnings.push(format!("skipped {display}: {e}"));
+                continue;
+            }
         };
         match save_card(&card, dir, Some(key)) {
-            Ok(_) => { let _ = std::fs::remove_file(&path); }
-            Err(e) => { warnings.push(format!("failed to encrypt {display}: {e}")); }
+            Ok(_) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(e) => {
+                warnings.push(format!("failed to encrypt {display}: {e}"));
+            }
         }
     }
 
@@ -302,7 +348,10 @@ pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
     let mut cards: Vec<CharacterEntry> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT))
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT)
+        })
         .filter_map(|path| {
             let slug = path.file_stem()?.to_string_lossy().to_string();
             let card = load_card(&path, key).ok()?;

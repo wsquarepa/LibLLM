@@ -39,10 +39,7 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         } else {
             Style::default()
         };
-        lines.push(Line::from(Span::styled(
-            format!("{marker}{name}"),
-            style,
-        )));
+        lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
     }
 
     lines.push(Line::from(""));
@@ -79,27 +76,29 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         }
         KeyCode::Enter => {
             let slug = app.character_slugs[app.character_selected].clone();
-            let card_path = crate::character::resolve_card_path(
-                &crate::config::characters_dir(), &slug,
-            );
+            let card_path =
+                crate::character::resolve_card_path(&crate::config::characters_dir(), &slug);
             match crate::character::load_card(&card_path, app.save_mode.key()) {
                 Ok(card) => {
                     app.session.tree.clear();
-                    app.session.system_prompt =
-                        Some(crate::character::build_system_prompt(&card));
+                    app.session.system_prompt = Some(crate::character::build_system_prompt(&card));
                     app.session.character = Some(card.name.clone());
+                    app.invalidate_chat_cache();
+                    app.invalidate_worldbook_cache();
                     if !card.first_mes.is_empty() {
-                        app.session.tree.push(
-                            None,
-                            Message::new(Role::Assistant, card.first_mes),
-                        );
+                        app.session
+                            .tree
+                            .push(None, Message::new(Role::Assistant, card.first_mes));
                     }
                     app.chat_scroll = 0;
                     app.auto_scroll = true;
-                    let new_path = crate::config::sessions_dir()
-                        .join(session::generate_session_name());
+                    let new_path =
+                        crate::config::sessions_dir().join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
-                    app.set_status(format!("Loaded character: {}", card.name), super::super::StatusLevel::Info);
+                    app.set_status(
+                        format!("Loaded character: {}", card.name),
+                        super::super::StatusLevel::Info,
+                    );
                     app.focus = Focus::Input;
                     refresh_sidebar(app);
                 }
@@ -111,9 +110,8 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         }
         KeyCode::Right => {
             let slug = app.character_slugs[app.character_selected].clone();
-            let card_path = crate::character::resolve_card_path(
-                &crate::config::characters_dir(), &slug,
-            );
+            let card_path =
+                crate::character::resolve_card_path(&crate::config::characters_dir(), &slug);
             match crate::character::load_card(&card_path, app.save_mode.key()) {
                 Ok(card) => {
                     let values = vec![
@@ -126,12 +124,15 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         card.system_prompt,
                         card.post_history_instructions,
                     ];
-                    app.character_editor = Some(FieldDialog::new(
-                        " Edit Character ",
-                        CHARACTER_EDITOR_FIELDS,
-                        values,
-                        CHARACTER_EDITOR_MULTILINE,
-                    ).with_size(70, 60));
+                    app.character_editor = Some(
+                        FieldDialog::new(
+                            " Edit Character ",
+                            CHARACTER_EDITOR_FIELDS,
+                            values,
+                            CHARACTER_EDITOR_MULTILINE,
+                        )
+                        .with_size(70, 60),
+                    );
                     app.character_editor_slug = slug;
                     app.focus = Focus::CharacterEditorDialog;
                 }

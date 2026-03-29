@@ -88,7 +88,9 @@ impl Template {
     fn wrap_user(self, content: &str) -> String {
         match self {
             Self::Llama2 | Self::Mistral => format!("[INST] {content} [/INST]"),
-            Self::ChatMl => format!("<|im_start|>user\n{content}<|im_end|>\n<|im_start|>assistant\n"),
+            Self::ChatMl => {
+                format!("<|im_start|>user\n{content}<|im_end|>\n<|im_start|>assistant\n")
+            }
             Self::Phi => format!("<|user|>\n{content}<|end|>\n<|assistant|>\n"),
             Self::Raw => format!("{content}\n"),
         }

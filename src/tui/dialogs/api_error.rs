@@ -7,11 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use super::centered_rect;
 use crate::tui::{Action, App, Focus};
 
-pub(in crate::tui) fn render_api_error_dialog(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let dialog = centered_rect(60, 8, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 
@@ -45,10 +41,7 @@ pub(in crate::tui) fn render_api_error_dialog(
     f.render_widget(paragraph, dialog);
 }
 
-pub(in crate::tui) fn handle_api_error_key(
-    key: KeyEvent,
-    app: &mut App,
-) -> Option<Action> {
+pub(in crate::tui) fn handle_api_error_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match key.code {
         KeyCode::Enter | KeyCode::Esc => {
             app.focus = Focus::Input;
@@ -58,10 +51,7 @@ pub(in crate::tui) fn handle_api_error_key(
     None
 }
 
-pub(in crate::tui) fn render_loading_dialog(
-    f: &mut ratatui::Frame,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_loading_dialog(f: &mut ratatui::Frame, area: Rect) {
     let dialog = centered_rect(40, 5, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 

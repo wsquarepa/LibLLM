@@ -1,16 +1,16 @@
 mod character;
 mod cli;
-mod debug_log;
-mod worldinfo;
 mod client;
 mod commands;
 mod config;
 mod context;
 mod crypto;
+mod debug_log;
 mod prompt;
 mod sampling;
 mod session;
 mod tui;
+mod worldinfo;
 
 use std::io::{self, Read, Write};
 use std::sync::Arc;
@@ -70,9 +70,7 @@ async fn main() -> Result<()> {
     session.template = Some(template.name().to_owned());
 
     if session.system_prompt.is_none() {
-        session.system_prompt = args
-            .system_prompt
-            .or(cfg.system_prompt);
+        session.system_prompt = args.system_prompt.or(cfg.system_prompt);
     }
 
     if let Some(ref char_arg) = args.character {
@@ -80,10 +78,11 @@ async fn main() -> Result<()> {
         session.system_prompt = Some(character::build_system_prompt(&card));
         session.character = Some(card.name.clone());
         if session.tree.head().is_none() && !card.first_mes.is_empty() {
-            session.tree.push(None, Message::new(Role::Assistant, card.first_mes.clone()));
+            session
+                .tree
+                .push(None, Message::new(Role::Assistant, card.first_mes.clone()));
         }
-        let char_path = config::sessions_dir()
-            .join(session::generate_session_name());
+        let char_path = config::sessions_dir().join(session::generate_session_name());
         save_mode.set_path(char_path);
     }
 
@@ -109,7 +108,9 @@ async fn main() -> Result<()> {
         writeln!(stdout)?;
 
         let user_node = session.tree.head().unwrap();
-        session.tree.push(Some(user_node), Message::new(Role::Assistant, response));
+        session
+            .tree
+            .push(Some(user_node), Message::new(Role::Assistant, response));
 
         session.maybe_save(&save_mode)?;
 
@@ -143,14 +144,20 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
         }
         let key = Arc::new(key);
         let path = config::sessions_dir().join(session::generate_session_name());
-        return Ok((session::Session::default(), SaveMode::Encrypted { path, key }));
+        return Ok((
+            session::Session::default(),
+            SaveMode::Encrypted { path, key },
+        ));
     }
 
     let path = config::sessions_dir().join(session::generate_session_name());
     Ok((session::Session::default(), SaveMode::PendingPasskey(path)))
 }
 
-fn resolve_character(char_arg: &str, key: Option<&crypto::DerivedKey>) -> Result<character::CharacterCard> {
+fn resolve_character(
+    char_arg: &str,
+    key: Option<&crypto::DerivedKey>,
+) -> Result<character::CharacterCard> {
     let path = std::path::Path::new(char_arg);
     if path.exists() {
         let card = character::import_card(path)?;
@@ -173,7 +180,9 @@ fn resolve_edit_key(args: &Args) -> Result<Option<Arc<crypto::DerivedKey>>> {
     });
 
     let Some(passkey) = passkey else {
-        anyhow::bail!("No passkey provided. Use --passkey, LIBLLM_PASSKEY, or enter interactively.");
+        anyhow::bail!(
+            "No passkey provided. Use --passkey, LIBLLM_PASSKEY, or enter interactively."
+        );
     };
 
     let salt = crypto::load_or_create_salt(&config::salt_path())?;

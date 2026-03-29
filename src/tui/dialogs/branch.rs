@@ -9,11 +9,7 @@ use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.branch_dialog_items.len();
-    let dialog = centered_rect(
-        (area.width as f32 * 0.7) as u16,
-        count as u16 + 4,
-        area,
-    );
+    let dialog = centered_rect((area.width as f32 * 0.7) as u16, count as u16 + 4, area);
     f.render_widget(ratatui::widgets::Clear, dialog);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -60,8 +56,8 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.branch_dialog_selected = app.branch_dialog_selected.saturating_sub(1);
         }
         KeyCode::Down => {
-            app.branch_dialog_selected = (app.branch_dialog_selected + 1)
-                .min(app.branch_dialog_items.len() - 1);
+            app.branch_dialog_selected =
+                (app.branch_dialog_selected + 1).min(app.branch_dialog_items.len() - 1);
         }
         KeyCode::Enter => {
             let (node_id, _) = app.branch_dialog_items[app.branch_dialog_selected];
@@ -69,7 +65,10 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.nav_cursor = None;
             app.auto_scroll = true;
             app.focus = Focus::Input;
-            app.set_status("Switched branch.".to_owned(), super::super::StatusLevel::Info);
+            app.set_status(
+                "Switched branch.".to_owned(),
+                super::super::StatusLevel::Info,
+            );
             let _ = app.session.maybe_save(&app.save_mode);
         }
         KeyCode::Esc => {

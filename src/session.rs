@@ -52,6 +52,8 @@ pub struct SessionEntry {
     pub display_name: String,
     pub message_count: Option<usize>,
     pub first_message: Option<String>,
+    pub sidebar_label: String,
+    pub sidebar_preview: Option<String>,
     pub is_new_chat: bool,
 }
 
@@ -60,7 +62,6 @@ pub struct SessionMetadata {
     pub message_count: usize,
     pub first_message: Option<String>,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -214,7 +215,9 @@ impl MessageTree {
                 (index, siblings.len())
             }
             None => {
-                let roots: Vec<NodeId> = self.nodes.iter()
+                let roots: Vec<NodeId> = self
+                    .nodes
+                    .iter()
                     .filter(|n| n.parent.is_none() && self.is_reachable(n.id))
                     .map(|n| n.id)
                     .collect();
@@ -242,10 +245,14 @@ impl MessageTree {
     }
 
     pub fn switch_sibling(&mut self, offset: isize) {
-        if self.head.is_none() { return };
+        if self.head.is_none() {
+            return;
+        };
 
         let path = self.branch_path_ids();
-        let branch_node = path.iter().rev()
+        let branch_node = path
+            .iter()
+            .rev()
             .find(|&&id| {
                 let (_, total) = self.sibling_info(id);
                 total > 1
@@ -257,7 +264,9 @@ impl MessageTree {
         let parent = self.nodes[node_id].parent;
         let siblings = match parent {
             Some(pid) => self.nodes[pid].children.clone(),
-            None => self.nodes.iter()
+            None => self
+                .nodes
+                .iter()
                 .filter(|n| n.parent.is_none())
                 .map(|n| n.id)
                 .collect(),
@@ -328,7 +337,8 @@ impl MessageTree {
     }
 
     pub fn deepest_branch_info_from(&self, path: &[NodeId]) -> Option<(usize, usize)> {
-        path.iter().rev()
+        path.iter()
+            .rev()
             .find(|&&id| {
                 let (_, total) = self.sibling_info(id);
                 total > 1
@@ -387,9 +397,11 @@ impl Default for Session {
 
 impl Session {
     pub fn retreat_trailing_assistant(&mut self) {
-        while self.tree.head()
-            .is_some_and(|id| self.tree.node(id).is_some_and(|n| n.message.role == Role::Assistant))
-        {
+        while self.tree.head().is_some_and(|id| {
+            self.tree
+                .node(id)
+                .is_some_and(|n| n.message.role == Role::Assistant)
+        }) {
             self.tree.retreat_head();
         }
     }
@@ -431,7 +443,9 @@ pub fn load(path: &Path) -> Result<Session> {
     let contents = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Session::default()),
-        Err(e) => return Err(e).context(format!("failed to read session file: {}", path.display())),
+        Err(e) => {
+            return Err(e).context(format!("failed to read session file: {}", path.display()));
+        }
     };
 
     load_from_str(&contents)
@@ -445,7 +459,10 @@ pub fn save(path: &Path, session: &Session) -> Result<()> {
 pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Result<()> {
     let json = serde_json::to_string(session).context("failed to serialize session")?;
     let blob = crate::crypto::encrypt(json.as_bytes(), key)?;
-    std::fs::write(path, blob).context(format!("failed to write encrypted session: {}", path.display()))
+    std::fs::write(path, blob).context(format!(
+        "failed to write encrypted session: {}",
+        path.display()
+    ))
 }
 
 pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
@@ -470,10 +487,11 @@ pub fn generate_session_name() -> String {
     format!("{id}.session")
 }
 
-
 pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
-    let entries = std::fs::read_dir(dir)
-        .context(format!("failed to read sessions directory: {}", dir.display()))?;
+    let entries = std::fs::read_dir(dir).context(format!(
+        "failed to read sessions directory: {}",
+        dir.display()
+    ))?;
 
     let mut sessions: Vec<SessionEntry> = entries
         .filter_map(|e| e.ok())
@@ -484,7 +502,16 @@ pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            SessionEntry { path, filename, display_name: "Assistant".to_owned(), message_count: None, first_message: None, is_new_chat: false }
+            SessionEntry {
+                path,
+                filename,
+                display_name: "Assistant".to_owned(),
+                message_count: None,
+                first_message: None,
+                sidebar_label: String::new(),
+                sidebar_preview: None,
+                is_new_chat: false,
+            }
         })
         .collect();
 

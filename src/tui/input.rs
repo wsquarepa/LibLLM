@@ -30,9 +30,8 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let prefix = app.textarea.lines()[0].as_str();
-        let matches = crate::commands::matching_commands(
-            prefix.split_whitespace().next().unwrap_or("/"),
-        );
+        let matches =
+            crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"));
         match key.code {
             KeyCode::Up => {
                 app.command_picker_selected = app.command_picker_selected.saturating_sub(1);
@@ -83,21 +82,15 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             navigate_up(app);
             None
         }
-        KeyCode::Down
-            if app.nav_cursor.is_some() && textarea_is_empty(app) =>
-        {
+        KeyCode::Down if app.nav_cursor.is_some() && textarea_is_empty(app) => {
             navigate_down(app);
             None
         }
-        KeyCode::Left
-            if app.nav_cursor.is_some() && textarea_is_empty(app) =>
-        {
+        KeyCode::Left if app.nav_cursor.is_some() && textarea_is_empty(app) => {
             switch_nav_sibling(app, -1);
             None
         }
-        KeyCode::Right
-            if app.nav_cursor.is_some() && textarea_is_empty(app) =>
-        {
+        KeyCode::Right if app.nav_cursor.is_some() && textarea_is_empty(app) => {
             switch_nav_sibling(app, 1);
             None
         }
@@ -157,12 +150,16 @@ fn recall_last_message(app: &mut App) {
 }
 
 fn switch_nav_sibling(app: &mut App, offset: isize) {
-    let Some(current) = app.nav_cursor else { return };
+    let Some(current) = app.nav_cursor else {
+        return;
+    };
     let siblings = app.session.tree.siblings_of(current);
     if siblings.len() <= 1 {
         return;
     }
-    let Some(idx) = siblings.iter().position(|&s| s == current) else { return };
+    let Some(idx) = siblings.iter().position(|&s| s == current) else {
+        return;
+    };
     let new_idx = (idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
     app.session.tree.switch_to(siblings[new_idx]);
     app.nav_cursor = Some(siblings[new_idx]);
@@ -279,7 +276,11 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match key.code {
         KeyCode::Up => {
             let selected = app.sidebar_state.selected().unwrap_or(0);
-            let new = if selected == 0 { count - 1 } else { selected - 1 };
+            let new = if selected == 0 {
+                count - 1
+            } else {
+                selected - 1
+            };
             app.sidebar_state.select(Some(new));
             load_sidebar_selection(app);
             None
@@ -311,15 +312,23 @@ fn load_sidebar_selection(app: &mut App) {
         return;
     };
     app.nav_cursor = None;
-    let entry = &app.sidebar_sessions[selected];
-    if entry.is_new_chat {
+    let (is_new_chat, path, filename) = {
+        let entry = &app.sidebar_sessions[selected];
+        (
+            entry.is_new_chat,
+            entry.path.clone(),
+            entry.filename.clone(),
+        )
+    };
+    if is_new_chat {
         *app.session = Session::default();
+        app.invalidate_chat_cache();
+        app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
         app.auto_scroll = true;
         let new_path = crate::config::sessions_dir().join(session::generate_session_name());
         app.save_mode.set_path(new_path);
     } else {
-        let path = entry.path.clone();
         let load_result = match &app.save_mode {
             SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
             _ => session::load(&path),
@@ -327,7 +336,9 @@ fn load_sidebar_selection(app: &mut App) {
         match load_result {
             Ok(loaded) => {
                 *app.session = loaded;
-                app.set_status(format!("Loaded: {}", entry.filename), super::StatusLevel::Info);
+                app.invalidate_chat_cache();
+                app.invalidate_worldbook_cache();
+                app.set_status(format!("Loaded: {filename}"), super::StatusLevel::Info);
                 app.save_mode.set_path(path);
                 app.chat_scroll = 0;
                 app.auto_scroll = true;

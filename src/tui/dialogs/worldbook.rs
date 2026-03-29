@@ -55,9 +55,7 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         };
         let marker = if is_selected { "> " } else { "  " };
         let style = if is_selected {
-            Style::default()
-                .fg(color)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(color)
         };
@@ -100,33 +98,34 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
             app.worldbook_selected = app.worldbook_selected.saturating_sub(1);
         }
         KeyCode::Down => {
-            app.worldbook_selected =
-                (app.worldbook_selected + 1).min(app.worldbook_list.len() - 1);
+            app.worldbook_selected = (app.worldbook_selected + 1).min(app.worldbook_list.len() - 1);
         }
         KeyCode::Enter | KeyCode::Char(' ') => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
             match worldbook_state(app, &name) {
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
+                    app.invalidate_worldbook_cache();
                     let _ = app.session.maybe_save(&app.save_mode);
                 }
                 WorldbookState::Session => {
                     app.session.worldbooks.retain(|n| n != &name);
                     app.config.worldbooks.push(name.clone());
+                    app.invalidate_worldbook_cache();
                     let _ = app.session.maybe_save(&app.save_mode);
                     let _ = crate::config::save(&app.config);
                 }
                 WorldbookState::Global => {
                     app.config.worldbooks.retain(|n| n != &name);
+                    app.invalidate_worldbook_cache();
                     let _ = crate::config::save(&app.config);
                 }
             }
         }
         KeyCode::Right => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
-            let wb_path = crate::worldinfo::resolve_worldbook_path(
-                &crate::config::worldinfo_dir(), &name,
-            );
+            let wb_path =
+                crate::worldinfo::resolve_worldbook_path(&crate::config::worldinfo_dir(), &name);
             match crate::worldinfo::load_worldbook(&wb_path, app.save_mode.key()) {
                 Ok(wb) => {
                     app.worldbook_editor_entries = wb.entries;
@@ -178,21 +177,24 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        lines.push(Line::from(Span::styled(
-            format!("{marker}{label}"),
-            style,
-        )));
+        lines.push(Line::from(Span::styled(format!("{marker}{label}"), style)));
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Up/Down: navigate  Right: edit  a: add  Del: delete",
-        Style::default().fg(Color::DarkGray),
-    )).alignment(ratatui::layout::Alignment::Center));
-    lines.push(Line::from(Span::styled(
-        "Esc: save & close",
-        Style::default().fg(Color::DarkGray),
-    )).alignment(ratatui::layout::Alignment::Center));
+    lines.push(
+        Line::from(Span::styled(
+            "Up/Down: navigate  Right: edit  a: add  Del: delete",
+            Style::default().fg(Color::DarkGray),
+        ))
+        .alignment(ratatui::layout::Alignment::Center),
+    );
+    lines.push(
+        Line::from(Span::styled(
+            "Esc: save & close",
+            Style::default().fg(Color::DarkGray),
+        ))
+        .alignment(ratatui::layout::Alignment::Center),
+    );
 
     let title = format!(" {} ({} entries) ", app.worldbook_editor_name, count);
     let paragraph = Paragraph::new(Text::from(lines)).block(
@@ -273,7 +275,9 @@ fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: 
         ENTRY_EDITOR_FIELDS,
         values,
         ENTRY_EDITOR_MULTILINE,
-    ).with_size(70, 60).with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS);
+    )
+    .with_size(70, 60)
+    .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS);
     if !selective {
         dialog.hidden_fields = vec![3];
     }
@@ -296,9 +300,15 @@ fn entry_to_values(entry: &crate::worldinfo::Entry) -> Vec<String> {
     ]
 }
 
-pub fn values_to_entry(values: &[String], existing: &crate::worldinfo::Entry) -> crate::worldinfo::Entry {
+pub fn values_to_entry(
+    values: &[String],
+    existing: &crate::worldinfo::Entry,
+) -> crate::worldinfo::Entry {
     let parse_keys = |s: &str| -> Vec<String> {
-        s.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()
+        s.split(',')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
     };
     crate::worldinfo::Entry {
         keys: parse_keys(&values[0]),
@@ -313,23 +323,17 @@ pub fn values_to_entry(values: &[String], existing: &crate::worldinfo::Entry) ->
     }
 }
 
-pub(in crate::tui) fn render_entry_delete_dialog(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_entry_delete_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     super::delete_confirm::render_confirm_dialog(
-        f, area,
+        f,
+        area,
         &format!("Delete {}?", app.delete_confirm_filename),
         None,
         app.delete_confirm_selected,
     );
 }
 
-pub(in crate::tui) fn handle_entry_delete_key(
-    key: KeyEvent,
-    app: &mut App,
-) -> Option<Action> {
+pub(in crate::tui) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match super::delete_confirm::handle_confirm_key(key, &mut app.delete_confirm_selected) {
         super::delete_confirm::ConfirmResult::Confirmed => {
             let idx = app.worldbook_editor_selected;
@@ -354,8 +358,21 @@ fn save_worldbook_editor(app: &mut App) {
         name: app.worldbook_editor_name.clone(),
         entries: app.worldbook_editor_entries.clone(),
     };
-    match crate::worldinfo::save_worldbook(&wb, &crate::config::worldinfo_dir(), app.save_mode.key()) {
-        Ok(_) => app.set_status(format!("Saved worldbook: {}", wb.name), super::super::StatusLevel::Info),
-        Err(e) => app.set_status(format!("Failed to save worldbook: {e}"), super::super::StatusLevel::Error),
+    match crate::worldinfo::save_worldbook(
+        &wb,
+        &crate::config::worldinfo_dir(),
+        app.save_mode.key(),
+    ) {
+        Ok(_) => {
+            app.invalidate_worldbook_cache();
+            app.set_status(
+                format!("Saved worldbook: {}", wb.name),
+                super::super::StatusLevel::Info,
+            )
+        }
+        Err(e) => app.set_status(
+            format!("Failed to save worldbook: {e}"),
+            super::super::StatusLevel::Error,
+        ),
     }
 }

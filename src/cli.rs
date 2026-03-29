@@ -16,7 +16,10 @@ pub enum Command {
 }
 
 #[derive(Parser)]
-#[command(name = "libllm", about = "CLI chat client for llama.cpp completions API")]
+#[command(
+    name = "libllm",
+    about = "CLI chat client for llama.cpp completions API"
+)]
 pub struct Args {
     #[command(subcommand)]
     pub command: Option<Command>,

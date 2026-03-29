@@ -54,12 +54,9 @@ pub fn key_check_path() -> PathBuf {
 }
 
 pub fn ensure_dirs() -> Result<()> {
-    std::fs::create_dir_all(sessions_dir())
-        .context("failed to create sessions directory")?;
-    std::fs::create_dir_all(characters_dir())
-        .context("failed to create characters directory")?;
-    std::fs::create_dir_all(worldinfo_dir())
-        .context("failed to create worldinfo directory")
+    std::fs::create_dir_all(sessions_dir()).context("failed to create sessions directory")?;
+    std::fs::create_dir_all(characters_dir()).context("failed to create characters directory")?;
+    std::fs::create_dir_all(worldinfo_dir()).context("failed to create worldinfo directory")
 }
 
 pub fn config_path() -> PathBuf {

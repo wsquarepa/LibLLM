@@ -88,8 +88,7 @@ pub(in crate::tui) fn handle_passkey_key(
                         match crate::crypto::verify_or_set_key(&check_path, &derived_key) {
                             Ok(true) => {
                                 let key = std::sync::Arc::new(derived_key);
-                                let _ =
-                                    bg_tx.send(BackgroundEvent::KeyDerived(key, path)).await;
+                                let _ = bg_tx.send(BackgroundEvent::KeyDerived(key, path)).await;
                             }
                             Ok(false) => {
                                 let _ = bg_tx

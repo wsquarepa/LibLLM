@@ -75,12 +75,20 @@ struct RawEntry {
 
 const DEFAULT_SCAN_DEPTH: usize = 4;
 
-pub fn save_worldbook_to(worldbook: &WorldBook, path: &Path, key: Option<&DerivedKey>) -> Result<()> {
+pub fn save_worldbook_to(
+    worldbook: &WorldBook,
+    path: &Path,
+    key: Option<&DerivedKey>,
+) -> Result<()> {
     let json = serde_json::to_string_pretty(worldbook).context("failed to serialize worldbook")?;
     crate::crypto::encrypt_and_write(path, json.as_bytes(), key)
 }
 
-pub fn save_worldbook(worldbook: &WorldBook, dir: &Path, key: Option<&DerivedKey>) -> Result<std::path::PathBuf> {
+pub fn save_worldbook(
+    worldbook: &WorldBook,
+    dir: &Path,
+    key: Option<&DerivedKey>,
+) -> Result<std::path::PathBuf> {
     let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
     let path = dir.join(format!("{}.{ext}", worldbook.name));
     save_worldbook_to(worldbook, &path, key)?;
@@ -94,24 +102,27 @@ pub fn load_worldbook(path: &Path, key: Option<&DerivedKey>) -> Result<WorldBook
         return Ok(normalized);
     }
 
-    let raw: RawWorldBook = serde_json::from_str(&contents)
-        .context("failed to parse worldbook JSON")?;
+    let raw: RawWorldBook =
+        serde_json::from_str(&contents).context("failed to parse worldbook JSON")?;
 
-    let name = raw.name
+    let name = raw
+        .name
         .or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
         .unwrap_or_default();
 
     let scan_depth = raw.scan_depth.unwrap_or(DEFAULT_SCAN_DEPTH);
 
-    let mut entries: Vec<Entry> = raw.entries.into_values()
+    let mut entries: Vec<Entry> = raw
+        .entries
+        .into_values()
         .map(|raw_entry| {
-            let keys = raw_entry.keys
-                .or(raw_entry.key)
-                .unwrap_or_default();
-            let secondary_keys = raw_entry.secondary_keys
+            let keys = raw_entry.keys.or(raw_entry.key).unwrap_or_default();
+            let secondary_keys = raw_entry
+                .secondary_keys
                 .or(raw_entry.keysecondary)
                 .unwrap_or_default();
-            let enabled = raw_entry.enabled
+            let enabled = raw_entry
+                .enabled
                 .unwrap_or_else(|| !raw_entry.disable.unwrap_or(false));
 
             Entry {
@@ -139,8 +150,65 @@ pub struct ActivatedEntry {
     pub order: i64,
 }
 
-pub fn scan_entries(worldbook: &WorldBook, messages: &[&str]) -> Vec<ActivatedEntry> {
+#[derive(Clone)]
+pub struct RuntimeWorldBook {
+    entries: Vec<RuntimeEntry>,
+}
+
+#[derive(Clone)]
+struct RuntimeEntry {
+    primary_keys: Vec<String>,
+    secondary_keys: Vec<String>,
+    content: String,
+    selective: bool,
+    constant: bool,
+    order: i64,
+    depth: usize,
+    case_sensitive: bool,
+}
+
+impl RuntimeWorldBook {
+    pub fn from_worldbook(worldbook: &WorldBook) -> Self {
+        let entries = worldbook
+            .entries
+            .iter()
+            .map(|entry| RuntimeEntry {
+                primary_keys: if entry.case_sensitive {
+                    entry.keys.clone()
+                } else {
+                    entry.keys.iter().map(|key| key.to_lowercase()).collect()
+                },
+                secondary_keys: if entry.case_sensitive {
+                    entry.secondary_keys.clone()
+                } else {
+                    entry
+                        .secondary_keys
+                        .iter()
+                        .map(|key| key.to_lowercase())
+                        .collect()
+                },
+                content: entry.content.clone(),
+                selective: entry.selective,
+                constant: entry.constant,
+                order: entry.order,
+                depth: entry.depth,
+                case_sensitive: entry.case_sensitive,
+            })
+            .collect();
+
+        Self { entries }
+    }
+}
+
+pub fn scan_runtime_entries(
+    worldbook: &RuntimeWorldBook,
+    messages: &[&str],
+) -> Vec<ActivatedEntry> {
     let mut activated: Vec<ActivatedEntry> = Vec::new();
+    let mut case_sensitive_windows: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
+    let mut case_insensitive_windows: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
 
     for entry in &worldbook.entries {
         if entry.constant {
@@ -152,25 +220,21 @@ pub fn scan_entries(worldbook: &WorldBook, messages: &[&str]) -> Vec<ActivatedEn
             continue;
         }
 
-        let scan_messages = if messages.len() > entry.depth {
-            &messages[messages.len() - entry.depth..]
-        } else {
-            messages
-        };
-
-        let combined: String = scan_messages.join("\n");
         let haystack = if entry.case_sensitive {
-            combined.clone()
+            case_sensitive_windows
+                .entry(entry.depth)
+                .or_insert_with(|| build_window(messages, entry.depth))
         } else {
-            combined.to_lowercase()
+            case_insensitive_windows
+                .entry(entry.depth)
+                .or_insert_with(|| build_window(messages, entry.depth).to_lowercase())
         };
 
-        let primary_match = entry.keys.iter().any(|k| {
+        let primary_match = entry.primary_keys.iter().any(|k| {
             if k.is_empty() {
                 return false;
             }
-            let needle = if entry.case_sensitive { k.clone() } else { k.to_lowercase() };
-            haystack.contains(&needle)
+            haystack.contains(k)
         });
 
         if !primary_match {
@@ -182,8 +246,7 @@ pub fn scan_entries(worldbook: &WorldBook, messages: &[&str]) -> Vec<ActivatedEn
                 if k.is_empty() {
                     return true;
                 }
-                let needle = if entry.case_sensitive { k.clone() } else { k.to_lowercase() };
-                haystack.contains(&needle)
+                haystack.contains(k)
             });
             if !secondary_match {
                 continue;
@@ -201,6 +264,25 @@ pub fn scan_entries(worldbook: &WorldBook, messages: &[&str]) -> Vec<ActivatedEn
     activated
 }
 
+fn build_window(messages: &[&str], depth: usize) -> String {
+    let scan_messages = if messages.len() > depth {
+        &messages[messages.len() - depth..]
+    } else {
+        messages
+    };
+
+    let total_len: usize = scan_messages.iter().map(|msg| msg.len()).sum::<usize>()
+        + scan_messages.len().saturating_sub(1);
+    let mut combined = String::with_capacity(total_len);
+    for (idx, message) in scan_messages.iter().enumerate() {
+        if idx > 0 {
+            combined.push('\n');
+        }
+        combined.push_str(message);
+    }
+    combined
+}
+
 pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String> {
     let mut warnings: Vec<String> = Vec::new();
 
@@ -215,7 +297,10 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
     let file_paths: Vec<std::path::PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == EXT_PLAINTEXT || ext == EXT_ENCRYPTED))
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|ext| ext == EXT_PLAINTEXT || ext == EXT_ENCRYPTED)
+        })
         .collect();
 
     for path in file_paths {
@@ -225,7 +310,10 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
         let display = path.display().to_string();
         let contents = match crate::crypto::read_and_decrypt(&path, key) {
             Ok(c) => c,
-            Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+            Err(e) => {
+                warnings.push(format!("skipped {display}: {e}"));
+                continue;
+            }
         };
 
         let needs_normalize = serde_json::from_str::<WorldBook>(&contents).is_err();
@@ -239,7 +327,10 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
         let wb = if needs_normalize {
             match load_worldbook(&path, key) {
                 Ok(w) => w,
-                Err(e) => { warnings.push(format!("skipped {display}: {e}")); continue; }
+                Err(e) => {
+                    warnings.push(format!("skipped {display}: {e}"));
+                    continue;
+                }
             }
         } else {
             serde_json::from_str::<WorldBook>(&contents).unwrap()
@@ -251,7 +342,9 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
                     let _ = std::fs::remove_file(&path);
                 }
             }
-            Err(e) => { warnings.push(format!("failed to write {display}: {e}")); }
+            Err(e) => {
+                warnings.push(format!("failed to write {display}: {e}"));
+            }
         }
     }
 
@@ -267,7 +360,10 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
     let mut books: Vec<WorldBookEntry> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT))
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT)
+        })
         .filter_map(|path| {
             let fallback_name = path.file_stem()?.to_string_lossy().to_string();
             let name = load_worldbook(&path, key)

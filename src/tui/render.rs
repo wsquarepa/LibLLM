@@ -9,23 +9,26 @@ use crate::session::{Message, NodeId, Role};
 use super::App;
 
 const DIALOGUE_COLOR: Color = Color::LightBlue;
-const SIDEBAR_PREVIEW_CHARS: usize = 28;
+const NAV_CURSOR_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Yellow);
 
-const NAV_CURSOR_STYLE: Style = Style::new()
-    .fg(Color::Black)
-    .bg(Color::Yellow);
+pub struct SidebarCache {
+    selected_idx: Option<usize>,
+    items: Vec<ListItem<'static>>,
+}
 
 struct CachedMessageLines {
     role_label: String,
     base_role_style: Style,
     branch_indicator: String,
     content_lines: Vec<Line<'static>>,
+    total_height: u16,
 }
 
 pub struct ChatContentCache {
     branch_ids: Vec<NodeId>,
     char_name: String,
     user_name: String,
+    width: u16,
     entries: Vec<CachedMessageLines>,
 }
 
@@ -45,49 +48,36 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let selected_idx = app.sidebar_state.selected();
-    let mut name_totals: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for entry in &app.sidebar_sessions {
-        if !entry.is_new_chat {
-            *name_totals.entry(&entry.display_name).or_insert(0) += 1;
-        }
-    }
-    let mut name_remaining = name_totals.clone();
-    let items: Vec<ListItem> = app
-        .sidebar_sessions
-        .iter()
-        .enumerate()
-        .map(|(i, entry)| {
-            if entry.is_new_chat {
-                return ListItem::new(entry.display_name.clone());
-            }
-            let rem = name_remaining.get_mut(entry.display_name.as_str()).unwrap();
-            let idx = *rem;
-            *rem -= 1;
-            let count_str = match entry.message_count {
-                Some(n) => format!(" ({n})"),
-                None => String::new(),
-            };
-            let label = format!("[{idx}] {}{count_str}", entry.display_name);
-            if selected_idx == Some(i) {
-                let mut lines = vec![Line::from(label)];
-                if let Some(ref msg) = entry.first_message {
-                    let truncated: String = msg.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
-                    let display = if msg.chars().count() > SIDEBAR_PREVIEW_CHARS {
-                        format!("  {truncated}...")
-                    } else {
-                        format!("  {truncated}")
-                    };
-                    lines.push(Line::from(Span::styled(
-                        display,
-                        Style::default().fg(Color::DarkGray),
-                    )));
+    let cache_valid = app
+        .sidebar_cache
+        .as_ref()
+        .is_some_and(|cache| cache.selected_idx == selected_idx);
+
+    if !cache_valid {
+        let items = app
+            .sidebar_sessions
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                if selected_idx == Some(i) {
+                    let mut lines = vec![Line::from(entry.sidebar_label.clone())];
+                    if let Some(ref preview) = entry.sidebar_preview {
+                        lines.push(Line::from(Span::styled(
+                            preview.clone(),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    }
+                    ListItem::new(Text::from(lines))
+                } else {
+                    ListItem::new(entry.sidebar_label.clone())
                 }
-                ListItem::new(Text::from(lines))
-            } else {
-                ListItem::new(label)
-            }
-        })
-        .collect();
+            })
+            .collect();
+        app.sidebar_cache = Some(SidebarCache {
+            selected_idx,
+            items,
+        });
+    }
 
     let highlight_style = if app.focus == super::Focus::Sidebar {
         Style::default().fg(Color::Black).bg(Color::Cyan)
@@ -104,7 +94,7 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
         sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete ").centered());
     }
 
-    let list = List::new(items)
+    let list = List::new(app.sidebar_cache.as_ref().unwrap().items.clone())
         .block(sidebar_block)
         .highlight_style(highlight_style)
         .highlight_symbol("> ");
@@ -240,25 +230,37 @@ pub fn render_chat(
     };
 
     let cache_valid = cache.as_ref().is_some_and(|c| {
-        c.branch_ids == branch_ids && c.char_name == char_name && c.user_name == user_name
+        c.branch_ids == branch_ids
+            && c.char_name == char_name
+            && c.user_name == user_name
+            && c.width == area.width
     });
 
     if !cache_valid {
         crate::debug_log::log("chat.cache", "miss - rebuilding");
-        let entries: Vec<CachedMessageLines> = branch_path.iter().zip(branch_ids.iter())
+        let entries: Vec<CachedMessageLines> = branch_path
+            .iter()
+            .zip(branch_ids.iter())
             .map(|(msg, &node_id)| {
                 let (role_label, base_role_style) = match msg.role {
                     Role::User => (
                         user_label.clone(),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Role::Assistant => (
                         assistant_label.clone(),
-                        Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::White)
+                            .bg(Color::Blue)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Role::System => (
                         "System".to_owned(),
-                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
                     ),
                 };
 
@@ -270,7 +272,8 @@ pub fn render_chat(
                 };
 
                 let content = replace_vars(&msg.content);
-                let content_lines: Vec<Line<'static>> = content.lines()
+                let content_lines: Vec<Line<'static>> = content
+                    .lines()
                     .map(|line| {
                         let styled = parse_styled_line(line);
                         let mut indented = vec![Span::raw("  ")];
@@ -279,7 +282,19 @@ pub fn render_chat(
                     })
                     .collect();
 
-                CachedMessageLines { role_label, base_role_style, branch_indicator, content_lines }
+                let total_height = content_lines
+                    .iter()
+                    .map(|line| wrapped_line_height(line, area))
+                    .sum::<u16>()
+                    + 2;
+
+                CachedMessageLines {
+                    role_label,
+                    base_role_style,
+                    branch_indicator,
+                    content_lines,
+                    total_height,
+                }
             })
             .collect();
 
@@ -287,6 +302,7 @@ pub fn render_chat(
             branch_ids: branch_ids.to_vec(),
             char_name: char_name.to_owned(),
             user_name: user_name.to_owned(),
+            width: area.width,
             entries,
         });
     } else {
@@ -298,6 +314,11 @@ pub fn render_chat(
     let mut lines: Vec<Line> = Vec::new();
     let mut nav_cursor_line: Option<usize> = None;
     let mut nav_cursor_end: Option<usize> = None;
+    let static_height = cached
+        .entries
+        .iter()
+        .map(|entry| entry.total_height)
+        .sum::<u16>();
 
     for (entry, &node_id) in cached.entries.iter().zip(branch_ids.iter()) {
         let is_nav_selected = app.nav_cursor == Some(node_id);
@@ -313,7 +334,10 @@ pub fn render_chat(
         };
 
         lines.push(Line::from(vec![Span::styled(
-            format!("{nav_marker}{}{}: ", entry.role_label, entry.branch_indicator),
+            format!(
+                "{nav_marker}{}{}: ",
+                entry.role_label, entry.branch_indicator
+            ),
             role_style,
         )]));
 
@@ -345,38 +369,46 @@ pub fn render_chat(
     let visible_height = area.height.saturating_sub(2);
 
     if scroll_dirty {
-        crate::debug_log::timed("scroll", &format!("dirty={scroll_dirty}, auto={}", app.auto_scroll), || {
-            if app.auto_scroll {
-                let content_height = crate::debug_log::timed(
-                    "chat.measure",
-                    &format!("{} lines", lines.len()),
-                    || measure_wrapped_height(&lines, area),
-                );
-                crate::debug_log::log("chat.measure", &format!("height={content_height}, visible={visible_height}"));
-
-                if content_height > visible_height {
-                    *chat_scroll = content_height.saturating_sub(visible_height);
-                } else {
-                    *chat_scroll = 0;
-                }
-            } else if let Some(cursor_line_idx) = nav_cursor_line {
-                let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
-
-                if wrapped_offset < *chat_scroll {
-                    *chat_scroll = if wrapped_offset <= visible_height {
-                        0
+        crate::debug_log::timed(
+            "scroll",
+            &format!("dirty={scroll_dirty}, auto={}", app.auto_scroll),
+            || {
+                if app.auto_scroll {
+                    let streaming_height = if app.is_streaming && !app.streaming_buffer.is_empty() {
+                        measure_wrapped_height(&lines, area).saturating_sub(static_height)
                     } else {
-                        wrapped_offset
+                        0
                     };
-                } else {
-                    let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
-                    let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
-                    if wrapped_end > *chat_scroll + visible_height {
-                        *chat_scroll = wrapped_offset;
+                    let content_height = static_height + streaming_height;
+                    crate::debug_log::log(
+                        "chat.measure",
+                        &format!("height={content_height}, visible={visible_height}"),
+                    );
+
+                    if content_height > visible_height {
+                        *chat_scroll = content_height.saturating_sub(visible_height);
+                    } else {
+                        *chat_scroll = 0;
+                    }
+                } else if let Some(cursor_line_idx) = nav_cursor_line {
+                    let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
+
+                    if wrapped_offset < *chat_scroll {
+                        *chat_scroll = if wrapped_offset <= visible_height {
+                            0
+                        } else {
+                            wrapped_offset
+                        };
+                    } else {
+                        let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
+                        let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
+                        if wrapped_end > *chat_scroll + visible_height {
+                            *chat_scroll = wrapped_offset;
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
         crate::debug_log::log("scroll", &format!("val={}", *chat_scroll));
     }
 
@@ -386,9 +418,8 @@ pub fn render_chat(
         .title(" Chat ")
         .border_style(border_style(chat_focused));
     if chat_focused {
-        chat_block = chat_block.title_bottom(
-            Line::from(" Up/Down: navigate, Left/Right: branch ").centered(),
-        );
+        chat_block = chat_block
+            .title_bottom(Line::from(" Up/Down: navigate, Left/Right: branch ").centered());
     }
 
     let paragraph = Paragraph::new(Text::from(lines))
@@ -511,9 +542,18 @@ fn measure_wrapped_offset(lines: &[Line], up_to: usize, area: Rect) -> u16 {
 }
 
 fn measure_wrapped_height(lines: &[Line], area: Rect) -> u16 {
+    lines
+        .iter()
+        .map(|line| wrapped_line_height(line, area))
+        .sum()
+}
+
+fn wrapped_line_height(line: &Line, area: Rect) -> u16 {
     let inner_width = area.width.saturating_sub(2).max(1) as usize;
-    lines.iter().map(|line| {
-        let width: usize = line.spans.iter().map(|s| s.content.len()).sum();
-        if width == 0 { 1 } else { ((width + inner_width - 1) / inner_width) as u16 }
-    }).sum()
+    let width: usize = line.spans.iter().map(|s| s.content.len()).sum();
+    if width == 0 {
+        1
+    } else {
+        ((width + inner_width - 1) / inner_width) as u16
+    }
 }

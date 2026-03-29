@@ -132,29 +132,32 @@ pub(in crate::tui) fn handle_set_passkey_key(
             app.set_passkey_deriving = true;
 
             tokio::spawn(async move {
-                let salt_path = crate::config::salt_path();
-                let check_path = crate::config::key_check_path();
-                let result = crate::crypto::load_or_create_salt(&salt_path)
-                    .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
-                match result {
-                    Ok(derived_key) => {
-                        if let Err(e) =
-                            crate::crypto::set_key_fingerprint(&check_path, &derived_key)
-                        {
-                            let _ = bg_tx
-                                .send(BackgroundEvent::PasskeySetFailed(e.to_string()))
-                                .await;
-                            return;
+                let event = match tokio::task::spawn_blocking(move || {
+                    let salt_path = crate::config::salt_path();
+                    let check_path = crate::config::key_check_path();
+                    let result = crate::crypto::load_or_create_salt(&salt_path)
+                        .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
+                    match result {
+                        Ok(derived_key) => {
+                            if let Err(err) =
+                                crate::crypto::set_key_fingerprint(&check_path, &derived_key)
+                            {
+                                return BackgroundEvent::PasskeySetFailed(err.to_string());
+                            }
+                            let key = std::sync::Arc::new(derived_key);
+                            BackgroundEvent::PasskeySet(key)
                         }
-                        let key = std::sync::Arc::new(derived_key);
-                        let _ = bg_tx.send(BackgroundEvent::PasskeySet(key)).await;
+                        Err(err) => BackgroundEvent::PasskeySetFailed(err.to_string()),
                     }
-                    Err(e) => {
-                        let _ = bg_tx
-                            .send(BackgroundEvent::PasskeySetFailed(e.to_string()))
-                            .await;
+                })
+                .await
+                {
+                    Ok(event) => event,
+                    Err(err) => {
+                        BackgroundEvent::PasskeySetFailed(format!("passkey task failed: {err}"))
                     }
-                }
+                };
+                let _ = bg_tx.send(event).await;
             });
             None
         }

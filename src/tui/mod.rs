@@ -2,6 +2,7 @@ mod business;
 mod commands;
 mod dialogs;
 mod input;
+mod maintenance;
 mod render;
 
 use anyhow::Result;
@@ -89,6 +90,7 @@ enum BackgroundEvent {
         path: std::path::PathBuf,
         metadata: session::SessionMetadata,
     },
+    MaintenanceFinished(maintenance::MaintenanceUpdate),
     ModelFetched(std::result::Result<String, String>),
 }
 
@@ -413,6 +415,7 @@ pub async fn run(
     let mut stream_redraw_pending = false;
 
     terminal.draw(|f| render_frame(f, &mut app))?;
+    maintenance::spawn_startup_maintenance(&app.save_mode, &bg_tx);
 
     loop {
         tokio::select! {

@@ -79,37 +79,35 @@ pub(in crate::tui) fn handle_passkey_key(
             app.passkey_deriving = true;
 
             tokio::spawn(async move {
-                let salt_path = crate::config::salt_path();
-                let check_path = crate::config::key_check_path();
-                let result = crate::crypto::load_or_create_salt(&salt_path)
-                    .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
-                match result {
-                    Ok(derived_key) => {
-                        match crate::crypto::verify_or_set_key(&check_path, &derived_key) {
-                            Ok(true) => {
-                                let key = std::sync::Arc::new(derived_key);
-                                let _ = bg_tx.send(BackgroundEvent::KeyDerived(key, path)).await;
-                            }
-                            Ok(false) => {
-                                let _ = bg_tx
-                                    .send(BackgroundEvent::KeyDeriveFailed(
-                                        "Wrong passkey.".to_owned(),
-                                    ))
-                                    .await;
-                            }
-                            Err(e) => {
-                                let _ = bg_tx
-                                    .send(BackgroundEvent::KeyDeriveFailed(e.to_string()))
-                                    .await;
+                let event = match tokio::task::spawn_blocking(move || {
+                    let salt_path = crate::config::salt_path();
+                    let check_path = crate::config::key_check_path();
+                    let result = crate::crypto::load_or_create_salt(&salt_path)
+                        .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
+                    match result {
+                        Ok(derived_key) => {
+                            match crate::crypto::verify_or_set_key(&check_path, &derived_key) {
+                                Ok(true) => {
+                                    let key = std::sync::Arc::new(derived_key);
+                                    BackgroundEvent::KeyDerived(key, path)
+                                }
+                                Ok(false) => {
+                                    BackgroundEvent::KeyDeriveFailed("Wrong passkey.".to_owned())
+                                }
+                                Err(err) => BackgroundEvent::KeyDeriveFailed(err.to_string()),
                             }
                         }
+                        Err(err) => BackgroundEvent::KeyDeriveFailed(err.to_string()),
                     }
-                    Err(e) => {
-                        let _ = bg_tx
-                            .send(BackgroundEvent::KeyDeriveFailed(e.to_string()))
-                            .await;
-                    }
-                }
+                })
+                .await
+                {
+                    Ok(event) => event,
+                    Err(err) => BackgroundEvent::KeyDeriveFailed(format!(
+                        "key derivation task failed: {err}"
+                    )),
+                };
+                let _ = bg_tx.send(event).await;
             });
             None
         }

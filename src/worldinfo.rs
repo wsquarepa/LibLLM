@@ -36,6 +36,11 @@ pub struct WorldBookEntry {
     pub name: String,
 }
 
+pub struct WorldbookNormalizationReport {
+    pub rewritten_count: usize,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Deserialize)]
 struct RawWorldBook {
     #[serde(default)]
@@ -283,14 +288,18 @@ fn build_window(messages: &[&str], depth: usize) -> String {
     combined
 }
 
-pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String> {
+pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> WorldbookNormalizationReport {
     let mut warnings: Vec<String> = Vec::new();
+    let mut rewritten_count = 0;
 
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
             warnings.push(format!("failed to read worldinfo dir: {e}"));
-            return warnings;
+            return WorldbookNormalizationReport {
+                rewritten_count,
+                warnings,
+            };
         }
     };
 
@@ -338,8 +347,14 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
 
         match save_worldbook(&wb, dir, key) {
             Ok(_) => {
+                rewritten_count += 1;
                 if needs_migrate {
-                    let _ = std::fs::remove_file(&path);
+                    if let Err(err) = std::fs::remove_file(&path) {
+                        warnings.push(format!(
+                            "failed to remove migrated worldbook {}: {err}",
+                            path.display()
+                        ));
+                    }
                 }
             }
             Err(e) => {
@@ -348,7 +363,10 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<String>
         }
     }
 
-    warnings
+    WorldbookNormalizationReport {
+        rewritten_count,
+        warnings,
+    }
 }
 
 pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEntry> {

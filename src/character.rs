@@ -35,6 +35,16 @@ pub struct CharacterEntry {
     pub slug: String,
 }
 
+pub struct PngImportReport {
+    pub imported_count: usize,
+    pub warnings: Vec<String>,
+}
+
+pub struct PlaintextCardEncryptionReport {
+    pub encrypted_count: usize,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Deserialize)]
 struct RawCard {
     name: Option<String>,
@@ -238,14 +248,27 @@ pub fn load_card(path: &Path, key: Option<&DerivedKey>) -> Result<CharacterCard>
     serde_json::from_str(&contents).context("failed to parse character card")
 }
 
-pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<String> {
+fn remove_source_file(path: &Path, warnings: &mut Vec<String>, action: &str) {
+    if let Err(err) = std::fs::remove_file(path) {
+        warnings.push(format!(
+            "failed to remove {action} {}: {err}",
+            path.display()
+        ));
+    }
+}
+
+pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> PngImportReport {
     let mut warnings: Vec<String> = Vec::new();
+    let mut imported_count = 0;
 
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
             warnings.push(format!("failed to read characters dir: {e}"));
-            return warnings;
+            return PngImportReport {
+                imported_count,
+                warnings,
+            };
         }
     };
 
@@ -280,7 +303,8 @@ pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<String
         };
         match save_card(&card, dir, key) {
             Ok(_) => {
-                let _ = std::fs::remove_file(&png_path);
+                imported_count += 1;
+                remove_source_file(&png_path, &mut warnings, "imported PNG card");
             }
             Err(e) => {
                 warnings.push(format!("failed to save {display}: {e}"));
@@ -288,16 +312,23 @@ pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<String
         }
     }
 
-    warnings
+    PngImportReport {
+        imported_count,
+        warnings,
+    }
 }
 
-pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> Vec<String> {
+pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> PlaintextCardEncryptionReport {
     let mut warnings: Vec<String> = Vec::new();
+    let mut encrypted_count = 0;
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
             warnings.push(format!("failed to read characters dir: {e}"));
-            return warnings;
+            return PlaintextCardEncryptionReport {
+                encrypted_count,
+                warnings,
+            };
         }
     };
 
@@ -328,7 +359,8 @@ pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> Vec<String> {
         };
         match save_card(&card, dir, Some(key)) {
             Ok(_) => {
-                let _ = std::fs::remove_file(&path);
+                encrypted_count += 1;
+                remove_source_file(&path, &mut warnings, "plaintext card");
             }
             Err(e) => {
                 warnings.push(format!("failed to encrypt {display}: {e}"));
@@ -336,7 +368,10 @@ pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> Vec<String> {
         }
     }
 
-    warnings
+    PlaintextCardEncryptionReport {
+        encrypted_count,
+        warnings,
+    }
 }
 
 pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {

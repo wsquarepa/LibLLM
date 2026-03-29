@@ -55,17 +55,6 @@ async fn main() -> Result<()> {
     let (mut session, mut save_mode) = resolve_session(&args)?;
 
     let content_key = save_mode.key();
-    for warning in character::auto_import_png_cards(&config::characters_dir(), content_key) {
-        eprintln!("{warning}");
-    }
-    for warning in worldinfo::normalize_worldbooks(&config::worldinfo_dir(), content_key) {
-        eprintln!("{warning}");
-    }
-    if let Some(key) = content_key {
-        for warning in character::encrypt_plaintext_cards(&config::characters_dir(), key) {
-            eprintln!("{warning}");
-        }
-    }
 
     session.template = Some(template.name().to_owned());
 
@@ -165,6 +154,13 @@ fn resolve_character(
         return Ok(card);
     }
 
+    let card_path = character::resolve_card_path(&config::characters_dir(), char_arg);
+    if !card_path.exists() {
+        let report = character::auto_import_png_cards(&config::characters_dir(), key);
+        for warning in report.warnings {
+            eprintln!("{warning}");
+        }
+    }
     let card_path = character::resolve_card_path(&config::characters_dir(), char_arg);
     character::load_card(&card_path, key)
 }

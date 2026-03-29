@@ -8,7 +8,7 @@ use crate::session::{self, Message, Role, SaveMode};
 
 use super::business::{load_config_fields, load_self_fields, refresh_sidebar};
 use super::dialogs::FieldDialog;
-use super::{App, CONFIG_FIELDS, Focus, SELF_FIELDS};
+use super::{App, CONFIG_FIELDS, Focus, SELF_FIELDS, maintenance};
 
 fn post_passkey_focus(app: &App) -> Focus {
     if app.model_name.is_none() {
@@ -464,25 +464,10 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
             }
             app.invalidate_worldbook_cache();
-            for warning in crate::character::auto_import_png_cards(
-                &crate::config::characters_dir(),
-                Some(&key),
-            ) {
-                app.set_status(warning, super::StatusLevel::Warning);
-            }
-            for warning in
-                crate::worldinfo::normalize_worldbooks(&crate::config::worldinfo_dir(), Some(&key))
-            {
-                app.set_status(warning, super::StatusLevel::Warning);
-            }
-            for warning in
-                crate::character::encrypt_plaintext_cards(&crate::config::characters_dir(), &key)
-            {
-                app.set_status(warning, super::StatusLevel::Warning);
-            }
             app.passkey_deriving = false;
             app.focus = post_passkey_focus(app);
             refresh_sidebar(app);
+            maintenance::spawn_unlocked_maintenance(key, &app.bg_tx);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
             app.passkey_deriving = false;
@@ -503,27 +488,10 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 if let Err(err) = app.flush_session_save() {
                     app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
                 }
-                for warning in crate::character::auto_import_png_cards(
-                    &crate::config::characters_dir(),
-                    Some(&new_key),
-                ) {
-                    app.set_status(warning, super::StatusLevel::Warning);
-                }
-                for warning in crate::worldinfo::normalize_worldbooks(
-                    &crate::config::worldinfo_dir(),
-                    Some(&new_key),
-                ) {
-                    app.set_status(warning, super::StatusLevel::Warning);
-                }
-                for warning in crate::character::encrypt_plaintext_cards(
-                    &crate::config::characters_dir(),
-                    &new_key,
-                ) {
-                    app.set_status(warning, super::StatusLevel::Warning);
-                }
                 app.focus = post_passkey_focus(app);
                 refresh_sidebar(app);
                 spawn_metadata_loading(&app.sidebar_sessions, &new_key, &app.bg_tx);
+                maintenance::spawn_unlocked_maintenance(new_key, &app.bg_tx);
             } else {
                 let old_key = match &app.save_mode {
                     SaveMode::Encrypted { key, .. } => key.clone(),
@@ -557,25 +525,33 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
 
                 let bg_tx = app.bg_tx.clone();
                 tokio::spawn(async move {
-                    let mut warnings = Vec::new();
-                    warnings.extend(crate::crypto::re_encrypt_directory(
-                        &crate::config::sessions_dir(),
-                        &["session"],
-                        &old_key,
-                        &new_key,
-                    ));
-                    warnings.extend(crate::crypto::re_encrypt_directory(
-                        &crate::config::characters_dir(),
-                        &["character"],
-                        &old_key,
-                        &new_key,
-                    ));
-                    warnings.extend(crate::crypto::re_encrypt_directory(
-                        &crate::config::worldinfo_dir(),
-                        &["worldbook"],
-                        &old_key,
-                        &new_key,
-                    ));
+                    let warnings = match tokio::task::spawn_blocking(move || {
+                        let mut warnings = Vec::new();
+                        warnings.extend(crate::crypto::re_encrypt_directory(
+                            &crate::config::sessions_dir(),
+                            &["session"],
+                            &old_key,
+                            &new_key,
+                        ));
+                        warnings.extend(crate::crypto::re_encrypt_directory(
+                            &crate::config::characters_dir(),
+                            &["character"],
+                            &old_key,
+                            &new_key,
+                        ));
+                        warnings.extend(crate::crypto::re_encrypt_directory(
+                            &crate::config::worldinfo_dir(),
+                            &["worldbook"],
+                            &old_key,
+                            &new_key,
+                        ));
+                        warnings
+                    })
+                    .await
+                    {
+                        Ok(warnings) => warnings,
+                        Err(err) => vec![format!("re-encryption task failed: {err}")],
+                    };
                     let _ = bg_tx
                         .send(super::BackgroundEvent::ReEncryptionComplete(warnings))
                         .await;
@@ -600,6 +576,9 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             }
             super::business::prepare_sidebar_entries(&mut app.sidebar_sessions);
             app.invalidate_sidebar_cache();
+        }
+        super::BackgroundEvent::MaintenanceFinished(update) => {
+            maintenance::handle_finished(update, app);
         }
         super::BackgroundEvent::ModelFetched(Ok(name)) => {
             app.model_name = Some(name);

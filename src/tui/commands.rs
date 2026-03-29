@@ -10,6 +10,8 @@ use super::business::{load_config_fields, load_self_fields, refresh_sidebar};
 use super::dialogs::FieldDialog;
 use super::{App, CONFIG_FIELDS, Focus, SELF_FIELDS, maintenance};
 
+const SIDEBAR_METADATA_WORKERS: usize = 4;
+
 fn post_passkey_focus(app: &App) -> Focus {
     if app.model_name.is_none() {
         Focus::LoadingDialog
@@ -38,33 +40,99 @@ fn loaded_worldbooks(app: &mut App) -> Vec<crate::worldinfo::RuntimeWorldBook> {
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-pub fn spawn_metadata_loading(
-    sessions: &[super::SessionEntry],
-    key: &std::sync::Arc<crate::crypto::DerivedKey>,
-    bg_tx: &mpsc::Sender<super::BackgroundEvent>,
-) {
-    for entry in sessions {
-        if entry.is_new_chat || entry.message_count.is_some() {
-            continue;
-        }
-        let entry_path = entry.path.clone();
+pub fn spawn_metadata_loading(app: &mut App) {
+    let key = match &app.save_mode {
+        SaveMode::Encrypted { key, .. } => key.clone(),
+        _ => return,
+    };
+
+    app.sidebar_hydration_generation = app.sidebar_hydration_generation.wrapping_add(1);
+    let generation = app.sidebar_hydration_generation;
+    let candidate_paths = collect_metadata_loading_paths(&app.sidebar_sessions);
+
+    if candidate_paths.is_empty() {
+        crate::debug_log::log(
+            "sidebar.hydration",
+            &format!("generation={generation} scheduled=0 workers=0"),
+        );
+        return;
+    }
+
+    let worker_count = candidate_paths.len().min(SIDEBAR_METADATA_WORKERS);
+    crate::debug_log::log(
+        "sidebar.hydration",
+        &format!(
+            "generation={generation} scheduled={} workers={worker_count}",
+            candidate_paths.len()
+        ),
+    );
+
+    for batch in split_metadata_loading_batches(candidate_paths, worker_count) {
         let key = key.clone();
-        let tx = bg_tx.clone();
+        let tx = app.bg_tx.clone();
         tokio::spawn(async move {
-            let path_for_event = entry_path.clone();
-            let result =
-                tokio::task::spawn_blocking(move || session::load_metadata(&entry_path, &key))
-                    .await;
-            if let Ok(Some(metadata)) = result {
-                let _ = tx
-                    .send(super::BackgroundEvent::MetadataLoaded {
-                        path: path_for_event,
-                        metadata,
-                    })
-                    .await;
+            for entry_path in batch {
+                let path_for_event = entry_path.clone();
+                let key = key.clone();
+                let result =
+                    tokio::task::spawn_blocking(move || session::load_metadata(&entry_path, &key))
+                        .await;
+
+                match result {
+                    Ok(Ok(metadata)) => {
+                        if tx
+                            .send(super::BackgroundEvent::MetadataLoaded {
+                                generation,
+                                path: path_for_event,
+                                metadata,
+                            })
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Ok(Err(err)) => {
+                        crate::debug_log::log(
+                            "sidebar.hydration",
+                            &format!(
+                                "generation={generation} metadata load failed for {}: {err}",
+                                path_for_event.display()
+                            ),
+                        );
+                    }
+                    Err(err) => {
+                        crate::debug_log::log(
+                            "sidebar.hydration",
+                            &format!(
+                                "generation={generation} metadata task failed for {}: {err}",
+                                path_for_event.display()
+                            ),
+                        );
+                    }
+                }
             }
         });
     }
+}
+
+fn collect_metadata_loading_paths(sessions: &[super::SessionEntry]) -> Vec<PathBuf> {
+    sessions
+        .iter()
+        .filter(|entry| !entry.is_new_chat && entry.message_count.is_none())
+        .map(|entry| entry.path.clone())
+        .collect()
+}
+
+fn split_metadata_loading_batches(paths: Vec<PathBuf>, worker_count: usize) -> Vec<Vec<PathBuf>> {
+    let mut batches = vec![Vec::new(); worker_count];
+    for (index, path) in paths.into_iter().enumerate() {
+        batches[index % worker_count].push(path);
+    }
+    batches
+        .into_iter()
+        .filter(|batch| !batch.is_empty())
+        .collect()
 }
 
 pub fn handle_slash_command(
@@ -490,7 +558,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 }
                 app.focus = post_passkey_focus(app);
                 refresh_sidebar(app);
-                spawn_metadata_loading(&app.sidebar_sessions, &new_key, &app.bg_tx);
                 maintenance::spawn_unlocked_maintenance(new_key, &app.bg_tx);
             } else {
                 let old_key = match &app.save_mode {
@@ -566,14 +633,40 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             app.passkey_changed = true;
             app.should_quit = true;
         }
-        super::BackgroundEvent::MetadataLoaded { path, metadata } => {
-            if let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) {
-                if let Some(character) = &metadata.character {
-                    entry.display_name = character.clone();
-                }
-                entry.message_count = Some(metadata.message_count);
-                entry.first_message = metadata.first_message.clone();
+        super::BackgroundEvent::MetadataLoaded {
+            generation,
+            path,
+            metadata,
+        } => {
+            if generation != app.sidebar_hydration_generation {
+                crate::debug_log::log(
+                    "sidebar.hydration",
+                    &format!(
+                        "dropping stale result generation={generation} current={} path={}",
+                        app.sidebar_hydration_generation,
+                        path.display()
+                    ),
+                );
+                return;
             }
+
+            let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) else {
+                crate::debug_log::log(
+                    "sidebar.hydration",
+                    &format!(
+                        "dropping missing result generation={generation} path={}",
+                        path.display()
+                    ),
+                );
+                return;
+            };
+
+            if let Some(character) = &metadata.character {
+                entry.display_name = character.clone();
+            }
+            entry.message_count = Some(metadata.message_count);
+            entry.first_message = metadata.first_message.clone();
+
             session::persist_loaded_metadata_index(
                 &path,
                 &metadata,

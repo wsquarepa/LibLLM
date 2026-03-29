@@ -376,10 +376,7 @@ pub fn refresh_sidebar(app: &mut App) {
     app.sidebar_state.select(Some(selected));
     app.sidebar_cache = None;
 
-    if let crate::session::SaveMode::Encrypted { key, .. } = &app.save_mode {
-        let bg_tx = app.bg_tx.clone();
-        super::commands::spawn_metadata_loading(&app.sidebar_sessions, key, &bg_tx);
-    }
+    super::commands::spawn_metadata_loading(app);
 }
 
 pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {

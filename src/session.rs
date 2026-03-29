@@ -717,10 +717,11 @@ pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
     Ok(sessions)
 }
 
-pub fn load_metadata(path: &Path, key: &DerivedKey) -> Option<SessionMetadata> {
-    let session = load_encrypted(path, key).ok()?;
+pub fn load_metadata(path: &Path, key: &DerivedKey) -> Result<SessionMetadata> {
+    let session = load_encrypted(path, key)
+        .with_context(|| format!("failed to load session metadata from {}", path.display()))?;
     let first_message = session.tree.current_first_user_preview().map(str::to_owned);
-    Some(SessionMetadata {
+    Ok(SessionMetadata {
         character: session.character,
         message_count: session.tree.node_count(),
         first_message,

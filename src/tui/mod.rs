@@ -87,6 +87,7 @@ enum BackgroundEvent {
     PasskeySetFailed(String),
     ReEncryptionComplete(Vec<String>),
     MetadataLoaded {
+        generation: u64,
         path: std::path::PathBuf,
         metadata: session::SessionMetadata,
     },
@@ -138,6 +139,7 @@ struct App<'a> {
     auto_scroll: bool,
     last_scroll_state: ScrollState,
     sidebar_sessions: Vec<SessionEntry>,
+    sidebar_hydration_generation: u64,
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
     is_streaming: bool,
@@ -344,6 +346,7 @@ pub async fn run(
             height: 0,
         },
         sidebar_sessions,
+        sidebar_hydration_generation: 0,
         sidebar_state,
         streaming_buffer: String::new(),
         is_streaming: false,
@@ -405,9 +408,7 @@ pub async fn run(
 
     let mut event_stream = EventStream::new();
 
-    if let SaveMode::Encrypted { key, .. } = &app.save_mode {
-        commands::spawn_metadata_loading(&app.sidebar_sessions, key, &bg_tx);
-    }
+    commands::spawn_metadata_loading(&mut app);
 
     let mut frame_tick = tokio::time::interval(STREAM_REDRAW_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

@@ -43,7 +43,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn fetch_model_name(&self) -> String {
+    pub async fn fetch_model_name(&self) -> std::result::Result<String, String> {
         let url = format!("{}/models", self.base_url);
         let result: Result<String> = async {
             let resp = self.client.get(&url)
@@ -57,7 +57,7 @@ impl ApiClient {
         }
         .await;
 
-        result.unwrap_or_else(|_| "unknown model".to_owned())
+        result.map_err(|e| e.to_string())
     }
 
     pub async fn stream_completion(

@@ -10,6 +10,16 @@ use super::business::{load_config_fields, load_self_fields, refresh_sidebar};
 use super::dialogs::FieldDialog;
 use super::{App, Focus, CONFIG_FIELDS, SELF_FIELDS};
 
+fn post_passkey_focus(app: &App) -> Focus {
+    if app.model_name.is_none() {
+        Focus::LoadingDialog
+    } else if !app.api_available {
+        Focus::ApiErrorDialog
+    } else {
+        Focus::Input
+    }
+}
+
 pub fn spawn_metadata_loading(
     sessions: &[super::SessionEntry],
     key: &std::sync::Arc<crate::crypto::DerivedKey>,
@@ -277,6 +287,14 @@ pub fn handle_slash_command(cmd: &str, arg: &str, app: &mut App, sender: mpsc::S
 }
 
 pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
+    if app.model_name.is_none() {
+        app.set_status("Connecting to API server...".to_owned(), super::StatusLevel::Warning);
+        return;
+    }
+    if !app.api_available {
+        app.set_status("Cannot send: API server is not available".to_owned(), super::StatusLevel::Error);
+        return;
+    }
     let parent = app.session.tree.head();
     app.session
         .tree
@@ -360,7 +378,7 @@ pub fn handle_background_event(
                 app.set_status(warning, super::StatusLevel::Warning);
             }
             app.passkey_deriving = false;
-            app.focus = Focus::Input;
+            app.focus = post_passkey_focus(app);
             refresh_sidebar(app);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
@@ -393,7 +411,7 @@ pub fn handle_background_event(
                 ) {
                     app.set_status(warning, super::StatusLevel::Warning);
                 }
-                app.focus = Focus::Input;
+                app.focus = post_passkey_focus(app);
                 refresh_sidebar(app);
                 spawn_metadata_loading(&app.sidebar_sessions, &new_key, &app.bg_tx);
             } else {
@@ -455,6 +473,23 @@ pub fn handle_background_event(
                 }
                 entry.message_count = Some(metadata.message_count);
                 entry.first_message = metadata.first_message;
+            }
+        }
+        super::BackgroundEvent::ModelFetched(Ok(name)) => {
+            app.model_name = Some(name);
+            if app.focus == Focus::LoadingDialog {
+                app.focus = Focus::Input;
+            }
+        }
+        super::BackgroundEvent::ModelFetched(Err(err)) => {
+            app.model_name = Some("unknown".to_owned());
+            app.api_available = false;
+            app.api_error = err;
+            match app.focus {
+                Focus::PasskeyDialog | Focus::SetPasskeyDialog => {}
+                _ => {
+                    app.focus = Focus::ApiErrorDialog;
+                }
             }
         }
     }

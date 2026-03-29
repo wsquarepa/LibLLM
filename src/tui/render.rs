@@ -485,9 +485,10 @@ pub fn render_status_bar(
             (format!(" {} ", msg.text), style)
         }
         None => {
+            let display_name = app.model_name.as_deref().unwrap_or("connecting...");
             let text = format!(
                 " {} | {} | ~{} tokens | {}{} | Tab: switch focus | Ctrl+C: quit",
-                app.model_name,
+                display_name,
                 app.template.name(),
                 token_count,
                 branch_info,

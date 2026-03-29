@@ -43,6 +43,8 @@ enum Focus {
     EditDialog,
     BranchDialog,
     DeleteConfirmDialog,
+    ApiErrorDialog,
+    LoadingDialog,
 }
 
 enum Action {
@@ -72,6 +74,7 @@ enum BackgroundEvent {
     PasskeySetFailed(String),
     ReEncryptionComplete(Vec<String>),
     MetadataLoaded { path: std::path::PathBuf, metadata: session::SessionMetadata },
+    ModelFetched(std::result::Result<String, String>),
 }
 
 const CONFIG_FIELDS: &[&str] = &[
@@ -119,7 +122,9 @@ struct App<'a> {
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
     is_streaming: bool,
-    model_name: String,
+    model_name: Option<String>,
+    api_available: bool,
+    api_error: String,
     status_message: Option<StatusMessage>,
     should_quit: bool,
     passkey_changed: bool,
@@ -188,7 +193,6 @@ pub async fn run(
     template: Template,
     sampling: SamplingParams,
 ) -> Result<()> {
-    let model_name = client.fetch_model_name().await;
     let sidebar_sessions = business::discover_sidebar_sessions(&save_mode);
 
     let mut textarea = TextArea::default();
@@ -204,6 +208,15 @@ pub async fn run(
 
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
     let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
+
+    {
+        let client = client.clone();
+        let tx = bg_tx.clone();
+        tokio::spawn(async move {
+            let result = client.fetch_model_name().await;
+            let _ = tx.send(BackgroundEvent::ModelFetched(result)).await;
+        });
+    }
 
     let config = crate::config::load();
     let user_name = config.user_name.clone();
@@ -242,7 +255,9 @@ pub async fn run(
         sidebar_state,
         streaming_buffer: String::new(),
         is_streaming: false,
-        model_name,
+        model_name: None,
+        api_available: true,
+        api_error: String::new(),
         status_message: None,
         should_quit: false,
         passkey_changed: false,
@@ -457,6 +472,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditDialog => Some("edit"),
         Focus::BranchDialog => Some("branch"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
+        Focus::ApiErrorDialog => Some("api_error"),
+        Focus::LoadingDialog => Some("loading"),
         _ => None,
     };
 
@@ -521,6 +538,12 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::DeleteConfirmDialog => {
             dialogs::delete_confirm::render_delete_confirm_dialog(f, app, f.area());
+        }
+        Focus::ApiErrorDialog => {
+            dialogs::api_error::render_api_error_dialog(f, app, f.area());
+        }
+        Focus::LoadingDialog => {
+            dialogs::api_error::render_loading_dialog(f, f.area());
         }
         _ => {}
     }
@@ -609,6 +632,12 @@ fn handle_key(
     }
     if app.focus == Focus::DeleteConfirmDialog {
         return dialogs::delete_confirm::handle_delete_confirm_key(key, app);
+    }
+    if app.focus == Focus::ApiErrorDialog {
+        return dialogs::api_error::handle_api_error_key(key, app);
+    }
+    if app.focus == Focus::LoadingDialog {
+        return dialogs::api_error::handle_loading_key(key);
     }
 
     if app.is_streaming {

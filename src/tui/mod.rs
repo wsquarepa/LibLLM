@@ -123,6 +123,8 @@ struct App<'a> {
     client: &'a ApiClient,
     session: &'a mut Session,
     save_mode: SaveMode,
+    session_dirty: bool,
+    pending_save_deadline: Option<std::time::Instant>,
     template: Template,
     stop_tokens: &'static [&'static str],
     sampling: SamplingParams,
@@ -193,8 +195,17 @@ struct App<'a> {
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 const STREAM_REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
+const AUTOSAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
+const AUTOSAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 impl App<'_> {
+    fn can_persist_session(&self) -> bool {
+        matches!(
+            self.save_mode,
+            SaveMode::Plaintext(_) | SaveMode::Encrypted { .. }
+        )
+    }
+
     fn set_status(&mut self, text: String, level: StatusLevel) {
         self.status_message = Some(StatusMessage {
             text,
@@ -213,6 +224,52 @@ impl App<'_> {
 
     fn invalidate_worldbook_cache(&mut self) {
         self.worldbook_cache = None;
+    }
+
+    fn mark_session_dirty_debounced(&mut self) {
+        self.session_dirty = true;
+        if self.can_persist_session() {
+            self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_DEBOUNCE);
+        }
+    }
+
+    fn mark_session_dirty_immediate(&mut self) {
+        self.session_dirty = true;
+        if self.can_persist_session() {
+            self.pending_save_deadline = Some(std::time::Instant::now());
+        }
+    }
+
+    fn discard_pending_session_save(&mut self) {
+        self.session_dirty = false;
+        self.pending_save_deadline = None;
+    }
+
+    fn flush_session_save(&mut self) -> Result<()> {
+        if !self.session_dirty || !self.can_persist_session() {
+            return Ok(());
+        }
+
+        match self.session.maybe_save(&self.save_mode) {
+            Ok(()) => {
+                self.discard_pending_session_save();
+                Ok(())
+            }
+            Err(err) => {
+                self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_RETRY_DELAY);
+                Err(err)
+            }
+        }
+    }
+
+    fn flush_session_before_transition(&mut self) -> bool {
+        match self.flush_session_save() {
+            Ok(()) => true,
+            Err(err) => {
+                self.set_status(format!("Save error: {err}"), StatusLevel::Error);
+                false
+            }
+        }
     }
 }
 
@@ -267,6 +324,8 @@ pub async fn run(
             Focus::Input
         },
         save_mode,
+        session_dirty: false,
+        pending_save_deadline: None,
         template,
         stop_tokens: template.stop_tokens(),
         sampling,
@@ -379,6 +438,12 @@ pub async fn run(
                 needs_redraw = false;
             }
             _ = frame_tick.tick() => {
+                if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                    if let Err(err) = app.flush_session_save() {
+                        app.set_status(format!("Save error: {err}"), StatusLevel::Error);
+                    }
+                    needs_redraw = true;
+                }
                 if let Some(ref msg) = app.status_message {
                     if std::time::Instant::now() >= msg.expires {
                         app.status_message = None;
@@ -394,7 +459,14 @@ pub async fn run(
         }
 
         if app.should_quit {
-            break;
+            match app.flush_session_save() {
+                Ok(()) => break,
+                Err(err) => {
+                    app.should_quit = false;
+                    app.set_status(format!("Save error: {err}"), StatusLevel::Error);
+                    needs_redraw = true;
+                }
+            }
         }
     }
 
@@ -624,7 +696,7 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
                     app.session.tree.switch_to(new_root);
                     app.nav_cursor = Some(new_root);
                     app.focus = Focus::Chat;
-                    let _ = app.session.maybe_save(&app.save_mode);
+                    app.mark_session_dirty_debounced();
                 }
             }
         }
@@ -701,14 +773,20 @@ fn handle_key(
 
     if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {
         app.nav_cursor = None;
+        let previous_head = app.session.tree.head();
         app.session.tree.switch_sibling(-1);
-        let _ = app.session.maybe_save(&app.save_mode);
+        if app.session.tree.head() != previous_head {
+            app.mark_session_dirty_debounced();
+        }
         return None;
     }
     if key.code == KeyCode::Right && key.modifiers.contains(KeyModifiers::ALT) {
         app.nav_cursor = None;
+        let previous_head = app.session.tree.head();
         app.session.tree.switch_sibling(1);
-        let _ = app.session.maybe_save(&app.save_mode);
+        if app.session.tree.head() != previous_head {
+            app.mark_session_dirty_debounced();
+        }
         return None;
     }
 
@@ -760,7 +838,9 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 fn cancel_generation(app: &mut App) {
     app.streaming_buffer.clear();
     app.is_streaming = false;
-    app.session.tree.pop_head();
+    if app.session.tree.pop_head().is_some() {
+        app.mark_session_dirty_debounced();
+    }
     app.auto_scroll = true;
 }
 

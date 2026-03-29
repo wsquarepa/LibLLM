@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use super::centered_rect;
-use crate::tui::{Action, App, Focus, business};
+use crate::tui::{business, Action, App, Focus};
 
 pub(in crate::tui) enum ConfirmResult {
     Confirmed,
@@ -136,6 +136,7 @@ fn delete_selected_session(app: &mut App) {
     }
 
     if is_current {
+        app.discard_pending_session_save();
         *app.session = crate::session::Session::default();
         app.chat_scroll = 0;
         app.auto_scroll = true;

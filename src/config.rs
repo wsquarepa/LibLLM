@@ -106,5 +106,6 @@ pub fn load() -> Config {
 pub fn save(cfg: &Config) -> Result<()> {
     let path = config_path();
     let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
-    std::fs::write(&path, toml_str).context(format!("failed to write config: {}", path.display()))
+    crate::crypto::write_atomic(&path, toml_str.as_bytes())
+        .context(format!("failed to write config: {}", path.display()))
 }

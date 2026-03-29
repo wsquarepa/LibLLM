@@ -65,11 +65,11 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.nav_cursor = None;
             app.auto_scroll = true;
             app.focus = Focus::Input;
+            app.mark_session_dirty_debounced();
             app.set_status(
                 "Switched branch.".to_owned(),
                 super::super::StatusLevel::Info,
             );
-            let _ = app.session.maybe_save(&app.save_mode);
         }
         KeyCode::Esc => {
             app.focus = Focus::Input;

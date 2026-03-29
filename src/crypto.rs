@@ -1,8 +1,9 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use argon2::Argon2;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -146,12 +147,62 @@ pub fn read_and_decrypt(path: &Path, key: Option<&DerivedKey>) -> Result<String>
     }
 }
 
+fn temp_write_path(path: &Path) -> Result<PathBuf> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .context(format!("path has no file name: {}", path.display()))?
+        .to_string_lossy();
+    Ok(parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4())))
+}
+
+pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+    let temp_path = temp_write_path(path)?;
+
+    let write_result = (|| -> Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        let mut file = options.open(&temp_path).context(format!(
+            "failed to create temp file: {}",
+            temp_path.display()
+        ))?;
+        file.write_all(data).context(format!(
+            "failed to write temp file: {}",
+            temp_path.display()
+        ))?;
+        file.sync_all()
+            .context(format!("failed to sync temp file: {}", temp_path.display()))?;
+        drop(file);
+
+        std::fs::rename(&temp_path, path).context(format!(
+            "failed to replace file atomically: {}",
+            path.display()
+        ))
+    })();
+
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    write_result
+}
+
 pub fn encrypt_and_write(path: &Path, plaintext: &[u8], key: Option<&DerivedKey>) -> Result<()> {
     let data = match key {
         Some(k) => encrypt(plaintext, k)?,
         None => plaintext.to_vec(),
     };
-    std::fs::write(path, data).context(format!("failed to write file: {}", path.display()))
+    write_atomic(path, &data).context(format!("failed to write file: {}", path.display()))
 }
 
 pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {
@@ -185,7 +236,7 @@ pub fn re_encrypt_file(path: &Path, old_key: &DerivedKey, new_key: &DerivedKey) 
     }
     let plaintext = decrypt(&raw, old_key)?;
     let new_blob = encrypt(&plaintext, new_key)?;
-    std::fs::write(path, new_blob).context(format!("failed to write file: {}", path.display()))
+    write_atomic(path, &new_blob).context(format!("failed to write file: {}", path.display()))
 }
 
 pub fn re_encrypt_directory(

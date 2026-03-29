@@ -544,13 +544,14 @@ pub fn load(path: &Path) -> Result<Session> {
 
 pub fn save(path: &Path, session: &Session) -> Result<()> {
     let json = serde_json::to_string_pretty(session).context("failed to serialize session")?;
-    std::fs::write(path, json).context(format!("failed to write session file: {}", path.display()))
+    crate::crypto::write_atomic(path, json.as_bytes())
+        .context(format!("failed to write session file: {}", path.display()))
 }
 
 pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Result<()> {
     let json = serde_json::to_string(session).context("failed to serialize session")?;
     let blob = crate::crypto::encrypt(json.as_bytes(), key)?;
-    std::fs::write(path, blob).context(format!(
+    crate::crypto::write_atomic(path, &blob).context(format!(
         "failed to write encrypted session: {}",
         path.display()
     ))

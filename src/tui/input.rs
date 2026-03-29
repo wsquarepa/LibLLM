@@ -149,7 +149,7 @@ fn switch_nav_sibling(app: &mut App, offset: isize) {
     let new_idx = (idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
     app.session.tree.switch_to(siblings[new_idx]);
     app.nav_cursor = Some(siblings[new_idx]);
-    let _ = app.session.maybe_save(&app.save_mode);
+    app.mark_session_dirty_debounced();
 }
 
 fn navigate_up(app: &mut App) {
@@ -319,6 +319,9 @@ fn load_sidebar_selection(app: &mut App) {
     let Some(selected) = app.sidebar_state.selected() else {
         return;
     };
+    if !app.flush_session_before_transition() {
+        return;
+    }
     app.nav_cursor = None;
     let (is_new_chat, path, filename) = {
         let entry = &app.sidebar_sessions[selected];
@@ -329,6 +332,7 @@ fn load_sidebar_selection(app: &mut App) {
         )
     };
     if is_new_chat {
+        app.discard_pending_session_save();
         *app.session = Session::default();
         app.invalidate_chat_cache();
         app.invalidate_worldbook_cache();
@@ -343,6 +347,7 @@ fn load_sidebar_selection(app: &mut App) {
         };
         match load_result {
             Ok(loaded) => {
+                app.discard_pending_session_save();
                 *app.session = loaded;
                 app.invalidate_chat_cache();
                 app.invalidate_worldbook_cache();

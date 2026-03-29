@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::{FieldDialog, centered_rect};
+use super::{centered_rect, FieldDialog};
 use crate::tui::{Action, App, Focus};
 
 const ENTRY_EDITOR_FIELDS: &[&str] = &[
@@ -106,13 +106,13 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
-                    let _ = app.session.maybe_save(&app.save_mode);
+                    app.mark_session_dirty_debounced();
                 }
                 WorldbookState::Session => {
                     app.session.worldbooks.retain(|n| n != &name);
                     app.config.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
-                    let _ = app.session.maybe_save(&app.save_mode);
+                    app.mark_session_dirty_debounced();
                     let _ = crate::config::save(&app.config);
                 }
                 WorldbookState::Global => {

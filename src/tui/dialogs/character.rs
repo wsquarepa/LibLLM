@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::{FieldDialog, centered_rect};
+use super::{centered_rect, FieldDialog};
 use crate::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, Focus};
@@ -75,11 +75,15 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 (app.character_selected + 1).min(app.character_names.len() - 1);
         }
         KeyCode::Enter => {
+            if !app.flush_session_before_transition() {
+                return None;
+            }
             let slug = app.character_slugs[app.character_selected].clone();
             let card_path =
                 crate::character::resolve_card_path(&crate::config::characters_dir(), &slug);
             match crate::character::load_card(&card_path, app.save_mode.key()) {
                 Ok(card) => {
+                    app.discard_pending_session_save();
                     app.session.tree.clear();
                     app.session.system_prompt = Some(crate::character::build_system_prompt(&card));
                     app.session.character = Some(card.name.clone());
@@ -95,6 +99,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     let new_path =
                         crate::config::sessions_dir().join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
+                    app.mark_session_dirty_debounced();
                     app.set_status(
                         format!("Loaded character: {}", card.name),
                         super::super::StatusLevel::Info,

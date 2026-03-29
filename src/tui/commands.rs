@@ -79,10 +79,14 @@ pub fn handle_slash_command(
             app.should_quit = true;
         }
         "/clear" => {
+            if !app.flush_session_before_transition() {
+                return;
+            }
             app.session.tree.clear();
             app.session.system_prompt = None;
             app.session.character = None;
             app.session.worldbooks.clear();
+            app.discard_pending_session_save();
             app.invalidate_chat_cache();
             app.invalidate_worldbook_cache();
             app.chat_scroll = 0;
@@ -136,16 +140,17 @@ pub fn handle_slash_command(
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
                 app.invalidate_chat_cache();
+                app.mark_session_dirty_debounced();
                 app.set_status(
                     "System prompt updated.".to_owned(),
                     super::StatusLevel::Info,
                 );
-                let _ = app.session.maybe_save(&app.save_mode);
             }
         }
         "/save" => {
             if arg.is_empty() {
-                match app.session.maybe_save(&app.save_mode) {
+                app.mark_session_dirty_immediate();
+                match app.flush_session_save() {
                     Ok(()) => match app.save_mode.path() {
                         Some(p) => app.set_status(
                             format!("Saved to {}.", p.display()),
@@ -182,9 +187,13 @@ pub fn handle_slash_command(
                     super::StatusLevel::Warning,
                 );
             } else {
+                if !app.flush_session_before_transition() {
+                    return;
+                }
                 let path = PathBuf::from(arg);
                 match session::load(&path) {
                     Ok(loaded) => {
+                        app.discard_pending_session_save();
                         *app.session = loaded;
                         app.invalidate_chat_cache();
                         app.invalidate_worldbook_cache();
@@ -193,6 +202,7 @@ pub fn handle_slash_command(
                             format!("Loaded from {arg} ({count} messages)."),
                             super::StatusLevel::Info,
                         );
+                        app.save_mode = SaveMode::Plaintext(path.clone());
                         app.auto_scroll = true;
                     }
                     Err(e) => app.set_status(format!("Load error: {e}"), super::StatusLevel::Error),
@@ -380,6 +390,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.session
         .tree
         .push(parent, Message::new(Role::User, content.to_owned()));
+    app.mark_session_dirty_debounced();
     app.invalidate_chat_cache();
     app.is_streaming = true;
     app.streaming_buffer.clear();
@@ -425,11 +436,12 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.session
                 .tree
                 .push(Some(head), Message::new(Role::Assistant, full_response));
+            app.mark_session_dirty_immediate();
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.auto_scroll = true;
-            app.session.maybe_save(&app.save_mode)?;
+            app.flush_session_save()?;
             refresh_sidebar(app);
         }
         StreamToken::Error(err) => {
@@ -448,6 +460,9 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 path,
                 key: key.clone(),
             };
+            if let Err(err) = app.flush_session_save() {
+                app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
+            }
             app.invalidate_worldbook_cache();
             for warning in crate::character::auto_import_png_cards(
                 &crate::config::characters_dir(),
@@ -485,6 +500,9 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                     path,
                     key: new_key.clone(),
                 };
+                if let Err(err) = app.flush_session_save() {
+                    app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
+                }
                 for warning in crate::character::auto_import_png_cards(
                     &crate::config::characters_dir(),
                     Some(&new_key),
@@ -524,7 +542,13 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                     },
                     _ => return,
                 };
-                let _ = app.session.maybe_save(&app.save_mode);
+                match app.session.maybe_save(&app.save_mode) {
+                    Ok(()) => app.discard_pending_session_save(),
+                    Err(err) => {
+                        app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
+                        return;
+                    }
+                }
                 app.focus = Focus::Input;
                 app.set_status(
                     "Re-encrypting files...".to_owned(),

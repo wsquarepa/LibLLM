@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use argon2::Argon2;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};

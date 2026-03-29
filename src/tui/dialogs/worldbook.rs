@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::{centered_rect, FieldDialog};
+use super::{FieldDialog, centered_rect};
 use crate::tui::{Action, App, Focus};
 
 const ENTRY_EDITOR_FIELDS: &[&str] = &[

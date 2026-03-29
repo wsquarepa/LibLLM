@@ -65,7 +65,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.nav_cursor = None;
             app.auto_scroll = true;
             app.focus = Focus::Input;
-            app.mark_session_dirty_debounced();
+            app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
             app.set_status(
                 "Switched branch.".to_owned(),
                 super::super::StatusLevel::Info,

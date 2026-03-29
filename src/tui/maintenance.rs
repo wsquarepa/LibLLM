@@ -79,7 +79,13 @@ pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
     }
 
     for warning in &warnings {
-        crate::debug_log::log("maintenance.warning", warning);
+        crate::debug_log::log_kv(
+            "maintenance.warning",
+            &[
+                crate::debug_log::field("phase", "warning"),
+                crate::debug_log::field("message", warning),
+            ],
+        );
     }
 
     let message = if warnings.len() == 1 {
@@ -136,7 +142,13 @@ where
     F: FnOnce() -> MaintenanceUpdate + Send + 'static,
 {
     let tx = bg_tx.clone();
-    crate::debug_log::log("maintenance.schedule", job.label());
+    crate::debug_log::log_kv(
+        "maintenance.schedule",
+        &[
+            crate::debug_log::field("job", job.label()),
+            crate::debug_log::field("phase", "schedule"),
+        ],
+    );
     tokio::spawn(async move {
         let update = match tokio::task::spawn_blocking(work).await {
             Ok(update) => update,
@@ -146,14 +158,13 @@ where
                 warnings: vec![format!("{} failed: {err}", job.label())],
             },
         };
-        crate::debug_log::log(
+        crate::debug_log::log_kv(
             "maintenance.complete",
-            &format!(
-                "{} changed={} warnings={}",
-                update.job.label(),
-                update.changed_count,
-                update.warnings.len()
-            ),
+            &[
+                crate::debug_log::field("job", update.job.label()),
+                crate::debug_log::field("changed", update.changed_count),
+                crate::debug_log::field("warnings", update.warnings.len()),
+            ],
         );
         let _ = tx.send(BackgroundEvent::MaintenanceFinished(update)).await;
     });

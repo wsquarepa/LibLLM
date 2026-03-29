@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -115,7 +116,15 @@ fn persist_session_index(
     let stamp = match index::file_stamp(path) {
         Ok(stamp) => stamp,
         Err(err) => {
-            crate::debug_log::log("index.sessions", &format!("stamp failed: {err}"));
+            crate::debug_log::log_kv(
+                "index.sessions",
+                &[
+                    crate::debug_log::field("phase", "stamp"),
+                    crate::debug_log::field("result", "error"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field("error", err),
+                ],
+            );
             return;
         }
     };
@@ -199,6 +208,18 @@ pub struct Node {
     pub message: Message,
 }
 
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone, Default)]
+struct CacheDebugState {
+    rebuild_count: u64,
+    total_rebuild_us: u128,
+    last_rebuild_us: u128,
+    branch_hits: std::cell::Cell<u64>,
+    user_branch_hits: std::cell::Cell<u64>,
+    deepest_hits: std::cell::Cell<u64>,
+    first_preview_hits: std::cell::Cell<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTree {
     nodes: Vec<Node>,
@@ -213,6 +234,9 @@ pub struct MessageTree {
     current_deepest_branch_info: Option<(usize, usize)>,
     #[serde(skip)]
     current_first_user_preview: Option<String>,
+    #[cfg(debug_assertions)]
+    #[serde(skip)]
+    cache_debug: CacheDebugState,
 }
 
 impl MessageTree {
@@ -225,8 +249,30 @@ impl MessageTree {
             current_user_branch_ids: Vec::new(),
             current_deepest_branch_info: None,
             current_first_user_preview: None,
+            #[cfg(debug_assertions)]
+            cache_debug: CacheDebugState::default(),
         }
     }
+
+    #[cfg(debug_assertions)]
+    fn bump_cache_hit(&self, accessor: &'static str, counter: &std::cell::Cell<u64>) {
+        let hits = counter.get() + 1;
+        counter.set(hits);
+        if hits.is_power_of_two() {
+            crate::debug_log::log_kv(
+                "session.cache",
+                &[
+                    crate::debug_log::field("phase", "hit"),
+                    crate::debug_log::field("accessor", accessor),
+                    crate::debug_log::field("hits", hits),
+                    crate::debug_log::field("rebuilds", self.cache_debug.rebuild_count),
+                ],
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn bump_cache_hit(&self, _: &'static str, _: &()) {}
 
     fn validate_preferred_children(&mut self) {
         let nodes = &self.nodes;
@@ -248,6 +294,7 @@ impl MessageTree {
     }
 
     fn refresh_runtime_caches(&mut self) {
+        let rebuild_start = Instant::now();
         self.current_branch_ids.clear();
         self.current_user_branch_ids.clear();
         self.current_deepest_branch_info = None;
@@ -281,6 +328,45 @@ impl MessageTree {
             let info = self.sibling_info(id);
             (info.1 > 1).then_some(info)
         });
+
+        #[cfg(debug_assertions)]
+        {
+            let elapsed_us = rebuild_start.elapsed().as_micros();
+            self.cache_debug.rebuild_count += 1;
+            self.cache_debug.total_rebuild_us += elapsed_us;
+            self.cache_debug.last_rebuild_us = elapsed_us;
+            crate::debug_log::log_kv(
+                "session.cache",
+                &[
+                    crate::debug_log::field("phase", "rebuild"),
+                    crate::debug_log::field("rebuilds", self.cache_debug.rebuild_count),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", elapsed_us as f64 / 1000.0),
+                    ),
+                    crate::debug_log::field(
+                        "total_elapsed_ms",
+                        format!("{:.3}", self.cache_debug.total_rebuild_us as f64 / 1000.0),
+                    ),
+                    crate::debug_log::field("node_count", self.nodes.len()),
+                    crate::debug_log::field("branch_count", self.current_branch_ids.len()),
+                    crate::debug_log::field(
+                        "user_branch_count",
+                        self.current_user_branch_ids.len(),
+                    ),
+                    crate::debug_log::field("branch_hits", self.cache_debug.branch_hits.get()),
+                    crate::debug_log::field(
+                        "user_branch_hits",
+                        self.cache_debug.user_branch_hits.get(),
+                    ),
+                    crate::debug_log::field("deepest_hits", self.cache_debug.deepest_hits.get()),
+                    crate::debug_log::field(
+                        "first_preview_hits",
+                        self.cache_debug.first_preview_hits.get(),
+                    ),
+                ],
+            );
+        }
     }
 
     fn rehydrate_runtime_state(&mut self) {
@@ -369,18 +455,35 @@ impl MessageTree {
     }
 
     pub fn current_branch_ids(&self) -> &[NodeId] {
+        #[cfg(debug_assertions)]
+        self.bump_cache_hit("current_branch_ids", &self.cache_debug.branch_hits);
         &self.current_branch_ids
     }
 
     pub fn current_user_branch_ids(&self) -> &[NodeId] {
+        #[cfg(debug_assertions)]
+        self.bump_cache_hit(
+            "current_user_branch_ids",
+            &self.cache_debug.user_branch_hits,
+        );
         &self.current_user_branch_ids
     }
 
     pub fn current_deepest_branch_info(&self) -> Option<(usize, usize)> {
+        #[cfg(debug_assertions)]
+        self.bump_cache_hit(
+            "current_deepest_branch_info",
+            &self.cache_debug.deepest_hits,
+        );
         self.current_deepest_branch_info
     }
 
     pub fn current_first_user_preview(&self) -> Option<&str> {
+        #[cfg(debug_assertions)]
+        self.bump_cache_hit(
+            "current_first_user_preview",
+            &self.cache_debug.first_preview_hits,
+        );
         self.current_first_user_preview.as_deref()
     }
 
@@ -621,50 +724,261 @@ struct LegacySession {
 }
 
 pub fn load(path: &Path) -> Result<Session> {
+    let read_start = Instant::now();
     let contents = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Session::default()),
+        Ok(contents) => {
+            crate::debug_log::log_kv(
+                "session.io",
+                &[
+                    crate::debug_log::field("phase", "read_plaintext"),
+                    crate::debug_log::field("result", "ok"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field("bytes", contents.len()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
+            );
+            contents
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            crate::debug_log::log_kv(
+                "session.io",
+                &[
+                    crate::debug_log::field("phase", "read_plaintext"),
+                    crate::debug_log::field("result", "missing"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
+            );
+            return Ok(Session::default());
+        }
         Err(e) => {
+            crate::debug_log::log_kv(
+                "session.io",
+                &[
+                    crate::debug_log::field("phase", "read_plaintext"),
+                    crate::debug_log::field("result", "error"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                    crate::debug_log::field("error", &e),
+                ],
+            );
             return Err(e).context(format!("failed to read session file: {}", path.display()));
         }
     };
 
-    load_from_str(&contents)
+    let parse_start = Instant::now();
+    let session = load_from_str(&contents)?;
+    crate::debug_log::log_kv(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "parse_plaintext"),
+            crate::debug_log::field("result", "ok"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("node_count", session.tree.node_count()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
+    Ok(session)
 }
 
 pub fn save(path: &Path, session: &Session) -> Result<()> {
+    let serialize_start = Instant::now();
     let json = serde_json::to_string_pretty(session).context("failed to serialize session")?;
-    crate::crypto::write_atomic(path, json.as_bytes())
-        .context(format!("failed to write session file: {}", path.display()))?;
+    crate::debug_log::log_kv(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "serialize_plaintext"),
+            crate::debug_log::field("result", "ok"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", json.len()),
+            crate::debug_log::field("node_count", session.tree.node_count()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", serialize_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
+    crate::debug_log::timed_result(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "write_plaintext"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", json.len()),
+        ],
+        || {
+            crate::crypto::write_atomic(path, json.as_bytes())
+                .context(format!("failed to write session file: {}", path.display()))
+        },
+    )?;
     persist_saved_session_index(path, session, SessionStorageMode::Plaintext);
     Ok(())
 }
 
 pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Result<()> {
+    let serialize_start = Instant::now();
     let json = serde_json::to_string(session).context("failed to serialize session")?;
+    crate::debug_log::log_kv(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "serialize_encrypted"),
+            crate::debug_log::field("result", "ok"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", json.len()),
+            crate::debug_log::field("node_count", session.tree.node_count()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", serialize_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
+    let encrypt_start = Instant::now();
     let blob = crate::crypto::encrypt(json.as_bytes(), key)?;
-    crate::crypto::write_atomic(path, &blob).context(format!(
-        "failed to write encrypted session: {}",
-        path.display()
-    ))?;
+    crate::debug_log::log_kv(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "encrypt"),
+            crate::debug_log::field("result", "ok"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", blob.len()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", encrypt_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
+    crate::debug_log::timed_result(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "write_encrypted"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", blob.len()),
+        ],
+        || {
+            crate::crypto::write_atomic(path, &blob).context(format!(
+                "failed to write encrypted session: {}",
+                path.display()
+            ))
+        },
+    )?;
     persist_saved_session_index(path, session, SessionStorageMode::Encrypted);
     Ok(())
 }
 
 pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
+    let read_start = Instant::now();
     let data = match std::fs::read(path) {
-        Ok(d) => d,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Session::default()),
-        Err(e) => return Err(e).context(format!("failed to read session: {}", path.display())),
+        Ok(data) => {
+            crate::debug_log::log_kv(
+                "session.io",
+                &[
+                    crate::debug_log::field("phase", "read_encrypted"),
+                    crate::debug_log::field("result", "ok"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field("bytes", data.len()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
+            );
+            data
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            crate::debug_log::log_kv(
+                "session.io",
+                &[
+                    crate::debug_log::field("phase", "read_encrypted"),
+                    crate::debug_log::field("result", "missing"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
+            );
+            return Ok(Session::default());
+        }
+        Err(e) => {
+            crate::debug_log::log_kv(
+                "session.io",
+                &[
+                    crate::debug_log::field("phase", "read_encrypted"),
+                    crate::debug_log::field("result", "error"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                    crate::debug_log::field("error", &e),
+                ],
+            );
+            return Err(e).context(format!("failed to read session: {}", path.display()));
+        }
     };
 
     if crate::crypto::is_encrypted(&data) {
+        let decrypt_start = Instant::now();
         let plaintext = crate::crypto::decrypt(&data, key)?;
+        crate::debug_log::log_kv(
+            "session.io",
+            &[
+                crate::debug_log::field("phase", "decrypt"),
+                crate::debug_log::field("result", "ok"),
+                crate::debug_log::field("path", path.display()),
+                crate::debug_log::field("bytes", plaintext.len()),
+                crate::debug_log::field(
+                    "elapsed_ms",
+                    format!("{:.3}", decrypt_start.elapsed().as_secs_f64() * 1000.0),
+                ),
+            ],
+        );
         let json = String::from_utf8(plaintext).context("decrypted session is not valid UTF-8")?;
-        load_from_str(&json)
+        let parse_start = Instant::now();
+        let session = load_from_str(&json)?;
+        crate::debug_log::log_kv(
+            "session.io",
+            &[
+                crate::debug_log::field("phase", "parse_encrypted"),
+                crate::debug_log::field("result", "ok"),
+                crate::debug_log::field("path", path.display()),
+                crate::debug_log::field("node_count", session.tree.node_count()),
+                crate::debug_log::field(
+                    "elapsed_ms",
+                    format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
+                ),
+            ],
+        );
+        Ok(session)
     } else {
         let contents = String::from_utf8_lossy(&data);
-        load_from_str(&contents)
+        let parse_start = Instant::now();
+        let session = load_from_str(&contents)?;
+        crate::debug_log::log_kv(
+            "session.io",
+            &[
+                crate::debug_log::field("phase", "parse_plaintext_fallback"),
+                crate::debug_log::field("result", "ok"),
+                crate::debug_log::field("path", path.display()),
+                crate::debug_log::field("node_count", session.tree.node_count()),
+                crate::debug_log::field(
+                    "elapsed_ms",
+                    format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
+                ),
+            ],
+        );
+        Ok(session)
     }
 }
 
@@ -674,6 +988,7 @@ pub fn generate_session_name() -> String {
 }
 
 pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
+    let scan_start = Instant::now();
     let entries = std::fs::read_dir(dir).context(format!(
         "failed to read sessions directory: {}",
         dir.display()
@@ -695,15 +1010,32 @@ pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
             Ok(false) => miss_count += 1,
             Err(err) => {
                 miss_count += 1;
-                crate::debug_log::log("index.sessions", &format!("lookup failed: {err}"));
+                crate::debug_log::log_kv(
+                    "index.sessions",
+                    &[
+                        crate::debug_log::field("phase", "lookup"),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field("path", entry.path.display()),
+                        crate::debug_log::field("error", err),
+                    ],
+                );
             }
         }
         sessions.push(entry);
     }
 
-    crate::debug_log::log(
+    crate::debug_log::log_kv(
         "index.sessions",
-        &format!("hits={hit_count} misses={miss_count}"),
+        &[
+            crate::debug_log::field("mode", "encrypted"),
+            crate::debug_log::field("hits", hit_count),
+            crate::debug_log::field("misses", miss_count),
+            crate::debug_log::field("count", sessions.len()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", scan_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
     );
 
     sessions.sort_by(|a, b| {
@@ -731,10 +1063,26 @@ pub fn load_metadata(path: &Path, key: &DerivedKey) -> Result<SessionMetadata> {
 fn load_from_str(contents: &str) -> Result<Session> {
     if let Ok(mut session) = serde_json::from_str::<Session>(contents) {
         session.tree.rehydrate_runtime_state();
+        crate::debug_log::log_kv(
+            "session.io",
+            &[
+                crate::debug_log::field("phase", "parse_variant"),
+                crate::debug_log::field("variant", "session"),
+                crate::debug_log::field("result", "ok"),
+            ],
+        );
         return Ok(session);
     }
 
     if let Ok(flat) = serde_json::from_str::<FlatSession>(contents) {
+        crate::debug_log::log_kv(
+            "session.io",
+            &[
+                crate::debug_log::field("phase", "parse_variant"),
+                crate::debug_log::field("variant", "flat_session"),
+                crate::debug_log::field("result", "ok"),
+            ],
+        );
         return Ok(Session {
             tree: MessageTree::from_messages(flat.messages),
             model: flat.model,
@@ -746,6 +1094,14 @@ fn load_from_str(contents: &str) -> Result<Session> {
     }
 
     if let Ok(legacy) = serde_json::from_str::<LegacySession>(contents) {
+        crate::debug_log::log_kv(
+            "session.io",
+            &[
+                crate::debug_log::field("phase", "parse_variant"),
+                crate::debug_log::field("variant", "legacy_session"),
+                crate::debug_log::field("result", "ok"),
+            ],
+        );
         return Ok(Session {
             tree: MessageTree::from_messages(vec![Message::new(Role::User, legacy.prompt_history)]),
             model: legacy.model,
@@ -756,6 +1112,14 @@ fn load_from_str(contents: &str) -> Result<Session> {
         });
     }
 
+    crate::debug_log::log_kv(
+        "session.io",
+        &[
+            crate::debug_log::field("phase", "parse_variant"),
+            crate::debug_log::field("variant", "raw_text_fallback"),
+            crate::debug_log::field("result", "ok"),
+        ],
+    );
     Ok(Session {
         tree: MessageTree::from_messages(vec![Message::new(Role::User, contents.to_owned())]),
         ..Session::default()

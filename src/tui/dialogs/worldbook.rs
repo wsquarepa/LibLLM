@@ -106,13 +106,13 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
-                    app.mark_session_dirty_debounced();
+                    app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
                 }
                 WorldbookState::Session => {
                     app.session.worldbooks.retain(|n| n != &name);
                     app.config.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
-                    app.mark_session_dirty_debounced();
+                    app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
                     let _ = crate::config::save(&app.config);
                 }
                 WorldbookState::Global => {

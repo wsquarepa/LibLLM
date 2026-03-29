@@ -106,15 +106,24 @@ pub fn load_runtime_worldbooks(
     key: Option<&crate::crypto::DerivedKey>,
 ) -> Vec<RuntimeWorldBook> {
     let wi_dir = crate::config::worldinfo_dir();
-    enabled
-        .iter()
-        .filter_map(|wb_name| {
-            let wb_path = crate::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
-            crate::worldinfo::load_worldbook(&wb_path, key)
-                .ok()
-                .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
-        })
-        .collect()
+    crate::debug_log::timed_kv(
+        "worldbook.runtime",
+        &[
+            crate::debug_log::field("phase", "hydrate"),
+            crate::debug_log::field("enabled_count", enabled.len()),
+        ],
+        || {
+            enabled
+                .iter()
+                .filter_map(|wb_name| {
+                    let wb_path = crate::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
+                    crate::worldinfo::load_worldbook(&wb_path, key)
+                        .ok()
+                        .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
+                })
+                .collect()
+        },
+    )
 }
 
 pub fn inject_loaded_worldbook_entries(
@@ -380,19 +389,32 @@ pub fn refresh_sidebar(app: &mut App) {
 }
 
 pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
-    let mut sessions = match save_mode {
-        SaveMode::Encrypted { .. } => {
-            match session::list_session_paths(&crate::config::sessions_dir()) {
-                Ok(sessions) => sessions,
-                Err(e) => {
-                    eprintln!("Warning: {e}");
-                    Vec::new()
+    let mode = match save_mode {
+        SaveMode::Encrypted { .. } => "encrypted",
+        SaveMode::Plaintext(_) => "plaintext",
+        SaveMode::None => "none",
+        SaveMode::PendingPasskey(_) => "pending_passkey",
+    };
+    let mut sessions = crate::debug_log::timed_kv(
+        "startup.phase",
+        &[
+            crate::debug_log::field("phase", "sidebar_population"),
+            crate::debug_log::field("mode", mode),
+        ],
+        || match save_mode {
+            SaveMode::Encrypted { .. } => {
+                match session::list_session_paths(&crate::config::sessions_dir()) {
+                    Ok(sessions) => sessions,
+                    Err(e) => {
+                        eprintln!("Warning: {e}");
+                        Vec::new()
+                    }
                 }
             }
-        }
-        SaveMode::Plaintext(path) => list_plaintext_sessions(path),
-        SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
-    };
+            SaveMode::Plaintext(path) => list_plaintext_sessions(path),
+            SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
+        },
+    );
     sessions.insert(0, new_chat_entry());
     prepare_sidebar_entries(&mut sessions);
     sessions
@@ -435,16 +457,29 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
             Ok(false) => miss_count += 1,
             Err(err) => {
                 miss_count += 1;
-                crate::debug_log::log("index.sessions", &format!("lookup failed: {err}"));
+                crate::debug_log::log_kv(
+                    "index.sessions",
+                    &[
+                        crate::debug_log::field("phase", "lookup"),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field("path", entry.path.display()),
+                        crate::debug_log::field("error", err),
+                    ],
+                );
             }
         }
 
         entries.push(entry);
     }
 
-    crate::debug_log::log(
+    crate::debug_log::log_kv(
         "index.sessions",
-        &format!("plaintext hits={hit_count} misses={miss_count}"),
+        &[
+            crate::debug_log::field("mode", "plaintext"),
+            crate::debug_log::field("hits", hit_count),
+            crate::debug_log::field("misses", miss_count),
+            crate::debug_log::field("count", entries.len()),
+        ],
     );
 
     entries.sort_by(|a, b| {

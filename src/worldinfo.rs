@@ -410,7 +410,15 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
             Ok(stamp) => stamp,
             Err(err) => {
                 miss_count += 1;
-                crate::debug_log::log("index.worldbooks", &format!("stamp failed: {err}"));
+                crate::debug_log::log_kv(
+                    "index.worldbooks",
+                    &[
+                        crate::debug_log::field("phase", "stamp"),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field("path", path.display()),
+                        crate::debug_log::field("error", err),
+                    ],
+                );
                 books.push(WorldBookEntry {
                     name: fallback_name,
                 });
@@ -452,7 +460,15 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
                 });
             }
             Err(err) => {
-                crate::debug_log::log("index.worldbooks", &format!("refresh failed: {err}"));
+                crate::debug_log::log_kv(
+                    "index.worldbooks",
+                    &[
+                        crate::debug_log::field("phase", "refresh"),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field("path", path.display()),
+                        crate::debug_log::field("error", err),
+                    ],
+                );
                 changed |= index_state.worldbooks.remove(&relative_path).is_some();
                 books.push(WorldBookEntry {
                     name: fallback_name,
@@ -461,9 +477,15 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
         }
     }
 
-    crate::debug_log::log(
+    crate::debug_log::log_kv(
         "index.worldbooks",
-        &format!("hits={hit_count} misses={miss_count} refreshed={refreshed_count}"),
+        &[
+            crate::debug_log::field("hits", hit_count),
+            crate::debug_log::field("misses", miss_count),
+            crate::debug_log::field("refreshed", refreshed_count),
+            crate::debug_log::field("count", books.len()),
+            crate::debug_log::field("rewrote_index", changed),
+        ],
     );
 
     if changed {

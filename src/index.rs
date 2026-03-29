@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Instant;
 use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result};
@@ -70,31 +71,88 @@ impl Default for MetadataIndex {
 
 pub fn load_index() -> MetadataIndex {
     let path = crate::config::index_path();
+    let read_start = Instant::now();
     let contents = match std::fs::read_to_string(&path) {
         Ok(contents) => contents,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return MetadataIndex::default(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            crate::debug_log::log_kv(
+                "index.load",
+                &[
+                    crate::debug_log::field("phase", "read"),
+                    crate::debug_log::field("result", "missing"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
+            );
+            return MetadataIndex::default();
+        }
         Err(err) => {
-            crate::debug_log::log("index.load", &format!("read failed: {err}"));
+            crate::debug_log::log_kv(
+                "index.load",
+                &[
+                    crate::debug_log::field("phase", "read"),
+                    crate::debug_log::field("result", "error"),
+                    crate::debug_log::field("path", path.display()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                    crate::debug_log::field("error", &err),
+                ],
+            );
             eprintln!("Warning: failed to read {}: {err}", path.display());
             return MetadataIndex::default();
         }
     };
+    crate::debug_log::log_kv(
+        "index.load",
+        &[
+            crate::debug_log::field("phase", "read"),
+            crate::debug_log::field("result", "ok"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", contents.len()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
 
+    let parse_start = Instant::now();
     match serde_json::from_str::<MetadataIndex>(&contents) {
         Ok(index) => {
-            crate::debug_log::log(
+            crate::debug_log::log_kv(
                 "index.load",
-                &format!(
-                    "ok sessions={} characters={} worldbooks={}",
-                    index.sessions.len(),
-                    index.characters.len(),
-                    index.worldbooks.len()
-                ),
+                &[
+                    crate::debug_log::field("phase", "parse"),
+                    crate::debug_log::field("result", "ok"),
+                    crate::debug_log::field("sessions", index.sessions.len()),
+                    crate::debug_log::field("characters", index.characters.len()),
+                    crate::debug_log::field("worldbooks", index.worldbooks.len()),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
             );
             index
         }
         Err(err) => {
-            crate::debug_log::log("index.load", &format!("parse failed: {err}"));
+            crate::debug_log::log_kv(
+                "index.load",
+                &[
+                    crate::debug_log::field("phase", "parse"),
+                    crate::debug_log::field("result", "error"),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                    crate::debug_log::field("error", &err),
+                ],
+            );
             eprintln!("Warning: failed to parse {}: {err}", path.display());
             MetadataIndex::default()
         }
@@ -103,16 +161,47 @@ pub fn load_index() -> MetadataIndex {
 
 pub fn save_index(index: &MetadataIndex) -> Result<()> {
     let path = crate::config::index_path();
+    let serialize_start = Instant::now();
     let json = serde_json::to_string_pretty(index).context("failed to serialize metadata index")?;
-    crate::crypto::write_atomic(&path, json.as_bytes()).context(format!(
-        "failed to write metadata index: {}",
-        path.display()
-    ))
+    crate::debug_log::log_kv(
+        "index.save",
+        &[
+            crate::debug_log::field("phase", "serialize"),
+            crate::debug_log::field("result", "ok"),
+            crate::debug_log::field("bytes", json.len()),
+            crate::debug_log::field(
+                "elapsed_ms",
+                format!("{:.3}", serialize_start.elapsed().as_secs_f64() * 1000.0),
+            ),
+        ],
+    );
+    crate::debug_log::timed_result(
+        "index.save",
+        &[
+            crate::debug_log::field("phase", "write"),
+            crate::debug_log::field("path", path.display()),
+            crate::debug_log::field("bytes", json.len()),
+        ],
+        || {
+            crate::crypto::write_atomic(&path, json.as_bytes()).context(format!(
+                "failed to write metadata index: {}",
+                path.display()
+            ))
+        },
+    )
 }
 
 pub fn warn_if_save_fails(result: Result<()>, action: &str) {
     if let Err(err) = result {
-        crate::debug_log::log("index.save", &format!("{action}: {err}"));
+        crate::debug_log::log_kv(
+            "index.save",
+            &[
+                crate::debug_log::field("phase", "warn"),
+                crate::debug_log::field("result", "error"),
+                crate::debug_log::field("action", action),
+                crate::debug_log::field("error", &err),
+            ],
+        );
         eprintln!("Warning: {action}: {err}");
     }
 }

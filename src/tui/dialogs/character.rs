@@ -99,7 +99,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     let new_path =
                         crate::config::sessions_dir().join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
-                    app.mark_session_dirty_debounced();
+                    app.mark_session_dirty_debounced(super::super::SaveTrigger::Debounced);
                     app.set_status(
                         format!("Loaded character: {}", card.name),
                         super::super::StatusLevel::Info,

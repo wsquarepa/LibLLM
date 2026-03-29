@@ -31,13 +31,21 @@ async fn main() -> Result<()> {
     if let Some(ref path) = args.debug {
         debug_log::init(path);
     }
-    config::ensure_dirs()?;
+    crate::debug_log::timed_result(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "ensure_dirs")],
+        config::ensure_dirs,
+    )?;
 
     if let Some(cli::Command::Edit { kind, name }) = &args.command {
         return handle_edit_command(kind, name, &args);
     }
 
-    let cfg = config::load();
+    let cfg = crate::debug_log::timed_kv(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "config_load")],
+        config::load,
+    );
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
     let client = ApiClient::new(api_url);
@@ -53,7 +61,11 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode) = resolve_session(&args)?;
+    let (mut session, mut save_mode) = crate::debug_log::timed_result(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "resolve_session")],
+        || resolve_session(&args),
+    )?;
 
     let content_key = save_mode.key();
 
@@ -64,7 +76,14 @@ async fn main() -> Result<()> {
     }
 
     if let Some(ref char_arg) = args.character {
-        let card = resolve_character(char_arg, content_key)?;
+        let card = crate::debug_log::timed_result(
+            "startup.phase",
+            &[
+                crate::debug_log::field("phase", "resolve_character"),
+                crate::debug_log::field("character", char_arg),
+            ],
+            || resolve_character(char_arg, content_key),
+        )?;
         session.system_prompt = Some(character::build_system_prompt(&card));
         session.character = Some(card.name.clone());
         if session.tree.head().is_none() && !card.first_mes.is_empty() {
@@ -107,6 +126,13 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    crate::debug_log::log_kv(
+        "startup.phase",
+        &[
+            crate::debug_log::field("phase", "tui_handoff"),
+            crate::debug_log::field("mode", "interactive"),
+        ],
+    );
     tui::run(&client, &mut session, save_mode, template, sampling).await
 }
 

@@ -411,7 +411,15 @@ pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
             Ok(stamp) => stamp,
             Err(err) => {
                 miss_count += 1;
-                crate::debug_log::log("index.characters", &format!("stamp failed: {err}"));
+                crate::debug_log::log_kv(
+                    "index.characters",
+                    &[
+                        crate::debug_log::field("phase", "stamp"),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field("path", path.display()),
+                        crate::debug_log::field("error", err),
+                    ],
+                );
                 continue;
             }
         };
@@ -457,15 +465,29 @@ pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
                 });
             }
             Err(err) => {
-                crate::debug_log::log("index.characters", &format!("refresh failed: {err}"));
+                crate::debug_log::log_kv(
+                    "index.characters",
+                    &[
+                        crate::debug_log::field("phase", "refresh"),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field("path", path.display()),
+                        crate::debug_log::field("error", err),
+                    ],
+                );
                 changed |= index_state.characters.remove(&relative_path).is_some();
             }
         }
     }
 
-    crate::debug_log::log(
+    crate::debug_log::log_kv(
         "index.characters",
-        &format!("hits={hit_count} misses={miss_count} refreshed={refreshed_count}"),
+        &[
+            crate::debug_log::field("hits", hit_count),
+            crate::debug_log::field("misses", miss_count),
+            crate::debug_log::field("refreshed", refreshed_count),
+            crate::debug_log::field("count", cards.len()),
+            crate::debug_log::field("rewrote_index", changed),
+        ],
     );
 
     if changed {

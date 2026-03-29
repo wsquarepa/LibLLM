@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -30,11 +31,29 @@ fn loaded_worldbooks(app: &mut App) -> Vec<crate::worldinfo::RuntimeWorldBook> {
         .is_none_or(|cache| cache.enabled_names != enabled_names);
 
     if cache_stale {
-        let books = super::business::load_runtime_worldbooks(&enabled_names, app.save_mode.key());
+        let books = crate::debug_log::timed_kv(
+            "worldbook.runtime",
+            &[
+                crate::debug_log::field("phase", "load"),
+                crate::debug_log::field("cache", "miss"),
+                crate::debug_log::field("enabled_count", enabled_names.len()),
+            ],
+            || super::business::load_runtime_worldbooks(&enabled_names, app.save_mode.key()),
+        );
         app.worldbook_cache = Some(super::WorldbookCache {
             enabled_names,
             books,
         });
+    } else if let Some(cache) = app.worldbook_cache.as_ref() {
+        crate::debug_log::log_kv(
+            "worldbook.runtime",
+            &[
+                crate::debug_log::field("phase", "load"),
+                crate::debug_log::field("cache", "hit"),
+                crate::debug_log::field("enabled_count", enabled_names.len()),
+                crate::debug_log::field("book_count", cache.books.len()),
+            ],
+        );
     }
 
     app.worldbook_cache.as_ref().unwrap().books.clone()
@@ -51,26 +70,67 @@ pub fn spawn_metadata_loading(app: &mut App) {
     let candidate_paths = collect_metadata_loading_paths(&app.sidebar_sessions);
 
     if candidate_paths.is_empty() {
-        crate::debug_log::log(
+        crate::debug_log::log_kv(
             "sidebar.hydration",
-            &format!("generation={generation} scheduled=0 workers=0"),
+            &[
+                crate::debug_log::field("phase", "schedule"),
+                crate::debug_log::field("generation", generation),
+                crate::debug_log::field("scheduled", 0),
+                crate::debug_log::field("workers", 0),
+                crate::debug_log::field("result", "skipped"),
+            ],
         );
+        #[cfg(debug_assertions)]
+        {
+            app.hydration_debug = None;
+        }
         return;
     }
 
     let worker_count = candidate_paths.len().min(SIDEBAR_METADATA_WORKERS);
-    crate::debug_log::log(
+    let batches = split_metadata_loading_batches(candidate_paths, worker_count);
+    crate::debug_log::log_kv(
         "sidebar.hydration",
-        &format!(
-            "generation={generation} scheduled={} workers={worker_count}",
-            candidate_paths.len()
-        ),
+        &[
+            crate::debug_log::field("phase", "schedule"),
+            crate::debug_log::field("generation", generation),
+            crate::debug_log::field("scheduled", batches.iter().map(Vec::len).sum::<usize>()),
+            crate::debug_log::field("workers", worker_count),
+            crate::debug_log::field("batch_count", batches.len()),
+            crate::debug_log::field("result", "scheduled"),
+        ],
     );
+    #[cfg(debug_assertions)]
+    {
+        app.hydration_debug = Some(super::HydrationDebugState {
+            generation,
+            started_at: Instant::now(),
+            scheduled: batches.iter().map(Vec::len).sum(),
+            completed: 0,
+            failed: 0,
+            stale_dropped: 0,
+            missing_dropped: 0,
+            batch_total: batches.len(),
+            batch_finished: 0,
+        });
+    }
 
-    for batch in split_metadata_loading_batches(candidate_paths, worker_count) {
+    for (batch_index, batch) in batches.into_iter().enumerate() {
         let key = key.clone();
         let tx = app.bg_tx.clone();
+        crate::debug_log::log_kv(
+            "sidebar.hydration",
+            &[
+                crate::debug_log::field("phase", "batch_schedule"),
+                crate::debug_log::field("generation", generation),
+                crate::debug_log::field("batch", batch_index),
+                crate::debug_log::field("batch_size", batch.len()),
+            ],
+        );
         tokio::spawn(async move {
+            let batch_start = Instant::now();
+            let mut loaded_count = 0usize;
+            let mut failed_count = 0usize;
             for entry_path in batch {
                 let path_for_event = entry_path.clone();
                 let key = key.clone();
@@ -80,6 +140,7 @@ pub fn spawn_metadata_loading(app: &mut App) {
 
                 match result {
                     Ok(Ok(metadata)) => {
+                        loaded_count += 1;
                         if tx
                             .send(super::BackgroundEvent::MetadataLoaded {
                                 generation,
@@ -93,25 +154,54 @@ pub fn spawn_metadata_loading(app: &mut App) {
                         }
                     }
                     Ok(Err(err)) => {
-                        crate::debug_log::log(
+                        failed_count += 1;
+                        crate::debug_log::log_kv(
                             "sidebar.hydration",
-                            &format!(
-                                "generation={generation} metadata load failed for {}: {err}",
-                                path_for_event.display()
-                            ),
+                            &[
+                                crate::debug_log::field("phase", "load"),
+                                crate::debug_log::field("generation", generation),
+                                crate::debug_log::field("result", "error"),
+                                crate::debug_log::field("path", path_for_event.display()),
+                                crate::debug_log::field("error", err),
+                            ],
                         );
                     }
                     Err(err) => {
-                        crate::debug_log::log(
+                        failed_count += 1;
+                        crate::debug_log::log_kv(
                             "sidebar.hydration",
-                            &format!(
-                                "generation={generation} metadata task failed for {}: {err}",
-                                path_for_event.display()
-                            ),
+                            &[
+                                crate::debug_log::field("phase", "task"),
+                                crate::debug_log::field("generation", generation),
+                                crate::debug_log::field("result", "error"),
+                                crate::debug_log::field("path", path_for_event.display()),
+                                crate::debug_log::field("error", err),
+                            ],
                         );
                     }
                 }
             }
+            crate::debug_log::log_kv(
+                "sidebar.hydration",
+                &[
+                    crate::debug_log::field("phase", "batch_complete"),
+                    crate::debug_log::field("generation", generation),
+                    crate::debug_log::field("batch", batch_index),
+                    crate::debug_log::field("loaded", loaded_count),
+                    crate::debug_log::field("failed", failed_count),
+                    crate::debug_log::field(
+                        "elapsed_ms",
+                        format!("{:.3}", batch_start.elapsed().as_secs_f64() * 1000.0),
+                    ),
+                ],
+            );
+            let _ = tx
+                .send(super::BackgroundEvent::MetadataBatchFinished {
+                    generation,
+                    loaded_count,
+                    failed_count,
+                })
+                .await;
         });
     }
 }
@@ -208,7 +298,7 @@ pub fn handle_slash_command(
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
                 app.invalidate_chat_cache();
-                app.mark_session_dirty_debounced();
+                app.mark_session_dirty_debounced(super::SaveTrigger::Debounced);
                 app.set_status(
                     "System prompt updated.".to_owned(),
                     super::StatusLevel::Info,
@@ -217,8 +307,8 @@ pub fn handle_slash_command(
         }
         "/save" => {
             if arg.is_empty() {
-                app.mark_session_dirty_immediate();
-                match app.flush_session_save() {
+                app.mark_session_dirty_immediate(super::SaveTrigger::Explicit);
+                match app.flush_session_save(super::SaveTrigger::Explicit) {
                     Ok(()) => match app.save_mode.path() {
                         Some(p) => app.set_status(
                             format!("Saved to {}.", p.display()),
@@ -458,7 +548,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.session
         .tree
         .push(parent, Message::new(Role::User, content.to_owned()));
-    app.mark_session_dirty_debounced();
+    app.mark_session_dirty_debounced(super::SaveTrigger::Debounced);
     app.invalidate_chat_cache();
     app.is_streaming = true;
     app.streaming_buffer.clear();
@@ -504,12 +594,12 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
             app.session
                 .tree
                 .push(Some(head), Message::new(Role::Assistant, full_response));
-            app.mark_session_dirty_immediate();
+            app.mark_session_dirty_immediate(super::SaveTrigger::StreamDone);
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.auto_scroll = true;
-            app.flush_session_save()?;
+            app.flush_session_save(super::SaveTrigger::StreamDone)?;
             refresh_sidebar(app);
         }
         StreamToken::Error(err) => {
@@ -524,11 +614,26 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
 pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
     match event {
         super::BackgroundEvent::KeyDerived(key, path) => {
+            #[cfg(debug_assertions)]
+            if let Some(debug) = app.unlock_debug.take() {
+                crate::debug_log::log_kv(
+                    "unlock.phase",
+                    &[
+                        crate::debug_log::field("phase", "ui_complete"),
+                        crate::debug_log::field("kind", debug.kind),
+                        crate::debug_log::field("result", "ok"),
+                        crate::debug_log::field(
+                            "elapsed_ms",
+                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
+                        ),
+                    ],
+                );
+            }
             app.save_mode = SaveMode::Encrypted {
                 path,
                 key: key.clone(),
             };
-            if let Err(err) = app.flush_session_save() {
+            if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
                 app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
             }
             app.invalidate_worldbook_cache();
@@ -538,10 +643,41 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             maintenance::spawn_unlocked_maintenance(key, &app.bg_tx);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
+            #[cfg(debug_assertions)]
+            if let Some(debug) = app.unlock_debug.take() {
+                crate::debug_log::log_kv(
+                    "unlock.phase",
+                    &[
+                        crate::debug_log::field("phase", "ui_complete"),
+                        crate::debug_log::field("kind", debug.kind),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field(
+                            "elapsed_ms",
+                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
+                        ),
+                        crate::debug_log::field("error", &err),
+                    ],
+                );
+            }
             app.passkey_deriving = false;
             app.passkey_error = format!("Failed: {err}");
         }
         super::BackgroundEvent::PasskeySet(new_key) => {
+            #[cfg(debug_assertions)]
+            if let Some(debug) = app.unlock_debug.take() {
+                crate::debug_log::log_kv(
+                    "unlock.phase",
+                    &[
+                        crate::debug_log::field("phase", "ui_complete"),
+                        crate::debug_log::field("kind", debug.kind),
+                        crate::debug_log::field("result", "ok"),
+                        crate::debug_log::field(
+                            "elapsed_ms",
+                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
+                        ),
+                    ],
+                );
+            }
             app.set_passkey_deriving = false;
             app.invalidate_worldbook_cache();
             if app.set_passkey_is_initial {
@@ -553,7 +689,7 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                     path,
                     key: new_key.clone(),
                 };
-                if let Err(err) = app.flush_session_save() {
+                if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
                     app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
                 }
                 app.focus = post_passkey_focus(app);
@@ -577,7 +713,8 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                     },
                     _ => return,
                 };
-                match app.session.maybe_save(&app.save_mode) {
+                app.mark_session_dirty_immediate(super::SaveTrigger::Explicit);
+                match app.flush_session_save(super::SaveTrigger::Explicit) {
                     Ok(()) => app.discard_pending_session_save(),
                     Err(err) => {
                         app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
@@ -626,6 +763,22 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             }
         }
         super::BackgroundEvent::PasskeySetFailed(err) => {
+            #[cfg(debug_assertions)]
+            if let Some(debug) = app.unlock_debug.take() {
+                crate::debug_log::log_kv(
+                    "unlock.phase",
+                    &[
+                        crate::debug_log::field("phase", "ui_complete"),
+                        crate::debug_log::field("kind", debug.kind),
+                        crate::debug_log::field("result", "error"),
+                        crate::debug_log::field(
+                            "elapsed_ms",
+                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
+                        ),
+                        crate::debug_log::field("error", &err),
+                    ],
+                );
+            }
             app.set_passkey_deriving = false;
             app.set_passkey_error = format!("Failed: {err}");
         }
@@ -639,24 +792,43 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             metadata,
         } => {
             if generation != app.sidebar_hydration_generation {
-                crate::debug_log::log(
+                #[cfg(debug_assertions)]
+                if let Some(debug) = app.hydration_debug.as_mut() {
+                    if debug.generation == generation {
+                        debug.stale_dropped += 1;
+                    }
+                }
+                crate::debug_log::log_kv(
                     "sidebar.hydration",
-                    &format!(
-                        "dropping stale result generation={generation} current={} path={}",
-                        app.sidebar_hydration_generation,
-                        path.display()
-                    ),
+                    &[
+                        crate::debug_log::field("phase", "apply"),
+                        crate::debug_log::field("result", "stale_drop"),
+                        crate::debug_log::field("generation", generation),
+                        crate::debug_log::field(
+                            "current_generation",
+                            app.sidebar_hydration_generation,
+                        ),
+                        crate::debug_log::field("path", path.display()),
+                    ],
                 );
                 return;
             }
 
             let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) else {
-                crate::debug_log::log(
+                #[cfg(debug_assertions)]
+                if let Some(debug) = app.hydration_debug.as_mut() {
+                    if debug.generation == generation {
+                        debug.missing_dropped += 1;
+                    }
+                }
+                crate::debug_log::log_kv(
                     "sidebar.hydration",
-                    &format!(
-                        "dropping missing result generation={generation} path={}",
-                        path.display()
-                    ),
+                    &[
+                        crate::debug_log::field("phase", "apply"),
+                        crate::debug_log::field("result", "missing_drop"),
+                        crate::debug_log::field("generation", generation),
+                        crate::debug_log::field("path", path.display()),
+                    ],
                 );
                 return;
             };
@@ -674,6 +846,43 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             );
             super::business::prepare_sidebar_entries(&mut app.sidebar_sessions);
             app.invalidate_sidebar_cache();
+        }
+        super::BackgroundEvent::MetadataBatchFinished {
+            generation,
+            loaded_count,
+            failed_count,
+        } =>
+        {
+            #[cfg(debug_assertions)]
+            if let Some(debug) = app.hydration_debug.as_mut() {
+                if debug.generation == generation {
+                    debug.completed += loaded_count;
+                    debug.failed += failed_count;
+                    debug.batch_finished += 1;
+                    if debug.batch_finished == debug.batch_total {
+                        crate::debug_log::log_kv(
+                            "sidebar.hydration",
+                            &[
+                                crate::debug_log::field("phase", "complete"),
+                                crate::debug_log::field("generation", debug.generation),
+                                crate::debug_log::field("scheduled", debug.scheduled),
+                                crate::debug_log::field("loaded", debug.completed),
+                                crate::debug_log::field("failed", debug.failed),
+                                crate::debug_log::field("stale_dropped", debug.stale_dropped),
+                                crate::debug_log::field("missing_dropped", debug.missing_dropped),
+                                crate::debug_log::field(
+                                    "elapsed_ms",
+                                    format!(
+                                        "{:.3}",
+                                        debug.started_at.elapsed().as_secs_f64() * 1000.0
+                                    ),
+                                ),
+                            ],
+                        );
+                        app.hydration_debug = None;
+                    }
+                }
+            }
         }
         super::BackgroundEvent::MaintenanceFinished(update) => {
             maintenance::handle_finished(update, app);

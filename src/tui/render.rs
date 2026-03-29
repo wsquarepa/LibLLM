@@ -236,7 +236,15 @@ pub fn render_chat(
     });
 
     if !cache_valid {
-        crate::debug_log::log("chat.cache", "miss - rebuilding");
+        crate::debug_log::log_kv(
+            "chat.cache",
+            &[
+                crate::debug_log::field("result", "miss"),
+                crate::debug_log::field("action", "rebuild"),
+                crate::debug_log::field("message_count", branch_ids.len()),
+                crate::debug_log::field("width", area.width),
+            ],
+        );
         let entries: Vec<CachedMessageLines> = branch_ids
             .iter()
             .map(|&node_id| {
@@ -310,7 +318,14 @@ pub fn render_chat(
             entries,
         });
     } else {
-        crate::debug_log::log("chat.cache", "hit");
+        crate::debug_log::log_kv(
+            "chat.cache",
+            &[
+                crate::debug_log::field("result", "hit"),
+                crate::debug_log::field("message_count", branch_ids.len()),
+                crate::debug_log::field("width", area.width),
+            ],
+        );
     }
 
     let cached = cache.as_ref().unwrap();
@@ -373,9 +388,13 @@ pub fn render_chat(
     let visible_height = area.height.saturating_sub(2);
 
     if scroll_dirty {
-        crate::debug_log::timed(
+        crate::debug_log::timed_kv(
             "scroll",
-            &format!("dirty={scroll_dirty}, auto={}", app.auto_scroll),
+            &[
+                crate::debug_log::field("phase", "adjust"),
+                crate::debug_log::field("dirty", scroll_dirty),
+                crate::debug_log::field("auto", app.auto_scroll),
+            ],
             || {
                 if app.auto_scroll {
                     let streaming_height = if app.is_streaming && !app.streaming_buffer.is_empty() {
@@ -384,9 +403,12 @@ pub fn render_chat(
                         0
                     };
                     let content_height = static_height + streaming_height;
-                    crate::debug_log::log(
+                    crate::debug_log::log_kv(
                         "chat.measure",
-                        &format!("height={content_height}, visible={visible_height}"),
+                        &[
+                            crate::debug_log::field("content_height", content_height),
+                            crate::debug_log::field("visible_height", visible_height),
+                        ],
                     );
 
                     if content_height > visible_height {
@@ -413,7 +435,13 @@ pub fn render_chat(
                 }
             },
         );
-        crate::debug_log::log("scroll", &format!("val={}", *chat_scroll));
+        crate::debug_log::log_kv(
+            "scroll",
+            &[
+                crate::debug_log::field("phase", "value"),
+                crate::debug_log::field("value", *chat_scroll),
+            ],
+        );
     }
 
     let chat_focused = app.focus == super::Focus::Chat;
@@ -489,13 +517,17 @@ pub fn render_status_bar(
     branch_ids: &[NodeId],
     branch_info: Option<(usize, usize)>,
 ) {
-    let token_count = crate::debug_log::timed("status.tokens", "estimate", || {
-        ContextManager::estimate_tokens_for_messages(
-            branch_ids
-                .iter()
-                .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
-        )
-    });
+    let token_count = crate::debug_log::timed_kv(
+        "status.tokens",
+        &[crate::debug_log::field("phase", "estimate")],
+        || {
+            ContextManager::estimate_tokens_for_messages(
+                branch_ids
+                    .iter()
+                    .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
+            )
+        },
+    );
 
     let branch_info = match branch_info {
         Some((idx, total)) => format!("Branch {}/{total}", idx + 1),

@@ -77,6 +77,57 @@ struct WorldbookCache {
     books: Vec<RuntimeWorldBook>,
 }
 
+#[derive(Clone, Copy)]
+enum SaveTrigger {
+    Debounced,
+    Explicit,
+    StreamDone,
+    Exit,
+    Transition,
+    Unlock,
+    Retry,
+}
+
+impl SaveTrigger {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Debounced => "debounced",
+            Self::Explicit => "explicit",
+            Self::StreamDone => "stream_done",
+            Self::Exit => "exit",
+            Self::Transition => "transition",
+            Self::Unlock => "unlock",
+            Self::Retry => "retry",
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+struct AutosaveDebugState {
+    dirty_since: Option<std::time::Instant>,
+    save_count: u64,
+    retry_count: u64,
+}
+
+#[cfg(debug_assertions)]
+struct UnlockDebugState {
+    kind: &'static str,
+    started_at: std::time::Instant,
+}
+
+#[cfg(debug_assertions)]
+struct HydrationDebugState {
+    generation: u64,
+    started_at: std::time::Instant,
+    scheduled: usize,
+    completed: usize,
+    failed: usize,
+    stale_dropped: usize,
+    missing_dropped: usize,
+    batch_total: usize,
+    batch_finished: usize,
+}
+
 enum BackgroundEvent {
     KeyDerived(
         std::sync::Arc<crate::crypto::DerivedKey>,
@@ -90,6 +141,11 @@ enum BackgroundEvent {
         generation: u64,
         path: std::path::PathBuf,
         metadata: session::SessionMetadata,
+    },
+    MetadataBatchFinished {
+        generation: u64,
+        loaded_count: usize,
+        failed_count: usize,
     },
     MaintenanceFinished(maintenance::MaintenanceUpdate),
     ModelFetched(std::result::Result<String, String>),
@@ -128,6 +184,7 @@ struct App<'a> {
     save_mode: SaveMode,
     session_dirty: bool,
     pending_save_deadline: Option<std::time::Instant>,
+    pending_save_trigger: Option<SaveTrigger>,
     template: Template,
     stop_tokens: &'static [&'static str],
     sampling: SamplingParams,
@@ -195,6 +252,12 @@ struct App<'a> {
     config: crate::config::Config,
     worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
+    #[cfg(debug_assertions)]
+    autosave_debug: AutosaveDebugState,
+    #[cfg(debug_assertions)]
+    unlock_debug: Option<UnlockDebugState>,
+    #[cfg(debug_assertions)]
+    hydration_debug: Option<HydrationDebugState>,
 }
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
@@ -230,44 +293,153 @@ impl App<'_> {
         self.worldbook_cache = None;
     }
 
-    fn mark_session_dirty_debounced(&mut self) {
+    fn mark_session_dirty_debounced(&mut self, trigger: SaveTrigger) {
         self.session_dirty = true;
+        self.pending_save_trigger = Some(trigger);
         if self.can_persist_session() {
             self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_DEBOUNCE);
         }
+        #[cfg(debug_assertions)]
+        if self.autosave_debug.dirty_since.is_none() {
+            self.autosave_debug.dirty_since = Some(std::time::Instant::now());
+        }
+        crate::debug_log::log_kv(
+            "autosave",
+            &[
+                crate::debug_log::field("phase", "schedule"),
+                crate::debug_log::field("trigger", trigger.as_str()),
+                crate::debug_log::field("persistable", self.can_persist_session()),
+                crate::debug_log::field("session_dirty", self.session_dirty),
+            ],
+        );
     }
 
-    fn mark_session_dirty_immediate(&mut self) {
+    fn mark_session_dirty_immediate(&mut self, trigger: SaveTrigger) {
         self.session_dirty = true;
+        self.pending_save_trigger = Some(trigger);
         if self.can_persist_session() {
             self.pending_save_deadline = Some(std::time::Instant::now());
         }
+        #[cfg(debug_assertions)]
+        if self.autosave_debug.dirty_since.is_none() {
+            self.autosave_debug.dirty_since = Some(std::time::Instant::now());
+        }
+        crate::debug_log::log_kv(
+            "autosave",
+            &[
+                crate::debug_log::field("phase", "schedule"),
+                crate::debug_log::field("trigger", trigger.as_str()),
+                crate::debug_log::field("persistable", self.can_persist_session()),
+                crate::debug_log::field("session_dirty", self.session_dirty),
+            ],
+        );
     }
 
     fn discard_pending_session_save(&mut self) {
         self.session_dirty = false;
         self.pending_save_deadline = None;
+        self.pending_save_trigger = None;
+        #[cfg(debug_assertions)]
+        {
+            self.autosave_debug.dirty_since = None;
+        }
     }
 
-    fn flush_session_save(&mut self) -> Result<()> {
+    fn flush_session_save(&mut self, trigger: SaveTrigger) -> Result<()> {
         if !self.session_dirty || !self.can_persist_session() {
+            crate::debug_log::log_kv(
+                "autosave",
+                &[
+                    crate::debug_log::field("phase", "flush"),
+                    crate::debug_log::field("trigger", trigger.as_str()),
+                    crate::debug_log::field("result", "skipped"),
+                    crate::debug_log::field("session_dirty", self.session_dirty),
+                    crate::debug_log::field("persistable", self.can_persist_session()),
+                ],
+            );
             return Ok(());
         }
 
-        match self.session.maybe_save(&self.save_mode) {
+        #[cfg(debug_assertions)]
+        let dirty_elapsed_ms = self
+            .autosave_debug
+            .dirty_since
+            .map(|started| started.elapsed().as_secs_f64() * 1000.0);
+        #[cfg(not(debug_assertions))]
+        let dirty_elapsed_ms: Option<f64> = None;
+
+        let path = self.save_mode.path().map(|path| path.display().to_string());
+        let start = std::time::Instant::now();
+        let result = self.session.maybe_save(&self.save_mode);
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        match result {
             Ok(()) => {
+                #[cfg(debug_assertions)]
+                {
+                    self.autosave_debug.save_count += 1;
+                }
+                let mut fields = vec![
+                    crate::debug_log::field("phase", "flush"),
+                    crate::debug_log::field("trigger", trigger.as_str()),
+                    crate::debug_log::field("result", "ok"),
+                    crate::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                ];
+                if let Some(path) = path.as_deref() {
+                    fields.push(crate::debug_log::field("path", path));
+                }
+                if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
+                    fields.push(crate::debug_log::field(
+                        "dirty_elapsed_ms",
+                        format!("{dirty_elapsed_ms:.3}"),
+                    ));
+                }
+                #[cfg(debug_assertions)]
+                fields.push(crate::debug_log::field(
+                    "save_count",
+                    self.autosave_debug.save_count,
+                ));
+                crate::debug_log::log_kv("autosave", &fields);
                 self.discard_pending_session_save();
                 Ok(())
             }
             Err(err) => {
                 self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_RETRY_DELAY);
+                self.pending_save_trigger = Some(SaveTrigger::Retry);
+                #[cfg(debug_assertions)]
+                {
+                    self.autosave_debug.retry_count += 1;
+                }
+                let mut fields = vec![
+                    crate::debug_log::field("phase", "flush"),
+                    crate::debug_log::field("trigger", trigger.as_str()),
+                    crate::debug_log::field("result", "error"),
+                    crate::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    crate::debug_log::field("retry_delay_ms", AUTOSAVE_RETRY_DELAY.as_millis()),
+                    crate::debug_log::field("error", &err),
+                ];
+                if let Some(path) = path.as_deref() {
+                    fields.push(crate::debug_log::field("path", path));
+                }
+                if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
+                    fields.push(crate::debug_log::field(
+                        "dirty_elapsed_ms",
+                        format!("{dirty_elapsed_ms:.3}"),
+                    ));
+                }
+                #[cfg(debug_assertions)]
+                fields.push(crate::debug_log::field(
+                    "retry_count",
+                    self.autosave_debug.retry_count,
+                ));
+                crate::debug_log::log_kv("autosave", &fields);
                 Err(err)
             }
         }
     }
 
     fn flush_session_before_transition(&mut self) -> bool {
-        match self.flush_session_save() {
+        match self.flush_session_save(SaveTrigger::Transition) {
             Ok(()) => true,
             Err(err) => {
                 self.set_status(format!("Save error: {err}"), StatusLevel::Error);
@@ -284,7 +456,11 @@ pub async fn run(
     template: Template,
     sampling: SamplingParams,
 ) -> Result<()> {
-    let sidebar_sessions = business::discover_sidebar_sessions(&save_mode);
+    let sidebar_sessions = crate::debug_log::timed_kv(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "sidebar_discovery")],
+        || business::discover_sidebar_sessions(&save_mode),
+    );
 
     let mut textarea = TextArea::default();
     textarea.set_block(
@@ -330,6 +506,7 @@ pub async fn run(
         save_mode,
         session_dirty: false,
         pending_save_deadline: None,
+        pending_save_trigger: None,
         template,
         stop_tokens: template.stop_tokens(),
         sampling,
@@ -395,6 +572,16 @@ pub async fn run(
         config,
         worldbook_cache: None,
         bg_tx: bg_tx.clone(),
+        #[cfg(debug_assertions)]
+        autosave_debug: AutosaveDebugState {
+            dirty_since: None,
+            save_count: 0,
+            retry_count: 0,
+        },
+        #[cfg(debug_assertions)]
+        unlock_debug: None,
+        #[cfg(debug_assertions)]
+        hydration_debug: None,
     };
 
     crossterm::terminal::enable_raw_mode()?;
@@ -408,20 +595,32 @@ pub async fn run(
 
     let mut event_stream = EventStream::new();
 
-    commands::spawn_metadata_loading(&mut app);
+    crate::debug_log::timed_kv(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "metadata_schedule")],
+        || commands::spawn_metadata_loading(&mut app),
+    );
 
     let mut frame_tick = tokio::time::interval(STREAM_REDRAW_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut needs_redraw = false;
     let mut stream_redraw_pending = false;
 
-    terminal.draw(|f| render_frame(f, &mut app))?;
-    maintenance::spawn_startup_maintenance(&app.save_mode, &bg_tx);
+    crate::debug_log::timed_result(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "first_draw")],
+        || terminal.draw(|f| render_frame(f, &mut app)),
+    )?;
+    crate::debug_log::timed_kv(
+        "startup.phase",
+        &[crate::debug_log::field("phase", "maintenance_schedule")],
+        || maintenance::spawn_startup_maintenance(&app.save_mode, &bg_tx),
+    );
 
     loop {
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
-                crate::debug_log::timed("event", "handle", || {
+                crate::debug_log::timed_kv("event", &[crate::debug_log::field("phase", "handle")], || {
                     if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
                         process_action(action, &mut app, token_tx.clone());
                     }
@@ -430,7 +629,7 @@ pub async fn run(
                 needs_redraw = false;
             }
             Some(stream_token) = token_rx.recv() => {
-                crate::debug_log::timed("stream", "token", || {
+                crate::debug_log::timed_result("stream", &[crate::debug_log::field("phase", "token")], || {
                     commands::handle_stream_token(stream_token, &mut app)
                 })?;
                 stream_redraw_pending = true;
@@ -443,7 +642,8 @@ pub async fn run(
             }
             _ = frame_tick.tick() => {
                 if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
-                    if let Err(err) = app.flush_session_save() {
+                    let trigger = app.pending_save_trigger.unwrap_or(SaveTrigger::Retry);
+                    if let Err(err) = app.flush_session_save(trigger) {
                         app.set_status(format!("Save error: {err}"), StatusLevel::Error);
                     }
                     needs_redraw = true;
@@ -463,7 +663,7 @@ pub async fn run(
         }
 
         if app.should_quit {
-            match app.flush_session_save() {
+            match app.flush_session_save(SaveTrigger::Exit) {
                 Ok(()) => break,
                 Err(err) => {
                     app.should_quit = false;
@@ -491,21 +691,25 @@ pub async fn run(
 fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let _frame_start = std::time::Instant::now();
 
-    let (outer, columns, right_split) = crate::debug_log::timed("layout", "splits", || {
-        let outer = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(5), Constraint::Length(1)])
-            .split(f.area());
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
-            .split(outer[0]);
-        let right_split = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
-            .split(columns[1]);
-        (outer, columns, right_split)
-    });
+    let (outer, columns, right_split) = crate::debug_log::timed_kv(
+        "layout",
+        &[crate::debug_log::field("phase", "splits")],
+        || {
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(5), Constraint::Length(1)])
+                .split(f.area());
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
+                .split(outer[0]);
+            let right_split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
+                .split(columns[1]);
+            (outer, columns, right_split)
+        },
+    );
 
     let status_area = outer[1];
     let sidebar_area = columns[0];
@@ -513,9 +717,13 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let input_area = right_split[1];
 
     let session_count = app.sidebar_sessions.len();
-    crate::debug_log::timed("sidebar", &format!("{session_count} sessions"), || {
-        render::render_sidebar(f, app, sidebar_area);
-    });
+    crate::debug_log::timed_kv(
+        "sidebar",
+        &[crate::debug_log::field("session_count", session_count)],
+        || {
+            render::render_sidebar(f, app, sidebar_area);
+        },
+    );
 
     let input_focused = app.focus == Focus::Input;
     let border = render::border_style(input_focused);
@@ -550,11 +758,17 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         let branch_ids = app.session.tree.current_branch_ids();
         let branch_info = app.session.tree.current_deepest_branch_info();
         let msg_count = branch_ids.len();
-        crate::debug_log::log("chat.branch", &format!("{msg_count} nodes in path"));
+        crate::debug_log::log_kv(
+            "chat.branch",
+            &[crate::debug_log::field("node_count", msg_count)],
+        );
 
-        crate::debug_log::timed(
+        crate::debug_log::timed_kv(
             "chat",
-            &format!("{msg_count} msgs, scroll_dirty={scroll_dirty}"),
+            &[
+                crate::debug_log::field("message_count", msg_count),
+                crate::debug_log::field("scroll_dirty", scroll_dirty),
+            ],
             || {
                 render::render_chat(
                     f,
@@ -568,7 +782,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             },
         );
 
-        crate::debug_log::timed("status", "bar", || {
+        crate::debug_log::timed_kv("status", &[crate::debug_log::field("phase", "bar")], || {
             render::render_status_bar(f, app, status_area, branch_ids, branch_info);
         });
     }
@@ -577,9 +791,13 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.last_scroll_state = current_scroll_state;
 
     if app.focus == Focus::Input && input::input_has_command_picker(app) {
-        crate::debug_log::timed("picker", "command picker", || {
-            render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
-        });
+        crate::debug_log::timed_kv(
+            "picker",
+            &[crate::debug_log::field("phase", "command_picker")],
+            || {
+                render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
+            },
+        );
     }
 
     let dialog_name = match app.focus {
@@ -603,13 +821,19 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     };
 
     if let Some(name) = dialog_name {
-        crate::debug_log::timed("dialog", name, || {
+        crate::debug_log::timed_kv("dialog", &[crate::debug_log::field("name", name)], || {
             render_dialog(f, app);
         });
     }
 
     let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
-    crate::debug_log::log("frame", &format!("{frame_ms:.3}ms total"));
+    crate::debug_log::log_kv(
+        "frame",
+        &[
+            crate::debug_log::field("phase", "frame"),
+            crate::debug_log::field("elapsed_ms", format!("{frame_ms:.3}")),
+        ],
+    );
 }
 
 fn render_dialog(f: &mut ratatui::Frame, app: &App) {
@@ -700,7 +924,7 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
                     app.session.tree.switch_to(new_root);
                     app.nav_cursor = Some(new_root);
                     app.focus = Focus::Chat;
-                    app.mark_session_dirty_debounced();
+                    app.mark_session_dirty_debounced(SaveTrigger::Debounced);
                 }
             }
         }
@@ -780,7 +1004,7 @@ fn handle_key(
         let previous_head = app.session.tree.head();
         app.session.tree.switch_sibling(-1);
         if app.session.tree.head() != previous_head {
-            app.mark_session_dirty_debounced();
+            app.mark_session_dirty_debounced(SaveTrigger::Debounced);
         }
         return None;
     }
@@ -789,7 +1013,7 @@ fn handle_key(
         let previous_head = app.session.tree.head();
         app.session.tree.switch_sibling(1);
         if app.session.tree.head() != previous_head {
-            app.mark_session_dirty_debounced();
+            app.mark_session_dirty_debounced(SaveTrigger::Debounced);
         }
         return None;
     }
@@ -843,7 +1067,7 @@ fn cancel_generation(app: &mut App) {
     app.streaming_buffer.clear();
     app.is_streaming = false;
     if app.session.tree.pop_head().is_some() {
-        app.mark_session_dirty_debounced();
+        app.mark_session_dirty_debounced(SaveTrigger::Debounced);
     }
     app.auto_scroll = true;
 }

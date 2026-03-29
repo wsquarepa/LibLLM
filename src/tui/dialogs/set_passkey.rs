@@ -130,24 +130,188 @@ pub(in crate::tui) fn handle_set_passkey_key(
             app.set_passkey_confirm.clear();
             app.set_passkey_error.clear();
             app.set_passkey_deriving = true;
+            #[cfg(debug_assertions)]
+            {
+                app.unlock_debug = Some(crate::tui::UnlockDebugState {
+                    kind: if app.set_passkey_is_initial {
+                        "set_passkey"
+                    } else {
+                        "change_passkey"
+                    },
+                    started_at: std::time::Instant::now(),
+                });
+            }
+            let debug_kind = if app.set_passkey_is_initial {
+                "set_passkey"
+            } else {
+                "change_passkey"
+            };
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {
+                    let total_start = std::time::Instant::now();
                     let salt_path = crate::config::salt_path();
                     let check_path = crate::config::key_check_path();
-                    let result = crate::crypto::load_or_create_salt(&salt_path)
-                        .and_then(|salt| crate::crypto::derive_key(&passkey, &salt));
-                    match result {
-                        Ok(derived_key) => {
-                            if let Err(err) =
-                                crate::crypto::set_key_fingerprint(&check_path, &derived_key)
-                            {
-                                return BackgroundEvent::PasskeySetFailed(err.to_string());
+                    let salt_start = std::time::Instant::now();
+                    let salt_result = crate::crypto::load_or_create_salt(&salt_path);
+                    crate::debug_log::log_kv(
+                        "unlock.phase",
+                        &[
+                            crate::debug_log::field("kind", debug_kind),
+                            crate::debug_log::field("phase", "salt"),
+                            crate::debug_log::field(
+                                "result",
+                                if salt_result.is_ok() { "ok" } else { "error" },
+                            ),
+                            crate::debug_log::field(
+                                "elapsed_ms",
+                                format!("{:.3}", salt_start.elapsed().as_secs_f64() * 1000.0),
+                            ),
+                            crate::debug_log::field("path", salt_path.display()),
+                        ],
+                    );
+                    match salt_result {
+                        Ok(salt) => {
+                            let derive_start = std::time::Instant::now();
+                            let derive_result = crate::crypto::derive_key(&passkey, &salt);
+                            crate::debug_log::log_kv(
+                                "unlock.phase",
+                                &[
+                                    crate::debug_log::field("kind", debug_kind),
+                                    crate::debug_log::field("phase", "argon2"),
+                                    crate::debug_log::field(
+                                        "result",
+                                        if derive_result.is_ok() { "ok" } else { "error" },
+                                    ),
+                                    crate::debug_log::field(
+                                        "elapsed_ms",
+                                        format!(
+                                            "{:.3}",
+                                            derive_start.elapsed().as_secs_f64() * 1000.0
+                                        ),
+                                    ),
+                                ],
+                            );
+                            match derive_result {
+                                Ok(derived_key) => {
+                                    let fingerprint_start = std::time::Instant::now();
+                                    let fingerprint_result = crate::crypto::set_key_fingerprint(
+                                        &check_path,
+                                        &derived_key,
+                                    );
+                                    crate::debug_log::log_kv(
+                                        "unlock.phase",
+                                        &[
+                                            crate::debug_log::field("kind", debug_kind),
+                                            crate::debug_log::field("phase", "fingerprint"),
+                                            crate::debug_log::field(
+                                                "result",
+                                                if fingerprint_result.is_ok() {
+                                                    "ok"
+                                                } else {
+                                                    "error"
+                                                },
+                                            ),
+                                            crate::debug_log::field(
+                                                "elapsed_ms",
+                                                format!(
+                                                    "{:.3}",
+                                                    fingerprint_start.elapsed().as_secs_f64()
+                                                        * 1000.0
+                                                ),
+                                            ),
+                                            crate::debug_log::field("path", check_path.display()),
+                                        ],
+                                    );
+                                    match fingerprint_result {
+                                        Ok(()) => {
+                                            crate::debug_log::log_kv(
+                                                "unlock.phase",
+                                                &[
+                                                    crate::debug_log::field("kind", debug_kind),
+                                                    crate::debug_log::field(
+                                                        "phase",
+                                                        "blocking_total",
+                                                    ),
+                                                    crate::debug_log::field("result", "ok"),
+                                                    crate::debug_log::field(
+                                                        "elapsed_ms",
+                                                        format!(
+                                                            "{:.3}",
+                                                            total_start.elapsed().as_secs_f64()
+                                                                * 1000.0
+                                                        ),
+                                                    ),
+                                                ],
+                                            );
+                                            let key = std::sync::Arc::new(derived_key);
+                                            BackgroundEvent::PasskeySet(key)
+                                        }
+                                        Err(err) => {
+                                            crate::debug_log::log_kv(
+                                                "unlock.phase",
+                                                &[
+                                                    crate::debug_log::field("kind", debug_kind),
+                                                    crate::debug_log::field(
+                                                        "phase",
+                                                        "blocking_total",
+                                                    ),
+                                                    crate::debug_log::field("result", "error"),
+                                                    crate::debug_log::field(
+                                                        "elapsed_ms",
+                                                        format!(
+                                                            "{:.3}",
+                                                            total_start.elapsed().as_secs_f64()
+                                                                * 1000.0
+                                                        ),
+                                                    ),
+                                                    crate::debug_log::field("error", &err),
+                                                ],
+                                            );
+                                            BackgroundEvent::PasskeySetFailed(err.to_string())
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    crate::debug_log::log_kv(
+                                        "unlock.phase",
+                                        &[
+                                            crate::debug_log::field("kind", debug_kind),
+                                            crate::debug_log::field("phase", "blocking_total"),
+                                            crate::debug_log::field("result", "error"),
+                                            crate::debug_log::field(
+                                                "elapsed_ms",
+                                                format!(
+                                                    "{:.3}",
+                                                    total_start.elapsed().as_secs_f64() * 1000.0
+                                                ),
+                                            ),
+                                            crate::debug_log::field("error", &err),
+                                        ],
+                                    );
+                                    BackgroundEvent::PasskeySetFailed(err.to_string())
+                                }
                             }
-                            let key = std::sync::Arc::new(derived_key);
-                            BackgroundEvent::PasskeySet(key)
                         }
-                        Err(err) => BackgroundEvent::PasskeySetFailed(err.to_string()),
+                        Err(err) => {
+                            crate::debug_log::log_kv(
+                                "unlock.phase",
+                                &[
+                                    crate::debug_log::field("kind", debug_kind),
+                                    crate::debug_log::field("phase", "blocking_total"),
+                                    crate::debug_log::field("result", "error"),
+                                    crate::debug_log::field(
+                                        "elapsed_ms",
+                                        format!(
+                                            "{:.3}",
+                                            total_start.elapsed().as_secs_f64() * 1000.0
+                                        ),
+                                    ),
+                                    crate::debug_log::field("error", &err),
+                                ],
+                            );
+                            BackgroundEvent::PasskeySetFailed(err.to_string())
+                        }
                     }
                 })
                 .await

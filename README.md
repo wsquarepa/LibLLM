@@ -82,6 +82,7 @@ LIBLLM_PASSKEY=mypasskey libllm
 | `--repeat-last-n` | Repeat penalty window size |
 | `--repeat-penalty` | Repeat penalty strength |
 | `--max-tokens` | Maximum tokens to generate (`-1` for unlimited) |
+| `--tls-skip-verify` | Skip TLS certificate verification |
 
 ### Subcommands
 
@@ -119,11 +120,11 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/clear` | `/new` | Clear conversation history |
 | `/save` | | Save session to file |
 | `/load` | | Load session from file |
-| `/system` | | Set or show system prompt |
+| `/system` | | Select or edit system prompt |
 | `/retry` | | Regenerate last response (new branch) |
 | `/branch` | | Browse branches at current position |
-| `/character` | | Select or import a character card |
-| `/self` | `/user`, `/me` | Set your name and persona |
+| `/character` | | Select a character or import a card |
+| `/persona` | `/self`, `/user`, `/me` | Manage user personas |
 | `/worldbook` | `/lore`, `/world`, `/lorebook` | Toggle worldbooks for this session |
 | `/passkey` | `/password`, `/pass`, `/auth` | Set or change encryption passkey |
 | `/config` | | Open configuration dialog |
@@ -136,11 +137,8 @@ Configuration is stored at `~/.local/share/libllm/config.toml`. Edit it directly
 ```toml
 api_url = "http://localhost:5001/v1"
 template = "chatml"
-system_prompt = "You are a helpful assistant."
-roleplay_system_prompt = "Respond in character."
-user_name = "Alice"
-user_persona = "A curious software engineer."
 worldbooks = ["fantasy-lore", "tech-terms"]
+tls_skip_verify = false
 
 [sampling]
 temperature = 0.8
@@ -152,6 +150,8 @@ repeat_penalty = 1.0
 max_tokens = -1
 ```
 
+System prompts and user personas are managed as separate encrypted files via the `/system` and `/persona` TUI commands, not in `config.toml`.
+
 ## Data directory
 
 ```
@@ -159,6 +159,7 @@ max_tokens = -1
   config.toml              # API URL, template, sampling defaults
   .salt                    # 16-byte random salt (generated on first run)
   .key_check               # Passkey verification fingerprint
+  index.json               # Metadata cache for fast listing
   sessions/
     *.session              # AES-256-GCM encrypted session files
   characters/
@@ -168,6 +169,12 @@ max_tokens = -1
   worldinfo/
     *.worldbook            # Encrypted worldbook files
     *.json                 # Plaintext worldbooks (auto-normalized on next run)
+  system/
+    assistant.prompt       # Builtin system prompt (encrypted)
+    roleplay.prompt        # Builtin system prompt (encrypted)
+    *.prompt / *.json      # Custom system prompts (JSON auto-encrypted)
+  personas/
+    *.persona / *.json     # User personas (JSON auto-encrypted)
 ```
 
 ## Encryption

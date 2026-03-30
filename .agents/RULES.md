@@ -31,15 +31,23 @@ No tests exist -- verify changes with `cargo build` and manual testing. CI build
 ~/.local/share/libllm/
 ├── config.toml              # API URL, template, sampling defaults (NOT encrypted)
 ├── .salt                    # 16-byte random salt (generated on first run)
+├── .key_check               # Passkey verification fingerprint
+├── index.json               # Metadata cache for fast session/character/worldbook listing
 ├── sessions/
 │   └── *.session            # AES-256-GCM encrypted session files
 ├── characters/
-│   └── *.json / *.png       # Character cards (PNG with embedded JSON supported)
-└── worldinfo/
-    └── *.json               # Worldbook/lorebook files
+│   └── *.character / *.json / *.png  # Character cards (PNG auto-imported, JSON auto-encrypted)
+├── worldinfo/
+│   └── *.worldbook / *.json # Worldbook files (JSON auto-encrypted)
+├── system/
+│   ├── assistant.prompt     # Builtin system prompt
+│   ├── roleplay.prompt      # Builtin system prompt
+│   └── *.prompt / *.json    # Custom system prompts (JSON auto-encrypted)
+└── personas/
+    └── *.persona / *.json   # User personas (JSON auto-encrypted)
 ```
 
-Old config at `~/.config/libllm/config.toml` is auto-migrated on first run.
+Old config at `~/.config/libllm/config.toml` is auto-migrated on first run. System prompts and personas previously stored in `config.toml` are auto-migrated to their respective directories.
 
 ## Architecture
 
@@ -48,7 +56,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`cli`** -- Clap-derived argument parsing with sampling flags, `--no-encrypt`, `--passkey`, `-c` for character cards
 - **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
 - **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`
-- **`config`** -- TOML config at `~/.local/share/libllm/config.toml`, data/sessions/characters/worldinfo directory management, migration from old config path
+- **`config`** -- TOML config at `~/.local/share/libllm/config.toml`, data/sessions/characters/worldinfo/system/personas directory management, migration from old config path
 - **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
 - **`crypto`** -- AES-256-GCM encryption/decryption, Argon2id key derivation, salt management. Encrypted file format: magic "LLMS" (4 bytes) + version (1 byte) + nonce (12 bytes) + ciphertext
 - **`character`** -- `CharacterCard` parsing from JSON and PNG (base64 text chunk extraction). Supports old (top-level) and new (nested `data` object) formats. Auto-imports PNG cards on startup
@@ -56,13 +64,18 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`prompt`** -- `Template` enum (Llama2, ChatML, Mistral, Phi, Raw)
 - **`sampling`** -- `SamplingParams` and `SamplingOverrides` with `with_overrides` merge
 - **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Plaintext/Encrypted/PendingPasskey), encrypted save/load, session listing with previews. Supports legacy flat session format migration
+- **`system_prompt`** -- File-based system prompt management. Two hardcoded builtins (`assistant`, `roleplay`) are auto-created if missing. Custom prompts stored as encrypted `.prompt` files. Handles migration from old `config.toml` fields
+- **`persona`** -- File-based user persona management (`name` + `persona` text). Stored as encrypted `.persona` files. Migrates from old `config.toml` `user_name`/`user_persona` fields
+- **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in `index.json` to avoid decrypting every file on startup
+- **`migration`** -- Centralized migration orchestration. Runs all migrations (config path, system prompts, personas, worldbook normalization, plaintext encryption) on startup with warning reporting
 - **`tui`** -- Full ratatui terminal UI:
   - `mod.rs` -- App state, Focus enum (Input/Chat/Sidebar/dialogs), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status)
   - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution
   - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save
   - `input.rs` -- Keyboard handling, tree navigation (`switch_sibling`, `navigate_up`, `navigate_down`), command picker with Tab
   - `render.rs` -- Styled text parsing (bold/italic markdown), chat rendering, status bar with branch indicators
-  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, message editor, system prompt editor, worldbook toggle list, config editor
+  - `maintenance.rs` -- Background maintenance tasks (PNG import, plaintext encryption, worldbook normalization, builtin prompt setup) spawned on startup and after passkey unlock
+  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, persona editor, system prompt selector, message editor, worldbook toggle list, delete confirmation, config editor, API error
 
 ### Encryption
 

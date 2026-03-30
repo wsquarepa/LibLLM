@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::client::StreamToken;
 use crate::session::{self, Message, Role, SaveMode};
 
-use super::business::{load_config_fields, refresh_sidebar};
+use super::business::{self, load_config_fields, refresh_sidebar};
 use super::{App, Focus, dialogs, maintenance};
 
 const SIDEBAR_METADATA_WORKERS: usize = 4;
@@ -299,6 +299,23 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
 }
 
 fn cmd_system(app: &mut App) {
+    if app.cli_overrides.system_prompt.is_some() {
+        let content = app.session.system_prompt.as_deref().unwrap_or("");
+        let lines: Vec<String> = content.lines().map(String::from).collect();
+        let editor = tui_textarea::TextArea::from(if lines.is_empty() {
+            vec![String::new()]
+        } else {
+            lines
+        });
+        app.system_editor = Some(editor);
+        app.system_editor_read_only = true;
+        app.system_editor_roleplay = false;
+        app.system_editor_prompt_name = String::new();
+        app.system_editor_return_focus = Focus::Input;
+        app.focus = Focus::SystemDialog;
+        return;
+    }
+
     let dir = crate::config::system_prompts_dir();
     let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
     if prompts.is_empty() {
@@ -314,8 +331,11 @@ fn cmd_system(app: &mut App) {
 }
 
 fn cmd_config(app: &mut App) {
-    app.config_dialog =
-        Some(dialogs::open_config_editor(load_config_fields(&crate::config::load())));
+    let locked = business::config_locked_fields(&app.cli_overrides);
+    app.config_dialog = Some(dialogs::open_config_editor(
+        load_config_fields(&crate::config::load(), &app.cli_overrides),
+        locked,
+    ));
     app.focus = Focus::ConfigDialog;
 }
 
@@ -375,6 +395,22 @@ fn cmd_branch(app: &mut App) {
 }
 
 fn cmd_persona(app: &mut App) {
+    if let Some(ref persona_name) = app.cli_overrides.persona {
+        let dir = crate::config::personas_dir();
+        let pf = crate::persona::load_persona_by_name(&dir, persona_name, app.save_mode.key());
+        let values = match pf {
+            Some(pf) => vec![pf.name, pf.persona],
+            None => vec![persona_name.clone(), String::new()],
+        };
+        let all_locked = vec![0, 1];
+        app.persona_editor_file_name = persona_name.clone();
+        app.persona_editor = Some(
+            dialogs::open_persona_editor(values).with_locked_fields(all_locked),
+        );
+        app.focus = Focus::PersonaEditorDialog;
+        return;
+    }
+
     let personas = crate::persona::list_personas(
         &crate::config::personas_dir(),
         app.save_mode.key(),

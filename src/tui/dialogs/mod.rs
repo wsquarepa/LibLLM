@@ -128,9 +128,13 @@ const ENTRY_EDITOR_FIELDS: &[&str] = &[
 const ENTRY_EDITOR_MULTILINE: &[usize] = &[1];
 const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
 
-pub fn open_config_editor(values: Vec<String>) -> FieldDialog<'static> {
+pub fn open_config_editor(
+    values: Vec<String>,
+    locked_fields: Vec<usize>,
+) -> FieldDialog<'static> {
     FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
         .with_boolean_fields(CONFIG_BOOLEAN_FIELDS)
+        .with_locked_fields(locked_fields)
 }
 
 pub fn open_persona_editor(values: Vec<String>) -> FieldDialog<'static> {
@@ -180,6 +184,7 @@ pub struct FieldDialog<'a> {
     placeholder: Option<(&'static str, &'static [usize])>,
     boolean_fields: &'static [usize],
     pub hidden_fields: Vec<usize>,
+    locked_fields: Vec<usize>,
 }
 
 impl<'a> FieldDialog<'a> {
@@ -210,6 +215,7 @@ impl<'a> FieldDialog<'a> {
             placeholder: None,
             boolean_fields: &[],
             hidden_fields: Vec::new(),
+            locked_fields: Vec::new(),
         }
     }
 
@@ -221,6 +227,15 @@ impl<'a> FieldDialog<'a> {
     fn with_boolean_fields(mut self, fields: &'static [usize]) -> Self {
         self.boolean_fields = fields;
         self
+    }
+
+    pub(in crate::tui) fn with_locked_fields(mut self, fields: Vec<usize>) -> Self {
+        self.locked_fields = fields;
+        self
+    }
+
+    fn is_locked(&self, index: usize) -> bool {
+        self.locked_fields.contains(&index)
     }
 
     fn is_boolean(&self, index: usize) -> bool {
@@ -289,7 +304,11 @@ impl<'a> FieldDialog<'a> {
             let is_selected = i == self.selected;
             let cursor = if is_selected && self.editing { "_" } else { "" };
 
-            let label_style = if is_selected {
+            let is_locked = self.is_locked(i);
+
+            let label_style = if is_locked {
+                Style::default().fg(Color::Red)
+            } else if is_selected {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -297,7 +316,9 @@ impl<'a> FieldDialog<'a> {
                 Style::default().fg(Color::DarkGray)
             };
 
-            let value_style = if is_selected {
+            let value_style = if is_locked {
+                Style::default().fg(Color::Red)
+            } else if is_selected {
                 Style::default().fg(Color::Cyan)
             } else {
                 Style::default()
@@ -443,7 +464,9 @@ impl<'a> FieldDialog<'a> {
                 }
             },
             KeyCode::Enter => {
-                if self.is_boolean(self.selected) {
+                if self.is_locked(self.selected) {
+                    // locked by CLI flag, no editing
+                } else if self.is_boolean(self.selected) {
                     self.toggle_boolean();
                 } else if self.is_multiline(self.selected) {
                     self.open_multiline_editor();

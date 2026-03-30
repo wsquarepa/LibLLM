@@ -209,56 +209,171 @@ pub fn replace_template_vars(
         .collect()
 }
 
-pub fn load_config_fields(cfg: &crate::config::Config) -> Vec<String> {
+pub fn load_config_fields(
+    cfg: &crate::config::Config,
+    overrides: &crate::cli::CliOverrides,
+) -> Vec<String> {
     let defaults = crate::sampling::SamplingParams::default();
     vec![
-        cfg.api_url
+        overrides
+            .api_url
             .as_deref()
+            .or(cfg.api_url.as_deref())
             .unwrap_or(crate::config::Config::default().api_url())
             .to_owned(),
-        cfg.template.as_deref().unwrap_or("llama2").to_owned(),
-        cfg.sampling
+        overrides
+            .template
+            .as_deref()
+            .or(cfg.template.as_deref())
+            .unwrap_or("llama2")
+            .to_owned(),
+        overrides
+            .sampling
             .temperature
+            .or(cfg.sampling.temperature)
             .unwrap_or(defaults.temperature)
             .to_string(),
-        cfg.sampling.top_k.unwrap_or(defaults.top_k).to_string(),
-        cfg.sampling.top_p.unwrap_or(defaults.top_p).to_string(),
-        cfg.sampling.min_p.unwrap_or(defaults.min_p).to_string(),
-        cfg.sampling
+        overrides
+            .sampling
+            .top_k
+            .or(cfg.sampling.top_k)
+            .unwrap_or(defaults.top_k)
+            .to_string(),
+        overrides
+            .sampling
+            .top_p
+            .or(cfg.sampling.top_p)
+            .unwrap_or(defaults.top_p)
+            .to_string(),
+        overrides
+            .sampling
+            .min_p
+            .or(cfg.sampling.min_p)
+            .unwrap_or(defaults.min_p)
+            .to_string(),
+        overrides
+            .sampling
             .repeat_last_n
+            .or(cfg.sampling.repeat_last_n)
             .unwrap_or(defaults.repeat_last_n)
             .to_string(),
-        cfg.sampling
+        overrides
+            .sampling
             .repeat_penalty
+            .or(cfg.sampling.repeat_penalty)
             .unwrap_or(defaults.repeat_penalty)
             .to_string(),
-        cfg.sampling
+        overrides
+            .sampling
             .max_tokens
+            .or(cfg.sampling.max_tokens)
             .unwrap_or(defaults.max_tokens)
             .to_string(),
-        cfg.tls_skip_verify.to_string(),
+        if overrides.tls_skip_verify {
+            "true".to_owned()
+        } else {
+            cfg.tls_skip_verify.to_string()
+        },
         cfg.debug_log.to_string(),
     ]
 }
 
-pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
+pub fn config_locked_fields(overrides: &crate::cli::CliOverrides) -> Vec<usize> {
+    let mut locked = Vec::new();
+    if overrides.api_url.is_some() {
+        locked.push(0);
+    }
+    if overrides.template.is_some() {
+        locked.push(1);
+    }
+    if overrides.sampling.temperature.is_some() {
+        locked.push(2);
+    }
+    if overrides.sampling.top_k.is_some() {
+        locked.push(3);
+    }
+    if overrides.sampling.top_p.is_some() {
+        locked.push(4);
+    }
+    if overrides.sampling.min_p.is_some() {
+        locked.push(5);
+    }
+    if overrides.sampling.repeat_last_n.is_some() {
+        locked.push(6);
+    }
+    if overrides.sampling.repeat_penalty.is_some() {
+        locked.push(7);
+    }
+    if overrides.sampling.max_tokens.is_some() {
+        locked.push(8);
+    }
+    if overrides.tls_skip_verify {
+        locked.push(9);
+    }
+    locked
+}
+
+pub fn save_config_from_fields(
+    fields: &[String],
+    locked: &[usize],
+) -> anyhow::Result<()> {
     let existing = crate::config::load();
     let cfg = crate::config::Config {
-        api_url: non_empty(&fields[0]),
-        template: non_empty(&fields[1]),
+        api_url: if locked.contains(&0) {
+            existing.api_url
+        } else {
+            non_empty(&fields[0])
+        },
+        template: if locked.contains(&1) {
+            existing.template
+        } else {
+            non_empty(&fields[1])
+        },
         user_name: None,
         user_persona: None,
         worldbooks: existing.worldbooks,
         sampling: crate::sampling::SamplingOverrides {
-            temperature: fields[2].parse().ok(),
-            top_k: fields[3].parse().ok(),
-            top_p: fields[4].parse().ok(),
-            min_p: fields[5].parse().ok(),
-            repeat_last_n: fields[6].parse().ok(),
-            repeat_penalty: fields[7].parse().ok(),
-            max_tokens: fields[8].parse().ok(),
+            temperature: if locked.contains(&2) {
+                existing.sampling.temperature
+            } else {
+                fields[2].parse().ok()
+            },
+            top_k: if locked.contains(&3) {
+                existing.sampling.top_k
+            } else {
+                fields[3].parse().ok()
+            },
+            top_p: if locked.contains(&4) {
+                existing.sampling.top_p
+            } else {
+                fields[4].parse().ok()
+            },
+            min_p: if locked.contains(&5) {
+                existing.sampling.min_p
+            } else {
+                fields[5].parse().ok()
+            },
+            repeat_last_n: if locked.contains(&6) {
+                existing.sampling.repeat_last_n
+            } else {
+                fields[6].parse().ok()
+            },
+            repeat_penalty: if locked.contains(&7) {
+                existing.sampling.repeat_penalty
+            } else {
+                fields[7].parse().ok()
+            },
+            max_tokens: if locked.contains(&8) {
+                existing.sampling.max_tokens
+            } else {
+                fields[8].parse().ok()
+            },
         },
-        tls_skip_verify: fields[9].parse().unwrap_or(existing.tls_skip_verify),
+        tls_skip_verify: if locked.contains(&9) {
+            existing.tls_skip_verify
+        } else {
+            fields[9].parse().unwrap_or(existing.tls_skip_verify)
+        },
         debug_log: fields[10].parse().unwrap_or(existing.debug_log),
         default_persona: existing.default_persona,
     };
@@ -268,22 +383,31 @@ pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
 
 pub fn apply_config(app: &mut App) {
     let cfg = crate::config::load();
-    let template_name = cfg.template.as_deref().unwrap_or("llama2");
+    let template_name = app
+        .cli_overrides
+        .template
+        .as_deref()
+        .or(cfg.template.as_deref())
+        .unwrap_or("llama2");
     app.template = crate::prompt::Template::from_name(template_name);
     app.stop_tokens = app.template.stop_tokens();
-    app.sampling = crate::sampling::SamplingParams::default().with_overrides(&cfg.sampling);
+    app.sampling = crate::sampling::SamplingParams::default()
+        .with_overrides(&cfg.sampling)
+        .with_overrides(&app.cli_overrides.sampling);
 
-    let is_character = app.session.character.is_some();
-    let builtin_name = if is_character {
-        crate::system_prompt::BUILTIN_ROLEPLAY
-    } else {
-        crate::system_prompt::BUILTIN_ASSISTANT
-    };
-    app.session.system_prompt = crate::system_prompt::load_prompt_content(
-        &crate::config::system_prompts_dir(),
-        builtin_name,
-        app.save_mode.key(),
-    );
+    if app.cli_overrides.system_prompt.is_none() {
+        let is_character = app.session.character.is_some();
+        let builtin_name = if is_character {
+            crate::system_prompt::BUILTIN_ROLEPLAY
+        } else {
+            crate::system_prompt::BUILTIN_ASSISTANT
+        };
+        app.session.system_prompt = crate::system_prompt::load_prompt_content(
+            &crate::config::system_prompts_dir(),
+            builtin_name,
+            app.save_mode.key(),
+        );
+    }
 
     app.config = cfg;
     app.invalidate_worldbook_cache();

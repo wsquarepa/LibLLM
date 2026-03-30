@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, Borders};
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
+use crate::cli::CliOverrides;
 use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
 use crate::prompt::Template;
@@ -220,6 +221,7 @@ struct App<'a> {
     system_editor_roleplay: bool,
     system_editor_prompt_name: String,
     system_editor_return_focus: Focus,
+    system_editor_read_only: bool,
 
     system_prompt_list: Vec<String>,
     system_prompt_selected: usize,
@@ -256,6 +258,7 @@ struct App<'a> {
     persona_selected: usize,
     persona_editor_file_name: String,
     config: crate::config::Config,
+    cli_overrides: CliOverrides,
     worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
     autosave_debug: AutosaveDebugState,
@@ -422,12 +425,20 @@ impl App<'_> {
     }
 }
 
+pub fn build_effective_system_prompt_standalone(
+    session: &Session,
+    key: Option<&crate::crypto::DerivedKey>,
+) -> Option<String> {
+    business::build_effective_system_prompt(session, key)
+}
+
 pub async fn run(
     client: &ApiClient,
     session: &mut Session,
     save_mode: SaveMode,
     template: Template,
     sampling: SamplingParams,
+    cli_overrides: CliOverrides,
 ) -> Result<()> {
     let sidebar_sessions = crate::debug_log::timed_kv(
         "startup.phase",
@@ -539,6 +550,7 @@ pub async fn run(
         system_editor_roleplay: false,
         system_editor_prompt_name: String::new(),
         system_editor_return_focus: Focus::Input,
+        system_editor_read_only: false,
         system_prompt_list: Vec::new(),
         system_prompt_selected: 0,
         edit_editor: None,
@@ -570,6 +582,7 @@ pub async fn run(
         persona_selected: 0,
         persona_editor_file_name: String::new(),
         config,
+        cli_overrides,
         worldbook_cache: None,
         bg_tx: bg_tx.clone(),
         autosave_debug: AutosaveDebugState {
@@ -1209,8 +1222,10 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
         dialogs::FieldDialogAction::Close => {
             match kind {
                 DialogKind::Config => {
-                    let values = &app.config_dialog.as_ref().unwrap().values;
-                    match business::save_config_from_fields(values) {
+                    let dialog = app.config_dialog.as_ref().unwrap();
+                    let values = &dialog.values;
+                    let locked = business::config_locked_fields(&app.cli_overrides);
+                    match business::save_config_from_fields(values, &locked) {
                         Ok(()) => {
                             business::apply_config(app);
                             app.set_status("Configuration saved.".to_owned(), StatusLevel::Info);
@@ -1225,45 +1240,52 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     app.config_dialog = None;
                 }
                 DialogKind::PersonaEditor => {
-                    let values = &app.persona_editor.as_ref().unwrap().values;
-                    let file_name = app.persona_editor_file_name.clone();
-                    let persona = crate::persona::PersonaFile {
-                        name: values[0].clone(),
-                        persona: values[1].clone(),
-                    };
-                    let dir = crate::config::personas_dir();
-                    if !file_name.is_empty() && file_name != persona.name {
-                        if let Some(old_path) =
-                            crate::persona::resolve_persona_path(&dir, &file_name)
-                        {
-                            let _ = std::fs::remove_file(&old_path);
-                        }
-                    }
-                    match crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
-                        Ok(_) => {
-                            app.invalidate_chat_cache();
-                            if app.session.persona.as_deref() == Some(&file_name)
-                                || app.session.persona.as_deref() == Some(persona.name.as_str())
+                    let is_cli_locked = app.cli_overrides.persona.is_some();
+                    if is_cli_locked {
+                        app.persona_editor = None;
+                        app.focus = Focus::Input;
+                    } else {
+                        let values = &app.persona_editor.as_ref().unwrap().values;
+                        let file_name = app.persona_editor_file_name.clone();
+                        let persona = crate::persona::PersonaFile {
+                            name: values[0].clone(),
+                            persona: values[1].clone(),
+                        };
+                        let dir = crate::config::personas_dir();
+                        if !file_name.is_empty() && file_name != persona.name {
+                            if let Some(old_path) =
+                                crate::persona::resolve_persona_path(&dir, &file_name)
                             {
-                                app.active_persona_name = Some(persona.name.clone());
-                                app.active_persona_desc = Some(persona.persona.clone());
-                                app.session.persona = Some(persona.name.clone());
+                                let _ = std::fs::remove_file(&old_path);
                             }
-                            app.set_status(
-                                format!("Persona '{}' saved.", persona.name),
-                                StatusLevel::Info,
-                            );
                         }
-                        Err(e) => {
-                            app.set_status(
-                                format!("Failed to save persona: {e}"),
-                                StatusLevel::Error,
-                            );
+                        match crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+                            Ok(_) => {
+                                app.invalidate_chat_cache();
+                                if app.session.persona.as_deref() == Some(&file_name)
+                                    || app.session.persona.as_deref()
+                                        == Some(persona.name.as_str())
+                                {
+                                    app.active_persona_name = Some(persona.name.clone());
+                                    app.active_persona_desc = Some(persona.persona.clone());
+                                    app.session.persona = Some(persona.name.clone());
+                                }
+                                app.set_status(
+                                    format!("Persona '{}' saved.", persona.name),
+                                    StatusLevel::Info,
+                                );
+                            }
+                            Err(e) => {
+                                app.set_status(
+                                    format!("Failed to save persona: {e}"),
+                                    StatusLevel::Error,
+                                );
+                            }
                         }
+                        app.persona_editor = None;
+                        maintenance::reload_persona_picker(app);
+                        app.focus = Focus::PersonaDialog;
                     }
-                    app.persona_editor = None;
-                    maintenance::reload_persona_picker(app);
-                    app.focus = Focus::PersonaDialog;
                     return None;
                 }
                 DialogKind::CharacterEditor => {

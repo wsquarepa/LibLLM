@@ -75,8 +75,18 @@ async fn main() -> Result<()> {
         config::load,
     );
 
+    if args.character.is_some() != args.persona.is_some() {
+        anyhow::bail!(
+            "The -c (character) and -p (persona) flags must be used together for roleplay mode."
+        );
+    }
+
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
-    let tls_skip_verify = args.tls_skip_verify || cfg.tls_skip_verify;
+    let tls_skip_verify = if args.tls_skip_verify {
+        true
+    } else {
+        cfg.tls_skip_verify
+    };
     let client = ApiClient::new(api_url, tls_skip_verify);
 
     let template_name = args
@@ -96,40 +106,47 @@ async fn main() -> Result<()> {
         || resolve_session(&args),
     )?;
 
-    let content_key = save_mode.key();
-
     session.template = Some(template.name().to_owned());
 
-    if session.persona.is_none() && session.tree.head().is_none() {
-        session.persona = cfg.default_persona.clone();
-    }
+    {
+        let content_key = save_mode.key();
 
-    if session.system_prompt.is_none() {
-        session.system_prompt = args.system_prompt.or_else(|| {
-            system_prompt::load_prompt_content(
+        if let Some(ref persona_name) = args.persona {
+            session.persona = Some(persona_name.clone());
+        } else if session.persona.is_none() && session.tree.head().is_none() {
+            session.persona = cfg.default_persona.clone();
+        }
+
+        if let Some(ref sp) = args.system_prompt {
+            session.system_prompt = Some(sp.clone());
+        } else if session.system_prompt.is_none() {
+            session.system_prompt = system_prompt::load_prompt_content(
                 &config::system_prompts_dir(),
                 system_prompt::BUILTIN_ASSISTANT,
                 content_key,
-            )
-        });
+            );
+        }
+
+        if let Some(ref char_arg) = args.character {
+            let card = crate::debug_log::timed_result(
+                "startup.phase",
+                &[
+                    crate::debug_log::field("phase", "resolve_character"),
+                    crate::debug_log::field("character", char_arg),
+                ],
+                || resolve_character(char_arg, content_key),
+            )?;
+            session.system_prompt = Some(character::build_system_prompt(&card));
+            session.character = Some(card.name.clone());
+            if session.tree.head().is_none() && !card.first_mes.is_empty() {
+                session
+                    .tree
+                    .push(None, Message::new(Role::Assistant, card.first_mes.clone()));
+            }
+        }
     }
 
-    if let Some(ref char_arg) = args.character {
-        let card = crate::debug_log::timed_result(
-            "startup.phase",
-            &[
-                crate::debug_log::field("phase", "resolve_character"),
-                crate::debug_log::field("character", char_arg),
-            ],
-            || resolve_character(char_arg, content_key),
-        )?;
-        session.system_prompt = Some(character::build_system_prompt(&card));
-        session.character = Some(card.name.clone());
-        if session.tree.head().is_none() && !card.first_mes.is_empty() {
-            session
-                .tree
-                .push(None, Message::new(Role::Assistant, card.first_mes.clone()));
-        }
+    if args.character.is_some() {
         let char_path = config::sessions_dir().join(session::generate_session_name());
         save_mode.set_path(char_path);
     }
@@ -143,11 +160,14 @@ async fn main() -> Result<()> {
             message.clone()
         };
 
+        let effective_prompt =
+            tui::build_effective_system_prompt_standalone(&session, save_mode.key());
+
         let parent = session.tree.head();
         session.tree.push(parent, Message::new(Role::User, text));
 
         let branch_path = session.tree.branch_path();
-        let prompt_text = template.render(&branch_path, session.system_prompt.as_deref());
+        let prompt_text = template.render(&branch_path, effective_prompt.as_deref());
         let stop_tokens = template.stop_tokens();
         let mut stdout = io::stdout().lock();
         let response = client
@@ -172,7 +192,16 @@ async fn main() -> Result<()> {
             crate::debug_log::field("mode", "interactive"),
         ],
     );
-    tui::run(&client, &mut session, save_mode, template, sampling).await
+    let cli_overrides = args.cli_overrides();
+    tui::run(
+        &client,
+        &mut session,
+        save_mode,
+        template,
+        sampling,
+        cli_overrides,
+    )
+    .await
 }
 
 fn infer_run_mode(args: &Args) -> &'static str {
@@ -197,7 +226,6 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
         "message_from_stdin",
         args.message.as_deref() == Some("-"),
     ));
-    fields.push(crate::debug_log::field("session_explicit", args.session.is_some()));
     fields.push(crate::debug_log::field("no_encrypt", args.no_encrypt));
     fields.push(crate::debug_log::field(
         "has_passkey_arg",
@@ -210,6 +238,10 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
     fields.push(crate::debug_log::field(
         "has_character_arg",
         args.character.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "has_persona_arg",
+        args.persona.is_some(),
     ));
     fields.push(crate::debug_log::field(
         "has_api_url_arg",
@@ -244,11 +276,6 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
-    if let Some(ref path) = args.session {
-        let session = session::load(path)?;
-        return Ok((session, SaveMode::Plaintext(path.clone())));
-    }
-
     if args.message.is_some() {
         return Ok((session::Session::default(), SaveMode::None));
     }

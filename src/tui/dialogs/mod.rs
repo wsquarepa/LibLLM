@@ -95,8 +95,9 @@ const CONFIG_FIELDS: &[&str] = &[
     "Repeat Penalty",
     "Max Tokens",
     "TLS Skip Verify",
+    "Debug Logging",
 ];
-const CONFIG_BOOLEAN_FIELDS: &[usize] = &[9];
+const CONFIG_BOOLEAN_FIELDS: &[usize] = &[9, 10];
 
 const PERSONA_FIELDS: &[&str] = &["Name", "Persona"];
 const PERSONA_MULTILINE: &[usize] = &[1];

@@ -237,6 +237,7 @@ pub fn load_config_fields(cfg: &crate::config::Config) -> Vec<String> {
             .unwrap_or(defaults.max_tokens)
             .to_string(),
         cfg.tls_skip_verify.to_string(),
+        cfg.debug_log.to_string(),
     ]
 }
 
@@ -258,6 +259,7 @@ pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
             max_tokens: fields[8].parse().ok(),
         },
         tls_skip_verify: fields[9].parse().unwrap_or(existing.tls_skip_verify),
+        debug_log: fields[10].parse().unwrap_or(existing.debug_log),
     };
 
     crate::config::save(&cfg)

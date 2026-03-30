@@ -446,6 +446,13 @@ fn cmd_passkey(app: &mut App) {
 }
 
 fn cmd_report(app: &mut App) {
+    if !crate::config::load().debug_log {
+        app.set_status(
+            "Debug logging is disabled in config".to_owned(),
+            super::StatusLevel::Error,
+        );
+        return;
+    }
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
         Err(err) => {

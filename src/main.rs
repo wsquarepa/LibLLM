@@ -41,12 +41,17 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let _diagnostics = debug_log::init(
-        args.debug.as_deref(),
-        args.timings.as_deref(),
-        infer_run_mode(&args),
-        &build_run_fields(&args),
-    )?;
+    let debug_enabled = args.debug.is_some() || config::load().debug_log;
+    let _diagnostics = if debug_enabled {
+        Some(debug_log::init(
+            args.debug.as_deref(),
+            args.timings.as_deref(),
+            infer_run_mode(&args),
+            &build_run_fields(&args),
+        )?)
+    } else {
+        None
+    };
 
     crate::debug_log::timed_result(
         "startup.phase",

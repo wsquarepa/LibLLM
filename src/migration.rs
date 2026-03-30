@@ -40,16 +40,20 @@ pub fn migrate_personas_from_config(key: Option<&DerivedKey>) -> MigrationResult
         name.clone()
     };
 
-    let existing_path = crate::persona::resolve_persona_path(&dir, &file_name);
+    let existing_path = match crate::persona::resolve_persona_path(&dir, &file_name) {
+        Some(path) => path,
+        None => {
+            return MigrationResult {
+                changed_count: 0,
+                warnings: vec!["skipped persona migration: invalid persona name".to_owned()],
+            };
+        }
+    };
     let mut changed = 0;
 
     if !existing_path.exists() {
         let persona = crate::persona::PersonaFile {
-            name: if name.is_empty() {
-                file_name
-            } else {
-                name
-            },
+            name: if name.is_empty() { file_name } else { name },
             persona: cfg.user_persona.clone().unwrap_or_default(),
         };
         if crate::persona::save_persona(&persona, &dir, key).is_ok() {

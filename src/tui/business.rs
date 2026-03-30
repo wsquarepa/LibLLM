@@ -291,11 +291,12 @@ pub fn apply_config(app: &mut App) {
 
 pub fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona {
-        let path = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name);
-        if let Ok(pf) = crate::persona::load_persona(&path, app.save_mode.key()) {
-            app.active_persona_name = Some(pf.name);
-            app.active_persona_desc = Some(pf.persona);
-            return;
+        if let Some(path) = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name) {
+            if let Ok(pf) = crate::persona::load_persona(&path, app.save_mode.key()) {
+                app.active_persona_name = Some(pf.name);
+                app.active_persona_desc = Some(pf.persona);
+                return;
+            }
         }
     }
     app.active_persona_name = None;

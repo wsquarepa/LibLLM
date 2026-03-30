@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block};
-use crate::tui::{Action, App, Focus};
+use crate::tui::{Action, App, DeleteContext, Focus};
 
 enum WorldbookState {
     Off,
@@ -55,7 +55,7 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: cycle  Right: edit  Esc: close",
+        "  Up/Down: navigate  Enter: cycle  Right: edit  Del: delete  Esc: close",
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -117,6 +117,13 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
                 }
             }
+        }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let name = app.worldbook_list[app.worldbook_selected].clone();
+            app.delete_confirm_filename = name.clone();
+            app.delete_confirm_selected = 0;
+            app.delete_context = DeleteContext::Worldbook { name };
+            app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {
             app.focus = Focus::Input;

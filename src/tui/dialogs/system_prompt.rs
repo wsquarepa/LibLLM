@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block};
-use crate::tui::{Action, App, Focus};
+use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_system_prompt_dialog(
     f: &mut ratatui::Frame,
@@ -36,7 +36,7 @@ pub(in crate::tui) fn render_system_prompt_dialog(
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(Span::styled(
-        "  a: add new  Esc: cancel",
+        "  a: add new  Del: delete  Esc: cancel",
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -103,6 +103,22 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             app.system_prompt_list.push(new_name.clone());
             app.system_prompt_selected = app.system_prompt_list.len() - 1;
             open_prompt_editor(app, &new_name);
+        }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let name = app.system_prompt_list[app.system_prompt_selected].clone();
+            if name == crate::system_prompt::BUILTIN_ASSISTANT
+                || name == crate::system_prompt::BUILTIN_ROLEPLAY
+            {
+                app.set_status(
+                    "Cannot delete built-in prompts.".to_owned(),
+                    super::super::StatusLevel::Warning,
+                );
+            } else {
+                app.delete_confirm_filename = name.clone();
+                app.delete_confirm_selected = 0;
+                app.delete_context = DeleteContext::SystemPrompt { name };
+                app.focus = Focus::DeleteConfirmDialog;
+            }
         }
         KeyCode::Esc => {
             app.focus = Focus::Input;

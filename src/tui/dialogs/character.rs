@@ -7,7 +7,7 @@ use ratatui::widgets::Paragraph;
 use super::{clear_centered, dialog_block};
 use crate::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
-use crate::tui::{Action, App, Focus};
+use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
@@ -30,7 +30,7 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: select  Right: edit  Esc: cancel",
+        "  Up/Down: navigate  Enter: select  Right: edit  Del: delete  Esc: cancel",
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -120,6 +120,14 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
                 }
             }
+        }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let name = app.character_names[app.character_selected].clone();
+            let slug = app.character_slugs[app.character_selected].clone();
+            app.delete_confirm_filename = name;
+            app.delete_confirm_selected = 0;
+            app.delete_context = DeleteContext::Character { slug };
+            app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {
             app.focus = Focus::Input;

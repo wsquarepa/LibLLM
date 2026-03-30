@@ -60,6 +60,13 @@ enum Action {
     Quit,
 }
 
+enum DeleteContext {
+    Session,
+    Character { slug: String },
+    SystemPrompt { name: String },
+    Worldbook { name: String },
+}
+
 #[derive(Clone, Copy)]
 enum StatusLevel {
     Info,
@@ -243,6 +250,7 @@ struct App<'a> {
     branch_dialog_selected: usize,
     delete_confirm_selected: usize,
     delete_confirm_filename: String,
+    delete_context: DeleteContext,
     user_name: Option<String>,
     config: crate::config::Config,
     worldbook_cache: Option<WorldbookCache>,
@@ -571,6 +579,7 @@ pub async fn run(
         branch_dialog_selected: 0,
         delete_confirm_selected: 0,
         delete_confirm_filename: String::new(),
+        delete_context: DeleteContext::Session,
         user_name,
         config,
         worldbook_cache: None,

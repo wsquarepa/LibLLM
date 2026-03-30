@@ -212,7 +212,7 @@ where
     });
 }
 
-fn reload_character_picker(app: &mut App) {
+pub(in crate::tui) fn reload_character_picker(app: &mut App) {
     let selected_slug = app.character_slugs.get(app.character_selected).cloned();
     let cards = crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
 
@@ -228,7 +228,7 @@ fn reload_character_picker(app: &mut App) {
         .min(app.character_slugs.len().saturating_sub(1));
 }
 
-fn reload_worldbook_picker(app: &mut App) {
+pub(in crate::tui) fn reload_worldbook_picker(app: &mut App) {
     let selected_name = app.worldbook_list.get(app.worldbook_selected).cloned();
     let books =
         crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
@@ -242,4 +242,22 @@ fn reload_worldbook_picker(app: &mut App) {
         })
         .unwrap_or(0)
         .min(app.worldbook_list.len().saturating_sub(1));
+}
+
+pub(in crate::tui) fn reload_system_prompt_picker(app: &mut App) {
+    let selected_name = app.system_prompt_list.get(app.system_prompt_selected).cloned();
+    let prompts = crate::system_prompt::list_prompts(
+        &crate::config::system_prompts_dir(),
+        app.save_mode.key(),
+    );
+
+    app.system_prompt_list = prompts.into_iter().map(|p| p.name).collect();
+    app.system_prompt_selected = selected_name
+        .and_then(|name| {
+            app.system_prompt_list
+                .iter()
+                .position(|existing| existing == &name)
+        })
+        .unwrap_or(0)
+        .min(app.system_prompt_list.len().saturating_sub(1));
 }

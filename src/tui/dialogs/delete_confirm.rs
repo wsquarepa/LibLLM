@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block};
-use crate::tui::{Action, App, Focus, business};
+use crate::tui::{Action, App, DeleteContext, Focus, business, maintenance};
 
 pub(in crate::tui) enum ConfirmResult {
     Confirmed,
@@ -98,11 +98,34 @@ pub(in crate::tui) fn render_delete_confirm_dialog(f: &mut ratatui::Frame, app: 
 pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match handle_confirm_key(key, &mut app.delete_confirm_selected) {
         ConfirmResult::Confirmed => {
-            delete_selected_session(app);
-            app.focus = Focus::Sidebar;
+            let context = std::mem::replace(&mut app.delete_context, DeleteContext::Session);
+            match context {
+                DeleteContext::Session => {
+                    delete_selected_session(app);
+                    app.focus = Focus::Sidebar;
+                }
+                DeleteContext::Character { slug } => {
+                    delete_character(app, &slug);
+                    app.focus = Focus::CharacterDialog;
+                }
+                DeleteContext::SystemPrompt { name } => {
+                    delete_system_prompt(app, &name);
+                    app.focus = Focus::SystemPromptDialog;
+                }
+                DeleteContext::Worldbook { name } => {
+                    delete_worldbook(app, &name);
+                    app.focus = Focus::WorldbookDialog;
+                }
+            }
         }
         ConfirmResult::Cancelled => {
-            app.focus = Focus::Sidebar;
+            let context = std::mem::replace(&mut app.delete_context, DeleteContext::Session);
+            app.focus = match context {
+                DeleteContext::Session => Focus::Sidebar,
+                DeleteContext::Character { .. } => Focus::CharacterDialog,
+                DeleteContext::SystemPrompt { .. } => Focus::SystemPromptDialog,
+                DeleteContext::Worldbook { .. } => Focus::WorldbookDialog,
+            };
         }
         ConfirmResult::Pending => {}
     }
@@ -146,6 +169,73 @@ fn delete_selected_session(app: &mut App) {
     business::refresh_sidebar(app);
     app.set_status(
         format!("Deleted: {filename}"),
+        super::super::StatusLevel::Info,
+    );
+}
+
+fn delete_character(app: &mut App, slug: &str) {
+    let path = crate::character::resolve_card_path(&crate::config::characters_dir(), slug);
+
+    if let Err(e) = std::fs::remove_file(&path) {
+        app.set_status(
+            format!("Error deleting character: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+    crate::index::warn_if_save_fails(
+        crate::index::remove_character(&path),
+        "failed to remove character index entry",
+    );
+
+    maintenance::reload_character_picker(app);
+    app.set_status(
+        format!("Deleted character: {slug}"),
+        super::super::StatusLevel::Info,
+    );
+}
+
+fn delete_system_prompt(app: &mut App, name: &str) {
+    let path = crate::system_prompt::resolve_prompt_path(&crate::config::system_prompts_dir(), name);
+
+    if let Err(e) = std::fs::remove_file(&path) {
+        app.set_status(
+            format!("Error deleting prompt: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+
+    maintenance::reload_system_prompt_picker(app);
+    app.set_status(
+        format!("Deleted prompt: {name}"),
+        super::super::StatusLevel::Info,
+    );
+}
+
+fn delete_worldbook(app: &mut App, name: &str) {
+    let path = crate::worldinfo::resolve_worldbook_path(&crate::config::worldinfo_dir(), name);
+
+    if let Err(e) = std::fs::remove_file(&path) {
+        app.set_status(
+            format!("Error deleting worldbook: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+    crate::index::warn_if_save_fails(
+        crate::index::remove_worldbook(&path),
+        "failed to remove worldbook index entry",
+    );
+
+    app.config.worldbooks.retain(|n| n != name);
+    app.session.worldbooks.retain(|n| n != name);
+    let _ = crate::config::save(&app.config);
+    app.invalidate_worldbook_cache();
+
+    maintenance::reload_worldbook_picker(app);
+    app.set_status(
+        format!("Deleted worldbook: {name}"),
         super::super::StatusLevel::Info,
     );
 }

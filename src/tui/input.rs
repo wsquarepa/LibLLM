@@ -309,6 +309,7 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             }
             app.delete_confirm_filename = entry.filename.clone();
             app.delete_confirm_selected = 0;
+            app.delete_context = super::DeleteContext::Session;
             app.focus = super::Focus::DeleteConfirmDialog;
             None
         }

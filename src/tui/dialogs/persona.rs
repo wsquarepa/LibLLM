@@ -93,6 +93,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(
                     app.invalidate_chat_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
+                    app.config.default_persona = Some(file_name.clone());
                     let mut cfg = crate::config::load();
                     cfg.default_persona = Some(file_name.clone());
                     if let Err(e) = crate::config::save(&cfg) {

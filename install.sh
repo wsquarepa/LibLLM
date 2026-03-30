@@ -14,6 +14,7 @@ main() {
     detect_platform
     resolve_install_dir
     download_binary
+    verify_binary
     install_binary
     print_success
 }
@@ -94,12 +95,20 @@ download_binary() {
     ASSET_API_URL=$(grep -B3 "\"name\": *\"${ASSET_NAME}\"" "$RELEASE_JSON" \
         | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
         | head -1)
+    ASSET_DIGEST=$(grep -A20 "\"name\": *\"${ASSET_NAME}\"" "$RELEASE_JSON" \
+        | grep -m1 -o '"digest": *"sha256:[0-9a-fA-F]\{64\}"' \
+        | sed 's/.*"sha256:\([0-9a-fA-F]\{64\}\)"/\1/')
 
     rm -f "$RELEASE_JSON"
 
     if [ -z "$ASSET_API_URL" ]; then
         echo "Error: no release asset found for ${ASSET_NAME}." >&2
         echo "Available platforms can be checked at: https://github.com/${REPO}/releases/tag/${TAG}" >&2
+        exit 1
+    fi
+    if [ -z "$ASSET_DIGEST" ]; then
+        echo "Error: no sha256 digest found for ${ASSET_NAME}." >&2
+        echo "Refusing to install an unverified binary." >&2
         exit 1
     fi
 
@@ -112,6 +121,26 @@ download_binary() {
         curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$ASSET_API_URL"
     else
         wget -q --header="Accept: application/octet-stream" ${AUTH:+--header="$AUTH"} -O "$TMPFILE" "$ASSET_API_URL"
+    fi
+}
+
+verify_binary() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL_DIGEST=$(sha256sum "$TMPFILE" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        ACTUAL_DIGEST=$(shasum -a 256 "$TMPFILE" | awk '{print $1}')
+    elif command -v openssl >/dev/null 2>&1; then
+        ACTUAL_DIGEST=$(openssl dgst -sha256 "$TMPFILE" | awk '{print $NF}')
+    else
+        echo "Error: sha256sum, shasum, or openssl is required to verify the download." >&2
+        exit 1
+    fi
+
+    if [ "$ACTUAL_DIGEST" != "$ASSET_DIGEST" ]; then
+        echo "Error: checksum verification failed for ${ASSET_NAME}." >&2
+        echo "Expected: $ASSET_DIGEST" >&2
+        echo "Actual:   $ACTUAL_DIGEST" >&2
+        exit 1
     fi
 }
 

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use serde::Deserialize;
 
 const REPO: &str = "wsquarepa/LibLLM";
@@ -43,6 +44,7 @@ struct Release {
 struct Asset {
     name: String,
     url: String,
+    digest: Option<String>,
 }
 
 fn github_token() -> Option<String> {
@@ -87,6 +89,15 @@ fn parse_release_hash(body: &str) -> Option<&str> {
 
 fn current_exe_path() -> Result<PathBuf> {
     std::env::current_exe().context("failed to determine current executable path")
+}
+
+fn parse_sha256_digest(digest: &str) -> Option<&str> {
+    let hash = digest.strip_prefix("sha256:")?;
+    if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(hash)
+    } else {
+        None
+    }
 }
 
 pub async fn run() -> Result<()> {
@@ -155,6 +166,21 @@ pub async fn run() -> Result<()> {
         .bytes()
         .await
         .context("failed to read download body")?;
+
+    let expected_hash = asset
+        .digest
+        .as_deref()
+        .and_then(parse_sha256_digest)
+        .context("release asset is missing a valid sha256 digest")?;
+    let actual_hash: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    if actual_hash != expected_hash {
+        anyhow::bail!(
+            "checksum verification failed for {expected_name}: expected {expected_hash}, got {actual_hash}"
+        );
+    }
 
     let exe_path = current_exe_path()?;
     let tmp_path = exe_path.with_extension("tmp");

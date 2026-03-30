@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use serde::Deserialize;
 
 const REPO: &str = "wsquarepa/LibLLM";
@@ -89,6 +90,19 @@ fn current_exe_path() -> Result<PathBuf> {
     std::env::current_exe().context("failed to determine current executable path")
 }
 
+fn parse_sha256_sums(contents: &str, expected_name: &str) -> Option<String> {
+    contents.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        let name = parts.next()?.trim_start_matches('*');
+        if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) && name == expected_name {
+            Some(hash.to_ascii_lowercase())
+        } else {
+            None
+        }
+    })
+}
+
 pub async fn run() -> Result<()> {
     let client = build_client()?;
 
@@ -129,6 +143,11 @@ pub async fn run() -> Result<()> {
         .context(format!(
             "no asset found for this platform ({TARGET}) in the nightly release"
         ))?;
+    let checksums = release
+        .assets
+        .iter()
+        .find(|a| a.name == "SHA256SUMS")
+        .context("nightly release is missing SHA256SUMS")?;
 
     if let Some(remote_hash) = parse_release_hash(&release.body) {
         let current_hash = env!("LIBLLM_COMMIT", "unknown");
@@ -155,6 +174,32 @@ pub async fn run() -> Result<()> {
         .bytes()
         .await
         .context("failed to read download body")?;
+
+    let checksums_resp = client
+        .get(&checksums.url)
+        .header(reqwest::header::ACCEPT, "application/octet-stream")
+        .send()
+        .await
+        .context("failed to download SHA256SUMS")?;
+    if !checksums_resp.status().is_success() {
+        let status = checksums_resp.status();
+        anyhow::bail!("failed to download SHA256SUMS with status {status}");
+    }
+    let checksums_text = checksums_resp
+        .text()
+        .await
+        .context("failed to read SHA256SUMS body")?;
+    let expected_hash = parse_sha256_sums(&checksums_text, &expected_name)
+        .context("SHA256SUMS does not contain a valid hash for this platform asset")?;
+    let actual_hash: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    if actual_hash != expected_hash {
+        anyhow::bail!(
+            "checksum verification failed for {expected_name}: expected {expected_hash}, got {actual_hash}"
+        );
+    }
 
     let exe_path = current_exe_path()?;
     let tmp_path = exe_path.with_extension("tmp");

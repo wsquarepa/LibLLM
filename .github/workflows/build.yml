@@ -95,6 +95,11 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum libllm-* > SHA256SUMS
+
       - name: Create nightly release
         env:
           GH_TOKEN: ${{ github.token }}

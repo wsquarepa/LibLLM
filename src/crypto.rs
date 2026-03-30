@@ -245,6 +245,16 @@ pub fn re_encrypt_directory(
     old_key: &DerivedKey,
     new_key: &DerivedKey,
 ) -> Vec<String> {
+    re_encrypt_directory_excluding(dir, extensions, old_key, new_key, None)
+}
+
+pub fn re_encrypt_directory_excluding(
+    dir: &Path,
+    extensions: &[&str],
+    old_key: &DerivedKey,
+    new_key: &DerivedKey,
+    exclude: Option<&Path>,
+) -> Vec<String> {
     let mut warnings = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -255,6 +265,9 @@ pub fn re_encrypt_directory(
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        if exclude.is_some_and(|ex| ex == path) {
+            continue;
+        }
         let matches = path
             .extension()
             .and_then(|ext| ext.to_str())

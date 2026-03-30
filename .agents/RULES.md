@@ -1,6 +1,5 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# RULES.md
+This file contains details to **any programming agent** about what this repository is and what code style guidelines to follow.
 
 ## What This Is
 

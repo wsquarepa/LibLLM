@@ -310,7 +310,7 @@ pub fn new_chat_entry() -> SessionEntry {
         filename: "+ New Chat".to_owned(),
         display_name: "+ New Chat".to_owned(),
         message_count: None,
-        first_message: None,
+        last_assistant_preview: None,
         sidebar_label: "+ New Chat".to_owned(),
         sidebar_preview: None,
         is_new_chat: true,
@@ -351,7 +351,7 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
             .map(|n| format!(" ({n})"))
             .unwrap_or_default();
         entry.sidebar_label = format!("[{idx}] {}{count_str}", entry.display_name);
-        entry.sidebar_preview = entry.first_message.as_deref().map(truncate_preview);
+        entry.sidebar_preview = entry.last_assistant_preview.as_deref().map(truncate_preview);
     }
 }
 
@@ -369,8 +369,8 @@ pub fn refresh_sidebar(app: &mut App) {
             if cached.message_count.is_some() {
                 entry.message_count = cached.message_count;
             }
-            if cached.first_message.is_some() {
-                entry.first_message.clone_from(&cached.first_message);
+            if cached.last_assistant_preview.is_some() {
+                entry.last_assistant_preview.clone_from(&cached.last_assistant_preview);
             }
         }
     }
@@ -383,11 +383,11 @@ pub fn refresh_sidebar(app: &mut App) {
                 current_entry.display_name.clone_from(character);
             }
             current_entry.message_count = Some(app.session.tree.node_count());
-            if current_entry.first_message.is_none() {
-                current_entry.first_message = app
+            if current_entry.last_assistant_preview.is_none() {
+                current_entry.last_assistant_preview = app
                     .session
                     .tree
-                    .current_first_user_preview()
+                    .current_last_assistant_preview()
                     .map(str::to_owned);
             }
         }
@@ -462,7 +462,7 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
             filename,
             display_name: "Assistant".to_owned(),
             message_count: None,
-            first_message: None,
+            last_assistant_preview: None,
             sidebar_label: String::new(),
             sidebar_preview: None,
             is_new_chat: false,

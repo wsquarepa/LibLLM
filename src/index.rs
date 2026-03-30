@@ -26,8 +26,8 @@ pub struct SessionIndexEntry {
     pub stamp: FileStamp,
     pub display_name: String,
     pub message_count: usize,
-    #[serde(default)]
-    pub first_user_preview: Option<String>,
+    #[serde(default, alias = "first_user_preview")]
+    pub last_assistant_preview: Option<String>,
     pub storage_mode: SessionStorageMode,
 }
 
@@ -271,7 +271,7 @@ pub fn upsert_session(
     stamp: FileStamp,
     display_name: String,
     message_count: usize,
-    first_user_preview: Option<String>,
+    last_assistant_preview: Option<String>,
     storage_mode: SessionStorageMode,
     key: Option<&DerivedKey>,
 ) -> Result<()> {
@@ -286,7 +286,7 @@ pub fn upsert_session(
             stamp,
             display_name,
             message_count,
-            first_user_preview,
+            last_assistant_preview,
             storage_mode,
         },
     );

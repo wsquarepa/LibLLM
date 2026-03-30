@@ -54,7 +54,7 @@ pub struct SessionEntry {
     pub filename: String,
     pub display_name: String,
     pub message_count: Option<usize>,
-    pub first_message: Option<String>,
+    pub last_assistant_preview: Option<String>,
     pub sidebar_label: String,
     pub sidebar_preview: Option<String>,
     pub is_new_chat: bool,
@@ -63,7 +63,7 @@ pub struct SessionEntry {
 pub struct SessionMetadata {
     pub character: Option<String>,
     pub message_count: usize,
-    pub first_message: Option<String>,
+    pub last_assistant_preview: Option<String>,
 }
 
 fn session_display_name(character: Option<&str>) -> String {
@@ -80,7 +80,7 @@ fn placeholder_session_entry(path: PathBuf) -> SessionEntry {
         filename,
         display_name: "Assistant".to_owned(),
         message_count: None,
-        first_message: None,
+        last_assistant_preview: None,
         sidebar_label: String::new(),
         sidebar_preview: None,
         is_new_chat: false,
@@ -104,7 +104,7 @@ pub fn apply_indexed_session_metadata(
 
     entry.display_name.clone_from(&indexed.display_name);
     entry.message_count = Some(indexed.message_count);
-    entry.first_message.clone_from(&indexed.first_user_preview);
+    entry.last_assistant_preview.clone_from(&indexed.last_assistant_preview);
     Ok(true)
 }
 
@@ -136,10 +136,7 @@ fn persist_session_index(
             stamp,
             session_display_name(metadata.character.as_deref()),
             metadata.message_count,
-            match storage_mode {
-                SessionStorageMode::Encrypted => None,
-                _ => metadata.first_message.clone(),
-            },
+            metadata.last_assistant_preview.clone(),
             storage_mode,
             key,
         ),
@@ -156,7 +153,7 @@ pub fn persist_saved_session_index(
     let metadata = SessionMetadata {
         character: session.character.clone(),
         message_count: session.tree.node_count(),
-        first_message: session.tree.current_first_user_preview().map(str::to_owned),
+        last_assistant_preview: session.tree.current_last_assistant_preview().map(str::to_owned),
     };
     persist_session_index(path, &metadata, storage_mode, key);
 }
@@ -240,7 +237,7 @@ pub struct MessageTree {
     #[serde(skip)]
     current_deepest_branch_info: Option<(usize, usize)>,
     #[serde(skip)]
-    current_first_user_preview: Option<String>,
+    current_last_assistant_preview: Option<String>,
     #[cfg(debug_assertions)]
     #[serde(skip)]
     cache_debug: CacheDebugState,
@@ -255,7 +252,7 @@ impl MessageTree {
             current_branch_ids: Vec::new(),
             current_user_branch_ids: Vec::new(),
             current_deepest_branch_info: None,
-            current_first_user_preview: None,
+            current_last_assistant_preview: None,
             #[cfg(debug_assertions)]
             cache_debug: CacheDebugState::default(),
         }
@@ -307,7 +304,7 @@ impl MessageTree {
         self.current_branch_ids.clear();
         self.current_user_branch_ids.clear();
         self.current_deepest_branch_info = None;
-        self.current_first_user_preview = None;
+        self.current_last_assistant_preview = None;
 
         let Some(head) = self.head else {
             return;
@@ -328,9 +325,9 @@ impl MessageTree {
             let node = &self.nodes[id];
             if node.message.role == Role::User {
                 self.current_user_branch_ids.push(id);
-                if self.current_first_user_preview.is_none() {
-                    self.current_first_user_preview = Some(node.message.content.clone());
-                }
+            }
+            if node.message.role == Role::Assistant {
+                self.current_last_assistant_preview = Some(node.message.content.clone());
             }
         }
 
@@ -493,13 +490,13 @@ impl MessageTree {
         self.current_deepest_branch_info
     }
 
-    pub fn current_first_user_preview(&self) -> Option<&str> {
+    pub fn current_last_assistant_preview(&self) -> Option<&str> {
         #[cfg(debug_assertions)]
         self.bump_cache_hit(
-            "current_first_user_preview",
+            "current_last_assistant_preview",
             &self.cache_debug.first_preview_hits,
         );
-        self.current_first_user_preview.as_deref()
+        self.current_last_assistant_preview.as_deref()
     }
 
     pub fn sibling_info(&self, id: NodeId) -> (usize, usize) {
@@ -1070,11 +1067,11 @@ pub fn list_session_paths(dir: &Path, key: Option<&DerivedKey>) -> Result<Vec<Se
 pub fn load_metadata(path: &Path, key: &DerivedKey) -> Result<SessionMetadata> {
     let session = load_encrypted(path, key)
         .with_context(|| format!("failed to load session metadata from {}", path.display()))?;
-    let first_message = session.tree.current_first_user_preview().map(str::to_owned);
+    let last_assistant_preview = session.tree.current_last_assistant_preview().map(str::to_owned);
     Ok(SessionMetadata {
         character: session.character,
         message_count: session.tree.node_count(),
-        first_message,
+        last_assistant_preview,
     })
 }
 
@@ -1324,7 +1321,7 @@ mod tests {
         assert!(session.tree.current_user_branch_ids().is_empty());
         assert!(session.tree.preferred_child.is_empty());
         assert_eq!(session.tree.current_deepest_branch_info(), None);
-        assert_eq!(session.tree.current_first_user_preview(), None);
+        assert_eq!(session.tree.current_last_assistant_preview(), None);
     }
 
     #[test]

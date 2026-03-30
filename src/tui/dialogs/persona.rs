@@ -13,7 +13,7 @@ pub(in crate::tui) fn render_persona_dialog(
     area: Rect,
 ) {
     let count = app.persona_list.len();
-    let dialog = clear_centered(f, 50, count as u16 + 6, area);
+    let dialog = clear_centered(f, 50, count as u16 + 7, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 

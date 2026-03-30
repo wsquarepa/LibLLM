@@ -25,7 +25,7 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let dialog = clear_centered(f, 50, count as u16 + 6, area);
+    let dialog = clear_centered(f, 50, count as u16 + 7, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 

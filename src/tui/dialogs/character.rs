@@ -11,7 +11,7 @@ use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
-    let dialog = clear_centered(f, 50, count as u16 + 5, area);
+    let dialog = clear_centered(f, 50, count as u16 + 6, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 

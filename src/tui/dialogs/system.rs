@@ -8,8 +8,8 @@ use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App};
 
 pub(in crate::tui) fn render_system_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let width = (area.width as f32 * 0.7) as u16;
-    let height = (area.height as f32 * 0.6) as u16;
+    let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
+    let height = (area.height as f32 * super::DIALOG_HEIGHT_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
 
     let title = if app.system_editor_roleplay {

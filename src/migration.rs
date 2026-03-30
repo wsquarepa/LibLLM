@@ -57,7 +57,9 @@ pub fn migrate_personas_from_config(key: Option<&DerivedKey>) -> MigrationResult
         }
     }
 
-    let _ = crate::config::save(&cfg);
+    if let Err(e) = crate::config::save(&cfg) {
+        eprintln!("Warning: failed to save config during persona migration: {e}");
+    }
 
     MigrationResult {
         changed_count: changed,

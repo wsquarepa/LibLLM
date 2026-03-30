@@ -9,7 +9,12 @@ use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.branch_dialog_items.len();
-    let dialog = clear_centered(f, (area.width as f32 * 0.7) as u16, count as u16 + 4, area);
+    let dialog = clear_centered(
+        f,
+        (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16,
+        count as u16 + super::FIELD_DIALOG_PADDING_ROWS,
+        area,
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -47,11 +52,10 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
 
     match key.code {
         KeyCode::Up => {
-            app.branch_dialog_selected = app.branch_dialog_selected.saturating_sub(1);
+            super::move_selection_up(&mut app.branch_dialog_selected);
         }
         KeyCode::Down => {
-            app.branch_dialog_selected =
-                (app.branch_dialog_selected + 1).min(app.branch_dialog_items.len() - 1);
+            super::move_selection_down(&mut app.branch_dialog_selected, app.branch_dialog_items.len());
         }
         KeyCode::Enter => {
             let (node_id, _) = app.branch_dialog_items[app.branch_dialog_selected];

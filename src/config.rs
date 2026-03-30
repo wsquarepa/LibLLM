@@ -113,7 +113,9 @@ pub(crate) fn migrate_config() {
     };
 
     if let Some(parent) = new_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("Warning: failed to create config directory: {e}");
+        }
     }
 
     if std::fs::rename(&old_path, &new_path).is_ok() {

@@ -232,197 +232,218 @@ pub fn handle_slash_command(
 ) {
     let cmd = crate::commands::resolve_alias(cmd);
     match cmd {
-        "/quit" => {
-            app.should_quit = true;
-        }
-        "/clear" => {
-            if !app.flush_session_before_transition() {
-                return;
-            }
-            app.session.tree.clear();
-            app.session.system_prompt = None;
-            app.session.character = None;
-            app.session.worldbooks.clear();
-            app.session.persona = None;
-            app.active_persona_name = None;
-            app.active_persona_desc = None;
-            app.discard_pending_session_save();
-            app.invalidate_chat_cache();
-            app.invalidate_worldbook_cache();
-            app.chat_scroll = 0;
-            app.auto_scroll = true;
-            let new_name = session::generate_session_name();
-            let new_path = crate::config::sessions_dir().join(&new_name);
-            app.save_mode.set_path(new_path);
-            refresh_sidebar(app);
-        }
-        "/retry" => {
-            app.nav_cursor = None;
-            app.session.retreat_trailing_assistant();
-
-            let last_user_content = app
-                .session
-                .tree
-                .head()
-                .and_then(|id| app.session.tree.node(id))
-                .filter(|n| n.message.role == Role::User)
-                .map(|n| n.message.content.clone());
-
-            match last_user_content {
-                Some(content) => {
-                    app.session.tree.retreat_head();
-                    start_streaming(app, &content, sender);
-                }
-                None => {
-                    app.set_status(
-                        "No user message to retry.".to_owned(),
-                        super::StatusLevel::Warning,
-                    );
-                }
-            }
-        }
-        "/system" => {
-            let dir = crate::config::system_prompts_dir();
-            let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
-            if prompts.is_empty() {
-                app.set_status(
-                    "No system prompts found.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-            } else {
-                app.system_prompt_list =
-                    prompts.into_iter().map(|p| p.name).collect();
-                app.system_prompt_selected = 0;
-                app.focus = Focus::SystemPromptDialog;
-            }
-        }
-        "/config" => {
-            app.config_dialog =
-                Some(dialogs::open_config_editor(load_config_fields(&crate::config::load())));
-            app.focus = Focus::ConfigDialog;
-        }
-        "/branch" => {
-            let target = {
-                let path_ids = app.session.tree.current_branch_ids();
-                app.nav_cursor.or_else(|| {
-                    if path_ids.len() >= 2 {
-                        Some(path_ids[path_ids.len() - 2])
-                    } else {
-                        path_ids.last().copied()
-                    }
-                })
-            };
-
-            let Some(target_id) = target else {
-                app.set_status(
-                    "No messages to branch.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-                return;
-            };
-
-            let siblings = app.session.tree.siblings_of(target_id);
-            if siblings.len() <= 1 {
-                app.set_status(
-                    "No branches at this point.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-                return;
-            }
-
-            const BRANCH_PREVIEW_CHARS: usize = 60;
-            app.branch_dialog_items = siblings
-                .iter()
-                .map(|&sib_id| {
-                    let node = app.session.tree.node(sib_id).unwrap();
-                    let content = &node.message.content;
-                    let preview = if content.len() > BRANCH_PREVIEW_CHARS {
-                        let end = content[..BRANCH_PREVIEW_CHARS]
-                            .char_indices()
-                            .last()
-                            .map_or(0, |(i, c)| i + c.len_utf8());
-                        format!("{}...", &content[..end])
-                    } else {
-                        content.clone()
-                    };
-                    let preview = preview.replace('\n', " ");
-                    let label = format!("[{}] {}", node.message.role, preview);
-                    (sib_id, label)
-                })
-                .collect();
-
-            let current_idx = siblings.iter().position(|&s| s == target_id).unwrap_or(0);
-            app.branch_dialog_selected = current_idx;
-            app.focus = Focus::BranchDialog;
-        }
-        "/persona" => {
-            let personas = crate::persona::list_personas(
-                &crate::config::personas_dir(),
-                app.save_mode.key(),
-            );
-            app.persona_list = personas.into_iter().map(|p| p.name).collect();
-            app.persona_selected = 0;
-            app.focus = Focus::PersonaDialog;
-        }
-        "/worldbook" => {
-            let books = crate::worldinfo::list_worldbooks(
-                &crate::config::worldinfo_dir(),
-                app.save_mode.key(),
-            );
-            if books.is_empty() {
-                app.set_status(
-                    "No worldbooks found in worldinfo/ directory.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-            } else {
-                app.worldbook_list = books.into_iter().map(|b| b.name).collect();
-                app.worldbook_selected = 0;
-                app.focus = Focus::WorldbookDialog;
-            }
-        }
-        "/character" => {
-            let cards = crate::character::list_cards(
-                &crate::config::characters_dir(),
-                app.save_mode.key(),
-            );
-            if cards.is_empty() {
-                app.set_status(
-                    "No characters found. Drop a .png or .json file to import.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-            } else {
-                app.character_names = cards.iter().map(|c| c.name.clone()).collect();
-                app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
-                app.character_selected = 0;
-                app.focus = Focus::CharacterDialog;
-            }
-        }
-        "/passkey" => match &app.save_mode {
-            SaveMode::Encrypted { .. } => {
-                app.set_passkey_input.clear();
-                app.set_passkey_confirm.clear();
-                app.set_passkey_active_field = 0;
-                app.set_passkey_error.clear();
-                app.set_passkey_deriving = false;
-                app.set_passkey_is_initial = false;
-                app.focus = Focus::SetPasskeyDialog;
-            }
-            SaveMode::Plaintext(_) | SaveMode::None => {
-                app.set_status(
-                    "Encryption is disabled for this session.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-            }
-            SaveMode::PendingPasskey(_) => {
-                app.set_status(
-                    "Please unlock sessions first.".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-            }
-        },
+        "/quit" => cmd_quit(app),
+        "/clear" => cmd_clear(app),
+        "/retry" => cmd_retry(app, sender),
+        "/system" => cmd_system(app),
+        "/config" => cmd_config(app),
+        "/branch" => cmd_branch(app),
+        "/persona" => cmd_persona(app),
+        "/worldbook" => cmd_worldbook(app),
+        "/character" => cmd_character(app),
+        "/passkey" => cmd_passkey(app),
         _ => {
             app.set_status(
                 format!("Unknown command: {cmd}"),
+                super::StatusLevel::Warning,
+            );
+        }
+    }
+}
+
+fn cmd_quit(app: &mut App) {
+    app.should_quit = true;
+}
+
+fn cmd_clear(app: &mut App) {
+    if !app.flush_session_before_transition() {
+        return;
+    }
+    app.session.tree.clear();
+    app.session.system_prompt = None;
+    app.session.character = None;
+    app.session.worldbooks.clear();
+    app.session.persona = None;
+    app.active_persona_name = None;
+    app.active_persona_desc = None;
+    app.discard_pending_session_save();
+    app.invalidate_chat_cache();
+    app.invalidate_worldbook_cache();
+    app.chat_scroll = 0;
+    app.auto_scroll = true;
+    let new_name = session::generate_session_name();
+    let new_path = crate::config::sessions_dir().join(&new_name);
+    app.save_mode.set_path(new_path);
+    refresh_sidebar(app);
+}
+
+fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
+    app.nav_cursor = None;
+    app.session.retreat_trailing_assistant();
+
+    let last_user_content = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .filter(|n| n.message.role == Role::User)
+        .map(|n| n.message.content.clone());
+
+    match last_user_content {
+        Some(content) => {
+            app.session.tree.retreat_head();
+            start_streaming(app, &content, sender);
+        }
+        None => {
+            app.set_status(
+                "No user message to retry.".to_owned(),
+                super::StatusLevel::Warning,
+            );
+        }
+    }
+}
+
+fn cmd_system(app: &mut App) {
+    let dir = crate::config::system_prompts_dir();
+    let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+    if prompts.is_empty() {
+        app.set_status(
+            "No system prompts found.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+    } else {
+        app.system_prompt_list = prompts.into_iter().map(|p| p.name).collect();
+        app.system_prompt_selected = 0;
+        app.focus = Focus::SystemPromptDialog;
+    }
+}
+
+fn cmd_config(app: &mut App) {
+    app.config_dialog =
+        Some(dialogs::open_config_editor(load_config_fields(&crate::config::load())));
+    app.focus = Focus::ConfigDialog;
+}
+
+fn cmd_branch(app: &mut App) {
+    let target = {
+        let path_ids = app.session.tree.current_branch_ids();
+        app.nav_cursor.or_else(|| {
+            if path_ids.len() >= 2 {
+                Some(path_ids[path_ids.len() - 2])
+            } else {
+                path_ids.last().copied()
+            }
+        })
+    };
+
+    let Some(target_id) = target else {
+        app.set_status(
+            "No messages to branch.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+        return;
+    };
+
+    let siblings = app.session.tree.siblings_of(target_id);
+    if siblings.len() <= 1 {
+        app.set_status(
+            "No branches at this point.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+        return;
+    }
+
+    const BRANCH_PREVIEW_CHARS: usize = 60;
+    app.branch_dialog_items = siblings
+        .iter()
+        .map(|&sib_id| {
+            let node = app.session.tree.node(sib_id).unwrap();
+            let content = &node.message.content;
+            let preview = if content.len() > BRANCH_PREVIEW_CHARS {
+                let end = content[..BRANCH_PREVIEW_CHARS]
+                    .char_indices()
+                    .last()
+                    .map_or(0, |(i, c)| i + c.len_utf8());
+                format!("{}...", &content[..end])
+            } else {
+                content.clone()
+            };
+            let preview = preview.replace('\n', " ");
+            let label = format!("[{}] {}", node.message.role, preview);
+            (sib_id, label)
+        })
+        .collect();
+
+    let current_idx = siblings.iter().position(|&s| s == target_id).unwrap_or(0);
+    app.branch_dialog_selected = current_idx;
+    app.focus = Focus::BranchDialog;
+}
+
+fn cmd_persona(app: &mut App) {
+    let personas = crate::persona::list_personas(
+        &crate::config::personas_dir(),
+        app.save_mode.key(),
+    );
+    app.persona_list = personas.into_iter().map(|p| p.name).collect();
+    app.persona_selected = 0;
+    app.focus = Focus::PersonaDialog;
+}
+
+fn cmd_worldbook(app: &mut App) {
+    let books = crate::worldinfo::list_worldbooks(
+        &crate::config::worldinfo_dir(),
+        app.save_mode.key(),
+    );
+    if books.is_empty() {
+        app.set_status(
+            "No worldbooks found in worldinfo/ directory.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+    } else {
+        app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+        app.worldbook_selected = 0;
+        app.focus = Focus::WorldbookDialog;
+    }
+}
+
+fn cmd_character(app: &mut App) {
+    let cards = crate::character::list_cards(
+        &crate::config::characters_dir(),
+        app.save_mode.key(),
+    );
+    if cards.is_empty() {
+        app.set_status(
+            "No characters found. Drop a .png or .json file to import.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+    } else {
+        app.character_names = cards.iter().map(|c| c.name.clone()).collect();
+        app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+        app.character_selected = 0;
+        app.focus = Focus::CharacterDialog;
+    }
+}
+
+fn cmd_passkey(app: &mut App) {
+    match &app.save_mode {
+        SaveMode::Encrypted { .. } => {
+            app.set_passkey_input.clear();
+            app.set_passkey_confirm.clear();
+            app.set_passkey_active_field = 0;
+            app.set_passkey_error.clear();
+            app.set_passkey_deriving = false;
+            app.set_passkey_is_initial = false;
+            app.focus = Focus::SetPasskeyDialog;
+        }
+        SaveMode::Plaintext(_) | SaveMode::None => {
+            app.set_status(
+                "Encryption is disabled for this session.".to_owned(),
+                super::StatusLevel::Warning,
+            );
+        }
+        SaveMode::PendingPasskey(_) => {
+            app.set_status(
+                "Please unlock sessions first.".to_owned(),
                 super::StatusLevel::Warning,
             );
         }

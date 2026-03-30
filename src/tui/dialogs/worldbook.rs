@@ -25,7 +25,7 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let dialog = clear_centered(f, 50, count as u16 + 7, area);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -79,10 +79,10 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
     match key.code {
         KeyCode::Up => {
-            app.worldbook_selected = app.worldbook_selected.saturating_sub(1);
+            super::move_selection_up(&mut app.worldbook_selected);
         }
         KeyCode::Down => {
-            app.worldbook_selected = (app.worldbook_selected + 1).min(app.worldbook_list.len() - 1);
+            super::move_selection_down(&mut app.worldbook_selected, app.worldbook_list.len());
         }
         KeyCode::Enter | KeyCode::Char(' ') => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
@@ -97,12 +97,16 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.config.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
-                    let _ = crate::config::save(&app.config);
+                    if let Err(e) = crate::config::save(&app.config) {
+                        app.set_status(format!("Failed to save config: {e}"), super::super::StatusLevel::Error);
+                    }
                 }
                 WorldbookState::Global => {
                     app.config.worldbooks.retain(|n| n != &name);
                     app.invalidate_worldbook_cache();
-                    let _ = crate::config::save(&app.config);
+                    if let Err(e) = crate::config::save(&app.config) {
+                        app.set_status(format!("Failed to save config: {e}"), super::super::StatusLevel::Error);
+                    }
                 }
             }
         }
@@ -139,7 +143,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let dialog = clear_centered(f, 60, count as u16 + 7, area);
+    let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -214,11 +218,10 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
 
     match key.code {
         KeyCode::Up => {
-            app.worldbook_editor_selected = app.worldbook_editor_selected.saturating_sub(1);
+            super::move_selection_up(&mut app.worldbook_editor_selected);
         }
         KeyCode::Down => {
-            app.worldbook_editor_selected =
-                (app.worldbook_editor_selected + 1).min(app.worldbook_editor_entries.len() - 1);
+            super::move_selection_down(&mut app.worldbook_editor_selected, app.worldbook_editor_entries.len());
         }
         KeyCode::Right | KeyCode::Enter => {
             let idx = app.worldbook_editor_selected;
@@ -270,7 +273,11 @@ fn add_new_entry(app: &mut App) {
 }
 
 fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: bool) {
-    app.worldbook_entry_editor = Some(super::open_entry_editor(values, selective));
+    app.worldbook_entry_editor = Some(if selective {
+        super::open_entry_editor(values)
+    } else {
+        super::open_entry_editor_non_selective(values)
+    });
     app.worldbook_entry_editor_index = idx;
     app.focus = Focus::WorldbookEntryEditorDialog;
 }

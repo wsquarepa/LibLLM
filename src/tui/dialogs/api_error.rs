@@ -8,7 +8,7 @@ use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let dialog = clear_centered(f, 60, 8, area);
+    let dialog = clear_centered(f, super::API_ERROR_DIALOG_WIDTH, super::API_ERROR_DIALOG_HEIGHT, area);
 
     let lines = vec![
         Line::from(""),
@@ -47,7 +47,7 @@ pub(in crate::tui) fn handle_api_error_key(key: KeyEvent, app: &mut App) -> Opti
 }
 
 pub(in crate::tui) fn render_loading_dialog(f: &mut ratatui::Frame, area: Rect) {
-    let dialog = clear_centered(f, 40, 5, area);
+    let dialog = clear_centered(f, super::LOADING_DIALOG_WIDTH, super::LOADING_DIALOG_HEIGHT, area);
 
     let lines = vec![
         Line::from(""),

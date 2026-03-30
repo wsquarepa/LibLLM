@@ -138,7 +138,9 @@ pub fn migrate_from_config(dir: &Path, key: Option<&DerivedKey>) {
                     name: BUILTIN_ASSISTANT.to_owned(),
                     content: content.clone(),
                 };
-                let _ = save_prompt(&prompt, dir, key);
+                if let Err(e) = save_prompt(&prompt, dir, key) {
+                    eprintln!("Warning: failed to migrate system prompt: {e}");
+                }
             }
         }
         changed = true;
@@ -152,7 +154,9 @@ pub fn migrate_from_config(dir: &Path, key: Option<&DerivedKey>) {
                     name: BUILTIN_ROLEPLAY.to_owned(),
                     content: content.clone(),
                 };
-                let _ = save_prompt(&prompt, dir, key);
+                if let Err(e) = save_prompt(&prompt, dir, key) {
+                    eprintln!("Warning: failed to migrate system prompt: {e}");
+                }
             }
         }
         changed = true;
@@ -163,7 +167,9 @@ pub fn migrate_from_config(dir: &Path, key: Option<&DerivedKey>) {
         cleaned.remove("system_prompt");
         cleaned.remove("roleplay_system_prompt");
         if let Ok(toml_str) = toml::to_string_pretty(&cleaned) {
-            let _ = crate::crypto::write_atomic(&config_path, toml_str.as_bytes());
+            if let Err(e) = crate::crypto::write_atomic(&config_path, toml_str.as_bytes()) {
+                eprintln!("Warning: failed to update config after prompt migration: {e}");
+            }
         }
     }
 }

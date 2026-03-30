@@ -25,6 +25,33 @@ use super::render::{clear_centered, dialog_block};
 pub(in crate::tui) const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
 const MAX_IMPORT_NAME_LENGTH: usize = 64;
 
+pub(in crate::tui) fn generate_unique_name(
+    base: &str,
+    existing: &std::collections::HashSet<String>,
+) -> String {
+    if !existing.contains(base) {
+        return base.to_owned();
+    }
+    let mut i = 1u32;
+    loop {
+        let candidate = format!("{base}-{i}");
+        if !existing.contains(&candidate) {
+            return candidate;
+        }
+        i += 1;
+    }
+}
+
+pub(in crate::tui) fn move_selection_up(selected: &mut usize) {
+    *selected = selected.saturating_sub(1);
+}
+
+pub(in crate::tui) fn move_selection_down(selected: &mut usize, list_len: usize) {
+    if list_len > 0 {
+        *selected = (*selected + 1).min(list_len - 1);
+    }
+}
+
 pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
     let cleaned: String = raw
         .chars()
@@ -43,6 +70,19 @@ pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
 
 const MULTILINE_WIDTH_PERCENT: u16 = 70;
 const MULTILINE_HEIGHT_PERCENT: u16 = 60;
+
+const DIALOG_WIDTH_RATIO: f32 = 0.7;
+const DIALOG_HEIGHT_RATIO: f32 = 0.6;
+const LIST_DIALOG_WIDTH: u16 = 50;
+const LIST_DIALOG_SHORT_PADDING: u16 = 6;
+const LIST_DIALOG_TALL_PADDING: u16 = 7;
+const FIELD_DIALOG_DEFAULT_WIDTH: u16 = 60;
+const FIELD_DIALOG_PADDING_ROWS: u16 = 4;
+const FIELD_DIALOG_EDITOR_EXTRA: u16 = 8;
+const API_ERROR_DIALOG_WIDTH: u16 = 60;
+const API_ERROR_DIALOG_HEIGHT: u16 = 8;
+const LOADING_DIALOG_WIDTH: u16 = 40;
+const LOADING_DIALOG_HEIGHT: u16 = 5;
 
 const CONFIG_FIELDS: &[&str] = &[
     "API URL",
@@ -102,17 +142,19 @@ pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
     )
 }
 
-pub fn open_entry_editor(values: Vec<String>, selective: bool) -> FieldDialog<'static> {
-    let mut dialog = FieldDialog::new(
+pub fn open_entry_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
         " Edit Entry ",
         ENTRY_EDITOR_FIELDS,
         values,
         ENTRY_EDITOR_MULTILINE,
     )
-    .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS);
-    if !selective {
-        dialog.hidden_fields = vec![3];
-    }
+    .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS)
+}
+
+pub fn open_entry_editor_non_selective(values: Vec<String>) -> FieldDialog<'static> {
+    let mut dialog = open_entry_editor(values);
+    dialog.hidden_fields = vec![3];
     dialog
 }
 
@@ -187,8 +229,7 @@ impl<'a> FieldDialog<'a> {
     }
 
     pub fn render(&self, f: &mut ratatui::Frame, area: Rect) {
-        let default_width = 60;
-        let default_height = self.labels.len() as u16 + 4;
+        let default_height = self.labels.len() as u16 + FIELD_DIALOG_PADDING_ROWS;
         let (w, h) = match (self.width, self.height) {
             (Some(wp), Some(hp)) => {
                 let w = (area.width as f32 * wp as f32 / 100.0) as u16;
@@ -196,8 +237,12 @@ impl<'a> FieldDialog<'a> {
                 (w, h)
             }
             _ => {
-                let editor_extra = if self.editor.is_some() { 8 } else { 0 };
-                (default_width, default_height + editor_extra)
+                let editor_extra = if self.editor.is_some() {
+                    FIELD_DIALOG_EDITOR_EXTRA
+                } else {
+                    0
+                };
+                (FIELD_DIALOG_DEFAULT_WIDTH, default_height + editor_extra)
             }
         };
         let dialog = clear_centered(f, w, h, area);

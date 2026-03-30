@@ -13,7 +13,7 @@ pub(in crate::tui) fn render_persona_dialog(
     area: Rect,
 ) {
     let count = app.persona_list.len();
-    let dialog = clear_centered(f, 50, count as u16 + 7, area);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -77,11 +77,10 @@ pub(in crate::tui) fn handle_persona_dialog_key(
 
     match key.code {
         KeyCode::Up => {
-            app.persona_selected = app.persona_selected.saturating_sub(1);
+            super::move_selection_up(&mut app.persona_selected);
         }
         KeyCode::Down => {
-            app.persona_selected =
-                (app.persona_selected + 1).min(app.persona_list.len() - 1);
+            super::move_selection_down(&mut app.persona_selected, app.persona_list.len());
         }
         KeyCode::Enter => {
             let file_name = app.persona_list[app.persona_selected].clone();
@@ -146,7 +145,7 @@ fn create_and_edit_persona(app: &mut App) {
     let dir = crate::config::personas_dir();
     let existing: std::collections::HashSet<String> =
         app.persona_list.iter().cloned().collect();
-    let new_name = generate_unique_name(&existing);
+    let new_name = super::generate_unique_name("persona", &existing);
     let persona = crate::persona::PersonaFile {
         name: new_name.clone(),
         persona: String::new(),
@@ -163,20 +162,6 @@ fn create_and_edit_persona(app: &mut App) {
     open_persona_editor(app, &new_name);
 }
 
-fn generate_unique_name(existing: &std::collections::HashSet<String>) -> String {
-    let base = "persona";
-    if !existing.contains(base) {
-        return base.to_owned();
-    }
-    let mut i = 1u32;
-    loop {
-        let candidate = format!("{base}-{i}");
-        if !existing.contains(&candidate) {
-            return candidate;
-        }
-        i += 1;
-    }
-}
 
 pub(in crate::tui) fn handle_persona_paste(
     path: &std::path::Path,

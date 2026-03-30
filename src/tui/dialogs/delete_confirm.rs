@@ -21,7 +21,7 @@ pub(in crate::tui) fn render_confirm_dialog(
     selected: usize,
 ) {
     let height = if hint.is_some() { 7 } else { 6 };
-    let dialog = clear_centered(f, 50, height, area);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let cancel_style = if selected == 0 {
         Style::default()
@@ -260,7 +260,9 @@ fn delete_worldbook(app: &mut App, name: &str) {
 
     app.config.worldbooks.retain(|n| n != name);
     app.session.worldbooks.retain(|n| n != name);
-    let _ = crate::config::save(&app.config);
+    if let Err(e) = crate::config::save(&app.config) {
+        app.set_status(format!("Failed to save config: {e}"), super::super::StatusLevel::Error);
+    }
     app.invalidate_worldbook_cache();
 
     maintenance::reload_worldbook_picker(app);

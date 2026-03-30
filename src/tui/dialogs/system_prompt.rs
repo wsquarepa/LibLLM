@@ -13,7 +13,7 @@ pub(in crate::tui) fn render_system_prompt_dialog(
     area: Rect,
 ) {
     let count = app.system_prompt_list.len();
-    let dialog = clear_centered(f, 50, count as u16 + 7, area);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -63,11 +63,10 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
 
     match key.code {
         KeyCode::Up => {
-            app.system_prompt_selected = app.system_prompt_selected.saturating_sub(1);
+            super::move_selection_up(&mut app.system_prompt_selected);
         }
         KeyCode::Down => {
-            app.system_prompt_selected =
-                (app.system_prompt_selected + 1).min(app.system_prompt_list.len() - 1);
+            super::move_selection_down(&mut app.system_prompt_selected, app.system_prompt_list.len());
         }
         KeyCode::Enter => {
             let name = app.system_prompt_list[app.system_prompt_selected].clone();
@@ -92,7 +91,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             let dir = crate::config::system_prompts_dir();
             let existing: std::collections::HashSet<String> =
                 app.system_prompt_list.iter().cloned().collect();
-            let new_name = generate_unique_name(&existing);
+            let new_name = super::generate_unique_name("custom", &existing);
             let prompt = crate::system_prompt::SystemPromptFile {
                 name: new_name.clone(),
                 content: String::new(),
@@ -152,20 +151,6 @@ fn open_prompt_editor(app: &mut App, name: &str) {
     app.focus = Focus::SystemDialog;
 }
 
-fn generate_unique_name(existing: &std::collections::HashSet<String>) -> String {
-    let base = "custom";
-    if !existing.contains(base) {
-        return base.to_owned();
-    }
-    let mut i = 1u32;
-    loop {
-        let candidate = format!("{base}-{i}");
-        if !existing.contains(&candidate) {
-            return candidate;
-        }
-        i += 1;
-    }
-}
 
 pub(in crate::tui) fn handle_system_prompt_paste(
     path: &std::path::Path,

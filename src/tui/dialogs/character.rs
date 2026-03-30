@@ -11,7 +11,7 @@ use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
-    let dialog = clear_centered(f, 50, count as u16 + 6, area);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_SHORT_PADDING, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -54,11 +54,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
 
     match key.code {
         KeyCode::Up => {
-            app.character_selected = app.character_selected.saturating_sub(1);
+            super::move_selection_up(&mut app.character_selected);
         }
         KeyCode::Down => {
-            app.character_selected =
-                (app.character_selected + 1).min(app.character_names.len() - 1);
+            super::move_selection_down(&mut app.character_selected, app.character_names.len());
         }
         KeyCode::Enter => {
             if !app.flush_session_before_transition() {

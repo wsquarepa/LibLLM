@@ -7,6 +7,7 @@ mod context;
 mod crypto;
 mod debug_log;
 mod index;
+mod migration;
 mod persona;
 mod prompt;
 mod sampling;
@@ -38,6 +39,8 @@ async fn main() -> Result<()> {
         &[crate::debug_log::field("phase", "ensure_dirs")],
         config::ensure_dirs,
     )?;
+
+    migration::migrate_config_path();
 
     if let Some(cli::Command::Edit { kind, name }) = &args.command {
         return handle_edit_command(kind, name, &args);

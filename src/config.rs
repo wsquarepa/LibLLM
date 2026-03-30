@@ -84,7 +84,7 @@ fn old_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("libllm").join("config.toml"))
 }
 
-fn migrate_config() {
+pub(crate) fn migrate_config() {
     let new_path = config_path();
     if new_path.exists() {
         crate::debug_log::log_kv(
@@ -139,12 +139,6 @@ fn migrate_config() {
 }
 
 pub fn load() -> Config {
-    crate::debug_log::timed_kv(
-        "config.load",
-        &[crate::debug_log::field("phase", "migrate")],
-        migrate_config,
-    );
-
     let path = config_path();
     let read_start = Instant::now();
     match std::fs::read_to_string(&path) {

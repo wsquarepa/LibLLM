@@ -135,24 +135,22 @@ fn spawn_worldbook_normalization(
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
     spawn_job(MaintenanceJob::WorldbookNormalization, bg_tx, move || {
-        let report =
-            crate::worldinfo::normalize_worldbooks(&crate::config::worldinfo_dir(), key.as_deref());
+        let result = crate::migration::migrate_worldbook_normalization(key.as_deref());
         MaintenanceUpdate {
             job: MaintenanceJob::WorldbookNormalization,
-            changed_count: report.rewritten_count,
-            warnings: report.warnings,
+            changed_count: result.changed_count,
+            warnings: result.warnings,
         }
     });
 }
 
 fn spawn_plaintext_card_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::PlaintextCardEncryption, bg_tx, move || {
-        let report =
-            crate::character::encrypt_plaintext_cards(&crate::config::characters_dir(), &key);
+        let result = crate::migration::migrate_encrypt_plaintext_cards(&key);
         MaintenanceUpdate {
             job: MaintenanceJob::PlaintextCardEncryption,
-            changed_count: report.encrypted_count,
-            warnings: report.warnings,
+            changed_count: result.changed_count,
+            warnings: result.warnings,
         }
     });
 }
@@ -162,9 +160,11 @@ fn spawn_system_prompt_setup(
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
     spawn_job(MaintenanceJob::SystemPromptSetup, bg_tx, move || {
-        let dir = crate::config::system_prompts_dir();
-        crate::system_prompt::migrate_from_config(&dir, key.as_deref());
-        crate::system_prompt::ensure_builtin_prompts(&dir, key.as_deref());
+        crate::migration::migrate_system_prompts_from_config(key.as_deref());
+        crate::system_prompt::ensure_builtin_prompts(
+            &crate::config::system_prompts_dir(),
+            key.as_deref(),
+        );
         MaintenanceUpdate {
             job: MaintenanceJob::SystemPromptSetup,
             changed_count: 0,
@@ -178,14 +178,11 @@ fn spawn_plaintext_prompt_encryption(
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
     spawn_job(MaintenanceJob::PlaintextPromptEncryption, bg_tx, move || {
-        let warnings = crate::system_prompt::encrypt_plaintext_prompts(
-            &crate::config::system_prompts_dir(),
-            &key,
-        );
+        let result = crate::migration::migrate_encrypt_plaintext_prompts(&key);
         MaintenanceUpdate {
             job: MaintenanceJob::PlaintextPromptEncryption,
-            changed_count: warnings.len(),
-            warnings,
+            changed_count: result.changed_count,
+            warnings: result.warnings,
         }
     });
 }
@@ -195,34 +192,11 @@ fn spawn_persona_migration(
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
     spawn_job(MaintenanceJob::PersonaMigration, bg_tx, move || {
-        let dir = crate::config::personas_dir();
-        let cfg = crate::config::load();
-        let mut changed = 0;
-
-        if cfg.user_name.is_some() || cfg.user_persona.is_some() {
-            let name = cfg.user_name.clone().unwrap_or_default();
-            let file_name = if name.is_empty() {
-                "default".to_owned()
-            } else {
-                name.clone()
-            };
-            let existing_path = crate::persona::resolve_persona_path(&dir, &file_name);
-            if !existing_path.exists() {
-                let persona = crate::persona::PersonaFile {
-                    name: if name.is_empty() { file_name.clone() } else { name },
-                    persona: cfg.user_persona.clone().unwrap_or_default(),
-                };
-                if crate::persona::save_persona(&persona, &dir, key.as_deref()).is_ok() {
-                    changed = 1;
-                }
-            }
-            let _ = crate::config::save(&cfg);
-        }
-
+        let result = crate::migration::migrate_personas_from_config(key.as_deref());
         MaintenanceUpdate {
             job: MaintenanceJob::PersonaMigration,
-            changed_count: changed,
-            warnings: Vec::new(),
+            changed_count: result.changed_count,
+            warnings: result.warnings,
         }
     });
 }
@@ -232,14 +206,11 @@ fn spawn_plaintext_persona_encryption(
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
     spawn_job(MaintenanceJob::PlaintextPersonaEncryption, bg_tx, move || {
-        let warnings = crate::persona::encrypt_plaintext_personas(
-            &crate::config::personas_dir(),
-            &key,
-        );
+        let result = crate::migration::migrate_encrypt_plaintext_personas(&key);
         MaintenanceUpdate {
             job: MaintenanceJob::PlaintextPersonaEncryption,
-            changed_count: warnings.len(),
-            warnings,
+            changed_count: result.changed_count,
+            warnings: result.warnings,
         }
     });
 }

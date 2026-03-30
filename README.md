@@ -245,12 +245,10 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | Command | Aliases | Description |
 |---|---|---|
 | `/clear` | `/new` | Clear conversation history |
-| `/save` | | Save session to file |
-| `/load` | | Load session from file |
 | `/system` | | Select or edit system prompt |
 | `/retry` | | Regenerate last response (new branch) |
 | `/branch` | | Browse branches at current position |
-| `/character` | | Select a character or import a card |
+| `/character` | | Select a character |
 | `/persona` | `/self`, `/user`, `/me` | Manage user personas |
 | `/worldbook` | `/lore`, `/world`, `/lorebook` | Toggle worldbooks for this session |
 | `/passkey` | `/password`, `/pass`, `/auth` | Set or change encryption passkey |

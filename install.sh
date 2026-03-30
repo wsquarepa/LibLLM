@@ -95,9 +95,9 @@ download_binary() {
     ASSET_API_URL=$(grep -B3 "\"name\": *\"${ASSET_NAME}\"" "$RELEASE_JSON" \
         | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
         | head -1)
-    ASSET_DIGEST=$(grep -A20 "\"name\": *\"${ASSET_NAME}\"" "$RELEASE_JSON" \
-        | grep -m1 -o '"digest": *"sha256:[0-9a-fA-F]\{64\}"' \
-        | sed 's/.*"sha256:\([0-9a-fA-F]\{64\}\)"/\1/')
+    CHECKSUMS_API_URL=$(grep -B3 "\"name\": *\"SHA256SUMS\"" "$RELEASE_JSON" \
+        | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
+        | head -1)
 
     rm -f "$RELEASE_JSON"
 
@@ -106,14 +106,15 @@ download_binary() {
         echo "Available platforms can be checked at: https://github.com/${REPO}/releases/tag/${TAG}" >&2
         exit 1
     fi
-    if [ -z "$ASSET_DIGEST" ]; then
-        echo "Error: no sha256 digest found for ${ASSET_NAME}." >&2
+    if [ -z "$CHECKSUMS_API_URL" ]; then
+        echo "Error: no SHA256SUMS asset found in release." >&2
         echo "Refusing to install an unverified binary." >&2
         exit 1
     fi
 
     TMPFILE=$(mktemp)
-    trap 'rm -f "$TMPFILE"' EXIT
+    CHECKSUMS_FILE=$(mktemp)
+    trap 'rm -f "$TMPFILE" "$CHECKSUMS_FILE"' EXIT
 
     echo "Downloading ${ASSET_NAME}..."
 
@@ -121,6 +122,28 @@ download_binary() {
         curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$ASSET_API_URL"
     else
         wget -q --header="Accept: application/octet-stream" ${AUTH:+--header="$AUTH"} -O "$TMPFILE" "$ASSET_API_URL"
+    fi
+
+    echo "Downloading SHA256SUMS..."
+    if [ "$FETCHER" = "curl" ]; then
+        curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$CHECKSUMS_FILE" "$CHECKSUMS_API_URL"
+    else
+        wget -q --header="Accept: application/octet-stream" ${AUTH:+--header="$AUTH"} -O "$CHECKSUMS_FILE" "$CHECKSUMS_API_URL"
+    fi
+
+    ASSET_DIGEST=$(awk -v name="$ASSET_NAME" '
+        NF >= 2 {
+            file = $2
+            gsub(/^\*/, "", file)
+            if (file == name) {
+                print tolower($1)
+                exit
+            }
+        }
+    ' "$CHECKSUMS_FILE")
+    if [ -z "$ASSET_DIGEST" ]; then
+        echo "Error: SHA256SUMS does not include ${ASSET_NAME}." >&2
+        exit 1
     fi
 }
 

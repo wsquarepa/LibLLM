@@ -676,6 +676,10 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                         return;
                     }
                 }
+                let current_session_path = match &app.save_mode {
+                    SaveMode::Encrypted { path, .. } => Some(path.clone()),
+                    _ => None,
+                };
                 app.focus = Focus::Input;
                 app.set_status(
                     "Re-encrypting files...".to_owned(),
@@ -686,11 +690,12 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 tokio::spawn(async move {
                     let warnings = match tokio::task::spawn_blocking(move || {
                         let mut warnings = Vec::new();
-                        warnings.extend(crate::crypto::re_encrypt_directory(
+                        warnings.extend(crate::crypto::re_encrypt_directory_excluding(
                             &crate::config::sessions_dir(),
                             &["session"],
                             &old_key,
                             &new_key,
+                            current_session_path.as_deref(),
                         ));
                         warnings.extend(crate::crypto::re_encrypt_directory(
                             &crate::config::characters_dir(),

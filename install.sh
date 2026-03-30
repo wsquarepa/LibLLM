@@ -71,23 +71,37 @@ download_binary() {
 
     AUTH=$(auth_header)
 
+    RELEASE_JSON=$(mktemp)
+    trap 'rm -f "$RELEASE_JSON"' EXIT
+
     if [ "$FETCHER" = "curl" ]; then
-        HTTP_CODE=$(curl -sL -w "%{http_code}" -o /dev/null ${AUTH:+-H "$AUTH"} "$API_URL")
+        HTTP_CODE=$(curl -sL -w "%{http_code}" -o "$RELEASE_JSON" ${AUTH:+-H "$AUTH"} "$API_URL")
     else
-        HTTP_CODE=$(wget -q --server-response -O /dev/null ${AUTH:+--header="$AUTH"} "$API_URL" 2>&1 | awk '/HTTP\//{print $2}' | tail -1)
+        HTTP_CODE=$(wget -q --server-response -O "$RELEASE_JSON" ${AUTH:+--header="$AUTH"} "$API_URL" 2>&1 | awk '/HTTP\//{print $2}' | tail -1)
     fi
 
-    if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "401" ]; then
+    if [ "$HTTP_CODE" != "200" ]; then
         if [ -z "${GITHUB_TOKEN:-$GH_TOKEN}" ]; then
             echo "Error: GitHub API returned $HTTP_CODE." >&2
             echo "If the repository is private, set GITHUB_TOKEN or GH_TOKEN." >&2
         else
             echo "Error: GitHub API returned $HTTP_CODE. Check that your token has repository access." >&2
         fi
+        rm -f "$RELEASE_JSON"
         exit 1
     fi
 
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
+    ASSET_API_URL=$(grep -B3 "\"name\": *\"${ASSET_NAME}\"" "$RELEASE_JSON" \
+        | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
+        | head -1)
+
+    rm -f "$RELEASE_JSON"
+
+    if [ -z "$ASSET_API_URL" ]; then
+        echo "Error: no release asset found for ${ASSET_NAME}." >&2
+        echo "Available platforms can be checked at: https://github.com/${REPO}/releases/tag/${TAG}" >&2
+        exit 1
+    fi
 
     TMPFILE=$(mktemp)
     trap 'rm -f "$TMPFILE"' EXIT
@@ -95,9 +109,9 @@ download_binary() {
     echo "Downloading ${ASSET_NAME}..."
 
     if [ "$FETCHER" = "curl" ]; then
-        curl -fSL ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$DOWNLOAD_URL"
+        curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$ASSET_API_URL"
     else
-        wget -q ${AUTH:+--header="$AUTH"} -O "$TMPFILE" "$DOWNLOAD_URL"
+        wget -q --header="Accept: application/octet-stream" ${AUTH:+--header="$AUTH"} -O "$TMPFILE" "$ASSET_API_URL"
     fi
 }
 

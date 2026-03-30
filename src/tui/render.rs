@@ -586,12 +586,16 @@ fn measure_wrapped_height(lines: &[Line], area: Rect) -> u16 {
         .sum()
 }
 
+// -----------------------------------------------------------------------
+// This MUST use Paragraph::line_count() -- not a manual width calculation.
+// Ratatui's WordWrapper breaks at word boundaries and measures unicode
+// display width, both of which differ from ceil(byte_len / columns).
+// A naive approximation underestimates height, and the error accumulates
+// across messages, causing auto-scroll to miss the actual bottom of text.
+// -----------------------------------------------------------------------
 fn wrapped_line_height(line: &Line, area: Rect) -> u16 {
-    let inner_width = area.width.saturating_sub(2).max(1) as usize;
-    let width: usize = line.spans.iter().map(|s| s.content.len()).sum();
-    if width == 0 {
-        1
-    } else {
-        ((width + inner_width - 1) / inner_width) as u16
-    }
+    let inner_width = area.width.saturating_sub(2).max(1);
+    Paragraph::new(line.clone())
+        .wrap(Wrap { trim: false })
+        .line_count(inner_width) as u16
 }

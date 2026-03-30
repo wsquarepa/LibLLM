@@ -42,7 +42,7 @@ struct Release {
 #[derive(Deserialize)]
 struct Asset {
     name: String,
-    browser_download_url: String,
+    url: String,
 }
 
 fn github_token() -> Option<String> {
@@ -141,7 +141,8 @@ pub async fn run() -> Result<()> {
     println!("Downloading {expected_name}...");
 
     let download_resp = client
-        .get(&asset.browser_download_url)
+        .get(&asset.url)
+        .header(reqwest::header::ACCEPT, "application/octet-stream")
         .send()
         .await
         .context("failed to download binary")?;

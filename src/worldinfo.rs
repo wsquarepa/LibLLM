@@ -17,7 +17,9 @@ fn sanitize_display(s: &str) -> String {
 }
 
 pub fn resolve_worldbook_path(dir: &Path, name: &str) -> std::path::PathBuf {
-    crate::crypto::resolve_encrypted_path(dir, name, EXT_ENCRYPTED)
+    let safe_name = name.replace(['/', '\\'], "_");
+    let safe_name = safe_name.trim_matches('.');
+    crate::crypto::resolve_encrypted_path(dir, safe_name, EXT_ENCRYPTED)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -507,4 +509,17 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
 
     books.sort_by(|a, b| a.name.cmp(&b.name));
     books
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_worldbook_path_sanitizes_traversal_components() {
+        let dir = Path::new("/tmp/worldbooks");
+        let path = resolve_worldbook_path(dir, "../outside/victim");
+
+        assert_eq!(path, dir.join("_outside_victim.json"));
+    }
 }

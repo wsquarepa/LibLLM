@@ -94,7 +94,9 @@ const CONFIG_FIELDS: &[&str] = &[
     "Repeat Last N",
     "Repeat Penalty",
     "Max Tokens",
+    "TLS Skip Verify",
 ];
+const CONFIG_BOOLEAN_FIELDS: &[usize] = &[9];
 
 const PERSONA_FIELDS: &[&str] = &["Name", "Persona"];
 const PERSONA_MULTILINE: &[usize] = &[1];
@@ -127,6 +129,7 @@ const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
 
 pub fn open_config_editor(values: Vec<String>) -> FieldDialog<'static> {
     FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
+        .with_boolean_fields(CONFIG_BOOLEAN_FIELDS)
 }
 
 pub fn open_persona_editor(values: Vec<String>) -> FieldDialog<'static> {
@@ -174,6 +177,7 @@ pub struct FieldDialog<'a> {
     width: Option<u16>,
     height: Option<u16>,
     placeholder: Option<(&'static str, &'static [usize])>,
+    boolean_fields: &'static [usize],
     pub hidden_fields: Vec<usize>,
 }
 
@@ -203,6 +207,7 @@ impl<'a> FieldDialog<'a> {
             width,
             height,
             placeholder: None,
+            boolean_fields: &[],
             hidden_fields: Vec::new(),
         }
     }
@@ -210,6 +215,24 @@ impl<'a> FieldDialog<'a> {
     fn with_placeholder(mut self, text: &'static str, fields: &'static [usize]) -> Self {
         self.placeholder = Some((text, fields));
         self
+    }
+
+    fn with_boolean_fields(mut self, fields: &'static [usize]) -> Self {
+        self.boolean_fields = fields;
+        self
+    }
+
+    fn is_boolean(&self, index: usize) -> bool {
+        self.boolean_fields.contains(&index)
+    }
+
+    fn toggle_boolean(&mut self) {
+        let val = &self.values[self.selected];
+        self.values[self.selected] = if val == "true" {
+            "false".to_owned()
+        } else {
+            "true".to_owned()
+        };
     }
 
     fn is_multiline(&self, index: usize) -> bool {
@@ -280,7 +303,9 @@ impl<'a> FieldDialog<'a> {
             };
 
             let is_empty = value.is_empty();
-            let display_value = if self.is_multiline(i) && value.contains('\n') {
+            let display_value = if self.is_boolean(i) {
+                if value == "true" { "[x]".to_owned() } else { "[ ]".to_owned() }
+            } else if self.is_multiline(i) && value.contains('\n') {
                 format!("({} lines)", value.lines().count())
             } else {
                 value.clone()
@@ -305,8 +330,13 @@ impl<'a> FieldDialog<'a> {
         }
 
         lines.push(Line::from(""));
+        let hint = if self.is_boolean(self.selected) {
+            "  Up/Down: navigate  Enter: toggle  Esc: save & close"
+        } else {
+            "  Up/Down: navigate  Enter: edit  Esc: save & close"
+        };
         lines.push(Line::from(Span::styled(
-            "  Up/Down: navigate  Enter: edit  Esc: save & close",
+            hint,
             Style::default().fg(Color::DarkGray),
         )));
 
@@ -412,7 +442,9 @@ impl<'a> FieldDialog<'a> {
                 }
             },
             KeyCode::Enter => {
-                if self.is_multiline(self.selected) {
+                if self.is_boolean(self.selected) {
+                    self.toggle_boolean();
+                } else if self.is_multiline(self.selected) {
                     self.open_multiline_editor();
                 } else {
                     self.editing = true;

@@ -27,7 +27,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "/system",
         aliases: &[],
-        args: "[prompt]",
+        args: "",
         description: "Select or edit system prompt",
     },
     CommandInfo {

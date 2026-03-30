@@ -282,28 +282,18 @@ pub fn handle_slash_command(
             }
         }
         "/system" => {
-            if arg.is_empty() {
-                let dir = crate::config::system_prompts_dir();
-                let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
-                if prompts.is_empty() {
-                    app.set_status(
-                        "No system prompts found.".to_owned(),
-                        super::StatusLevel::Warning,
-                    );
-                } else {
-                    app.system_prompt_list =
-                        prompts.into_iter().map(|p| p.name).collect();
-                    app.system_prompt_selected = 0;
-                    app.focus = Focus::SystemPromptDialog;
-                }
-            } else {
-                app.session.system_prompt = Some(arg.to_owned());
-                app.invalidate_chat_cache();
-                app.mark_session_dirty(super::SaveTrigger::Debounced, false);
+            let dir = crate::config::system_prompts_dir();
+            let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+            if prompts.is_empty() {
                 app.set_status(
-                    "System prompt updated.".to_owned(),
-                    super::StatusLevel::Info,
+                    "No system prompts found.".to_owned(),
+                    super::StatusLevel::Warning,
                 );
+            } else {
+                app.system_prompt_list =
+                    prompts.into_iter().map(|p| p.name).collect();
+                app.system_prompt_selected = 0;
+                app.focus = Focus::SystemPromptDialog;
             }
         }
         "/save" => {

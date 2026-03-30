@@ -266,9 +266,7 @@ pub fn apply_config(app: &mut App) {
     } else {
         cfg.system_prompt.clone()
     };
-    if let Some(sp) = prompt {
-        app.session.system_prompt = Some(sp);
-    }
+    app.session.system_prompt = prompt;
 
     app.user_name = cfg.user_name.clone();
     app.config = cfg;

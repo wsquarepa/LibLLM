@@ -188,9 +188,15 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
 
 pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.worldbook_editor_entries.is_empty() {
-        if key.code == KeyCode::Esc {
-            save_worldbook_editor(app);
-            app.focus = Focus::WorldbookDialog;
+        match key.code {
+            KeyCode::Esc => {
+                save_worldbook_editor(app);
+                app.focus = Focus::WorldbookDialog;
+            }
+            KeyCode::Char('a') => {
+                add_new_entry(app);
+            }
+            _ => {}
         }
         return None;
     }
@@ -209,22 +215,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
         }
         KeyCode::Char('a') => {
-            let new_entry = crate::worldinfo::Entry {
-                keys: Vec::new(),
-                secondary_keys: Vec::new(),
-                selective: false,
-                content: String::new(),
-                constant: false,
-                enabled: true,
-                order: 10,
-                depth: 4,
-                case_sensitive: false,
-            };
-            app.worldbook_editor_entries.push(new_entry);
-            let idx = app.worldbook_editor_entries.len() - 1;
-            app.worldbook_editor_selected = idx;
-            let entry = &app.worldbook_editor_entries[idx];
-            open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
+            add_new_entry(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
             let idx = app.worldbook_editor_selected;
@@ -246,6 +237,25 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         _ => {}
     }
     None
+}
+
+fn add_new_entry(app: &mut App) {
+    let new_entry = crate::worldinfo::Entry {
+        keys: Vec::new(),
+        secondary_keys: Vec::new(),
+        selective: false,
+        content: String::new(),
+        constant: false,
+        enabled: true,
+        order: 10,
+        depth: 4,
+        case_sensitive: false,
+    };
+    app.worldbook_editor_entries.push(new_entry);
+    let idx = app.worldbook_editor_entries.len() - 1;
+    app.worldbook_editor_selected = idx;
+    let entry = &app.worldbook_editor_entries[idx];
+    open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
 }
 
 fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: bool) {

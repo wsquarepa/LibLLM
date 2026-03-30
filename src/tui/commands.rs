@@ -568,11 +568,12 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let sampling = app.sampling.clone();
 
     let client = app.client.clone();
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         client
             .stream_completion_to_channel(&prompt, stop_tokens, &sampling, sender)
             .await;
     });
+    app.streaming_task = Some(handle);
 }
 
 pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {

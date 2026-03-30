@@ -36,12 +36,12 @@ impl ContextManager {
         let mut skip = 0usize;
         for msg in messages.iter() {
             let tokens = msg.content.len() / CHARS_PER_TOKEN_ESTIMATE + 4;
-            if total - cumulative - tokens <= self.token_limit {
-                break;
-            }
             cumulative += tokens;
             skip += 1;
             if messages.len() - skip <= 2 {
+                break;
+            }
+            if total - cumulative <= self.token_limit {
                 break;
             }
         }

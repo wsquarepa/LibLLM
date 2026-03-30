@@ -186,6 +186,7 @@ struct App<'a> {
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
     is_streaming: bool,
+    streaming_task: Option<tokio::task::JoinHandle<()>>,
     model_name: Option<String>,
     api_available: bool,
     api_error: String,
@@ -499,6 +500,7 @@ pub async fn run(
         sidebar_state,
         streaming_buffer: String::new(),
         is_streaming: false,
+        streaming_task: None,
         model_name: None,
         api_available: true,
         api_error: String::new(),
@@ -1046,6 +1048,9 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn cancel_generation(app: &mut App) {
+    if let Some(handle) = app.streaming_task.take() {
+        handle.abort();
+    }
     app.streaming_buffer.clear();
     app.is_streaming = false;
     if app.session.tree.pop_head().is_some() {

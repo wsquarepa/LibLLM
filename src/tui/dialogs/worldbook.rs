@@ -58,6 +58,10 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         "  Up/Down: navigate  Enter: cycle  Right: edit  Del: delete  Esc: close",
         Style::default().fg(Color::DarkGray),
     )));
+    lines.push(Line::from(Span::styled(
+        "  Drop .json to import",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" Worldbooks ", Color::Yellow));
@@ -360,4 +364,50 @@ fn save_worldbook_editor(app: &mut App) {
             super::super::StatusLevel::Error,
         ),
     }
+}
+
+pub(in crate::tui) fn handle_worldbook_paste(
+    path: &std::path::Path,
+    ext: &str,
+    app: &mut App,
+) -> bool {
+    if ext != "json" {
+        app.set_status(
+            "Worldbook import supports .json files only.".to_owned(),
+            super::super::StatusLevel::Warning,
+        );
+        return true;
+    }
+
+    match crate::worldinfo::load_worldbook(path, None) {
+        Ok(wb) => {
+            let name = wb.name.clone();
+            match crate::worldinfo::save_worldbook(
+                &wb,
+                &crate::config::worldinfo_dir(),
+                app.save_mode.key(),
+            ) {
+                Ok(_) => {
+                    let books = crate::worldinfo::list_worldbooks(
+                        &crate::config::worldinfo_dir(),
+                        app.save_mode.key(),
+                    );
+                    app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+                    app.worldbook_selected = 0;
+                    app.invalidate_worldbook_cache();
+                    app.set_status(
+                        format!("Imported worldbook: {name}"),
+                        super::super::StatusLevel::Info,
+                    );
+                }
+                Err(e) => {
+                    app.set_status(format!("Save error: {e}"), super::super::StatusLevel::Error);
+                }
+            }
+        }
+        Err(e) => {
+            app.set_status(format!("Import error: {e}"), super::super::StatusLevel::Error);
+        }
+    }
+    true
 }

@@ -33,6 +33,10 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         "  Up/Down: navigate  Enter: select  Right: edit  Del: delete  Esc: cancel",
         Style::default().fg(Color::DarkGray),
     )));
+    lines.push(Line::from(Span::styled(
+        "  Drop .png/.json to import",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" Select Character ", Color::Yellow));
@@ -135,4 +139,50 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         _ => {}
     }
     None
+}
+
+pub(in crate::tui) fn handle_character_paste(
+    path: &std::path::Path,
+    ext: &str,
+    app: &mut App,
+) -> bool {
+    if ext != "png" && ext != "json" {
+        app.set_status(
+            "Character import supports .png and .json files only.".to_owned(),
+            super::super::StatusLevel::Warning,
+        );
+        return true;
+    }
+
+    match crate::character::import_card(path) {
+        Ok(card) => {
+            let name = card.name.clone();
+            match crate::character::save_card(
+                &card,
+                &crate::config::characters_dir(),
+                app.save_mode.key(),
+            ) {
+                Ok(_) => {
+                    let cards = crate::character::list_cards(
+                        &crate::config::characters_dir(),
+                        app.save_mode.key(),
+                    );
+                    app.character_names = cards.iter().map(|c| c.name.clone()).collect();
+                    app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+                    app.character_selected = 0;
+                    app.set_status(
+                        format!("Imported character: {name}"),
+                        super::super::StatusLevel::Info,
+                    );
+                }
+                Err(e) => {
+                    app.set_status(format!("Save error: {e}"), super::super::StatusLevel::Error);
+                }
+            }
+        }
+        Err(e) => {
+            app.set_status(format!("Import error: {e}"), super::super::StatusLevel::Error);
+        }
+    }
+    true
 }

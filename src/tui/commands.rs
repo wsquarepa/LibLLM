@@ -226,7 +226,7 @@ fn split_metadata_loading_batches(paths: Vec<PathBuf>, worker_count: usize) -> V
 
 pub fn handle_slash_command(
     cmd: &str,
-    arg: &str,
+    _arg: &str,
     app: &mut App,
     sender: mpsc::Sender<StreamToken>,
 ) {
@@ -296,64 +296,10 @@ pub fn handle_slash_command(
                 app.focus = Focus::SystemPromptDialog;
             }
         }
-        "/save" => {
-            if arg.is_empty() {
-                app.mark_session_dirty(super::SaveTrigger::Explicit, true);
-                match app.flush_session_save(super::SaveTrigger::Explicit) {
-                    Ok(()) => match app.save_mode.path() {
-                        Some(p) => app.set_status(
-                            format!("Saved to {}.", p.display()),
-                            super::StatusLevel::Info,
-                        ),
-                        None => app.set_status(
-                            "No session path set.".to_owned(),
-                            super::StatusLevel::Warning,
-                        ),
-                    },
-                    Err(e) => app.set_status(format!("Save error: {e}"), super::StatusLevel::Error),
-                }
-            } else {
-                let path = PathBuf::from(arg);
-                match session::save(&path, app.session) {
-                    Ok(()) => app.set_status(format!("Saved to {arg}."), super::StatusLevel::Info),
-                    Err(e) => app.set_status(format!("Save error: {e}"), super::StatusLevel::Error),
-                }
-            }
-        }
         "/config" => {
             app.config_dialog =
                 Some(dialogs::open_config_editor(load_config_fields(&crate::config::load())));
             app.focus = Focus::ConfigDialog;
-        }
-        "/load" => {
-            if arg.is_empty() {
-                app.set_status(
-                    "Usage: /load <path>".to_owned(),
-                    super::StatusLevel::Warning,
-                );
-            } else {
-                if !app.flush_session_before_transition() {
-                    return;
-                }
-                let path = PathBuf::from(arg);
-                match session::load(&path) {
-                    Ok(loaded) => {
-                        app.discard_pending_session_save();
-                        *app.session = loaded;
-                        super::business::load_active_persona(app);
-                        app.invalidate_chat_cache();
-                        app.invalidate_worldbook_cache();
-                        let count = app.session.tree.current_branch_ids().len();
-                        app.set_status(
-                            format!("Loaded from {arg} ({count} messages)."),
-                            super::StatusLevel::Info,
-                        );
-                        app.save_mode = SaveMode::Plaintext(path.clone());
-                        app.auto_scroll = true;
-                    }
-                    Err(e) => app.set_status(format!("Load error: {e}"), super::StatusLevel::Error),
-                }
-            }
         }
         "/branch" => {
             let target = {
@@ -435,58 +381,20 @@ pub fn handle_slash_command(
             }
         }
         "/character" => {
-            if arg.starts_with("import") {
-                let path_str = arg.strip_prefix("import").unwrap_or("").trim();
-                if path_str.is_empty() {
-                    app.set_status(
-                        "Usage: /character import <path>".to_owned(),
-                        super::StatusLevel::Warning,
-                    );
-                } else {
-                    let source = std::path::Path::new(path_str);
-                    match crate::character::import_card(source) {
-                        Ok(card) => {
-                            let name = card.name.clone();
-                            match crate::character::save_card(
-                                &card,
-                                &crate::config::characters_dir(),
-                                app.save_mode.key(),
-                            ) {
-                                Ok(_) => {
-                                    app.set_status(
-                                        format!("Imported character: {name}"),
-                                        super::StatusLevel::Info,
-                                    );
-                                }
-                                Err(e) => {
-                                    app.set_status(
-                                        format!("Save error: {e}"),
-                                        super::StatusLevel::Error,
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            app.set_status(format!("Import error: {e}"), super::StatusLevel::Error)
-                        }
-                    }
-                }
-            } else {
-                let cards = crate::character::list_cards(
-                    &crate::config::characters_dir(),
-                    app.save_mode.key(),
+            let cards = crate::character::list_cards(
+                &crate::config::characters_dir(),
+                app.save_mode.key(),
+            );
+            if cards.is_empty() {
+                app.set_status(
+                    "No characters found. Drop a .png or .json file to import.".to_owned(),
+                    super::StatusLevel::Warning,
                 );
-                if cards.is_empty() {
-                    app.set_status(
-                        "No characters found. Use /character import <path>".to_owned(),
-                        super::StatusLevel::Warning,
-                    );
-                } else {
-                    app.character_names = cards.iter().map(|c| c.name.clone()).collect();
-                    app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
-                    app.character_selected = 0;
-                    app.focus = Focus::CharacterDialog;
-                }
+            } else {
+                app.character_names = cards.iter().map(|c| c.name.clone()).collect();
+                app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+                app.character_selected = 0;
+                app.focus = Focus::CharacterDialog;
             }
         }
         "/passkey" => match &app.save_mode {

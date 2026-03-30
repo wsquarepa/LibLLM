@@ -5,7 +5,7 @@ use tui_textarea::TextArea;
 
 use crate::session::{self, Role, SaveMode, Session};
 
-use super::{Action, App};
+use super::{Action, App, StatusLevel};
 
 pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.is_streaming {
@@ -364,4 +364,46 @@ fn load_sidebar_selection(app: &mut App) {
             }
         }
     }
+}
+
+pub fn handle_sidebar_paste(path: &std::path::Path, ext: &str, app: &mut App) -> bool {
+    if ext != "json" {
+        app.set_status(
+            "Session import supports .json files only.".to_owned(),
+            StatusLevel::Warning,
+        );
+        return true;
+    }
+
+    match session::load(path) {
+        Ok(loaded) => {
+            let new_name = session::generate_session_name();
+            let new_path = crate::config::sessions_dir().join(&new_name);
+
+            let save_result = match &app.save_mode {
+                SaveMode::Encrypted { key, .. } => {
+                    session::save_encrypted(&new_path, &loaded, key)
+                }
+                _ => session::save(&new_path, &loaded),
+            };
+
+            match save_result {
+                Ok(()) => {
+                    let count = loaded.tree.current_branch_ids().len();
+                    super::business::refresh_sidebar(app);
+                    app.set_status(
+                        format!("Imported session ({count} messages)."),
+                        StatusLevel::Info,
+                    );
+                }
+                Err(e) => {
+                    app.set_status(format!("Save error: {e}"), StatusLevel::Error);
+                }
+            }
+        }
+        Err(e) => {
+            app.set_status(format!("Import error: {e}"), StatusLevel::Error);
+        }
+    }
+    true
 }

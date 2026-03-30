@@ -22,6 +22,25 @@ use crate::tui::BackgroundEvent;
 
 use super::render::{clear_centered, dialog_block};
 
+pub(in crate::tui) const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
+const MAX_IMPORT_NAME_LENGTH: usize = 64;
+
+pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let truncated = match trimmed.char_indices().nth(MAX_IMPORT_NAME_LENGTH) {
+        Some((byte_idx, _)) => &trimmed[..byte_idx],
+        None => trimmed,
+    };
+    Some(truncated.to_owned())
+}
+
 const MULTILINE_WIDTH_PERCENT: u16 = 70;
 const MULTILINE_HEIGHT_PERCENT: u16 = 60;
 

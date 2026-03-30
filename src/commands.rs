@@ -13,18 +13,6 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Clear conversation history",
     },
     CommandInfo {
-        name: "/save",
-        aliases: &[],
-        args: "<path>",
-        description: "Save session to file",
-    },
-    CommandInfo {
-        name: "/load",
-        aliases: &[],
-        args: "<path>",
-        description: "Load session from file",
-    },
-    CommandInfo {
         name: "/system",
         aliases: &[],
         args: "",
@@ -45,8 +33,8 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "/character",
         aliases: &[],
-        args: "[import <path>]",
-        description: "Select a character or import a card",
+        args: "",
+        description: "Select a character",
     },
     CommandInfo {
         name: "/persona",

@@ -39,6 +39,10 @@ pub(in crate::tui) fn render_system_prompt_dialog(
         "  a: add new  Del: delete  Esc: cancel",
         Style::default().fg(Color::DarkGray),
     )));
+    lines.push(Line::from(Span::styled(
+        "  Drop .txt to import",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let paragraph = Paragraph::new(Text::from(lines))
         .block(dialog_block(" System Prompts ", Color::Yellow));
@@ -161,4 +165,81 @@ fn generate_unique_name(existing: &std::collections::HashSet<String>) -> String 
         }
         i += 1;
     }
+}
+
+pub(in crate::tui) fn handle_system_prompt_paste(
+    path: &std::path::Path,
+    ext: &str,
+    app: &mut App,
+) -> bool {
+    if ext != "txt" {
+        app.set_status(
+            "System prompt import supports .txt files only.".to_owned(),
+            super::super::StatusLevel::Warning,
+        );
+        return true;
+    }
+
+    match path.metadata() {
+        Ok(meta) if meta.len() > super::MAX_TXT_IMPORT_BYTES => {
+            app.set_status(
+                "File too large (max 1 MB).".to_owned(),
+                super::super::StatusLevel::Error,
+            );
+            return true;
+        }
+        Err(e) => {
+            app.set_status(format!("Cannot read file: {e}"), super::super::StatusLevel::Error);
+            return true;
+        }
+        _ => {}
+    }
+
+    let stem = match path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s,
+        None => {
+            app.set_status("Invalid filename.".to_owned(), super::super::StatusLevel::Error);
+            return true;
+        }
+    };
+
+    let name = match super::sanitize_import_name(stem) {
+        Some(n) => n,
+        None => {
+            app.set_status(
+                "Filename produces an empty name after sanitization.".to_owned(),
+                super::super::StatusLevel::Error,
+            );
+            return true;
+        }
+    };
+
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            app.set_status(format!("Read error: {e}"), super::super::StatusLevel::Error);
+            return true;
+        }
+    };
+
+    let prompt = crate::system_prompt::SystemPromptFile {
+        name: name.clone(),
+        content,
+    };
+    let dir = crate::config::system_prompts_dir();
+    match crate::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
+        Ok(_) => {
+            let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+            app.system_prompt_list = prompts.into_iter().map(|p| p.name).collect();
+            app.system_prompt_selected = 0;
+            app.set_status(
+                format!("Imported system prompt: {name}"),
+                super::super::StatusLevel::Info,
+            );
+        }
+        Err(e) => {
+            app.set_status(format!("Save error: {e}"), super::super::StatusLevel::Error);
+        }
+    }
+    true
 }

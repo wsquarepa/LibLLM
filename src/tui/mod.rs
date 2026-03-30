@@ -611,7 +611,8 @@ pub async fn run(
     crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::EnterAlternateScreen,
-        crossterm::event::EnableMouseCapture
+        crossterm::event::EnableMouseCapture,
+        crossterm::event::EnableBracketedPaste
     )?;
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = Terminal::new(backend)?;
@@ -701,7 +702,8 @@ pub async fn run(
     crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::LeaveAlternateScreen,
-        crossterm::event::DisableMouseCapture
+        crossterm::event::DisableMouseCapture,
+        crossterm::event::DisableBracketedPaste
     )?;
 
     if app.passkey_changed {
@@ -944,7 +946,58 @@ fn handle_event(
 ) -> Option<Action> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(key, app, bg_tx),
+        Event::Paste(ref text) => handle_paste(text.clone(), event, app),
         _ => None,
+    }
+}
+
+fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action> {
+    let cleaned = clean_pasted_path(&text);
+    let path = std::path::Path::new(&cleaned);
+
+    if path.is_file() {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let handled = match app.focus {
+            Focus::CharacterDialog => {
+                dialogs::character::handle_character_paste(path, &ext, app)
+            }
+            Focus::WorldbookDialog => {
+                dialogs::worldbook::handle_worldbook_paste(path, &ext, app)
+            }
+            Focus::SystemPromptDialog => {
+                dialogs::system_prompt::handle_system_prompt_paste(path, &ext, app)
+            }
+            Focus::PersonaDialog => {
+                dialogs::persona::handle_persona_paste(path, &ext, app)
+            }
+            Focus::Sidebar => input::handle_sidebar_paste(path, &ext, app),
+            _ => false,
+        };
+
+        if handled {
+            return None;
+        }
+    }
+
+    if app.focus == Focus::Input {
+        app.textarea.input(raw_event);
+    }
+    None
+}
+
+fn clean_pasted_path(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+    {
+        trimmed[1..trimmed.len() - 1].to_owned()
+    } else {
+        trimmed.to_owned()
     }
 }
 

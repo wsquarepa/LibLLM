@@ -61,7 +61,7 @@ pub fn salt_path() -> PathBuf {
 }
 
 pub fn index_path() -> PathBuf {
-    data_dir().join("index.json")
+    data_dir().join("index.meta")
 }
 
 pub fn key_check_path() -> PathBuf {

@@ -31,7 +31,7 @@ No tests exist -- verify changes with `cargo build` and manual testing. CI build
 ├── config.toml              # API URL, template, sampling defaults (NOT encrypted)
 ├── .salt                    # 16-byte random salt (generated on first run)
 ├── .key_check               # Passkey verification fingerprint
-├── index.json               # Metadata cache for fast session/character/worldbook listing
+├── index.meta               # Encrypted metadata cache for fast session/character/worldbook listing
 ├── sessions/
 │   └── *.session            # AES-256-GCM encrypted session files
 ├── characters/
@@ -65,7 +65,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Plaintext/Encrypted/PendingPasskey), encrypted save/load, session listing with previews. Supports legacy flat session format migration
 - **`system_prompt`** -- File-based system prompt management. Two hardcoded builtins (`assistant`, `roleplay`) are auto-created if missing. Custom prompts stored as encrypted `.prompt` files. Handles migration from old `config.toml` fields
 - **`persona`** -- File-based user persona management (`name` + `persona` text). Stored as encrypted `.persona` files. Migrates from old `config.toml` `user_name`/`user_persona` fields
-- **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in `index.json` to avoid decrypting every file on startup
+- **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in encrypted `index.meta` to avoid decrypting every file on startup
 - **`migration`** -- Centralized migration orchestration. Runs all migrations (config path, system prompts, personas, worldbook normalization, plaintext encryption) on startup with warning reporting
 - **`tui`** -- Full ratatui terminal UI:
   - `mod.rs` -- App state, Focus enum (Input/Chat/Sidebar/dialogs), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status)

@@ -158,7 +158,7 @@ fn delete_selected_session(app: &mut App) {
         return;
     }
     crate::index::warn_if_save_fails(
-        crate::index::remove_session(&path),
+        crate::index::remove_session(&path, app.save_mode.key()),
         "failed to remove session index entry",
     );
 
@@ -189,7 +189,7 @@ fn delete_character(app: &mut App, slug: &str) {
         return;
     }
     crate::index::warn_if_save_fails(
-        crate::index::remove_character(&path),
+        crate::index::remove_character(&path, app.save_mode.key()),
         "failed to remove character index entry",
     );
 
@@ -254,7 +254,7 @@ fn delete_worldbook(app: &mut App, name: &str) {
         return;
     }
     crate::index::warn_if_save_fails(
-        crate::index::remove_worldbook(&path),
+        crate::index::remove_worldbook(&path, app.save_mode.key()),
         "failed to remove worldbook index entry",
     );
 

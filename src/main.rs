@@ -290,7 +290,7 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
                     ))?;
                 }
                 index::warn_if_save_fails(
-                    index::remove_character(&old_path),
+                    index::remove_character(&old_path, key_ref),
                     "failed to remove character index entry",
                 );
             }
@@ -309,7 +309,7 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
                     ))?;
                 }
                 index::warn_if_save_fails(
-                    index::remove_worldbook(&old_path),
+                    index::remove_worldbook(&old_path, key_ref),
                     "failed to remove worldbook index entry",
                 );
             }

@@ -664,6 +664,13 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                             &old_key,
                             &new_key,
                         ));
+                        if let Err(e) = crate::crypto::re_encrypt_file(
+                            &crate::config::index_path(),
+                            &old_key,
+                            &new_key,
+                        ) {
+                            warnings.push(format!("index.meta: {e}"));
+                        }
                         warnings
                     })
                     .await
@@ -791,6 +798,7 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 &path,
                 &metadata,
                 crate::index::SessionStorageMode::Encrypted,
+                app.save_mode.key(),
             );
             super::business::prepare_sidebar_entries(&mut app.sidebar_sessions);
             app.invalidate_sidebar_cache();

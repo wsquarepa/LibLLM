@@ -413,8 +413,8 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
             crate::debug_log::field("mode", mode),
         ],
         || match save_mode {
-            SaveMode::Encrypted { .. } => {
-                match session::list_session_paths(&crate::config::sessions_dir()) {
+            SaveMode::Encrypted { key, .. } => {
+                match session::list_session_paths(&crate::config::sessions_dir(), Some(key)) {
                     Ok(sessions) => sessions,
                     Err(e) => {
                         eprintln!("Warning: {e}");
@@ -436,7 +436,7 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
         Some(d) => d,
         None => return Vec::new(),
     };
-    let index = crate::index::load_index();
+    let index = crate::index::load_index(None);
     let mut hit_count = 0usize;
     let mut miss_count = 0usize;
     let mut entries: Vec<SessionEntry> = Vec::new();

@@ -6,6 +6,8 @@ use std::time::UNIX_EPOCH;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::crypto::DerivedKey;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionStorageMode {
@@ -69,11 +71,11 @@ impl Default for MetadataIndex {
     }
 }
 
-pub fn load_index() -> MetadataIndex {
+pub fn load_index(key: Option<&DerivedKey>) -> MetadataIndex {
     let path = crate::config::index_path();
     let read_start = Instant::now();
-    let contents = match std::fs::read_to_string(&path) {
-        Ok(contents) => contents,
+    let raw = match std::fs::read(&path) {
+        Ok(raw) => raw,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             crate::debug_log::log_kv(
                 "index.load",
@@ -113,13 +115,48 @@ pub fn load_index() -> MetadataIndex {
             crate::debug_log::field("phase", "read"),
             crate::debug_log::field("result", "ok"),
             crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", contents.len()),
+            crate::debug_log::field("bytes", raw.len()),
             crate::debug_log::field(
                 "elapsed_ms",
                 format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
             ),
         ],
     );
+
+    let contents = if crate::crypto::is_encrypted(&raw) {
+        let Some(key) = key else {
+            crate::debug_log::log_kv(
+                "index.load",
+                &[
+                    crate::debug_log::field("phase", "decrypt"),
+                    crate::debug_log::field("result", "no_key"),
+                    crate::debug_log::field("path", path.display()),
+                ],
+            );
+            return MetadataIndex::default();
+        };
+        match crate::crypto::decrypt(&raw, key) {
+            Ok(plaintext) => match String::from_utf8(plaintext) {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!("Warning: decrypted index is not valid UTF-8: {err}");
+                    return MetadataIndex::default();
+                }
+            },
+            Err(err) => {
+                eprintln!("Warning: failed to decrypt {}: {err}", path.display());
+                return MetadataIndex::default();
+            }
+        }
+    } else {
+        match String::from_utf8(raw) {
+            Ok(s) => s,
+            Err(err) => {
+                eprintln!("Warning: index is not valid UTF-8: {err}");
+                return MetadataIndex::default();
+            }
+        }
+    };
 
     let parse_start = Instant::now();
     match serde_json::from_str::<MetadataIndex>(&contents) {
@@ -159,7 +196,7 @@ pub fn load_index() -> MetadataIndex {
     }
 }
 
-pub fn save_index(index: &MetadataIndex) -> Result<()> {
+pub fn save_index(index: &MetadataIndex, key: Option<&DerivedKey>) -> Result<()> {
     let path = crate::config::index_path();
     let serialize_start = Instant::now();
     let json = serde_json::to_string_pretty(index).context("failed to serialize metadata index")?;
@@ -183,7 +220,7 @@ pub fn save_index(index: &MetadataIndex) -> Result<()> {
             crate::debug_log::field("bytes", json.len()),
         ],
         || {
-            crate::crypto::write_atomic(&path, json.as_bytes()).context(format!(
+            crate::crypto::encrypt_and_write(&path, json.as_bytes(), key).context(format!(
                 "failed to write metadata index: {}",
                 path.display()
             ))
@@ -236,12 +273,13 @@ pub fn upsert_session(
     message_count: usize,
     first_user_preview: Option<String>,
     storage_mode: SessionStorageMode,
+    key: Option<&DerivedKey>,
 ) -> Result<()> {
     let Some(relative_path) = relative_data_path(path) else {
         return Ok(());
     };
 
-    let mut index = load_index();
+    let mut index = load_index(key);
     index.sessions.insert(
         relative_path,
         SessionIndexEntry {
@@ -252,7 +290,7 @@ pub fn upsert_session(
             storage_mode,
         },
     );
-    save_index(&index)
+    save_index(&index, key)
 }
 
 pub fn upsert_character(
@@ -260,12 +298,13 @@ pub fn upsert_character(
     stamp: FileStamp,
     slug: String,
     display_name: String,
+    key: Option<&DerivedKey>,
 ) -> Result<()> {
     let Some(relative_path) = relative_data_path(path) else {
         return Ok(());
     };
 
-    let mut index = load_index();
+    let mut index = load_index(key);
     index.characters.insert(
         relative_path,
         CharacterIndexEntry {
@@ -274,15 +313,20 @@ pub fn upsert_character(
             display_name,
         },
     );
-    save_index(&index)
+    save_index(&index, key)
 }
 
-pub fn upsert_worldbook(path: &Path, stamp: FileStamp, display_name: String) -> Result<()> {
+pub fn upsert_worldbook(
+    path: &Path,
+    stamp: FileStamp,
+    display_name: String,
+    key: Option<&DerivedKey>,
+) -> Result<()> {
     let Some(relative_path) = relative_data_path(path) else {
         return Ok(());
     };
 
-    let mut index = load_index();
+    let mut index = load_index(key);
     index.worldbooks.insert(
         relative_path,
         WorldbookIndexEntry {
@@ -290,35 +334,35 @@ pub fn upsert_worldbook(path: &Path, stamp: FileStamp, display_name: String) -> 
             display_name,
         },
     );
-    save_index(&index)
+    save_index(&index, key)
 }
 
-pub fn remove_session(path: &Path) -> Result<()> {
+pub fn remove_session(path: &Path, key: Option<&DerivedKey>) -> Result<()> {
     let Some(relative_path) = relative_data_path(path) else {
         return Ok(());
     };
 
-    let mut index = load_index();
+    let mut index = load_index(key);
     index.sessions.remove(&relative_path);
-    save_index(&index)
+    save_index(&index, key)
 }
 
-pub fn remove_character(path: &Path) -> Result<()> {
+pub fn remove_character(path: &Path, key: Option<&DerivedKey>) -> Result<()> {
     let Some(relative_path) = relative_data_path(path) else {
         return Ok(());
     };
 
-    let mut index = load_index();
+    let mut index = load_index(key);
     index.characters.remove(&relative_path);
-    save_index(&index)
+    save_index(&index, key)
 }
 
-pub fn remove_worldbook(path: &Path) -> Result<()> {
+pub fn remove_worldbook(path: &Path, key: Option<&DerivedKey>) -> Result<()> {
     let Some(relative_path) = relative_data_path(path) else {
         return Ok(());
     };
 
-    let mut index = load_index();
+    let mut index = load_index(key);
     index.worldbooks.remove(&relative_path);
-    save_index(&index)
+    save_index(&index, key)
 }

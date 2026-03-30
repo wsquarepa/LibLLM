@@ -1323,13 +1323,13 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                         );
                                     } else {
                                         crate::index::warn_if_save_fails(
-                                            crate::index::remove_character(&old_path),
+                                            crate::index::remove_character(&old_path, app.save_mode.key()),
                                             "failed to remove character index entry",
                                         );
                                     }
                                 } else {
                                     crate::index::warn_if_save_fails(
-                                        crate::index::remove_character(&old_path),
+                                        crate::index::remove_character(&old_path, app.save_mode.key()),
                                         "failed to remove character index entry",
                                     );
                                 }

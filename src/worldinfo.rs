@@ -110,7 +110,7 @@ pub fn save_worldbook(
     save_worldbook_to(worldbook, &path, key)?;
     if let Ok(stamp) = index::file_stamp(&path) {
         index::warn_if_save_fails(
-            index::upsert_worldbook(&path, stamp, worldbook.name.clone()),
+            index::upsert_worldbook(&path, stamp, worldbook.name.clone(), key),
             "failed to update worldbook index",
         );
     }
@@ -373,7 +373,7 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> WorldbookNo
                         ));
                     } else {
                         index::warn_if_save_fails(
-                            index::remove_worldbook(&path),
+                            index::remove_worldbook(&path, key),
                             "failed to remove worldbook index entry",
                         );
                     }
@@ -398,7 +398,7 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
     };
 
     let mut books: Vec<WorldBookEntry> = Vec::new();
-    let mut index_state = index::load_index();
+    let mut index_state = index::load_index(key);
     let mut hit_count = 0usize;
     let mut miss_count = 0usize;
     let mut refreshed_count = 0usize;
@@ -500,7 +500,7 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
 
     if changed {
         index::warn_if_save_fails(
-            index::save_index(&index_state),
+            index::save_index(&index_state, key),
             "failed to refresh worldbook index",
         );
     }

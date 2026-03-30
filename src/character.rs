@@ -272,7 +272,7 @@ pub fn save_card(card: &CharacterCard, dir: &Path, key: Option<&DerivedKey>) -> 
     crate::crypto::encrypt_and_write(&path, json.as_bytes(), key)?;
     if let Ok(stamp) = index::file_stamp(&path) {
         index::warn_if_save_fails(
-            index::upsert_character(&path, stamp, slug, card.name.clone()),
+            index::upsert_character(&path, stamp, slug, card.name.clone(), key),
             "failed to update character index",
         );
     }
@@ -284,7 +284,12 @@ pub fn load_card(path: &Path, key: Option<&DerivedKey>) -> Result<CharacterCard>
     serde_json::from_str(&contents).context("failed to parse character card")
 }
 
-fn remove_source_file(path: &Path, warnings: &mut Vec<String>, action: &str) {
+fn remove_source_file(
+    path: &Path,
+    warnings: &mut Vec<String>,
+    action: &str,
+    key: Option<&DerivedKey>,
+) {
     if let Err(err) = std::fs::remove_file(path) {
         warnings.push(format!(
             "failed to remove {action} {}: {err}",
@@ -293,7 +298,7 @@ fn remove_source_file(path: &Path, warnings: &mut Vec<String>, action: &str) {
         return;
     }
     index::warn_if_save_fails(
-        index::remove_character(path),
+        index::remove_character(path, key),
         "failed to remove character index entry",
     );
 }
@@ -345,7 +350,7 @@ pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> PngImportR
         match save_card(&card, dir, key) {
             Ok(_) => {
                 imported_count += 1;
-                remove_source_file(&png_path, &mut warnings, "imported PNG card");
+                remove_source_file(&png_path, &mut warnings, "imported PNG card", key);
             }
             Err(e) => {
                 warnings.push(format!("failed to save {display}: {e}"));
@@ -401,7 +406,7 @@ pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> PlaintextCardEnc
         match save_card(&card, dir, Some(key)) {
             Ok(_) => {
                 encrypted_count += 1;
-                remove_source_file(&path, &mut warnings, "plaintext card");
+                remove_source_file(&path, &mut warnings, "plaintext card", Some(key));
             }
             Err(e) => {
                 warnings.push(format!("failed to encrypt {display}: {e}"));
@@ -422,7 +427,7 @@ pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
     };
 
     let mut cards: Vec<CharacterEntry> = Vec::new();
-    let mut index_state = index::load_index();
+    let mut index_state = index::load_index(key);
     let mut hit_count = 0usize;
     let mut miss_count = 0usize;
     let mut refreshed_count = 0usize;
@@ -521,7 +526,7 @@ pub fn list_cards(dir: &Path, key: Option<&DerivedKey>) -> Vec<CharacterEntry> {
 
     if changed {
         index::warn_if_save_fails(
-            index::save_index(&index_state),
+            index::save_index(&index_state, key),
             "failed to refresh character index",
         );
     }

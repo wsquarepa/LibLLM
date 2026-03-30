@@ -16,6 +16,8 @@ pub(super) enum MaintenanceJob {
     PlaintextPromptEncryption,
     PersonaMigration,
     PlaintextPersonaEncryption,
+    IndexRename,
+    PlaintextIndexEncryption,
 }
 
 pub(super) struct MaintenanceUpdate {
@@ -34,6 +36,8 @@ impl MaintenanceJob {
             Self::PlaintextPromptEncryption => "plaintext prompt encryption",
             Self::PersonaMigration => "persona migration",
             Self::PlaintextPersonaEncryption => "plaintext persona encryption",
+            Self::IndexRename => "index rename",
+            Self::PlaintextIndexEncryption => "plaintext index encryption",
         }
     }
 }
@@ -42,6 +46,7 @@ pub(super) fn spawn_startup_maintenance(
     save_mode: &SaveMode,
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
+    spawn_index_rename(bg_tx);
     match save_mode {
         SaveMode::Plaintext(_) => {
             spawn_character_png_import(None, bg_tx);
@@ -66,7 +71,8 @@ pub(super) fn spawn_unlocked_maintenance(
     spawn_persona_migration(Some(key.clone()), bg_tx);
     spawn_plaintext_card_encryption(key.clone(), bg_tx);
     spawn_plaintext_prompt_encryption(key.clone(), bg_tx);
-    spawn_plaintext_persona_encryption(key, bg_tx);
+    spawn_plaintext_persona_encryption(key.clone(), bg_tx);
+    spawn_plaintext_index_encryption(key, bg_tx);
 }
 
 pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
@@ -92,6 +98,7 @@ pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
                 reload_persona_picker(app);
             }
         }
+        MaintenanceJob::IndexRename | MaintenanceJob::PlaintextIndexEncryption => {}
     }
 
     if warnings.is_empty() {
@@ -209,6 +216,31 @@ fn spawn_plaintext_persona_encryption(
         let result = crate::migration::migrate_encrypt_plaintext_personas(&key);
         MaintenanceUpdate {
             job: MaintenanceJob::PlaintextPersonaEncryption,
+            changed_count: result.changed_count,
+            warnings: result.warnings,
+        }
+    });
+}
+
+fn spawn_index_rename(bg_tx: &mpsc::Sender<BackgroundEvent>) {
+    spawn_job(MaintenanceJob::IndexRename, bg_tx, || {
+        let result = crate::migration::migrate_index_rename();
+        MaintenanceUpdate {
+            job: MaintenanceJob::IndexRename,
+            changed_count: result.changed_count,
+            warnings: result.warnings,
+        }
+    });
+}
+
+fn spawn_plaintext_index_encryption(
+    key: Arc<DerivedKey>,
+    bg_tx: &mpsc::Sender<BackgroundEvent>,
+) {
+    spawn_job(MaintenanceJob::PlaintextIndexEncryption, bg_tx, move || {
+        let result = crate::migration::migrate_encrypt_plaintext_index(&key);
+        MaintenanceUpdate {
+            job: MaintenanceJob::PlaintextIndexEncryption,
             changed_count: result.changed_count,
             warnings: result.warnings,
         }

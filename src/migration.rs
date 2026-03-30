@@ -100,3 +100,59 @@ pub fn migrate_encrypt_plaintext_personas(key: &DerivedKey) -> MigrationResult {
         warnings,
     }
 }
+
+pub fn migrate_index_rename() -> MigrationResult {
+    let old_path = crate::config::data_dir().join("index.json");
+    let new_path = crate::config::index_path();
+    if !new_path.exists() && old_path.exists() {
+        if let Err(e) = std::fs::rename(&old_path, &new_path) {
+            return MigrationResult {
+                changed_count: 0,
+                warnings: vec![format!("failed to rename index.json to index.meta: {e}")],
+            };
+        }
+        return MigrationResult {
+            changed_count: 1,
+            warnings: Vec::new(),
+        };
+    }
+    MigrationResult {
+        changed_count: 0,
+        warnings: Vec::new(),
+    }
+}
+
+pub fn migrate_encrypt_plaintext_index(key: &DerivedKey) -> MigrationResult {
+    let path = crate::config::index_path();
+    if !path.exists() {
+        return MigrationResult {
+            changed_count: 0,
+            warnings: Vec::new(),
+        };
+    }
+    let raw = match std::fs::read(&path) {
+        Ok(data) => data,
+        Err(e) => {
+            return MigrationResult {
+                changed_count: 0,
+                warnings: vec![format!("failed to read {}: {e}", path.display())],
+            };
+        }
+    };
+    if crate::crypto::is_encrypted(&raw) {
+        return MigrationResult {
+            changed_count: 0,
+            warnings: Vec::new(),
+        };
+    }
+    if let Err(e) = crate::crypto::encrypt_and_write(&path, &raw, Some(key)) {
+        return MigrationResult {
+            changed_count: 0,
+            warnings: vec![format!("failed to encrypt {}: {e}", path.display())],
+        };
+    }
+    MigrationResult {
+        changed_count: 1,
+        warnings: Vec::new(),
+    }
+}

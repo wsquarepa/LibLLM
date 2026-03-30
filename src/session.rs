@@ -112,6 +112,7 @@ fn persist_session_index(
     path: &Path,
     metadata: &SessionMetadata,
     storage_mode: SessionStorageMode,
+    key: Option<&DerivedKey>,
 ) {
     let stamp = match index::file_stamp(path) {
         Ok(stamp) => stamp,
@@ -140,6 +141,7 @@ fn persist_session_index(
                 _ => metadata.first_message.clone(),
             },
             storage_mode,
+            key,
         ),
         "failed to update session index",
     );
@@ -149,21 +151,23 @@ pub fn persist_saved_session_index(
     path: &Path,
     session: &Session,
     storage_mode: SessionStorageMode,
+    key: Option<&DerivedKey>,
 ) {
     let metadata = SessionMetadata {
         character: session.character.clone(),
         message_count: session.tree.node_count(),
         first_message: session.tree.current_first_user_preview().map(str::to_owned),
     };
-    persist_session_index(path, &metadata, storage_mode);
+    persist_session_index(path, &metadata, storage_mode, key);
 }
 
 pub fn persist_loaded_metadata_index(
     path: &Path,
     metadata: &SessionMetadata,
     storage_mode: SessionStorageMode,
+    key: Option<&DerivedKey>,
 ) {
-    persist_session_index(path, metadata, storage_mode);
+    persist_session_index(path, metadata, storage_mode, key);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -834,7 +838,7 @@ pub fn save(path: &Path, session: &Session) -> Result<()> {
                 .context(format!("failed to write session file: {}", path.display()))
         },
     )?;
-    persist_saved_session_index(path, session, SessionStorageMode::Plaintext);
+    persist_saved_session_index(path, session, SessionStorageMode::Plaintext, None);
     Ok(())
 }
 
@@ -884,7 +888,7 @@ pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Resul
             ))
         },
     )?;
-    persist_saved_session_index(path, session, SessionStorageMode::Encrypted);
+    persist_saved_session_index(path, session, SessionStorageMode::Encrypted, Some(key));
     Ok(())
 }
 
@@ -999,14 +1003,14 @@ pub fn generate_session_name() -> String {
     format!("{id}.session")
 }
 
-pub fn list_session_paths(dir: &Path) -> Result<Vec<SessionEntry>> {
+pub fn list_session_paths(dir: &Path, key: Option<&DerivedKey>) -> Result<Vec<SessionEntry>> {
     let scan_start = Instant::now();
     let entries = std::fs::read_dir(dir).context(format!(
         "failed to read sessions directory: {}",
         dir.display()
     ))?;
 
-    let index = index::load_index();
+    let index = index::load_index(key);
     let mut hit_count = 0usize;
     let mut miss_count = 0usize;
     let mut sessions: Vec<SessionEntry> = Vec::new();

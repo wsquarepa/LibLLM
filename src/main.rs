@@ -41,6 +41,45 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.no_encrypt && args.data.is_none() {
+        anyhow::bail!("--no-encrypt requires --data/-d to specify a data directory.");
+    }
+    if args.passkey.is_some() && args.data.is_none() {
+        anyhow::bail!("--passkey requires --data/-d to specify a data directory.");
+    }
+    if args.continue_session.is_some() && args.data.is_none() {
+        anyhow::bail!("--continue requires --data/-d to specify a data directory.");
+    }
+    if args.continue_session.is_some() && args.message.is_none() {
+        anyhow::bail!("--continue can only be used with -m.");
+    }
+
+    if let Some(ref data_path) = args.data {
+        if data_path.exists() {
+            if !data_path.is_dir() {
+                anyhow::bail!("--data path exists but is not a directory: {}", data_path.display());
+            }
+            let is_empty = std::fs::read_dir(data_path)
+                .with_context(|| format!("failed to read --data directory: {}", data_path.display()))?
+                .next()
+                .is_none();
+            if !is_empty {
+                let has_config = data_path.join("config.toml").exists()
+                    || data_path.join("sessions").exists();
+                if !has_config {
+                    anyhow::bail!(
+                        "--data directory is not empty and does not appear to be a libllm data directory: {}",
+                        data_path.display()
+                    );
+                }
+            }
+        } else {
+            std::fs::create_dir_all(data_path)
+                .with_context(|| format!("failed to create --data directory: {}", data_path.display()))?;
+        }
+        config::set_data_dir(data_path.clone());
+    }
+
     let debug_enabled = args.debug.is_some() || config::load().debug_log;
     let _diagnostics = if debug_enabled {
         Some(debug_log::init(
@@ -182,6 +221,12 @@ async fn main() -> Result<()> {
 
         session.maybe_save(&save_mode)?;
 
+        if let Some(path) = save_mode.path() {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                eprintln!("Session: {stem}");
+            }
+        }
+
         return Ok(());
     }
 
@@ -225,6 +270,11 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
     fields.push(crate::debug_log::field(
         "message_from_stdin",
         args.message.as_deref() == Some("-"),
+    ));
+    fields.push(crate::debug_log::field("has_data_dir", args.data.is_some()));
+    fields.push(crate::debug_log::field(
+        "has_continue",
+        args.continue_session.is_some(),
     ));
     fields.push(crate::debug_log::field("no_encrypt", args.no_encrypt));
     fields.push(crate::debug_log::field(
@@ -276,8 +326,12 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
-    if args.message.is_some() {
+    if args.message.is_some() && args.data.is_none() {
         return Ok((session::Session::default(), SaveMode::None));
+    }
+
+    if args.message.is_some() && args.data.is_some() {
+        return resolve_persistent_single_shot(args);
     }
 
     if args.no_encrypt {
@@ -302,6 +356,47 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
 
     let path = config::sessions_dir().join(session::generate_session_name());
     Ok((session::Session::default(), SaveMode::PendingPasskey(path)))
+}
+
+fn resolve_persistent_single_shot(args: &Args) -> Result<(session::Session, SaveMode)> {
+    let encrypted_key = if let Some(ref passkey) = args.passkey {
+        let salt = crypto::load_or_create_salt(&config::salt_path())?;
+        let key = crypto::derive_key(passkey, &salt)?;
+        let valid = crypto::verify_or_set_key(&config::key_check_path(), &key)?;
+        if !valid {
+            anyhow::bail!("Wrong passkey.");
+        }
+        Some(Arc::new(key))
+    } else {
+        None
+    };
+
+    if let Some(ref uuid) = args.continue_session {
+        let filename = format!("{uuid}.session");
+        let path = config::sessions_dir().join(&filename);
+        if !path.exists() {
+            anyhow::bail!("Session not found: {uuid}");
+        }
+        let session = if let Some(ref key) = encrypted_key {
+            session::load_encrypted(&path, key)?
+        } else {
+            session::load(&path)?
+        };
+        let save_mode = if let Some(key) = encrypted_key {
+            SaveMode::Encrypted { path, key }
+        } else {
+            SaveMode::Plaintext(path)
+        };
+        return Ok((session, save_mode));
+    }
+
+    let path = config::sessions_dir().join(session::generate_session_name());
+    let save_mode = if let Some(key) = encrypted_key {
+        SaveMode::Encrypted { path, key }
+    } else {
+        SaveMode::Plaintext(path)
+    };
+    Ok((session::Session::default(), save_mode))
 }
 
 fn resolve_character(

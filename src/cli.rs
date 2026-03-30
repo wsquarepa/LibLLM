@@ -35,11 +35,19 @@ pub struct Args {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// Passkey for session encryption (or set LIBLLM_PASSKEY env var)
+    /// Data directory path (initializes libllm structure at this path)
+    #[arg(short = 'd', long)]
+    pub data: Option<PathBuf>,
+
+    /// Continue a previous session by UUID (use with -m and -d)
+    #[arg(long = "continue")]
+    pub continue_session: Option<String>,
+
+    /// Passkey for session encryption (or set LIBLLM_PASSKEY env var, requires -d)
     #[arg(long, env = "LIBLLM_PASSKEY", hide = true)]
     pub passkey: Option<String>,
 
-    /// Disable session encryption
+    /// Disable session encryption (requires -d)
     #[arg(long)]
     pub no_encrypt: bool,
 

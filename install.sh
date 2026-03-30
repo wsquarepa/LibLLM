@@ -14,6 +14,7 @@ main() {
     detect_platform
     resolve_install_dir
     download_binary
+    verify_binary
     install_binary
     print_success
 }
@@ -94,6 +95,9 @@ download_binary() {
     ASSET_API_URL=$(grep -B3 "\"name\": *\"${ASSET_NAME}\"" "$RELEASE_JSON" \
         | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
         | head -1)
+    CHECKSUMS_API_URL=$(grep -B3 "\"name\": *\"SHA256SUMS\"" "$RELEASE_JSON" \
+        | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
+        | head -1)
 
     rm -f "$RELEASE_JSON"
 
@@ -102,9 +106,15 @@ download_binary() {
         echo "Available platforms can be checked at: https://github.com/${REPO}/releases/tag/${TAG}" >&2
         exit 1
     fi
+    if [ -z "$CHECKSUMS_API_URL" ]; then
+        echo "Error: no SHA256SUMS asset found in release." >&2
+        echo "Refusing to install an unverified binary." >&2
+        exit 1
+    fi
 
     TMPFILE=$(mktemp)
-    trap 'rm -f "$TMPFILE"' EXIT
+    CHECKSUMS_FILE=$(mktemp)
+    trap 'rm -f "$TMPFILE" "$CHECKSUMS_FILE"' EXIT
 
     echo "Downloading ${ASSET_NAME}..."
 
@@ -112,6 +122,48 @@ download_binary() {
         curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$ASSET_API_URL"
     else
         wget -q --header="Accept: application/octet-stream" ${AUTH:+--header="$AUTH"} -O "$TMPFILE" "$ASSET_API_URL"
+    fi
+
+    echo "Downloading SHA256SUMS..."
+    if [ "$FETCHER" = "curl" ]; then
+        curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$CHECKSUMS_FILE" "$CHECKSUMS_API_URL"
+    else
+        wget -q --header="Accept: application/octet-stream" ${AUTH:+--header="$AUTH"} -O "$CHECKSUMS_FILE" "$CHECKSUMS_API_URL"
+    fi
+
+    ASSET_DIGEST=$(awk -v name="$ASSET_NAME" '
+        NF >= 2 {
+            file = $2
+            gsub(/^\*/, "", file)
+            if (file == name) {
+                print tolower($1)
+                exit
+            }
+        }
+    ' "$CHECKSUMS_FILE")
+    if [ -z "$ASSET_DIGEST" ]; then
+        echo "Error: SHA256SUMS does not include ${ASSET_NAME}." >&2
+        exit 1
+    fi
+}
+
+verify_binary() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL_DIGEST=$(sha256sum "$TMPFILE" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        ACTUAL_DIGEST=$(shasum -a 256 "$TMPFILE" | awk '{print $1}')
+    elif command -v openssl >/dev/null 2>&1; then
+        ACTUAL_DIGEST=$(openssl dgst -sha256 "$TMPFILE" | awk '{print $NF}')
+    else
+        echo "Error: sha256sum, shasum, or openssl is required to verify the download." >&2
+        exit 1
+    fi
+
+    if [ "$ACTUAL_DIGEST" != "$ASSET_DIGEST" ]; then
+        echo "Error: checksum verification failed for ${ASSET_NAME}." >&2
+        echo "Expected: $ASSET_DIGEST" >&2
+        echo "Actual:   $ACTUAL_DIGEST" >&2
+        exit 1
     fi
 }
 

@@ -22,6 +22,8 @@ pub struct Config {
     pub tls_skip_verify: bool,
     #[serde(default)]
     pub debug_log: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub default_persona: Option<String>,
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

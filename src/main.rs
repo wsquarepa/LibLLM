@@ -100,6 +100,10 @@ async fn main() -> Result<()> {
 
     session.template = Some(template.name().to_owned());
 
+    if session.persona.is_none() && session.tree.head().is_none() {
+        session.persona = cfg.default_persona.clone();
+    }
+
     if session.system_prompt.is_none() {
         session.system_prompt = args.system_prompt.or_else(|| {
             system_prompt::load_prompt_content(

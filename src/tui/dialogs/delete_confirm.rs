@@ -164,7 +164,10 @@ fn delete_selected_session(app: &mut App) {
 
     if is_current {
         app.discard_pending_session_save();
-        *app.session = crate::session::Session::default();
+        let mut new_session = crate::session::Session::default();
+        new_session.persona = app.config.default_persona.clone();
+        *app.session = new_session;
+        business::load_active_persona(app);
         app.chat_scroll = 0;
         app.auto_scroll = true;
         let new_path = crate::config::sessions_dir().join(crate::session::generate_session_name());

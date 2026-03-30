@@ -841,7 +841,7 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                 entry.display_name = character.clone();
             }
             entry.message_count = Some(metadata.message_count);
-            entry.first_message = metadata.first_message.clone();
+            entry.last_assistant_preview = metadata.last_assistant_preview.clone();
 
             session::persist_loaded_metadata_index(
                 &path,

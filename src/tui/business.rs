@@ -260,6 +260,7 @@ pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
         },
         tls_skip_verify: fields[9].parse().unwrap_or(existing.tls_skip_verify),
         debug_log: fields[10].parse().unwrap_or(existing.debug_log),
+        default_persona: existing.default_persona,
     };
 
     crate::config::save(&cfg)

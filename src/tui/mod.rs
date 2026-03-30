@@ -1233,8 +1233,11 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     };
                     let dir = crate::config::personas_dir();
                     if !file_name.is_empty() && file_name != persona.name {
-                        let old_path = crate::persona::resolve_persona_path(&dir, &file_name);
-                        let _ = std::fs::remove_file(&old_path);
+                        if let Some(old_path) =
+                            crate::persona::resolve_persona_path(&dir, &file_name)
+                        {
+                            let _ = std::fs::remove_file(&old_path);
+                        }
                     }
                     match crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
                         Ok(_) => {

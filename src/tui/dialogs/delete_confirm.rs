@@ -201,7 +201,14 @@ fn delete_character(app: &mut App, slug: &str) {
 }
 
 fn delete_persona(app: &mut App, name: &str) {
-    let path = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name);
+    let Some(path) = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name)
+    else {
+        app.set_status(
+            "Error deleting persona: invalid persona name.".to_owned(),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    };
 
     if let Err(e) = std::fs::remove_file(&path) {
         app.set_status(

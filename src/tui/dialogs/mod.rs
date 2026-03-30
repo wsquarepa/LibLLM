@@ -324,7 +324,7 @@ impl<'a> FieldDialog<'a> {
             };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("  {label:<15}"), label_style),
+                Span::styled(format!("  {label:<17}"), label_style),
                 value_span,
             ]));
         }

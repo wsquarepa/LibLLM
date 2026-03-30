@@ -12,6 +12,8 @@ pub(super) enum MaintenanceJob {
     CharacterPngImport,
     PlaintextCardEncryption,
     WorldbookNormalization,
+    SystemPromptSetup,
+    PlaintextPromptEncryption,
 }
 
 pub(super) struct MaintenanceUpdate {
@@ -26,6 +28,8 @@ impl MaintenanceJob {
             Self::CharacterPngImport => "character PNG import",
             Self::PlaintextCardEncryption => "plaintext card encryption",
             Self::WorldbookNormalization => "worldbook normalization",
+            Self::SystemPromptSetup => "system prompt setup",
+            Self::PlaintextPromptEncryption => "plaintext prompt encryption",
         }
     }
 }
@@ -38,6 +42,7 @@ pub(super) fn spawn_startup_maintenance(
         SaveMode::Plaintext(_) => {
             spawn_character_png_import(None, bg_tx);
             spawn_worldbook_normalization(None, bg_tx);
+            spawn_system_prompt_setup(None, bg_tx);
         }
         SaveMode::Encrypted { key, .. } => {
             spawn_unlocked_maintenance(key.clone(), bg_tx);
@@ -52,7 +57,9 @@ pub(super) fn spawn_unlocked_maintenance(
 ) {
     spawn_character_png_import(Some(key.clone()), bg_tx);
     spawn_worldbook_normalization(Some(key.clone()), bg_tx);
-    spawn_plaintext_card_encryption(key, bg_tx);
+    spawn_system_prompt_setup(Some(key.clone()), bg_tx);
+    spawn_plaintext_card_encryption(key.clone(), bg_tx);
+    spawn_plaintext_prompt_encryption(key, bg_tx);
 }
 
 pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
@@ -72,6 +79,8 @@ pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
                 }
             }
         }
+        MaintenanceJob::SystemPromptSetup | MaintenanceJob::PlaintextPromptEncryption => {}
+
     }
 
     if warnings.is_empty() {
@@ -133,6 +142,39 @@ fn spawn_plaintext_card_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<Ba
             job: MaintenanceJob::PlaintextCardEncryption,
             changed_count: report.encrypted_count,
             warnings: report.warnings,
+        }
+    });
+}
+
+fn spawn_system_prompt_setup(
+    key: Option<Arc<DerivedKey>>,
+    bg_tx: &mpsc::Sender<BackgroundEvent>,
+) {
+    spawn_job(MaintenanceJob::SystemPromptSetup, bg_tx, move || {
+        let dir = crate::config::system_prompts_dir();
+        crate::system_prompt::migrate_from_config(&dir, key.as_deref());
+        crate::system_prompt::ensure_builtin_prompts(&dir, key.as_deref());
+        MaintenanceUpdate {
+            job: MaintenanceJob::SystemPromptSetup,
+            changed_count: 0,
+            warnings: Vec::new(),
+        }
+    });
+}
+
+fn spawn_plaintext_prompt_encryption(
+    key: Arc<DerivedKey>,
+    bg_tx: &mpsc::Sender<BackgroundEvent>,
+) {
+    spawn_job(MaintenanceJob::PlaintextPromptEncryption, bg_tx, move || {
+        let warnings = crate::system_prompt::encrypt_plaintext_prompts(
+            &crate::config::system_prompts_dir(),
+            &key,
+        );
+        MaintenanceUpdate {
+            job: MaintenanceJob::PlaintextPromptEncryption,
+            changed_count: warnings.len(),
+            warnings,
         }
     });
 }

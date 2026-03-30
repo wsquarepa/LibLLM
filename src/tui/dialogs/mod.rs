@@ -6,6 +6,7 @@ pub mod edit;
 pub mod passkey;
 pub mod set_passkey;
 pub mod system;
+pub mod system_prompt;
 pub mod worldbook;
 
 use crossterm::event::{KeyCode, KeyEvent};

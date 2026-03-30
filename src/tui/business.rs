@@ -44,15 +44,21 @@ pub fn apply_template_vars(text: &str, char_name: &str, user_name: &str) -> Stri
 pub fn build_effective_system_prompt(
     session: &Session,
     cfg: &crate::config::Config,
+    key: Option<&crate::crypto::DerivedKey>,
 ) -> Option<String> {
     let is_character = session.character.is_some();
 
     let session_prompt = session.system_prompt.as_deref().unwrap_or("");
-    let config_default = if is_character {
-        cfg.roleplay_system_prompt.as_deref().unwrap_or("")
+
+    let config_prompt_name = if is_character {
+        cfg.roleplay_system_prompt.as_deref()
     } else {
-        cfg.system_prompt.as_deref().unwrap_or("")
+        cfg.system_prompt.as_deref()
     };
+    let resolved_config_default = config_prompt_name.and_then(|name| {
+        crate::system_prompt::load_prompt_content(&crate::config::system_prompts_dir(), name, key)
+    });
+    let config_default = resolved_config_default.as_deref().unwrap_or("");
 
     let base = if session_prompt.is_empty() {
         config_default
@@ -261,12 +267,18 @@ pub fn apply_config(app: &mut App) {
     app.sampling = crate::sampling::SamplingParams::default().with_overrides(&cfg.sampling);
 
     let is_character = app.session.character.is_some();
-    let prompt = if is_character {
-        cfg.roleplay_system_prompt.clone()
+    let prompt_name = if is_character {
+        cfg.roleplay_system_prompt.as_deref()
     } else {
-        cfg.system_prompt.clone()
+        cfg.system_prompt.as_deref()
     };
-    app.session.system_prompt = prompt;
+    app.session.system_prompt = prompt_name.and_then(|name| {
+        crate::system_prompt::load_prompt_content(
+            &crate::config::system_prompts_dir(),
+            name,
+            app.save_mode.key(),
+        )
+    });
 
     app.user_name = cfg.user_name.clone();
     app.config = cfg;

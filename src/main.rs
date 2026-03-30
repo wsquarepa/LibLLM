@@ -10,6 +10,7 @@ mod index;
 mod prompt;
 mod sampling;
 mod session;
+mod system_prompt;
 mod tui;
 mod worldinfo;
 
@@ -73,7 +74,15 @@ async fn main() -> Result<()> {
     session.template = Some(template.name().to_owned());
 
     if session.system_prompt.is_none() {
-        session.system_prompt = args.system_prompt.or(cfg.system_prompt);
+        session.system_prompt = args.system_prompt.or_else(|| {
+            cfg.system_prompt.as_deref().and_then(|name| {
+                system_prompt::load_prompt_content(
+                    &config::system_prompts_dir(),
+                    name,
+                    content_key,
+                )
+            })
+        });
     }
 
     if let Some(ref char_arg) = args.character {

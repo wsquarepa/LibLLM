@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block};
-use crate::tui::{Action, App, Focus};
+use crate::tui::{Action, App};
 
 pub(in crate::tui) fn render_system_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let width = (area.width as f32 * 0.7) as u16;
@@ -51,43 +51,45 @@ pub(in crate::tui) fn handle_system_key(key: KeyEvent, app: &mut App) -> Option<
                 let value = if content.trim().is_empty() {
                     None
                 } else {
-                    Some(content)
+                    Some(content.clone())
                 };
 
-                app.session.system_prompt = value.clone();
+                app.session.system_prompt = value;
                 app.invalidate_chat_cache();
                 app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
-                let mut cfg = crate::config::load();
-                if app.system_editor_roleplay {
-                    cfg.roleplay_system_prompt = value;
+                let prompt_name = &app.system_editor_prompt_name;
+                if prompt_name.is_empty() {
+                    app.system_editor = None;
+                    app.focus = app.system_editor_return_focus;
                 } else {
-                    cfg.system_prompt = value;
-                }
+                    let dir = crate::config::system_prompts_dir();
+                    let prompt = crate::system_prompt::SystemPromptFile {
+                        name: prompt_name.clone(),
+                        content,
+                    };
 
-                let label = if app.system_editor_roleplay {
-                    "Roleplay"
-                } else {
-                    "Assistant"
-                };
-
-                match crate::config::save(&cfg) {
-                    Ok(()) => {
-                        app.set_status(
-                            format!("{label} system prompt saved."),
-                            super::super::StatusLevel::Info,
-                        );
+                    match crate::system_prompt::save_prompt(
+                        &prompt,
+                        &dir,
+                        app.save_mode.key(),
+                    ) {
+                        Ok(_) => {
+                            app.set_status(
+                                format!("System prompt '{}' saved.", prompt_name),
+                                super::super::StatusLevel::Info,
+                            );
+                        }
+                        Err(e) => {
+                            app.set_status(
+                                format!("Failed to save prompt: {e}"),
+                                super::super::StatusLevel::Error,
+                            );
+                        }
                     }
-                    Err(e) => {
-                        app.set_status(
-                            format!("Failed to save {label} prompt: {e}"),
-                            super::super::StatusLevel::Error,
-                        );
-                    }
+                    app.system_editor = None;
+                    app.focus = app.system_editor_return_focus;
                 }
-
-                app.system_editor = None;
-                app.focus = Focus::Input;
             }
             _ => {
                 editor.input(key);

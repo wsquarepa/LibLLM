@@ -41,6 +41,7 @@ enum Focus {
     WorldbookEditorDialog,
     WorldbookEntryEditorDialog,
     WorldbookEntryDeleteDialog,
+    SystemPromptDialog,
     SystemDialog,
     EditDialog,
     BranchDialog,
@@ -211,6 +212,11 @@ struct App<'a> {
     self_dialog: Option<FieldDialog<'a>>,
     system_editor: Option<TextArea<'a>>,
     system_editor_roleplay: bool,
+    system_editor_prompt_name: String,
+    system_editor_return_focus: Focus,
+
+    system_prompt_list: Vec<String>,
+    system_prompt_selected: usize,
     edit_editor: Option<TextArea<'a>>,
 
     character_names: Vec<String>,
@@ -539,6 +545,10 @@ pub async fn run(
         self_dialog: None,
         system_editor: None,
         system_editor_roleplay: false,
+        system_editor_prompt_name: String::new(),
+        system_editor_return_focus: Focus::Input,
+        system_prompt_list: Vec::new(),
+        system_prompt_selected: 0,
         edit_editor: None,
         character_names: Vec::new(),
         character_slugs: Vec::new(),
@@ -812,6 +822,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::WorldbookEditorDialog => Some("worldbook_editor"),
         Focus::WorldbookEntryEditorDialog => Some("worldbook_entry_editor"),
         Focus::WorldbookEntryDeleteDialog => Some("worldbook_entry_delete"),
+        Focus::SystemPromptDialog => Some("system_prompt"),
         Focus::SystemDialog => Some("system"),
         Focus::EditDialog => Some("edit"),
         Focus::BranchDialog => Some("branch"),
@@ -876,6 +887,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::WorldbookEntryDeleteDialog => {
             dialogs::worldbook::render_entry_delete_dialog(f, app, f.area());
+        }
+        Focus::SystemPromptDialog => {
+            dialogs::system_prompt::render_system_prompt_dialog(f, app, f.area());
         }
         Focus::SystemDialog => {
             dialogs::system::render_system_dialog(f, app, f.area());
@@ -970,6 +984,9 @@ fn handle_key(
     }
     if app.focus == Focus::WorldbookEntryDeleteDialog {
         return dialogs::worldbook::handle_entry_delete_key(key, app);
+    }
+    if app.focus == Focus::SystemPromptDialog {
+        return dialogs::system_prompt::handle_system_prompt_dialog_key(key, app);
     }
     if app.focus == Focus::SystemDialog {
         return dialogs::system::handle_system_key(key, app);

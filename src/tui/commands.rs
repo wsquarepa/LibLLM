@@ -280,20 +280,19 @@ pub fn handle_slash_command(
         }
         "/system" => {
             if arg.is_empty() {
-                let cfg = crate::config::load();
-                let is_roleplay = app.session.character.is_some();
-                let content = if is_roleplay {
-                    cfg.roleplay_system_prompt.unwrap_or_default()
+                let dir = crate::config::system_prompts_dir();
+                let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+                if prompts.is_empty() {
+                    app.set_status(
+                        "No system prompts found.".to_owned(),
+                        super::StatusLevel::Warning,
+                    );
                 } else {
-                    cfg.system_prompt.unwrap_or_default()
-                };
-                let mut editor = tui_textarea::TextArea::from(
-                    content.lines().map(String::from).collect::<Vec<_>>(),
-                );
-                super::configure_textarea(&mut editor);
-                app.system_editor = Some(editor);
-                app.system_editor_roleplay = is_roleplay;
-                app.focus = Focus::SystemDialog;
+                    app.system_prompt_list =
+                        prompts.into_iter().map(|p| p.name).collect();
+                    app.system_prompt_selected = 0;
+                    app.focus = Focus::SystemPromptDialog;
+                }
             } else {
                 app.session.system_prompt = Some(arg.to_owned());
                 app.invalidate_chat_cache();
@@ -552,7 +551,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let worldbooks = loaded_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt = super::business::build_effective_system_prompt(app.session, &app.config);
+    let effective_prompt = super::business::build_effective_system_prompt(app.session, &app.config, app.save_mode.key());
     let injected = super::business::inject_loaded_worldbook_entries(
         app.session,
         truncated,
@@ -743,6 +742,12 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                         warnings.extend(crate::crypto::re_encrypt_directory(
                             &crate::config::worldinfo_dir(),
                             &["worldbook"],
+                            &old_key,
+                            &new_key,
+                        ));
+                        warnings.extend(crate::crypto::re_encrypt_directory(
+                            &crate::config::system_prompts_dir(),
+                            &["prompt"],
                             &old_key,
                             &new_key,
                         ));

@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     }
 
     if let Some(ref data_path) = args.data {
-        if data_path.exists() {
+        let is_existing_dir = if data_path.exists() {
             if !data_path.is_dir() {
                 anyhow::bail!("--data path exists but is not a directory: {}", data_path.display());
             }
@@ -73,11 +73,27 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            !is_empty
         } else {
             std::fs::create_dir_all(data_path)
                 .with_context(|| format!("failed to create --data directory: {}", data_path.display()))?;
-        }
+            false
+        };
         config::set_data_dir(data_path.clone());
+
+        if is_existing_dir {
+            let is_encrypted_dir = config::key_check_path().exists();
+            if is_encrypted_dir && args.no_encrypt {
+                anyhow::bail!(
+                    "Data directory is encrypted; --no-encrypt cannot be used with it."
+                );
+            }
+            if !is_encrypted_dir && args.passkey.is_some() {
+                anyhow::bail!(
+                    "Data directory is not encrypted; --passkey cannot be used with it."
+                );
+            }
+        }
     }
 
     let debug_enabled = args.debug.is_some() || config::load().debug_log;

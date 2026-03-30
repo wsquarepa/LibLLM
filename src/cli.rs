@@ -17,6 +17,15 @@ pub enum Command {
     Update,
 }
 
+pub struct CliOverrides {
+    pub api_url: Option<String>,
+    pub template: Option<String>,
+    pub tls_skip_verify: bool,
+    pub sampling: SamplingOverrides,
+    pub system_prompt: Option<String>,
+    pub persona: Option<String>,
+}
+
 #[derive(Parser)]
 #[command(
     name = "libllm",
@@ -25,9 +34,6 @@ pub enum Command {
 pub struct Args {
     #[command(subcommand)]
     pub command: Option<Command>,
-    /// Explicit session file path (plaintext JSON, bypasses encryption)
-    #[arg(short = 's', long)]
-    pub session: Option<PathBuf>,
 
     /// Passkey for session encryption (or set LIBLLM_PASSKEY env var)
     #[arg(long, env = "LIBLLM_PASSKEY", hide = true)]
@@ -41,9 +47,13 @@ pub struct Args {
     #[arg(short = 'm', long)]
     pub message: Option<String>,
 
-    /// System prompt
-    #[arg(short = 'p', long)]
+    /// System prompt (overrides all other system prompt sources)
+    #[arg(short = 'r', long)]
     pub system_prompt: Option<String>,
+
+    /// User persona to use (requires -c)
+    #[arg(short = 'p', long)]
+    pub persona: Option<String>,
 
     /// API base URL (without /completions suffix)
     #[arg(long, env = "LIBLLM_API_URL")]
@@ -81,7 +91,7 @@ pub struct Args {
     #[arg(long)]
     pub max_tokens: Option<i64>,
 
-    /// Character card to use (name or path to .json/.png file)
+    /// Character card to use (name or path to .json/.png file, requires -p)
     #[arg(short = 'c', long)]
     pub character: Option<String>,
 
@@ -112,6 +122,17 @@ impl Args {
             repeat_last_n: self.repeat_last_n,
             repeat_penalty: self.repeat_penalty,
             max_tokens: self.max_tokens,
+        }
+    }
+
+    pub fn cli_overrides(&self) -> CliOverrides {
+        CliOverrides {
+            api_url: self.api_url.clone(),
+            template: self.template.clone(),
+            tls_skip_verify: self.tls_skip_verify,
+            sampling: self.sampling_overrides(),
+            system_prompt: self.system_prompt.clone(),
+            persona: self.persona.clone(),
         }
     }
 }

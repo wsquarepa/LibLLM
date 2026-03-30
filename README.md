@@ -1,24 +1,164 @@
 # LibLLM
 
-A Rust TUI and CLI chat client for the [llama.cpp](https://github.com/ggerganov/llama.cpp) completions API. Features a full terminal interface with tree-structured conversation branching, encrypted session persistence, character cards, and worldbook/lorebook support.
+A keyboard-driven terminal chat client for local LLMs. LibLLM connects to any [llama.cpp](https://github.com/ggerganov/llama.cpp)-compatible API and gives you conversation branching, encrypted session persistence, character cards, and worldbooks -- all from the terminal.
 
-## Features
+Built for power users who run local models and want a fast, private chat interface with full control over conversation history.
 
-- **Terminal UI** with sidebar session management, real-time streaming, and keyboard-driven navigation
-- **Conversation branching** -- retry or edit any message to create a new branch, navigate between branches with Alt+Left/Right
-- **Encrypted sessions** -- AES-256-GCM encryption with Argon2id key derivation; all sessions, characters, and worldbooks are encrypted at rest
-- **Character cards** -- import from JSON or PNG (SillyTavern-compatible `tEXt` chunk extraction), with `{{char}}`/`{{user}}` template variable substitution
-- **Worldbooks/Lorebooks** -- keyword-activated context injection with scan depth, selective keys, and ordering control
-- **Prompt templates** -- Llama 2, ChatML, Mistral, Phi, and Raw formats
-- **Configurable sampling** -- temperature, top-k, top-p, min-p, repeat penalty, and max tokens
-- **Single-message mode** -- pipe-friendly `libllm -m "prompt"` for scripting, supports stdin with `-m -`
-- **Cross-platform** -- builds for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64)
+**Why LibLLM?**
+
+- **Branching conversations** -- retry or edit any message to fork the conversation, then navigate between branches like a tree
+- **Encrypted by default** -- sessions, characters, and worldbooks are encrypted at rest with AES-256-GCM
+- **Character cards and worldbooks** -- load SillyTavern-compatible cards and keyword-activated lore entries
+- **Pipe-friendly CLI** -- send a single message with `libllm -m "prompt"` for scripting and automation
+
+<!-- TODO: add screenshot or GIF of the TUI here -->
+*Screenshot coming soon.*
+
+## Table of contents
+
+- [Quickstart](#quickstart)
+- [Concepts](#concepts)
+- [Common workflows](#common-workflows)
+- [Installation](#installation)
+- [CLI reference](#cli-reference)
+- [TUI keyboard shortcuts](#tui-keyboard-shortcuts)
+- [TUI commands](#tui-commands)
+- [Configuration](#configuration)
+- [Data directory](#data-directory)
+- [Encryption](#encryption)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Quickstart
+
+**Prerequisites:** a running llama.cpp-compatible API server. LibLLM expects an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
+
+**1. Install**
+
+Download a pre-built binary from the [nightly release](../../releases/tag/nightly) (Linux, macOS, Windows). Or build from source:
+
+```sh
+git clone https://github.com/wsquarepa/LibLLM.git
+cd LibLLM
+cargo build --release
+# binary is at target/release/libllm
+```
+
+**2. Launch**
+
+```sh
+libllm
+```
+
+On first launch, LibLLM prompts you to set an encryption passkey. This passkey protects all your saved sessions, character cards, and worldbooks. You must set a passkey to continue (or use `--no-encrypt` to opt out).
+
+**3. Chat**
+
+Type a message and press Enter. The response streams in real-time. Your session is auto-saved after each exchange.
+
+**Override the API URL** if your server runs on a different address:
+
+```sh
+libllm --api-url http://localhost:8080/v1
+# or via environment variable
+export LIBLLM_API_URL=http://localhost:8080/v1
+```
+
+## Concepts
+
+### Conversation branching
+
+Messages in LibLLM form a tree, not a flat list. When you use `/retry` to regenerate a response or `/edit` to rewrite a message, the new version becomes a sibling branch of the original. You can navigate between branches with Alt+Left/Right, and branch indicators like `[1/3]` appear at fork points.
+
+This means you never lose a previous response -- you can always switch back to an earlier branch.
+
+### Character cards
+
+Character cards define an AI persona with a name, description, personality, and scenario. LibLLM supports JSON and PNG formats (SillyTavern-compatible `tEXt` chunk extraction). Drop a `.json` or `.png` card into `~/.local/share/libllm/characters/` or use the `/character` command to import one. Template variables `{{char}}` and `{{user}}` are substituted automatically.
+
+### Worldbooks
+
+Worldbooks (lorebooks) provide keyword-activated context injection. Each entry has a set of trigger keywords; when those keywords appear in the conversation, the entry's content is injected into the prompt. This lets you build persistent lore, facts, or instructions that activate only when relevant.
+
+### Encryption
+
+By default, LibLLM encrypts all sessions, character cards, and worldbooks at rest using AES-256-GCM with an Argon2id-derived key. You set your passkey on first launch, and it is required each time you start the TUI.
+
+To skip encryption entirely, use `--no-encrypt` (sessions saved as plaintext JSON, no passkey prompt) or `-s session.json` (explicit plaintext session file).
+
+There is no passkey recovery mechanism. If you forget your passkey, encrypted data cannot be decrypted.
+
+## Common workflows
+
+### Start the TUI
+
+```sh
+libllm
+```
+
+### Send a one-off message from a script
+
+```sh
+libllm -m "Summarize this file" < document.txt
+# or
+echo "Translate to French: hello world" | libllm -m -
+```
+
+### Load a character card
+
+```sh
+# By name (from ~/.local/share/libllm/characters/)
+libllm -c character_name
+
+# By file path
+libllm -c /path/to/card.png
+```
+
+Or use the `/character` command inside the TUI to browse and import cards.
+
+### Toggle worldbooks
+
+Use the `/worldbook` command inside the TUI to enable or disable worldbooks for the current session. Worldbooks are loaded from `~/.local/share/libllm/worldinfo/`.
+
+### Use plaintext mode
+
+```sh
+# Disable encryption for all sessions
+libllm --no-encrypt
+
+# Use a specific plaintext session file
+libllm -s my_session.json
+```
+
+### Switch branches during a conversation
+
+- `/retry` to regenerate the last response (creates a new branch)
+- `/edit` to rewrite a previous message (creates a new branch)
+- Alt+Left / Alt+Right to switch between sibling branches
+- `/branch` to browse all branches at the current position
+
+### Override sampling parameters
+
+```sh
+libllm --temperature 0.5 --top-p 0.9 --max-tokens 512
+```
+
+### Provide passkey non-interactively
+
+```sh
+LIBLLM_PASSKEY=mypasskey libllm
+# or
+libllm --passkey mypasskey
+```
 
 ## Installation
 
-### From nightly release
+### From nightly release (recommended)
 
-Pre-built binaries are published on every push to `master` as a [nightly release](../../releases/tag/nightly).
+Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [nightly release](../../releases/tag/nightly).
+
+There are no stable releases yet. Nightly is the recommended install method.
 
 ### From source
 
@@ -31,39 +171,7 @@ cargo build --release
 # binary is at target/release/libllm
 ```
 
-## Usage
-
-LibLLM connects to a llama.cpp-compatible completions API (default `http://localhost:5001/v1`).
-
-```sh
-# Launch the TUI (prompts for encryption passkey)
-libllm
-
-# Single message mode (ephemeral, no session saved)
-libllm -m "Explain quicksort"
-
-# Read prompt from stdin
-echo "Translate to French: hello" | libllm -m -
-
-# Specify API URL and template
-libllm --api-url http://localhost:8080/v1 --template chatml
-
-# Override sampling parameters
-libllm --temperature 0.5 --top-p 0.9 --max-tokens 512
-
-# Load a character card
-libllm -c character_name
-libllm -c /path/to/card.png
-
-# Plaintext session (no encryption)
-libllm -s session.json
-libllm --no-encrypt
-
-# Passkey via environment variable
-LIBLLM_PASSKEY=mypasskey libllm
-```
-
-### CLI reference
+## CLI reference
 
 | Flag | Description |
 |---|---|
@@ -111,7 +219,7 @@ libllm edit worldbook <name>
 | Esc | Streaming | Cancel generation |
 | Ctrl+C | Global | Quit |
 
-### TUI commands
+## TUI commands
 
 Type `/` in the input to open the command picker. Tab or Space to autocomplete, Enter to execute.
 
@@ -187,16 +295,50 @@ Each file gets a unique random nonce. The passkey can be changed at any time via
 
 To opt out of encryption, use `--no-encrypt` or `-s <path>` for plaintext sessions.
 
-## Building
+## Troubleshooting
+
+### Cannot connect to API
+
+LibLLM expects a running llama.cpp-compatible server at the configured URL (default `http://localhost:5001/v1`). Verify:
+
+- The server is running and listening on the expected port.
+- The URL matches (check `--api-url`, `LIBLLM_API_URL`, or `api_url` in `config.toml`).
+- The server exposes an OpenAI-compatible `/v1/chat/completions` endpoint.
+
+### Forgot passkey
+
+There is no passkey recovery. If you forget your passkey, encrypted sessions, characters, and worldbooks cannot be decrypted. You can start fresh by deleting the data directory (`~/.local/share/libllm/`) or use `--no-encrypt` to start without encryption.
+
+### Sessions appear missing
+
+Sessions are tied to the encryption passkey. If you enter the wrong passkey, previously saved sessions will not appear in the sidebar. Re-launch with the correct passkey.
+
+### Character or worldbook not showing up
+
+- PNG cards are auto-imported on startup. If you added a PNG while the TUI was running, restart it.
+- JSON files are auto-encrypted on next launch. Ensure the file is valid JSON and placed in the correct directory (`characters/` or `worldinfo/`).
+
+### `--no-encrypt` vs `-s`
+
+- `--no-encrypt` disables encryption globally. Sessions are saved as plaintext JSON in the default data directory. No passkey prompt.
+- `-s session.json` loads and saves a specific plaintext file. Useful for one-off sessions or backward compatibility.
+
+### TLS / self-signed certificate errors
+
+Use `--tls-skip-verify` to bypass certificate verification when connecting to a server with a self-signed certificate.
+
+## Contributing
+
+Bug reports and feature requests: [GitHub Issues](../../issues)
+
+To build from source:
 
 ```sh
-cargo build              # debug build
-cargo build --release    # optimized release build
-cargo run -- --help      # run with arguments
+cargo build
 ```
 
-Debug builds include a render performance logger:
+There is no test suite yet. Verify changes with `cargo build` and manual testing.
 
-```sh
-cargo run -- --debug log.txt
-```
+## License
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE).

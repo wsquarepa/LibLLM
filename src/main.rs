@@ -14,6 +14,7 @@ mod sampling;
 mod session;
 mod system_prompt;
 mod tui;
+mod update;
 mod worldinfo;
 
 use std::io::{self, Read, Write};
@@ -44,6 +45,10 @@ async fn main() -> Result<()> {
 
     if let Some(cli::Command::Edit { kind, name }) = &args.command {
         return handle_edit_command(kind, name, &args);
+    }
+
+    if let Some(cli::Command::Update) = &args.command {
+        return update::run().await;
     }
 
     let cfg = crate::debug_log::timed_kv(

@@ -13,6 +13,8 @@ pub enum Command {
         /// Name of the character or worldbook
         name: String,
     },
+    /// Update libllm to the latest nightly build
+    Update,
 }
 
 #[derive(Parser)]

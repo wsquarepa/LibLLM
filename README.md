@@ -154,6 +154,22 @@ libllm --passkey mypasskey
 
 ## Installation
 
+### Quick install (Linux / macOS)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wsquarepa/LibLLM/master/install.sh | sh
+```
+
+This downloads the latest nightly binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
+
+### Update
+
+```sh
+libllm update
+```
+
+Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
+
 ### From nightly release (recommended)
 
 Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [nightly release](../../releases/tag/nightly).
@@ -195,6 +211,9 @@ cargo build --release
 ### Subcommands
 
 ```sh
+# Update to the latest nightly build
+libllm update
+
 # Edit a character card or worldbook in $EDITOR
 libllm edit character <name>
 libllm edit worldbook <name>

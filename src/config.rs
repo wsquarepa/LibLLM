@@ -20,12 +20,8 @@ pub struct Config {
     pub worldbooks: Vec<String>,
     #[serde(default)]
     pub tls_skip_verify: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub debug_log: bool,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

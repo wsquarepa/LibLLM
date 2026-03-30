@@ -256,12 +256,12 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/worldbook` | `/lore`, `/world`, `/lorebook` | Toggle worldbooks for this session |
 | `/passkey` | `/password`, `/pass`, `/auth` | Set or change encryption passkey |
 | `/config` | | Open configuration dialog |
-| `/report` | | Copy the active debug log to `./debug.log` |
+| `/report` | | Copy the active debug log to `./debug.log` (requires `debug_log = true`) |
 | `/quit` | `/exit` | Exit the chat |
 
 ## Diagnostics
 
-Every LibLLM launch writes a debug log automatically. By default the log goes to your operating system's temporary directory under a unique filename, so both interactive TUI sessions and one-off `-m` runs leave behind a reportable log.
+Debug logging is off by default. Enable it by setting `debug_log = true` in your config or by passing `--debug <path>` on the command line. When enabled, the log goes to your operating system's temporary directory under a unique filename, so both interactive TUI sessions and one-off `-m` runs leave behind a reportable log.
 
 Use `--debug <path>` to override the log location:
 
@@ -294,6 +294,7 @@ api_url = "http://localhost:5001/v1"
 template = "chatml"
 worldbooks = ["fantasy-lore", "tech-terms"]
 tls_skip_verify = false
+debug_log = false
 
 [sampling]
 temperature = 0.8

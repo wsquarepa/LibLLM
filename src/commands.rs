@@ -83,9 +83,13 @@ pub fn resolve_alias(input: &str) -> &str {
     input
 }
 
-pub fn matching_commands(prefix: &str) -> Vec<&'static CommandInfo> {
+pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandInfo> {
     COMMANDS
         .iter()
-        .filter(|c| c.name.starts_with(prefix) || c.aliases.iter().any(|a| a.starts_with(prefix)))
+        .filter(|c| {
+            !hidden.contains(&c.name)
+                && (c.name.starts_with(prefix)
+                    || c.aliases.iter().any(|a| a.starts_with(prefix)))
+        })
         .collect()
 }

@@ -16,8 +16,12 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let prefix = app.textarea.lines()[0].as_str();
-        let matches =
-            crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"));
+        let hidden: &[&str] =
+            if crate::config::load().debug_log { &[] } else { &["/report"] };
+        let matches = crate::commands::matching_commands(
+            prefix.split_whitespace().next().unwrap_or("/"),
+            hidden,
+        );
         match key.code {
             KeyCode::Up => {
                 app.command_picker_selected = app.command_picker_selected.saturating_sub(1);

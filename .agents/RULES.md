@@ -82,7 +82,7 @@ Sessions are encrypted with AES-256-GCM. A single salt (`.salt` file) is created
 
 ### Diagnostics
 
-All builds write a debug log automatically. By default LibLLM creates the log in the OS temp directory under a unique `libllm-debug-*.log` filename. `--debug <out_path>` overrides that location with an explicit path.
+Debug logging is off by default. Enable it via `debug_log = true` in config or `--debug <out_path>` on the command line. When enabled, LibLLM creates the log in the OS temp directory under a unique `libllm-debug-*.log` filename. `--debug <out_path>` overrides that location with an explicit path.
 
 `--timings[=<out_path>]` writes a timings report at shutdown. `--timings` with no value writes `./timings.log`.
 

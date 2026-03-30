@@ -475,8 +475,11 @@ pub fn render_chat(
 }
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
-    let matches =
-        crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"));
+    let hidden: &[&str] = if crate::config::load().debug_log { &[] } else { &["/report"] };
+    let matches = crate::commands::matching_commands(
+        prefix.split_whitespace().next().unwrap_or("/"),
+        hidden,
+    );
     if matches.is_empty() {
         return;
     }

@@ -112,20 +112,17 @@ impl SaveTrigger {
     }
 }
 
-#[cfg(debug_assertions)]
 struct AutosaveDebugState {
     dirty_since: Option<std::time::Instant>,
     save_count: u64,
     retry_count: u64,
 }
 
-#[cfg(debug_assertions)]
 struct UnlockDebugState {
     kind: &'static str,
     started_at: std::time::Instant,
 }
 
-#[cfg(debug_assertions)]
 struct HydrationDebugState {
     generation: u64,
     started_at: std::time::Instant,
@@ -261,11 +258,8 @@ struct App<'a> {
     config: crate::config::Config,
     worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
-    #[cfg(debug_assertions)]
     autosave_debug: AutosaveDebugState,
-    #[cfg(debug_assertions)]
     unlock_debug: Option<UnlockDebugState>,
-    #[cfg(debug_assertions)]
     hydration_debug: Option<HydrationDebugState>,
 }
 
@@ -314,7 +308,6 @@ impl App<'_> {
             };
             self.pending_save_deadline = Some(deadline);
         }
-        #[cfg(debug_assertions)]
         if self.autosave_debug.dirty_since.is_none() {
             self.autosave_debug.dirty_since = Some(std::time::Instant::now());
         }
@@ -333,10 +326,7 @@ impl App<'_> {
         self.session_dirty = false;
         self.pending_save_deadline = None;
         self.pending_save_trigger = None;
-        #[cfg(debug_assertions)]
-        {
-            self.autosave_debug.dirty_since = None;
-        }
+        self.autosave_debug.dirty_since = None;
     }
 
     fn flush_session_save(&mut self, trigger: SaveTrigger) -> Result<()> {
@@ -354,13 +344,10 @@ impl App<'_> {
             return Ok(());
         }
 
-        #[cfg(debug_assertions)]
         let dirty_elapsed_ms = self
             .autosave_debug
             .dirty_since
             .map(|started| started.elapsed().as_secs_f64() * 1000.0);
-        #[cfg(not(debug_assertions))]
-        let dirty_elapsed_ms: Option<f64> = None;
 
         let path = self.save_mode.path().map(|path| path.display().to_string());
         let start = std::time::Instant::now();
@@ -369,10 +356,7 @@ impl App<'_> {
 
         match result {
             Ok(()) => {
-                #[cfg(debug_assertions)]
-                {
-                    self.autosave_debug.save_count += 1;
-                }
+                self.autosave_debug.save_count += 1;
                 let mut fields = vec![
                     crate::debug_log::field("phase", "flush"),
                     crate::debug_log::field("trigger", trigger.as_str()),
@@ -388,7 +372,6 @@ impl App<'_> {
                         format!("{dirty_elapsed_ms:.3}"),
                     ));
                 }
-                #[cfg(debug_assertions)]
                 fields.push(crate::debug_log::field(
                     "save_count",
                     self.autosave_debug.save_count,
@@ -400,10 +383,7 @@ impl App<'_> {
             Err(err) => {
                 self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_RETRY_DELAY);
                 self.pending_save_trigger = Some(SaveTrigger::Retry);
-                #[cfg(debug_assertions)]
-                {
-                    self.autosave_debug.retry_count += 1;
-                }
+                self.autosave_debug.retry_count += 1;
                 let mut fields = vec![
                     crate::debug_log::field("phase", "flush"),
                     crate::debug_log::field("trigger", trigger.as_str()),
@@ -421,7 +401,6 @@ impl App<'_> {
                         format!("{dirty_elapsed_ms:.3}"),
                     ));
                 }
-                #[cfg(debug_assertions)]
                 fields.push(crate::debug_log::field(
                     "retry_count",
                     self.autosave_debug.retry_count,
@@ -593,15 +572,12 @@ pub async fn run(
         config,
         worldbook_cache: None,
         bg_tx: bg_tx.clone(),
-        #[cfg(debug_assertions)]
         autosave_debug: AutosaveDebugState {
             dirty_since: None,
             save_count: 0,
             retry_count: 0,
         },
-        #[cfg(debug_assertions)]
         unlock_debug: None,
-        #[cfg(debug_assertions)]
         hydration_debug: None,
     };
 

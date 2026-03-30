@@ -207,6 +207,9 @@ cargo build --release
 | `--repeat-penalty` | Repeat penalty strength |
 | `--max-tokens` | Maximum tokens to generate (`-1` for unlimited) |
 | `--tls-skip-verify` | Skip TLS certificate verification |
+| `--debug` | Write debug log to a specific path instead of an auto-generated temp file |
+| `--timings` | Write a timings report to `./timings.log` or an optional custom path |
+| `--cleanup` | Remove LibLLM temporary debug logs and exit |
 
 ### Subcommands
 
@@ -253,7 +256,34 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/worldbook` | `/lore`, `/world`, `/lorebook` | Toggle worldbooks for this session |
 | `/passkey` | `/password`, `/pass`, `/auth` | Set or change encryption passkey |
 | `/config` | | Open configuration dialog |
+| `/report` | | Copy the active debug log to `./debug.log` |
 | `/quit` | `/exit` | Exit the chat |
+
+## Diagnostics
+
+Every LibLLM launch writes a debug log automatically. By default the log goes to your operating system's temporary directory under a unique filename, so both interactive TUI sessions and one-off `-m` runs leave behind a reportable log.
+
+Use `--debug <path>` to override the log location:
+
+```sh
+libllm --debug ./my-debug.log
+libllm -m "hello" --debug ./single-run.log
+```
+
+Use `--timings` to generate a timings report at the end of the run:
+
+```sh
+libllm --timings
+libllm --timings ./startup-timings.log
+```
+
+Use `--cleanup` to remove LibLLM-managed temporary debug logs:
+
+```sh
+libllm --cleanup
+```
+
+Inside the TUI, `/report` copies the currently active debug log to `./debug.log`. LibLLM will refuse to overwrite an existing `./debug.log` file.
 
 ## Configuration
 

@@ -61,6 +61,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Open configuration dialog",
     },
     CommandInfo {
+        name: "/report",
+        aliases: &[],
+        args: "",
+        description: "Copy current debug log to ./debug.log",
+    },
+    CommandInfo {
         name: "/quit",
         aliases: &["/exit"],
         args: "",

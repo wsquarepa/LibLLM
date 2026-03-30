@@ -72,13 +72,10 @@ pub(in crate::tui) fn handle_passkey_key(
             app.passkey_input.clear();
             app.passkey_error.clear();
             app.passkey_deriving = true;
-            #[cfg(debug_assertions)]
-            {
-                app.unlock_debug = Some(crate::tui::UnlockDebugState {
-                    kind: "unlock",
-                    started_at: std::time::Instant::now(),
-                });
-            }
+            app.unlock_debug = Some(crate::tui::UnlockDebugState {
+                kind: "unlock",
+                started_at: std::time::Instant::now(),
+            });
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {

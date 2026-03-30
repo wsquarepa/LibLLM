@@ -24,3 +24,5 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 sha2 = "0.11.0"
 base64 = "0.22"
 uuid = { version = "1.23.0", features = ["v4"] }
+sysinfo = "0.37"
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }

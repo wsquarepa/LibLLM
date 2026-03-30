@@ -89,10 +89,17 @@ pub struct Args {
     #[arg(long)]
     pub tls_skip_verify: bool,
 
-    /// Write render debug log to file (dev builds only)
-    #[cfg(debug_assertions)]
+    /// Write debug log to this path instead of a temp file
     #[arg(long)]
-    pub debug: Option<String>,
+    pub debug: Option<PathBuf>,
+
+    /// Write a timings report to ./timings.log or an optional custom path
+    #[arg(long, num_args = 0..=1, default_missing_value = "./timings.log")]
+    pub timings: Option<PathBuf>,
+
+    /// Remove LibLLM temporary debug logs and exit
+    #[arg(long)]
+    pub cleanup: bool,
 }
 
 impl Args {

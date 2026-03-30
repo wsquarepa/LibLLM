@@ -80,15 +80,17 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 
 Sessions are encrypted with AES-256-GCM. A single salt (`.salt` file) is created on first run. The user's passkey + salt derive one key via Argon2id at startup. Each session file gets a unique random nonce. The `-s` flag bypasses encryption for backward compatibility.
 
-### Render Debug Logging
+### Diagnostics
 
-Dev builds support `--debug <out_path>` for render performance diagnostics:
-```sh
-cargo run -- --debug log.txt
-```
-The `--debug` flag and all associated logging are behind `#[cfg(debug_assertions)]` -- automatically available in dev builds, compiled out of release builds.
+All builds write a debug log automatically. By default LibLLM creates the log in the OS temp directory under a unique `libllm-debug-*.log` filename. `--debug <out_path>` overrides that location with an explicit path.
 
-When modifying the rendering pipeline (`tui/render.rs`, `tui/mod.rs::render_frame`, dialog render functions), add corresponding `debug_log::timed()` or `debug_log::log()` calls gated behind `#[cfg(debug_assertions)]` to maintain diagnostics coverage.
+`--timings[=<out_path>]` writes a timings report at shutdown. `--timings` with no value writes `./timings.log`.
+
+`--cleanup` removes LibLLM-managed temporary debug logs and exits.
+
+The TUI `/report` command copies the currently active debug log to `./debug.log` and refuses to overwrite an existing file.
+
+When modifying instrumented paths such as startup, session I/O, metadata hydration, unlock flow, or rendering, maintain diagnostics coverage with `debug_log::log_kv()`, `debug_log::timed_kv()`, or `debug_log::timed_result()`. Immediate debug logs should describe subsystem behavior; timing data should feed the `--timings` report rather than writing inline elapsed lines to the debug log.
 
 ### Statusbar
 

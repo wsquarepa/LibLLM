@@ -79,10 +79,7 @@ pub fn spawn_metadata_loading(app: &mut App) {
                 crate::debug_log::field("result", "skipped"),
             ],
         );
-        #[cfg(debug_assertions)]
-        {
-            app.hydration_debug = None;
-        }
+        app.hydration_debug = None;
         return;
     }
 
@@ -99,20 +96,17 @@ pub fn spawn_metadata_loading(app: &mut App) {
             crate::debug_log::field("result", "scheduled"),
         ],
     );
-    #[cfg(debug_assertions)]
-    {
-        app.hydration_debug = Some(super::HydrationDebugState {
-            generation,
-            started_at: Instant::now(),
-            scheduled: batches.iter().map(Vec::len).sum(),
-            completed: 0,
-            failed: 0,
-            stale_dropped: 0,
-            missing_dropped: 0,
-            batch_total: batches.len(),
-            batch_finished: 0,
-        });
-    }
+    app.hydration_debug = Some(super::HydrationDebugState {
+        generation,
+        started_at: Instant::now(),
+        scheduled: batches.iter().map(Vec::len).sum(),
+        completed: 0,
+        failed: 0,
+        stale_dropped: 0,
+        missing_dropped: 0,
+        batch_total: batches.len(),
+        batch_finished: 0,
+    });
 
     for (batch_index, batch) in batches.into_iter().enumerate() {
         let key = key.clone();
@@ -242,6 +236,7 @@ pub fn handle_slash_command(
         "/worldbook" => cmd_worldbook(app),
         "/character" => cmd_character(app),
         "/passkey" => cmd_passkey(app),
+        "/report" => cmd_report(app),
         _ => {
             app.set_status(
                 format!("Unknown command: {cmd}"),
@@ -450,6 +445,38 @@ fn cmd_passkey(app: &mut App) {
     }
 }
 
+fn cmd_report(app: &mut App) {
+    let current_dir = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(err) => {
+            app.set_status(
+                format!("Cannot resolve current directory: {err}"),
+                super::StatusLevel::Error,
+            );
+            return;
+        }
+    };
+    let output_path = current_dir.join("debug.log");
+    if output_path.exists() {
+        app.set_status(
+            format!("Refusing to overwrite existing {}", output_path.display()),
+            super::StatusLevel::Error,
+        );
+        return;
+    }
+
+    match crate::debug_log::copy_current_log_to(&output_path) {
+        Ok(()) => app.set_status(
+            format!("Debug log copied to {}", output_path.display()),
+            super::StatusLevel::Info,
+        ),
+        Err(err) => app.set_status(
+            format!("Failed to write debug report: {err}"),
+            super::StatusLevel::Error,
+        ),
+    }
+}
+
 pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
     if app.model_name.is_none() {
         app.set_status(
@@ -537,7 +564,6 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
 pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
     match event {
         super::BackgroundEvent::KeyDerived(key, path) => {
-            #[cfg(debug_assertions)]
             if let Some(debug) = app.unlock_debug.take() {
                 crate::debug_log::log_kv(
                     "unlock.phase",
@@ -566,7 +592,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             maintenance::spawn_unlocked_maintenance(key, &app.bg_tx);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
-            #[cfg(debug_assertions)]
             if let Some(debug) = app.unlock_debug.take() {
                 crate::debug_log::log_kv(
                     "unlock.phase",
@@ -586,7 +611,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             app.passkey_error = format!("Failed: {err}");
         }
         super::BackgroundEvent::PasskeySet(new_key) => {
-            #[cfg(debug_assertions)]
             if let Some(debug) = app.unlock_debug.take() {
                 crate::debug_log::log_kv(
                     "unlock.phase",
@@ -706,7 +730,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             }
         }
         super::BackgroundEvent::PasskeySetFailed(err) => {
-            #[cfg(debug_assertions)]
             if let Some(debug) = app.unlock_debug.take() {
                 crate::debug_log::log_kv(
                     "unlock.phase",
@@ -768,7 +791,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             metadata,
         } => {
             if generation != app.sidebar_hydration_generation {
-                #[cfg(debug_assertions)]
                 if let Some(debug) = app.hydration_debug.as_mut() {
                     if debug.generation == generation {
                         debug.stale_dropped += 1;
@@ -791,7 +813,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             }
 
             let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) else {
-                #[cfg(debug_assertions)]
                 if let Some(debug) = app.hydration_debug.as_mut() {
                     if debug.generation == generation {
                         debug.missing_dropped += 1;
@@ -830,7 +851,6 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             failed_count: _failed_count,
         } =>
         {
-            #[cfg(debug_assertions)]
             if let Some(debug) = app.hydration_debug.as_mut() {
                 if debug.generation == _generation {
                     debug.completed += _loaded_count;

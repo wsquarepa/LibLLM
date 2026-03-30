@@ -31,10 +31,23 @@ use session::{Message, Role, SaveMode};
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    #[cfg(debug_assertions)]
-    if let Some(ref path) = args.debug {
-        debug_log::init(path);
+
+    if args.cleanup {
+        let summary = debug_log::cleanup_temp_logs()?;
+        println!(
+            "Removed {} temporary debug log(s); {} removal(s) failed.",
+            summary.removed, summary.failed
+        );
+        return Ok(());
     }
+
+    let _diagnostics = debug_log::init(
+        args.debug.as_deref(),
+        args.timings.as_deref(),
+        infer_run_mode(&args),
+        &build_run_fields(&args),
+    )?;
+
     crate::debug_log::timed_result(
         "startup.phase",
         &[crate::debug_log::field("phase", "ensure_dirs")],
@@ -151,6 +164,74 @@ async fn main() -> Result<()> {
         ],
     );
     tui::run(&client, &mut session, save_mode, template, sampling).await
+}
+
+fn infer_run_mode(args: &Args) -> &'static str {
+    if args.cleanup {
+        "cleanup"
+    } else if let Some(command) = &args.command {
+        match command {
+            cli::Command::Edit { .. } => "edit_subcommand",
+            cli::Command::Update => "update_subcommand",
+        }
+    } else if args.message.is_some() {
+        "single_message"
+    } else {
+        "tui"
+    }
+}
+
+fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
+    let mut fields = Vec::new();
+    fields.push(crate::debug_log::field("has_message", args.message.is_some()));
+    fields.push(crate::debug_log::field(
+        "message_from_stdin",
+        args.message.as_deref() == Some("-"),
+    ));
+    fields.push(crate::debug_log::field("session_explicit", args.session.is_some()));
+    fields.push(crate::debug_log::field("no_encrypt", args.no_encrypt));
+    fields.push(crate::debug_log::field(
+        "has_passkey_arg",
+        args.passkey.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "has_system_prompt_arg",
+        args.system_prompt.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "has_character_arg",
+        args.character.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "has_api_url_arg",
+        args.api_url.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "has_template_arg",
+        args.template.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "timings_enabled",
+        args.timings.is_some(),
+    ));
+    fields.push(crate::debug_log::field(
+        "tls_skip_verify",
+        args.tls_skip_verify,
+    ));
+
+    if let Some(command) = &args.command {
+        let command_name = match command {
+            cli::Command::Edit { .. } => "edit",
+            cli::Command::Update => "update",
+        };
+        fields.push(crate::debug_log::field("command", command_name));
+        if let cli::Command::Edit { kind, name } = command {
+            fields.push(crate::debug_log::field("edit_kind", kind));
+            fields.push(crate::debug_log::field("edit_name", name));
+        }
+    }
+
+    fields
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {

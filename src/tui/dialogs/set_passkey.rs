@@ -124,17 +124,14 @@ pub(in crate::tui) fn handle_set_passkey_key(
             app.set_passkey_confirm.clear();
             app.set_passkey_error.clear();
             app.set_passkey_deriving = true;
-            #[cfg(debug_assertions)]
-            {
-                app.unlock_debug = Some(crate::tui::UnlockDebugState {
-                    kind: if app.set_passkey_is_initial {
-                        "set_passkey"
-                    } else {
-                        "change_passkey"
-                    },
-                    started_at: std::time::Instant::now(),
-                });
-            }
+            app.unlock_debug = Some(crate::tui::UnlockDebugState {
+                kind: if app.set_passkey_is_initial {
+                    "set_passkey"
+                } else {
+                    "change_passkey"
+                },
+                started_at: std::time::Instant::now(),
+            });
             let is_initial = app.set_passkey_is_initial;
             let debug_kind = if is_initial {
                 "set_passkey"

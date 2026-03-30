@@ -339,7 +339,10 @@ fn load_sidebar_selection(app: &mut App) {
     };
     if is_new_chat {
         app.discard_pending_session_save();
-        *app.session = Session::default();
+        let mut new_session = Session::default();
+        new_session.persona = app.config.default_persona.clone();
+        *app.session = new_session;
+        super::business::load_active_persona(app);
         app.invalidate_chat_cache();
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;

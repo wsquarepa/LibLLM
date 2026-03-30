@@ -92,6 +92,19 @@ pub(in crate::tui) fn handle_persona_dialog_key(
                     app.session.persona = Some(file_name.clone());
                     app.invalidate_chat_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
+
+                    let mut cfg = crate::config::load();
+                    cfg.default_persona = Some(file_name.clone());
+                    if let Err(e) = crate::config::save(&cfg) {
+                        crate::debug_log::log_kv(
+                            "config.default_persona",
+                            &[
+                                crate::debug_log::field("result", "error"),
+                                crate::debug_log::field("error", &e),
+                            ],
+                        );
+                    }
+
                     app.set_status(
                         format!("Persona set to '{file_name}'."),
                         super::super::StatusLevel::Info,

@@ -135,7 +135,8 @@ pub(in crate::tui) fn handle_set_passkey_key(
                     started_at: std::time::Instant::now(),
                 });
             }
-            let debug_kind = if app.set_passkey_is_initial {
+            let is_initial = app.set_passkey_is_initial;
+            let debug_kind = if is_initial {
                 "set_passkey"
             } else {
                 "change_passkey"
@@ -147,27 +148,34 @@ pub(in crate::tui) fn handle_set_passkey_key(
                         passkey,
                         debug_kind,
                         |derived_key, check_path| {
-                            let fingerprint_start = std::time::Instant::now();
-                            let fingerprint_result =
-                                crate::crypto::set_key_fingerprint(check_path, &derived_key);
-                            let fingerprint_status = if fingerprint_result.is_ok() {
-                                "ok"
-                            } else {
-                                "error"
-                            };
-                            super::log_phase_with_path(
-                                debug_kind,
-                                "fingerprint",
-                                fingerprint_status,
-                                fingerprint_start.elapsed(),
-                                check_path.display(),
-                            );
-                            match fingerprint_result {
-                                Ok(()) => {
-                                    let key = std::sync::Arc::new(derived_key);
-                                    BackgroundEvent::PasskeySet(key)
+                            if is_initial {
+                                let fingerprint_start = std::time::Instant::now();
+                                let fingerprint_result =
+                                    crate::crypto::set_key_fingerprint(check_path, &derived_key);
+                                let fingerprint_status = if fingerprint_result.is_ok() {
+                                    "ok"
+                                } else {
+                                    "error"
+                                };
+                                super::log_phase_with_path(
+                                    debug_kind,
+                                    "fingerprint",
+                                    fingerprint_status,
+                                    fingerprint_start.elapsed(),
+                                    check_path.display(),
+                                );
+                                match fingerprint_result {
+                                    Ok(()) => {
+                                        let key = std::sync::Arc::new(derived_key);
+                                        BackgroundEvent::PasskeySet(key)
+                                    }
+                                    Err(err) => {
+                                        BackgroundEvent::PasskeySetFailed(err.to_string())
+                                    }
                                 }
-                                Err(err) => BackgroundEvent::PasskeySetFailed(err.to_string()),
+                            } else {
+                                let key = std::sync::Arc::new(derived_key);
+                                BackgroundEvent::PasskeySet(key)
                             }
                         },
                     )

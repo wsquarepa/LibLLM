@@ -193,6 +193,7 @@ struct App<'a> {
     status_message: Option<StatusMessage>,
     should_quit: bool,
     passkey_changed: bool,
+    re_encrypt_old_key: Option<std::sync::Arc<crate::crypto::DerivedKey>>,
     command_picker_selected: usize,
 
     passkey_input: String,
@@ -461,8 +462,24 @@ pub async fn run(
     let config = crate::config::load();
     let user_name = config.user_name.clone();
 
+    let key_check_exists = crate::config::key_check_path().exists();
+    let has_encrypted_sessions = !key_check_exists
+        && std::fs::read_dir(crate::config::sessions_dir())
+            .ok()
+            .map(|entries| {
+                entries.flatten().any(|e| {
+                    e.path()
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        == Some("session")
+                        && std::fs::read(e.path())
+                            .ok()
+                            .is_some_and(|data| crate::crypto::is_encrypted(&data))
+                })
+            })
+            .unwrap_or(false);
     let initial_passkey_setup =
-        save_mode.needs_passkey() && !crate::config::key_check_path().exists();
+        save_mode.needs_passkey() && !key_check_exists && !has_encrypted_sessions;
 
     let mut app = App {
         client,
@@ -507,6 +524,7 @@ pub async fn run(
         status_message: None,
         should_quit: false,
         passkey_changed: false,
+        re_encrypt_old_key: None,
         command_picker_selected: 0,
         passkey_input: String::new(),
         passkey_error: String::new(),

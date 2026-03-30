@@ -238,8 +238,8 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
         _ => anyhow::bail!("Unknown content type: {kind}. Use 'character' or 'worldbook'."),
     };
 
-    let temp_dir = std::env::temp_dir();
-    let temp_path = temp_dir.join(format!("libllm-edit-{name}.json"));
+    let temp_dir = crate::config::data_dir();
+    let temp_path = temp_dir.join(format!(".edit-{name}.json"));
 
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);

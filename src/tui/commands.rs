@@ -702,6 +702,7 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                         return;
                     }
                 };
+                app.re_encrypt_old_key = Some(old_key.clone());
                 app.save_mode = match &app.save_mode {
                     SaveMode::Encrypted { path, .. } => SaveMode::Encrypted {
                         path: path.clone(),
@@ -778,9 +779,42 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             app.set_passkey_deriving = false;
             app.set_passkey_error = format!("Failed: {err}");
         }
-        super::BackgroundEvent::ReEncryptionComplete(_warnings) => {
-            app.passkey_changed = true;
-            app.should_quit = true;
+        super::BackgroundEvent::ReEncryptionComplete(warnings) => {
+            if warnings.is_empty() {
+                let check_path = crate::config::key_check_path();
+                if let SaveMode::Encrypted { key, .. } = &app.save_mode {
+                    if let Err(err) = crate::crypto::set_key_fingerprint(&check_path, key) {
+                        app.set_status(
+                            format!("Failed to update key fingerprint: {err}"),
+                            super::StatusLevel::Error,
+                        );
+                        return;
+                    }
+                }
+                app.re_encrypt_old_key = None;
+                app.passkey_changed = true;
+                app.should_quit = true;
+            } else {
+                if let Some(old_key) = app.re_encrypt_old_key.take() {
+                    app.save_mode = match &app.save_mode {
+                        SaveMode::Encrypted { path, .. } => SaveMode::Encrypted {
+                            path: path.clone(),
+                            key: old_key,
+                        },
+                        other => other.clone(),
+                    };
+                }
+                for warning in &warnings {
+                    app.set_status(warning.clone(), super::StatusLevel::Error);
+                }
+                app.set_status(
+                    format!(
+                        "Re-encryption failed for {} file(s). Passkey NOT changed.",
+                        warnings.len()
+                    ),
+                    super::StatusLevel::Error,
+                );
+            }
         }
         super::BackgroundEvent::MetadataLoaded {
             generation,

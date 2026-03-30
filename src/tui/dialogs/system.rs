@@ -54,6 +54,10 @@ pub(in crate::tui) fn handle_system_key(key: KeyEvent, app: &mut App) -> Option<
                     Some(content)
                 };
 
+                app.session.system_prompt = value.clone();
+                app.invalidate_chat_cache();
+                app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
+
                 let mut cfg = crate::config::load();
                 if app.system_editor_roleplay {
                     cfg.roleplay_system_prompt = value;

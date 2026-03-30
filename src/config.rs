@@ -1,10 +1,13 @@
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::sampling::SamplingOverrides;
+
+static DATA_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -34,10 +37,18 @@ impl Config {
     }
 }
 
+pub fn set_data_dir(path: PathBuf) {
+    DATA_DIR_OVERRIDE
+        .set(path)
+        .expect("data directory override already set");
+}
+
 pub fn data_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("libllm")
+    DATA_DIR_OVERRIDE.get().cloned().unwrap_or_else(|| {
+        dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("libllm")
+    })
 }
 
 pub fn sessions_dir() -> PathBuf {

@@ -825,16 +825,16 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             app.invalidate_sidebar_cache();
         }
         super::BackgroundEvent::MetadataBatchFinished {
-            generation,
-            loaded_count,
-            failed_count,
+            generation: _generation,
+            loaded_count: _loaded_count,
+            failed_count: _failed_count,
         } =>
         {
             #[cfg(debug_assertions)]
             if let Some(debug) = app.hydration_debug.as_mut() {
-                if debug.generation == generation {
-                    debug.completed += loaded_count;
-                    debug.failed += failed_count;
+                if debug.generation == _generation {
+                    debug.completed += _loaded_count;
+                    debug.failed += _failed_count;
                     debug.batch_finished += 1;
                     if debug.batch_finished == debug.batch_total {
                         crate::debug_log::log_kv(

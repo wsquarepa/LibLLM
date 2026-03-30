@@ -279,6 +279,7 @@ impl MessageTree {
     }
 
     #[cfg(not(debug_assertions))]
+    #[allow(dead_code)]
     fn bump_cache_hit(&self, _: &'static str, _: &()) {}
 
     fn validate_preferred_children(&mut self) {
@@ -301,6 +302,7 @@ impl MessageTree {
     }
 
     fn refresh_runtime_caches(&mut self) {
+        #[cfg(debug_assertions)]
         let rebuild_start = Instant::now();
         self.current_branch_ids.clear();
         self.current_user_branch_ids.clear();

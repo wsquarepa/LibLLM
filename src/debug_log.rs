@@ -1,7 +1,9 @@
 use std::fmt;
 
 pub struct Field<'a> {
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     key: &'a str,
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     value: String,
 }
 
@@ -162,6 +164,7 @@ pub use debug_impl::*;
 
 #[cfg(not(debug_assertions))]
 #[inline(always)]
+#[allow(dead_code)]
 pub fn log(_: &str, _: &str) {}
 
 #[cfg(not(debug_assertions))]

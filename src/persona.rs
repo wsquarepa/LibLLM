@@ -18,8 +18,23 @@ pub struct PersonaEntry {
     pub name: String,
 }
 
-pub fn resolve_persona_path(dir: &Path, name: &str) -> PathBuf {
-    crate::crypto::resolve_encrypted_path(dir, name, EXT_ENCRYPTED)
+fn sanitize_persona_slug(name: &str) -> Option<String> {
+    let safe_name: String = name.replace(['/', '\\'], "_");
+    let safe_name = safe_name.trim_matches('.');
+    if safe_name.is_empty() {
+        None
+    } else {
+        Some(safe_name.to_owned())
+    }
+}
+
+pub fn resolve_persona_path(dir: &Path, name: &str) -> Option<PathBuf> {
+    let slug = sanitize_persona_slug(name)?;
+    Some(crate::crypto::resolve_encrypted_path(
+        dir,
+        &slug,
+        EXT_ENCRYPTED,
+    ))
 }
 
 pub fn load_persona(path: &Path, key: Option<&DerivedKey>) -> Result<PersonaFile> {
@@ -33,13 +48,17 @@ pub fn save_persona(
     key: Option<&DerivedKey>,
 ) -> Result<PathBuf> {
     let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
-    let safe_name: String = persona.name.replace(['/', '\\'], "_");
-    let safe_name = safe_name.trim_matches('.');
-    anyhow::ensure!(!safe_name.is_empty(), "persona name is empty after sanitization");
+    let safe_name = sanitize_persona_slug(&persona.name).unwrap_or_default();
+    anyhow::ensure!(
+        !safe_name.is_empty(),
+        "persona name is empty after sanitization"
+    );
     let path = dir.join(format!("{safe_name}.{ext}"));
-    anyhow::ensure!(path.starts_with(dir), "persona path escapes target directory");
-    let json =
-        serde_json::to_string_pretty(persona).context("failed to serialize persona")?;
+    anyhow::ensure!(
+        path.starts_with(dir),
+        "persona path escapes target directory"
+    );
+    let json = serde_json::to_string_pretty(persona).context("failed to serialize persona")?;
     crate::crypto::encrypt_and_write(&path, json.as_bytes(), key)?;
     Ok(path)
 }
@@ -49,7 +68,7 @@ pub fn load_persona_by_name(
     name: &str,
     key: Option<&DerivedKey>,
 ) -> Option<PersonaFile> {
-    let path = resolve_persona_path(dir, name);
+    let path = resolve_persona_path(dir, name)?;
     load_persona(&path, key).ok()
 }
 
@@ -67,10 +86,9 @@ pub fn list_personas(dir: &Path, _key: Option<&DerivedKey>) -> Vec<PersonaEntry>
                 .is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT)
         })
         .filter_map(|path| {
-            path.file_stem()
-                .map(|stem| PersonaEntry {
-                    name: stem.to_string_lossy().to_string(),
-                })
+            path.file_stem().map(|stem| PersonaEntry {
+                name: stem.to_string_lossy().to_string(),
+            })
         })
         .collect();
 

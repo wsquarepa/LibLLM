@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::client::StreamToken;
 use crate::session::{self, Message, Role, SaveMode};
 
-use super::business::{load_config_fields, load_self_fields, refresh_sidebar};
+use super::business::{load_config_fields, refresh_sidebar};
 use super::{App, Focus, dialogs, maintenance};
 
 const SIDEBAR_METADATA_WORKERS: usize = 4;
@@ -243,6 +243,9 @@ pub fn handle_slash_command(
             app.session.system_prompt = None;
             app.session.character = None;
             app.session.worldbooks.clear();
+            app.session.persona = None;
+            app.active_persona_name = None;
+            app.active_persona_desc = None;
             app.discard_pending_session_save();
             app.invalidate_chat_cache();
             app.invalidate_worldbook_cache();
@@ -347,6 +350,7 @@ pub fn handle_slash_command(
                     Ok(loaded) => {
                         app.discard_pending_session_save();
                         *app.session = loaded;
+                        super::business::load_active_persona(app);
                         app.invalidate_chat_cache();
                         app.invalidate_worldbook_cache();
                         let count = app.session.tree.current_branch_ids().len();
@@ -415,10 +419,14 @@ pub fn handle_slash_command(
             app.branch_dialog_selected = current_idx;
             app.focus = Focus::BranchDialog;
         }
-        "/self" => {
-            app.self_dialog =
-                Some(dialogs::open_self_editor(load_self_fields(&crate::config::load())));
-            app.focus = Focus::SelfDialog;
+        "/persona" => {
+            let personas = crate::persona::list_personas(
+                &crate::config::personas_dir(),
+                app.save_mode.key(),
+            );
+            app.persona_list = personas.into_iter().map(|p| p.name).collect();
+            app.persona_selected = 0;
+            app.focus = Focus::PersonaDialog;
         }
         "/worldbook" => {
             let books = crate::worldinfo::list_worldbooks(
@@ -552,13 +560,14 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
     let effective_prompt = super::business::build_effective_system_prompt(app.session, &app.config, app.save_mode.key());
+    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = super::business::inject_loaded_worldbook_entries(
         app.session,
         truncated,
-        &app.config,
+        user_name,
         &worldbooks,
     );
-    let injected = super::business::replace_template_vars(app.session, injected, &app.config);
+    let injected = super::business::replace_template_vars(app.session, injected, user_name);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
         .template
@@ -748,6 +757,12 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
                         warnings.extend(crate::crypto::re_encrypt_directory(
                             &crate::config::system_prompts_dir(),
                             &["prompt"],
+                            &old_key,
+                            &new_key,
+                        ));
+                        warnings.extend(crate::crypto::re_encrypt_directory(
+                            &crate::config::personas_dir(),
+                            &["persona"],
                             &old_key,
                             &new_key,
                         ));

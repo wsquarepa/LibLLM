@@ -1,0 +1,175 @@
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::Paragraph;
+
+use super::{clear_centered, dialog_block};
+use crate::tui::{Action, App, DeleteContext, Focus};
+
+pub(in crate::tui) fn render_persona_dialog(
+    f: &mut ratatui::Frame,
+    app: &App,
+    area: Rect,
+) {
+    let count = app.persona_list.len();
+    let dialog = clear_centered(f, 50, count as u16 + 6, area);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for (i, name) in app.persona_list.iter().enumerate() {
+        let is_selected = i == app.persona_selected;
+        let marker = if is_selected { "> " } else { "  " };
+        let active_marker = if app.session.persona.as_deref() == Some(name.as_str()) {
+            " *"
+        } else {
+            ""
+        };
+        let style = if is_selected {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{marker}{name}{active_marker}"),
+            style,
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Up/Down: navigate  Enter: select  Right: edit",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  a: add new  Del: delete  Esc: cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(dialog_block(" Personas ", Color::Yellow));
+
+    f.render_widget(paragraph, dialog);
+}
+
+pub(in crate::tui) fn handle_persona_dialog_key(
+    key: KeyEvent,
+    app: &mut App,
+) -> Option<Action> {
+    if app.persona_list.is_empty() {
+        match key.code {
+            KeyCode::Char('a') => {
+                create_and_edit_persona(app);
+            }
+            KeyCode::Esc => {
+                app.focus = Focus::Input;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Up => {
+            app.persona_selected = app.persona_selected.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            app.persona_selected =
+                (app.persona_selected + 1).min(app.persona_list.len() - 1);
+        }
+        KeyCode::Enter => {
+            let file_name = app.persona_list[app.persona_selected].clone();
+            let dir = crate::config::personas_dir();
+            match crate::persona::load_persona_by_name(&dir, &file_name, app.save_mode.key()) {
+                Some(pf) => {
+                    app.active_persona_name = Some(pf.name);
+                    app.active_persona_desc = Some(pf.persona);
+                    app.session.persona = Some(file_name.clone());
+                    app.invalidate_chat_cache();
+                    app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
+                    app.set_status(
+                        format!("Persona set to '{file_name}'."),
+                        super::super::StatusLevel::Info,
+                    );
+                }
+                None => {
+                    app.set_status(
+                        format!("Failed to load persona '{file_name}'."),
+                        super::super::StatusLevel::Error,
+                    );
+                }
+            }
+            app.focus = Focus::Input;
+        }
+        KeyCode::Right => {
+            let file_name = app.persona_list[app.persona_selected].clone();
+            open_persona_editor(app, &file_name);
+        }
+        KeyCode::Char('a') => {
+            create_and_edit_persona(app);
+        }
+        KeyCode::Backspace | KeyCode::Delete => {
+            let name = app.persona_list[app.persona_selected].clone();
+            app.delete_confirm_filename = name.clone();
+            app.delete_confirm_selected = 0;
+            app.delete_context = DeleteContext::Persona { name };
+            app.focus = Focus::DeleteConfirmDialog;
+        }
+        KeyCode::Esc => {
+            app.focus = Focus::Input;
+        }
+        _ => {}
+    }
+    None
+}
+
+fn open_persona_editor(app: &mut App, file_name: &str) {
+    let dir = crate::config::personas_dir();
+    let pf = crate::persona::load_persona_by_name(&dir, file_name, app.save_mode.key());
+    let values = match pf {
+        Some(pf) => vec![pf.name, pf.persona],
+        None => vec![file_name.to_owned(), String::new()],
+    };
+
+    app.persona_editor_file_name = file_name.to_owned();
+    app.persona_editor = Some(super::open_persona_editor(values));
+    app.focus = Focus::PersonaEditorDialog;
+}
+
+fn create_and_edit_persona(app: &mut App) {
+    let dir = crate::config::personas_dir();
+    let existing: std::collections::HashSet<String> =
+        app.persona_list.iter().cloned().collect();
+    let new_name = generate_unique_name(&existing);
+    let persona = crate::persona::PersonaFile {
+        name: new_name.clone(),
+        persona: String::new(),
+    };
+    if let Err(e) = crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+        app.set_status(
+            format!("Failed to create persona: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+    app.persona_list.push(new_name.clone());
+    app.persona_selected = app.persona_list.len() - 1;
+    open_persona_editor(app, &new_name);
+}
+
+fn generate_unique_name(existing: &std::collections::HashSet<String>) -> String {
+    let base = "persona";
+    if !existing.contains(base) {
+        return base.to_owned();
+    }
+    let mut i = 1u32;
+    loop {
+        let candidate = format!("{base}-{i}");
+        if !existing.contains(&candidate) {
+            return candidate;
+        }
+        i += 1;
+    }
+}

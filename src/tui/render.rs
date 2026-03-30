@@ -217,7 +217,7 @@ pub fn render_chat(
     cache: &mut Option<ChatContentCache>,
 ) {
     let char_name = app.session.character.as_deref().unwrap_or("");
-    let user_name = app.user_name.as_deref().unwrap_or("User");
+    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let has_replacements = app.session.character.is_some();
 
     let replace_vars = |text: &str| -> String {
@@ -228,7 +228,7 @@ pub fn render_chat(
         }
     };
 
-    let user_label = if has_replacements && app.user_name.is_some() {
+    let user_label = if has_replacements && app.active_persona_name.is_some() {
         user_name.to_owned()
     } else {
         "You".to_owned()

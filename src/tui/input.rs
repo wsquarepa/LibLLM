@@ -351,6 +351,7 @@ fn load_sidebar_selection(app: &mut App) {
             Ok(loaded) => {
                 app.discard_pending_session_save();
                 *app.session = loaded;
+                super::business::load_active_persona(app);
                 app.invalidate_chat_cache();
                 app.invalidate_worldbook_cache();
                 app.set_status(format!("Loaded: {filename}"), super::StatusLevel::Info);

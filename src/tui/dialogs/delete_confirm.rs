@@ -108,6 +108,10 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                     delete_character(app, &slug);
                     app.focus = Focus::CharacterDialog;
                 }
+                DeleteContext::Persona { name } => {
+                    delete_persona(app, &name);
+                    app.focus = Focus::PersonaDialog;
+                }
                 DeleteContext::SystemPrompt { name } => {
                     delete_system_prompt(app, &name);
                     app.focus = Focus::SystemPromptDialog;
@@ -123,6 +127,7 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
             app.focus = match context {
                 DeleteContext::Session => Focus::Sidebar,
                 DeleteContext::Character { .. } => Focus::CharacterDialog,
+                DeleteContext::Persona { .. } => Focus::PersonaDialog,
                 DeleteContext::SystemPrompt { .. } => Focus::SystemPromptDialog,
                 DeleteContext::Worldbook { .. } => Focus::WorldbookDialog,
             };
@@ -191,6 +196,31 @@ fn delete_character(app: &mut App, slug: &str) {
     maintenance::reload_character_picker(app);
     app.set_status(
         format!("Deleted character: {slug}"),
+        super::super::StatusLevel::Info,
+    );
+}
+
+fn delete_persona(app: &mut App, name: &str) {
+    let path = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name);
+
+    if let Err(e) = std::fs::remove_file(&path) {
+        app.set_status(
+            format!("Error deleting persona: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+
+    if app.session.persona.as_deref() == Some(name) {
+        app.active_persona_name = None;
+        app.active_persona_desc = None;
+        app.session.persona = None;
+        app.invalidate_chat_cache();
+    }
+
+    maintenance::reload_persona_picker(app);
+    app.set_status(
+        format!("Deleted persona: {name}"),
         super::super::StatusLevel::Info,
     );
 }

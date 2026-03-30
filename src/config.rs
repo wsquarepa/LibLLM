@@ -12,7 +12,9 @@ pub struct Config {
     pub template: Option<String>,
     pub system_prompt: Option<String>,
     pub roleplay_system_prompt: Option<String>,
+    #[serde(default, skip_serializing)]
     pub user_name: Option<String>,
+    #[serde(default, skip_serializing)]
     pub user_persona: Option<String>,
     #[serde(default)]
     pub sampling: SamplingOverrides,
@@ -52,6 +54,10 @@ pub fn system_prompts_dir() -> PathBuf {
     data_dir().join("system")
 }
 
+pub fn personas_dir() -> PathBuf {
+    data_dir().join("personas")
+}
+
 pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
@@ -68,7 +74,8 @@ pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(sessions_dir()).context("failed to create sessions directory")?;
     std::fs::create_dir_all(characters_dir()).context("failed to create characters directory")?;
     std::fs::create_dir_all(worldinfo_dir()).context("failed to create worldinfo directory")?;
-    std::fs::create_dir_all(system_prompts_dir()).context("failed to create system prompts directory")
+    std::fs::create_dir_all(system_prompts_dir()).context("failed to create system prompts directory")?;
+    std::fs::create_dir_all(personas_dir()).context("failed to create personas directory")
 }
 
 pub fn config_path() -> PathBuf {

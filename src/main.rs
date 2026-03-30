@@ -7,6 +7,7 @@ mod context;
 mod crypto;
 mod debug_log;
 mod index;
+mod persona;
 mod prompt;
 mod sampling;
 mod session;

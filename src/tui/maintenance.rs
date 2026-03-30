@@ -14,6 +14,8 @@ pub(super) enum MaintenanceJob {
     WorldbookNormalization,
     SystemPromptSetup,
     PlaintextPromptEncryption,
+    PersonaMigration,
+    PlaintextPersonaEncryption,
 }
 
 pub(super) struct MaintenanceUpdate {
@@ -30,6 +32,8 @@ impl MaintenanceJob {
             Self::WorldbookNormalization => "worldbook normalization",
             Self::SystemPromptSetup => "system prompt setup",
             Self::PlaintextPromptEncryption => "plaintext prompt encryption",
+            Self::PersonaMigration => "persona migration",
+            Self::PlaintextPersonaEncryption => "plaintext persona encryption",
         }
     }
 }
@@ -43,6 +47,7 @@ pub(super) fn spawn_startup_maintenance(
             spawn_character_png_import(None, bg_tx);
             spawn_worldbook_normalization(None, bg_tx);
             spawn_system_prompt_setup(None, bg_tx);
+            spawn_persona_migration(None, bg_tx);
         }
         SaveMode::Encrypted { key, .. } => {
             spawn_unlocked_maintenance(key.clone(), bg_tx);
@@ -58,8 +63,10 @@ pub(super) fn spawn_unlocked_maintenance(
     spawn_character_png_import(Some(key.clone()), bg_tx);
     spawn_worldbook_normalization(Some(key.clone()), bg_tx);
     spawn_system_prompt_setup(Some(key.clone()), bg_tx);
+    spawn_persona_migration(Some(key.clone()), bg_tx);
     spawn_plaintext_card_encryption(key.clone(), bg_tx);
-    spawn_plaintext_prompt_encryption(key, bg_tx);
+    spawn_plaintext_prompt_encryption(key.clone(), bg_tx);
+    spawn_plaintext_persona_encryption(key, bg_tx);
 }
 
 pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
@@ -80,7 +87,11 @@ pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
             }
         }
         MaintenanceJob::SystemPromptSetup | MaintenanceJob::PlaintextPromptEncryption => {}
-
+        MaintenanceJob::PersonaMigration | MaintenanceJob::PlaintextPersonaEncryption => {
+            if update.changed_count > 0 && matches!(app.focus, Focus::PersonaDialog) {
+                reload_persona_picker(app);
+            }
+        }
     }
 
     if warnings.is_empty() {
@@ -179,6 +190,60 @@ fn spawn_plaintext_prompt_encryption(
     });
 }
 
+fn spawn_persona_migration(
+    key: Option<Arc<DerivedKey>>,
+    bg_tx: &mpsc::Sender<BackgroundEvent>,
+) {
+    spawn_job(MaintenanceJob::PersonaMigration, bg_tx, move || {
+        let dir = crate::config::personas_dir();
+        let cfg = crate::config::load();
+        let mut changed = 0;
+
+        if cfg.user_name.is_some() || cfg.user_persona.is_some() {
+            let name = cfg.user_name.clone().unwrap_or_default();
+            let file_name = if name.is_empty() {
+                "default".to_owned()
+            } else {
+                name.clone()
+            };
+            let existing_path = crate::persona::resolve_persona_path(&dir, &file_name);
+            if !existing_path.exists() {
+                let persona = crate::persona::PersonaFile {
+                    name: if name.is_empty() { file_name.clone() } else { name },
+                    persona: cfg.user_persona.clone().unwrap_or_default(),
+                };
+                if crate::persona::save_persona(&persona, &dir, key.as_deref()).is_ok() {
+                    changed = 1;
+                }
+            }
+            let _ = crate::config::save(&cfg);
+        }
+
+        MaintenanceUpdate {
+            job: MaintenanceJob::PersonaMigration,
+            changed_count: changed,
+            warnings: Vec::new(),
+        }
+    });
+}
+
+fn spawn_plaintext_persona_encryption(
+    key: Arc<DerivedKey>,
+    bg_tx: &mpsc::Sender<BackgroundEvent>,
+) {
+    spawn_job(MaintenanceJob::PlaintextPersonaEncryption, bg_tx, move || {
+        let warnings = crate::persona::encrypt_plaintext_personas(
+            &crate::config::personas_dir(),
+            &key,
+        );
+        MaintenanceUpdate {
+            job: MaintenanceJob::PlaintextPersonaEncryption,
+            changed_count: warnings.len(),
+            warnings,
+        }
+    });
+}
+
 fn spawn_job<F>(job: MaintenanceJob, bg_tx: &mpsc::Sender<BackgroundEvent>, work: F)
 where
     F: FnOnce() -> MaintenanceUpdate + Send + 'static,
@@ -242,6 +307,24 @@ pub(in crate::tui) fn reload_worldbook_picker(app: &mut App) {
         })
         .unwrap_or(0)
         .min(app.worldbook_list.len().saturating_sub(1));
+}
+
+pub(in crate::tui) fn reload_persona_picker(app: &mut App) {
+    let selected_name = app.persona_list.get(app.persona_selected).cloned();
+    let personas = crate::persona::list_personas(
+        &crate::config::personas_dir(),
+        app.save_mode.key(),
+    );
+
+    app.persona_list = personas.into_iter().map(|p| p.name).collect();
+    app.persona_selected = selected_name
+        .and_then(|name| {
+            app.persona_list
+                .iter()
+                .position(|existing| existing == &name)
+        })
+        .unwrap_or(0)
+        .min(app.persona_list.len().saturating_sub(1));
 }
 
 pub(in crate::tui) fn reload_system_prompt_picker(app: &mut App) {

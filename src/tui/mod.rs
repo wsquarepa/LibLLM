@@ -34,7 +34,8 @@ enum Focus {
     PasskeyDialog,
     SetPasskeyDialog,
     ConfigDialog,
-    SelfDialog,
+    PersonaDialog,
+    PersonaEditorDialog,
     CharacterDialog,
     CharacterEditorDialog,
     WorldbookDialog,
@@ -63,6 +64,7 @@ enum Action {
 enum DeleteContext {
     Session,
     Character { slug: String },
+    Persona { name: String },
     SystemPrompt { name: String },
     Worldbook { name: String },
 }
@@ -216,7 +218,7 @@ struct App<'a> {
     set_passkey_is_initial: bool,
 
     config_dialog: Option<FieldDialog<'a>>,
-    self_dialog: Option<FieldDialog<'a>>,
+    persona_editor: Option<FieldDialog<'a>>,
     system_editor: Option<TextArea<'a>>,
     system_editor_roleplay: bool,
     system_editor_prompt_name: String,
@@ -251,7 +253,11 @@ struct App<'a> {
     delete_confirm_selected: usize,
     delete_confirm_filename: String,
     delete_context: DeleteContext,
-    user_name: Option<String>,
+    active_persona_name: Option<String>,
+    active_persona_desc: Option<String>,
+    persona_list: Vec<String>,
+    persona_selected: usize,
+    persona_editor_file_name: String,
     config: crate::config::Config,
     worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
@@ -474,7 +480,6 @@ pub async fn run(
     }
 
     let config = crate::config::load();
-    let user_name = config.user_name.clone();
 
     let key_check_exists = crate::config::key_check_path().exists();
     let has_encrypted_sessions = !key_check_exists
@@ -550,7 +555,7 @@ pub async fn run(
         set_passkey_deriving: false,
         set_passkey_is_initial: initial_passkey_setup,
         config_dialog: None,
-        self_dialog: None,
+        persona_editor: None,
         system_editor: None,
         system_editor_roleplay: false,
         system_editor_prompt_name: String::new(),
@@ -580,7 +585,11 @@ pub async fn run(
         delete_confirm_selected: 0,
         delete_confirm_filename: String::new(),
         delete_context: DeleteContext::Session,
-        user_name,
+        active_persona_name: None,
+        active_persona_desc: None,
+        persona_list: Vec::new(),
+        persona_selected: 0,
+        persona_editor_file_name: String::new(),
         config,
         worldbook_cache: None,
         bg_tx: bg_tx.clone(),
@@ -595,6 +604,8 @@ pub async fn run(
         #[cfg(debug_assertions)]
         hydration_debug: None,
     };
+
+    business::load_active_persona(&mut app);
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(
@@ -824,7 +835,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::PasskeyDialog => Some("passkey"),
         Focus::SetPasskeyDialog => Some("set_passkey"),
         Focus::ConfigDialog => Some("config"),
-        Focus::SelfDialog => Some("self"),
+        Focus::PersonaDialog => Some("persona"),
+        Focus::PersonaEditorDialog => Some("persona_editor"),
         Focus::CharacterDialog => Some("character"),
         Focus::CharacterEditorDialog => Some("character_editor"),
         Focus::WorldbookDialog => Some("worldbook"),
@@ -870,8 +882,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
                 dialog.render(f, f.area());
             }
         }
-        Focus::SelfDialog => {
-            if let Some(ref dialog) = app.self_dialog {
+        Focus::PersonaDialog => {
+            dialogs::persona::render_persona_dialog(f, app, f.area());
+        }
+        Focus::PersonaEditorDialog => {
+            if let Some(ref dialog) = app.persona_editor {
                 dialog.render(f, f.area());
             }
         }
@@ -973,8 +988,11 @@ fn handle_key(
     if app.focus == Focus::ConfigDialog {
         return handle_field_dialog_key(key, app, DialogKind::Config);
     }
-    if app.focus == Focus::SelfDialog {
-        return handle_field_dialog_key(key, app, DialogKind::SelfPersona);
+    if app.focus == Focus::PersonaDialog {
+        return dialogs::persona::handle_persona_dialog_key(key, app);
+    }
+    if app.focus == Focus::PersonaEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::PersonaEditor);
     }
     if app.focus == Focus::CharacterDialog {
         return dialogs::character::handle_character_dialog_key(key, app);
@@ -1128,7 +1146,7 @@ fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
 
 enum DialogKind {
     Config,
-    SelfPersona,
+    PersonaEditor,
     CharacterEditor,
     WorldbookEntryEditor,
 }
@@ -1136,7 +1154,7 @@ enum DialogKind {
 fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Option<Action> {
     let dialog = match kind {
         DialogKind::Config => app.config_dialog.as_mut(),
-        DialogKind::SelfPersona => app.self_dialog.as_mut(),
+        DialogKind::PersonaEditor => app.persona_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
         DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
     };
@@ -1177,14 +1195,32 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     }
                     app.config_dialog = None;
                 }
-                DialogKind::SelfPersona => {
-                    let values = &app.self_dialog.as_ref().unwrap().values;
-                    match business::save_self_fields(values) {
-                        Ok(()) => {
-                            app.config = crate::config::load();
-                            app.user_name = app.config.user_name.clone();
+                DialogKind::PersonaEditor => {
+                    let values = &app.persona_editor.as_ref().unwrap().values;
+                    let file_name = app.persona_editor_file_name.clone();
+                    let persona = crate::persona::PersonaFile {
+                        name: values[0].clone(),
+                        persona: values[1].clone(),
+                    };
+                    let dir = crate::config::personas_dir();
+                    if !file_name.is_empty() && file_name != persona.name {
+                        let old_path = crate::persona::resolve_persona_path(&dir, &file_name);
+                        let _ = std::fs::remove_file(&old_path);
+                    }
+                    match crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+                        Ok(_) => {
                             app.invalidate_chat_cache();
-                            app.set_status("User persona saved.".to_owned(), StatusLevel::Info);
+                            if app.session.persona.as_deref() == Some(&file_name)
+                                || app.session.persona.as_deref() == Some(persona.name.as_str())
+                            {
+                                app.active_persona_name = Some(persona.name.clone());
+                                app.active_persona_desc = Some(persona.persona.clone());
+                                app.session.persona = Some(persona.name.clone());
+                            }
+                            app.set_status(
+                                format!("Persona '{}' saved.", persona.name),
+                                StatusLevel::Info,
+                            );
                         }
                         Err(e) => {
                             app.set_status(
@@ -1193,7 +1229,10 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             );
                         }
                     }
-                    app.self_dialog = None;
+                    app.persona_editor = None;
+                    maintenance::reload_persona_picker(app);
+                    app.focus = Focus::PersonaDialog;
+                    return None;
                 }
                 DialogKind::CharacterEditor => {
                     let values = &app.character_editor.as_ref().unwrap().values;

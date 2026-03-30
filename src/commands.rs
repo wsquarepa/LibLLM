@@ -49,10 +49,10 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Select a character or import a card",
     },
     CommandInfo {
-        name: "/self",
-        aliases: &["/user", "/me"],
+        name: "/persona",
+        aliases: &["/self", "/user", "/me"],
         args: "",
-        description: "Set your name and persona",
+        description: "Manage user personas",
     },
     CommandInfo {
         name: "/worldbook",

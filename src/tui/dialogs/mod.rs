@@ -4,6 +4,7 @@ pub mod character;
 pub mod delete_confirm;
 pub mod edit;
 pub mod passkey;
+pub mod persona;
 pub mod set_passkey;
 pub mod system;
 pub mod system_prompt;
@@ -36,8 +37,8 @@ const CONFIG_FIELDS: &[&str] = &[
     "Max Tokens",
 ];
 
-const SELF_FIELDS: &[&str] = &["Name", "Persona"];
-const SELF_MULTILINE: &[usize] = &[1];
+const PERSONA_FIELDS: &[&str] = &["Name", "Persona"];
+const PERSONA_MULTILINE: &[usize] = &[1];
 
 const CHARACTER_EDITOR_FIELDS: &[&str] = &[
     "Name",
@@ -69,8 +70,8 @@ pub fn open_config_editor(values: Vec<String>) -> FieldDialog<'static> {
     FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
 }
 
-pub fn open_self_editor(values: Vec<String>) -> FieldDialog<'static> {
-    FieldDialog::new(" User Persona ", SELF_FIELDS, values, SELF_MULTILINE)
+pub fn open_persona_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(" Edit Persona ", PERSONA_FIELDS, values, PERSONA_MULTILINE)
 }
 
 pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {

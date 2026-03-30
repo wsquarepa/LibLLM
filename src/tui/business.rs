@@ -66,7 +66,11 @@ pub fn build_effective_system_prompt(
         session_prompt
     };
 
-    let has_persona = is_character && (cfg.user_name.is_some() || cfg.user_persona.is_some());
+    let persona = session.persona.as_ref().and_then(|name| {
+        crate::persona::load_persona_by_name(&crate::config::personas_dir(), name, key)
+    });
+
+    let has_persona = is_character && persona.is_some();
 
     if base.is_empty() && !has_persona {
         return None;
@@ -77,12 +81,11 @@ pub fn build_effective_system_prompt(
         parts.push(base.to_owned());
     }
     if has_persona {
-        let name = cfg.user_name.as_deref().unwrap_or("the user");
+        let pf = persona.as_ref().unwrap();
+        let name = if pf.name.is_empty() { "the user" } else { &pf.name };
         let mut persona_line = format!("The user's name is {name}.");
-        if let Some(ref desc) = cfg.user_persona {
-            if !desc.is_empty() {
-                persona_line.push_str(&format!(" {desc}"));
-            }
+        if !pf.persona.is_empty() {
+            persona_line.push_str(&format!(" {}", pf.persona));
         }
         parts.push(persona_line);
     }
@@ -90,7 +93,10 @@ pub fn build_effective_system_prompt(
     let mut result = parts.join("\n\n");
     if is_character {
         let char_name = session.character.as_deref().unwrap_or("");
-        let user_name = cfg.user_name.as_deref().unwrap_or("User");
+        let user_name = persona
+            .as_ref()
+            .and_then(|p| if p.name.is_empty() { None } else { Some(p.name.as_str()) })
+            .unwrap_or("User");
         result = apply_template_vars(&result, char_name, user_name);
     }
 
@@ -135,7 +141,7 @@ pub fn load_runtime_worldbooks(
 pub fn inject_loaded_worldbook_entries(
     session: &Session,
     messages: &[&Message],
-    cfg: &crate::config::Config,
+    user_name: &str,
     worldbooks: &[RuntimeWorldBook],
 ) -> Vec<Message> {
     if session.character.is_none() || worldbooks.is_empty() {
@@ -143,7 +149,6 @@ pub fn inject_loaded_worldbook_entries(
     }
 
     let char_name = session.character.as_deref().unwrap_or("");
-    let user_name = cfg.user_name.as_deref().unwrap_or("User");
     let msg_texts: Vec<&str> = messages.iter().map(|m| m.content.as_str()).collect();
 
     let mut all_activated: Vec<ActivatedEntry> = worldbooks
@@ -186,14 +191,13 @@ pub fn inject_loaded_worldbook_entries(
 pub fn replace_template_vars(
     session: &Session,
     messages: Vec<Message>,
-    cfg: &crate::config::Config,
+    user_name: &str,
 ) -> Vec<Message> {
     if session.character.is_none() {
         return messages;
     }
 
     let char_name = session.character.as_deref().unwrap_or("");
-    let user_name = cfg.user_name.as_deref().unwrap_or("User");
 
     messages
         .into_iter()
@@ -241,8 +245,8 @@ pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
         template: non_empty(&fields[1]),
         system_prompt: existing.system_prompt,
         roleplay_system_prompt: existing.roleplay_system_prompt,
-        user_name: existing.user_name,
-        user_persona: existing.user_persona,
+        user_name: None,
+        user_persona: None,
         worldbooks: existing.worldbooks,
         sampling: crate::sampling::SamplingOverrides {
             temperature: fields[2].parse().ok(),
@@ -280,25 +284,22 @@ pub fn apply_config(app: &mut App) {
         )
     });
 
-    app.user_name = cfg.user_name.clone();
     app.config = cfg;
     app.invalidate_worldbook_cache();
     app.invalidate_chat_cache();
 }
 
-pub fn load_self_fields(cfg: &crate::config::Config) -> Vec<String> {
-    vec![
-        cfg.user_name.clone().unwrap_or_default(),
-        cfg.user_persona.clone().unwrap_or_default(),
-    ]
-}
-
-pub fn save_self_fields(fields: &[String]) -> anyhow::Result<()> {
-    let mut cfg = crate::config::load();
-    cfg.user_name = non_empty(&fields[0]);
-    cfg.user_persona = non_empty(&fields[1]);
-
-    crate::config::save(&cfg)
+pub fn load_active_persona(app: &mut App) {
+    if let Some(ref name) = app.session.persona {
+        let path = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name);
+        if let Ok(pf) = crate::persona::load_persona(&path, app.save_mode.key()) {
+            app.active_persona_name = Some(pf.name);
+            app.active_persona_desc = Some(pf.persona);
+            return;
+        }
+    }
+    app.active_persona_name = None;
+    app.active_persona_desc = None;
 }
 
 pub fn new_chat_entry() -> SessionEntry {

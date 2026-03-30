@@ -18,6 +18,8 @@ pub struct Config {
     pub sampling: SamplingOverrides,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub worldbooks: Vec<String>,
+    #[serde(default)]
+    pub tls_skip_verify: bool,
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

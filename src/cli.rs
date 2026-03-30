@@ -83,6 +83,10 @@ pub struct Args {
     #[arg(short = 'c', long)]
     pub character: Option<String>,
 
+    /// Skip TLS certificate verification for API connections
+    #[arg(long)]
+    pub tls_skip_verify: bool,
+
     /// Write render debug log to file (dev builds only)
     #[cfg(debug_assertions)]
     #[arg(long)]

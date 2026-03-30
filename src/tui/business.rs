@@ -247,6 +247,7 @@ pub fn save_config_from_fields(fields: &[String]) -> anyhow::Result<()> {
             repeat_penalty: fields[7].parse().ok(),
             max_tokens: fields[8].parse().ok(),
         },
+        tls_skip_verify: existing.tls_skip_verify,
     };
 
     crate::config::save(&cfg)

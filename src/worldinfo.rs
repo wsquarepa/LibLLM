@@ -10,6 +10,12 @@ use crate::index;
 const EXT_ENCRYPTED: &str = "worldbook";
 const EXT_PLAINTEXT: &str = "json";
 
+fn sanitize_display(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() && c != '\n' { '\u{FFFD}' } else { c })
+        .collect()
+}
+
 pub fn resolve_worldbook_path(dir: &Path, name: &str) -> std::path::PathBuf {
     crate::crypto::resolve_encrypted_path(dir, name, EXT_ENCRYPTED)
 }
@@ -96,7 +102,11 @@ pub fn save_worldbook(
     key: Option<&DerivedKey>,
 ) -> Result<std::path::PathBuf> {
     let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
-    let path = dir.join(format!("{}.{ext}", worldbook.name));
+    let safe_name: String = worldbook.name.replace(['/', '\\'], "_");
+    let safe_name = safe_name.trim_matches('.');
+    anyhow::ensure!(!safe_name.is_empty(), "worldbook name is empty after sanitization");
+    let path = dir.join(format!("{safe_name}.{ext}"));
+    anyhow::ensure!(path.starts_with(dir), "worldbook path escapes target directory");
     save_worldbook_to(worldbook, &path, key)?;
     if let Ok(stamp) = index::file_stamp(&path) {
         index::warn_if_save_fails(
@@ -323,7 +333,7 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> WorldbookNo
         if key.is_none() && path.extension().is_some_and(|ext| ext == EXT_ENCRYPTED) {
             continue;
         }
-        let display = path.display().to_string();
+        let display = sanitize_display(&path.display().to_string());
         let contents = match crate::crypto::read_and_decrypt(&path, key) {
             Ok(c) => c,
             Err(e) => {
@@ -359,7 +369,7 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> WorldbookNo
                     if let Err(err) = std::fs::remove_file(&path) {
                         warnings.push(format!(
                             "failed to remove migrated worldbook {}: {err}",
-                            path.display()
+                            sanitize_display(&path.display().to_string())
                         ));
                     } else {
                         index::warn_if_save_fails(

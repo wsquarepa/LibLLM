@@ -11,6 +11,12 @@ use crate::index;
 const EXT_ENCRYPTED: &str = "character";
 const EXT_PLAINTEXT: &str = "json";
 
+fn sanitize_display(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() && c != '\n' { '\u{FFFD}' } else { c })
+        .collect()
+}
+
 pub fn resolve_card_path(dir: &Path, slug: &str) -> PathBuf {
     crate::crypto::resolve_encrypted_path(dir, slug, EXT_ENCRYPTED)
 }
@@ -314,7 +320,7 @@ pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> PngImportR
         .collect();
 
     for png_path in png_paths {
-        let display = png_path.display().to_string();
+        let display = sanitize_display(&png_path.display().to_string());
         let bytes = match std::fs::read(&png_path) {
             Ok(b) => b,
             Err(e) => {
@@ -374,7 +380,7 @@ pub fn encrypt_plaintext_cards(dir: &Path, key: &DerivedKey) -> PlaintextCardEnc
         .collect();
 
     for path in json_paths {
-        let display = path.display().to_string();
+        let display = sanitize_display(&path.display().to_string());
         let raw = match std::fs::read(&path) {
             Ok(r) => r,
             Err(e) => {

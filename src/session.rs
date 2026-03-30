@@ -135,7 +135,10 @@ fn persist_session_index(
             stamp,
             session_display_name(metadata.character.as_deref()),
             metadata.message_count,
-            metadata.first_message.clone(),
+            match storage_mode {
+                SessionStorageMode::Encrypted => None,
+                _ => metadata.first_message.clone(),
+            },
             storage_mode,
         ),
         "failed to update session index",

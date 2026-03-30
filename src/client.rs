@@ -31,9 +31,9 @@ pub enum StreamToken {
 }
 
 impl ApiClient {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, tls_skip_verify: bool) -> Self {
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(tls_skip_verify)
             .build()
             .expect("failed to build HTTP client");
 

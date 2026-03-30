@@ -48,7 +48,8 @@ async fn main() -> Result<()> {
     );
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
-    let client = ApiClient::new(api_url);
+    let tls_skip_verify = args.tls_skip_verify || cfg.tls_skip_verify;
+    let client = ApiClient::new(api_url, tls_skip_verify);
 
     let template_name = args
         .template

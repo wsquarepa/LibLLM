@@ -903,6 +903,7 @@ fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamTo
             if let Some(new_root) = app.session.tree.duplicate_subtree(node_id) {
                 if app.session.tree.set_message_content(new_root, content) {
                     app.session.tree.switch_to(new_root);
+                    app.invalidate_chat_cache();
                     app.nav_cursor = Some(new_root);
                     app.focus = Focus::Chat;
                     app.mark_session_dirty(SaveTrigger::Debounced, false);

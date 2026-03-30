@@ -304,10 +304,11 @@ impl MessageTree {
             return;
         };
 
+        let max_steps = self.nodes.len();
         let mut current = head;
-        loop {
+        for _ in 0..max_steps {
             self.current_branch_ids.push(current);
-            match self.nodes[current].parent {
+            match self.nodes.get(current).and_then(|n| n.parent) {
                 Some(parent) => current = parent,
                 None => break,
             }
@@ -370,6 +371,11 @@ impl MessageTree {
     }
 
     fn rehydrate_runtime_state(&mut self) {
+        if let Some(head) = self.head {
+            if head >= self.nodes.len() {
+                self.head = None;
+            }
+        }
         self.validate_preferred_children();
         if self.preferred_child.is_empty() {
             self.update_preferred_children();

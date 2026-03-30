@@ -141,7 +141,11 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         } else {
             let keys_str = entry.keys.join(", ");
             let truncated = if keys_str.len() > 40 {
-                format!("{}...", &keys_str[..40])
+                let end = keys_str[..40]
+                    .char_indices()
+                    .last()
+                    .map_or(0, |(i, c)| i + c.len_utf8());
+                format!("{}...", &keys_str[..end])
             } else {
                 keys_str
             };

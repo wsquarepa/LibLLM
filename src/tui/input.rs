@@ -148,6 +148,7 @@ fn switch_nav_sibling(app: &mut App, offset: isize) {
     };
     let new_idx = (idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
     app.session.tree.switch_to(siblings[new_idx]);
+    app.invalidate_chat_cache();
     app.nav_cursor = Some(siblings[new_idx]);
     app.mark_session_dirty(super::SaveTrigger::Debounced, false);
 }

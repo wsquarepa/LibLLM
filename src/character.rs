@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
@@ -171,6 +171,9 @@ pub fn extract_png_card(png_bytes: &[u8]) -> Result<String> {
     bail!("PNG file does not contain a 'chara' tEXt chunk")
 }
 
+const MAX_JSON_CARD_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_PNG_CARD_BYTES: u64 = 50 * 1024 * 1024;
+
 pub fn import_card(source: &Path) -> Result<CharacterCard> {
     let ext = source
         .extension()
@@ -178,8 +181,22 @@ pub fn import_card(source: &Path) -> Result<CharacterCard> {
         .unwrap_or("")
         .to_lowercase();
 
+    let file_size = source
+        .metadata()
+        .context(format!(
+            "failed to read file metadata: {}",
+            source.display()
+        ))?
+        .len();
+
     match ext.as_str() {
         "json" => {
+            ensure!(
+                file_size <= MAX_JSON_CARD_BYTES,
+                "character card JSON exceeds {} MB limit ({} bytes)",
+                MAX_JSON_CARD_BYTES / (1024 * 1024),
+                file_size
+            );
             let contents = std::fs::read_to_string(source).context(format!(
                 "failed to read character card: {}",
                 source.display()
@@ -187,6 +204,12 @@ pub fn import_card(source: &Path) -> Result<CharacterCard> {
             parse_card_json(&contents)
         }
         "png" => {
+            ensure!(
+                file_size <= MAX_PNG_CARD_BYTES,
+                "character card PNG exceeds {} MB limit ({} bytes)",
+                MAX_PNG_CARD_BYTES / (1024 * 1024),
+                file_size
+            );
             let bytes = std::fs::read(source)
                 .context(format!("failed to read PNG file: {}", source.display()))?;
             let json = extract_png_card(&bytes)?;

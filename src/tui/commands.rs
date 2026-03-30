@@ -398,7 +398,11 @@ pub fn handle_slash_command(
                     let node = app.session.tree.node(sib_id).unwrap();
                     let content = &node.message.content;
                     let preview = if content.len() > BRANCH_PREVIEW_CHARS {
-                        format!("{}...", &content[..BRANCH_PREVIEW_CHARS])
+                        let end = content[..BRANCH_PREVIEW_CHARS]
+                            .char_indices()
+                            .last()
+                            .map_or(0, |(i, c)| i + c.len_utf8());
+                        format!("{}...", &content[..end])
                     } else {
                         content.clone()
                     };

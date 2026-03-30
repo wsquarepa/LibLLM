@@ -117,49 +117,61 @@ pub fn ensure_builtin_prompts(dir: &Path, key: Option<&DerivedKey>) {
 }
 
 pub fn migrate_from_config(dir: &Path, key: Option<&DerivedKey>) {
-    let cfg = crate::config::load();
+    let config_path = crate::config::config_path();
+    let raw = match std::fs::read_to_string(&config_path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
 
-    let mut config_changed = false;
-    let mut new_cfg = cfg;
+    let table: toml::Table = match raw.parse() {
+        Ok(t) => t,
+        Err(_) => return,
+    };
 
-    if let Some(ref content) = new_cfg.system_prompt {
-        if !content.is_empty() && !is_name_reference(dir, content) {
-            let prompt = SystemPromptFile {
-                name: BUILTIN_ASSISTANT.to_owned(),
-                content: content.clone(),
-            };
-            if save_prompt(&prompt, dir, key).is_ok() {
-                new_cfg.system_prompt = Some(BUILTIN_ASSISTANT.to_owned());
-                config_changed = true;
+    let mut changed = false;
+
+    if let Some(toml::Value::String(content)) = table.get("system_prompt") {
+        if !content.is_empty() {
+            let assistant_path = resolve_prompt_path(dir, BUILTIN_ASSISTANT);
+            if !assistant_path.exists() || is_placeholder_file(&assistant_path, key) {
+                let prompt = SystemPromptFile {
+                    name: BUILTIN_ASSISTANT.to_owned(),
+                    content: content.clone(),
+                };
+                let _ = save_prompt(&prompt, dir, key);
             }
         }
+        changed = true;
     }
 
-    if let Some(ref content) = new_cfg.roleplay_system_prompt {
-        if !content.is_empty() && !is_name_reference(dir, content) {
-            let prompt = SystemPromptFile {
-                name: BUILTIN_ROLEPLAY.to_owned(),
-                content: content.clone(),
-            };
-            if save_prompt(&prompt, dir, key).is_ok() {
-                new_cfg.roleplay_system_prompt = Some(BUILTIN_ROLEPLAY.to_owned());
-                config_changed = true;
+    if let Some(toml::Value::String(content)) = table.get("roleplay_system_prompt") {
+        if !content.is_empty() {
+            let roleplay_path = resolve_prompt_path(dir, BUILTIN_ROLEPLAY);
+            if !roleplay_path.exists() || is_placeholder_file(&roleplay_path, key) {
+                let prompt = SystemPromptFile {
+                    name: BUILTIN_ROLEPLAY.to_owned(),
+                    content: content.clone(),
+                };
+                let _ = save_prompt(&prompt, dir, key);
             }
         }
+        changed = true;
     }
 
-    if config_changed {
-        let _ = crate::config::save(&new_cfg);
+    if changed {
+        let mut cleaned = table;
+        cleaned.remove("system_prompt");
+        cleaned.remove("roleplay_system_prompt");
+        if let Ok(toml_str) = toml::to_string_pretty(&cleaned) {
+            let _ = crate::crypto::write_atomic(&config_path, toml_str.as_bytes());
+        }
     }
 }
 
-fn is_name_reference(dir: &Path, value: &str) -> bool {
-    let trimmed = value.trim();
-    if trimmed.contains('\n') || trimmed.contains(' ') || trimmed.len() > 64 {
-        return false;
-    }
-    let path = resolve_prompt_path(dir, trimmed);
-    path.exists()
+fn is_placeholder_file(path: &Path, key: Option<&DerivedKey>) -> bool {
+    load_prompt(path, key)
+        .map(|p| p.content.is_empty())
+        .unwrap_or(false)
 }
 
 pub fn encrypt_plaintext_prompts(dir: &Path, key: &DerivedKey) -> Vec<String> {

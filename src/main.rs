@@ -76,13 +76,11 @@ async fn main() -> Result<()> {
 
     if session.system_prompt.is_none() {
         session.system_prompt = args.system_prompt.or_else(|| {
-            cfg.system_prompt.as_deref().and_then(|name| {
-                system_prompt::load_prompt_content(
-                    &config::system_prompts_dir(),
-                    name,
-                    content_key,
-                )
-            })
+            system_prompt::load_prompt_content(
+                &config::system_prompts_dir(),
+                system_prompt::BUILTIN_ASSISTANT,
+                content_key,
+            )
         });
     }
 

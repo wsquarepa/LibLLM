@@ -10,8 +10,6 @@ use crate::sampling::SamplingOverrides;
 pub struct Config {
     pub api_url: Option<String>,
     pub template: Option<String>,
-    pub system_prompt: Option<String>,
-    pub roleplay_system_prompt: Option<String>,
     #[serde(default, skip_serializing)]
     pub user_name: Option<String>,
     #[serde(default, skip_serializing)]

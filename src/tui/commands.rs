@@ -559,7 +559,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let worldbooks = loaded_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt = super::business::build_effective_system_prompt(app.session, &app.config, app.save_mode.key());
+    let effective_prompt = super::business::build_effective_system_prompt(app.session, app.save_mode.key());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = super::business::inject_loaded_worldbook_entries(
         app.session,

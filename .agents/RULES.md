@@ -24,7 +24,24 @@ LIBLLM_PASSKEY=foo cargo run -- -d ./data       # passkey via env var
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
 
-No tests exist -- verify changes with `cargo build` and manual testing. CI builds on push to master and on PRs via GitHub Actions (`.github/workflows/build.yml`).
+CI runs `cargo test` before building on push to master (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Run tests locally with `cargo test` before submitting changes.
+
+## Testing
+
+Integration tests live in `tests/` and are organized into five suites:
+
+```sh
+cargo test                          # run all tests
+cargo test --test core_data         # session, crypto, and tree tests
+cargo test --test content_management # characters, worldbooks, prompts, personas
+cargo test --test request_pipeline  # preset rendering, sampling, context truncation
+cargo test --test infrastructure    # config, migrations, metadata index
+cargo test --test tui_business      # template vars, command registry, business logic
+```
+
+Shared test helpers are in `tests/common/mod.rs` (temp dirs, key derivation, fixture builders). The crate exposes modules for integration tests via `src/lib.rs`.
+
+`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
 
 ## Data Directory
 

@@ -69,22 +69,13 @@ pub fn render_hints_below_dialog(
     }
     let hint_count = hints.len() as u16;
     let space_below = (area.y + area.height).saturating_sub(dialog.y + dialog.height);
-    if space_below < hint_count + 1 {
+    if space_below < hint_count {
         return;
     }
-    let max_line_width = hints
-        .iter()
-        .map(|line| line.width() as u16)
-        .max()
-        .unwrap_or(0);
-    let hint_width = (max_line_width + 2).min(area.width);
-    let hint_x = area.x + area.width.saturating_sub(hint_width) / 2;
-    let gap_start = dialog.y + dialog.height;
-    let hint_y = gap_start + (space_below.saturating_sub(hint_count)) / 2;
     let hint_area = Rect {
-        x: hint_x,
-        y: hint_y,
-        width: hint_width,
+        x: dialog.x,
+        y: dialog.y + dialog.height,
+        width: dialog.width,
         height: hint_count,
     };
     let paragraph = Paragraph::new(Text::from(hints.to_vec()))

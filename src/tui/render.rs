@@ -682,7 +682,7 @@ fn build_right_spans<'a>(
     let visible_text: String = if visible_width >= padded.len() {
         format!("{:width$}", padded, width = visible_width)
     } else {
-        padded[..visible_width].to_owned()
+        padded[..padded.floor_char_boundary(visible_width)].to_owned()
     };
 
     let notif_style = Style::default().fg(fg).bg(bg);
@@ -701,11 +701,7 @@ fn build_right_spans<'a>(
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_owned()
-    } else {
-        s[..max_len].to_owned()
-    }
+    s[..s.floor_char_boundary(max_len)].to_owned()
 }
 
 fn measure_wrapped_offset(lines: &[Line], up_to: usize, area: Rect) -> u16 {

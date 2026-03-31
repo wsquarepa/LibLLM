@@ -336,7 +336,8 @@ impl App<'_> {
             now
         };
         let truncated = if text.len() > Self::MAX_STATUS_LENGTH {
-            format!("{}...", &text[..Self::MAX_STATUS_LENGTH - 3])
+            let end = text.floor_char_boundary(Self::MAX_STATUS_LENGTH - 3);
+            format!("{}...", &text[..end])
         } else {
             text
         };

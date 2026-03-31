@@ -364,8 +364,11 @@ fn create_and_edit_worldbook(app: &mut App) {
     app.worldbook_list.push(new_name.clone());
     app.worldbook_selected = app.worldbook_list.len() - 1;
     app.worldbook_editor_entries = Vec::new();
+    app.worldbook_editor_original_name = new_name.clone();
+    app.worldbook_editor_original_entries = Vec::new();
     app.worldbook_editor_name = new_name;
     app.worldbook_editor_selected = 0;
+    app.worldbook_editor_name_selected = true;
     app.focus = Focus::WorldbookEditorDialog;
 }
 

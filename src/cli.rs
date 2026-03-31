@@ -71,7 +71,7 @@ pub struct Args {
     #[arg(long, env = "LIBLLM_API_URL")]
     pub api_url: Option<String>,
 
-    /// Prompt template to use (llama2, chatml, mistral, phi, raw)
+    /// Instruct preset (e.g. "Mistral V3-Tekken", "Llama 3 Instruct", "ChatML", "Phi", "Alpaca", "Raw")
     #[arg(short = 't', long)]
     pub template: Option<String>,
 

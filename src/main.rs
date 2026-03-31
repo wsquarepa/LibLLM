@@ -9,7 +9,7 @@ mod debug_log;
 mod index;
 mod migration;
 mod persona;
-mod prompt;
+mod preset;
 mod sampling;
 mod session;
 mod system_prompt;
@@ -25,7 +25,6 @@ use clap::Parser;
 
 use cli::Args;
 use client::ApiClient;
-use prompt::Template;
 use session::{Message, Role, SaveMode};
 
 #[tokio::main]
@@ -169,12 +168,15 @@ async fn main() -> Result<()> {
     };
     let client = ApiClient::new(api_url, tls_skip_verify);
 
-    let template_name = args
+    let preset_name = args
         .template
         .as_deref()
+        .or(cfg.instruct_preset.as_deref())
         .or(cfg.template.as_deref())
-        .unwrap_or("llama2");
-    let template = Template::from_name(template_name);
+        .unwrap_or("Mistral V3-Tekken");
+    let instruct_preset = preset::resolve_instruct_preset(preset_name);
+    let template_preset_name = cfg.template_preset.as_deref().unwrap_or("Default");
+    let template_preset = preset::resolve_template_preset(template_preset_name);
 
     let sampling = sampling::SamplingParams::default()
         .with_overrides(&cfg.sampling)
@@ -186,7 +188,7 @@ async fn main() -> Result<()> {
         || resolve_session(&args),
     )?;
 
-    session.template = Some(template.name().to_owned());
+    session.template = Some(instruct_preset.name.clone());
 
     {
         let content_key = save_mode.key();
@@ -216,7 +218,7 @@ async fn main() -> Result<()> {
                 ],
                 || resolve_character(char_arg, content_key),
             )?;
-            session.system_prompt = Some(character::build_system_prompt(&card));
+            session.system_prompt = Some(character::build_system_prompt(&card, Some(&template_preset)));
             session.character = Some(card.name.clone());
             if session.tree.head().is_none() && !card.first_mes.is_empty() {
                 session
@@ -247,11 +249,12 @@ async fn main() -> Result<()> {
         session.tree.push(parent, Message::new(Role::User, text));
 
         let branch_path = session.tree.branch_path();
-        let prompt_text = template.render(&branch_path, effective_prompt.as_deref());
-        let stop_tokens = template.stop_tokens();
+        let prompt_text = instruct_preset.render(&branch_path, effective_prompt.as_deref());
+        let stop_tokens = instruct_preset.stop_tokens();
+        let stop_refs: Vec<&str> = stop_tokens.iter().map(String::as_str).collect();
         let mut stdout = io::stdout().lock();
         let response = client
-            .stream_completion(&prompt_text, stop_tokens, &sampling, &mut stdout)
+            .stream_completion(&prompt_text, &stop_refs, &sampling, &mut stdout)
             .await?;
         writeln!(stdout)?;
 
@@ -283,7 +286,7 @@ async fn main() -> Result<()> {
         &client,
         &mut session,
         save_mode,
-        template,
+        instruct_preset,
         sampling,
         cli_overrides,
     )

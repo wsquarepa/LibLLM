@@ -561,7 +561,7 @@ pub fn render_status_bar(
     let left_text = format!(
         " {} | {} | ~{} tokens | {}{}",
         display_name,
-        app.template.name(),
+        app.instruct_preset.name,
         token_count,
         branch_text,
         worldbook_text,

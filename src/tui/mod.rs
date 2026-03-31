@@ -20,7 +20,7 @@ use tui_textarea::TextArea;
 use crate::cli::CliOverrides;
 use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
-use crate::prompt::Template;
+use crate::preset::InstructPreset;
 use crate::sampling::SamplingParams;
 use crate::session::{self, NodeId, SaveMode, Session, SessionEntry};
 use crate::worldinfo::RuntimeWorldBook;
@@ -35,6 +35,8 @@ enum Focus {
     PasskeyDialog,
     SetPasskeyDialog,
     ConfigDialog,
+    PresetPickerDialog,
+    PresetEditorDialog,
     PersonaDialog,
     PersonaEditorDialog,
     CharacterDialog,
@@ -68,6 +70,7 @@ enum DeleteContext {
     Persona { name: String },
     SystemPrompt { name: String },
     Worldbook { name: String },
+    Preset { kind: dialogs::preset::PresetKind },
 }
 
 #[derive(Clone, Copy)]
@@ -180,8 +183,8 @@ struct App<'a> {
     session_dirty: bool,
     pending_save_deadline: Option<std::time::Instant>,
     pending_save_trigger: Option<SaveTrigger>,
-    template: Template,
-    stop_tokens: &'static [&'static str],
+    instruct_preset: InstructPreset,
+    stop_tokens: Vec<String>,
     sampling: SamplingParams,
     context_mgr: ContextManager,
 
@@ -226,6 +229,13 @@ struct App<'a> {
     system_prompt_list: Vec<String>,
     system_prompt_selected: usize,
     edit_editor: Option<TextArea<'a>>,
+
+    preset_picker_kind: dialogs::preset::PresetKind,
+    preset_picker_names: Vec<String>,
+    preset_picker_selected: usize,
+    preset_editor: Option<FieldDialog<'a>>,
+    preset_editor_kind: dialogs::preset::PresetKind,
+    preset_editor_original_name: String,
 
     character_names: Vec<String>,
     character_slugs: Vec<String>,
@@ -487,7 +497,7 @@ pub async fn run(
     client: &ApiClient,
     session: &mut Session,
     save_mode: SaveMode,
-    template: Template,
+    instruct_preset: InstructPreset,
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
 ) -> Result<()> {
@@ -557,8 +567,8 @@ pub async fn run(
         session_dirty: false,
         pending_save_deadline: None,
         pending_save_trigger: None,
-        template,
-        stop_tokens: template.stop_tokens(),
+        stop_tokens: instruct_preset.stop_tokens(),
+        instruct_preset,
         sampling,
         context_mgr: ContextManager::default(),
         textarea,
@@ -604,6 +614,12 @@ pub async fn run(
         system_prompt_list: Vec::new(),
         system_prompt_selected: 0,
         edit_editor: None,
+        preset_picker_kind: dialogs::preset::PresetKind::Instruct,
+        preset_picker_names: Vec::new(),
+        preset_picker_selected: 0,
+        preset_editor: None,
+        preset_editor_kind: dialogs::preset::PresetKind::Instruct,
+        preset_editor_original_name: String::new(),
         character_names: Vec::new(),
         character_slugs: Vec::new(),
         character_selected: 0,
@@ -881,6 +897,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::PasskeyDialog => Some("passkey"),
         Focus::SetPasskeyDialog => Some("set_passkey"),
         Focus::ConfigDialog => Some("config"),
+        Focus::PresetPickerDialog => Some("preset_picker"),
+        Focus::PresetEditorDialog => Some("preset_editor"),
         Focus::PersonaDialog => Some("persona"),
         Focus::PersonaEditorDialog => Some("persona_editor"),
         Focus::CharacterDialog => Some("character"),
@@ -925,6 +943,14 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::ConfigDialog => {
             if let Some(ref dialog) = app.config_dialog {
+                dialog.render(f, f.area());
+            }
+        }
+        Focus::PresetPickerDialog => {
+            dialogs::preset::render_preset_dialog(f, app, f.area());
+        }
+        Focus::PresetEditorDialog => {
+            if let Some(ref dialog) = app.preset_editor {
                 dialog.render(f, f.area());
             }
         }
@@ -1083,6 +1109,12 @@ fn handle_key(
     }
     if app.focus == Focus::SetPasskeyDialog {
         return dialogs::set_passkey::handle_set_passkey_key(key, app, bg_tx);
+    }
+    if app.focus == Focus::PresetPickerDialog {
+        return dialogs::preset::handle_preset_dialog_key(key, app);
+    }
+    if app.focus == Focus::PresetEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::PresetEditor);
     }
     if app.focus == Focus::ConfigDialog {
         return handle_field_dialog_key(key, app, DialogKind::Config);
@@ -1245,6 +1277,7 @@ fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
 
 enum DialogKind {
     Config,
+    PresetEditor,
     PersonaEditor,
     CharacterEditor,
     SystemPromptEditor,
@@ -1254,6 +1287,7 @@ enum DialogKind {
 fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Option<Action> {
     let dialog = match kind {
         DialogKind::Config => app.config_dialog.as_mut(),
+        DialogKind::PresetEditor => app.preset_editor.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
         DialogKind::SystemPromptEditor => app.system_prompt_editor.as_mut(),
@@ -1278,6 +1312,26 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
 
     match result {
         dialogs::FieldDialogAction::Continue => None,
+        dialogs::FieldDialogAction::OpenSelector(field_index) => {
+            if matches!(kind, DialogKind::Config) {
+                match field_index {
+                    2 => dialogs::preset::open_preset_picker(
+                        app,
+                        dialogs::preset::PresetKind::Template,
+                    ),
+                    3 => dialogs::preset::open_preset_picker(
+                        app,
+                        dialogs::preset::PresetKind::Instruct,
+                    ),
+                    4 => dialogs::preset::open_preset_picker(
+                        app,
+                        dialogs::preset::PresetKind::Reasoning,
+                    ),
+                    _ => {}
+                }
+            }
+            None
+        }
         dialogs::FieldDialogAction::Close => {
             match kind {
                 DialogKind::Config => {
@@ -1305,6 +1359,36 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         }
                         app.config_dialog = None;
                     }
+                }
+                DialogKind::PresetEditor => {
+                    if !app.preset_editor.as_ref().unwrap().has_changes() {
+                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                    } else {
+                        let values = &app.preset_editor.as_ref().unwrap().values;
+                        let original_name = app.preset_editor_original_name.clone();
+                        match dialogs::preset::save_preset_from_editor(
+                            app.preset_editor_kind,
+                            values,
+                            &original_name,
+                        ) {
+                            Ok(()) => {
+                                app.set_status(
+                                    "Preset saved.".to_owned(),
+                                    StatusLevel::Info,
+                                );
+                                dialogs::preset::refresh_preset_list(app);
+                            }
+                            Err(e) => {
+                                app.set_status(
+                                    format!("Failed to save preset: {e}"),
+                                    StatusLevel::Error,
+                                );
+                            }
+                        }
+                    }
+                    app.preset_editor = None;
+                    app.focus = Focus::PresetPickerDialog;
+                    return None;
                 }
                 DialogKind::PersonaEditor => {
                     let is_cli_locked = app.cli_overrides.persona.is_some();

@@ -120,6 +120,11 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                     delete_worldbook(app, &name);
                     app.focus = Focus::WorldbookDialog;
                 }
+                DeleteContext::Preset { kind } => {
+                    super::preset::delete_preset(kind, &app.delete_confirm_filename);
+                    super::preset::refresh_preset_list(app);
+                    app.focus = Focus::PresetPickerDialog;
+                }
             }
         }
         ConfirmResult::Cancelled => {
@@ -130,6 +135,7 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                 DeleteContext::Persona { .. } => Focus::PersonaDialog,
                 DeleteContext::SystemPrompt { .. } => Focus::SystemPromptDialog,
                 DeleteContext::Worldbook { .. } => Focus::WorldbookDialog,
+                DeleteContext::Preset { .. } => Focus::PresetPickerDialog,
             };
         }
         ConfirmResult::Pending => {}

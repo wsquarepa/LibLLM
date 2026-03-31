@@ -10,14 +10,16 @@ LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It suppo
 ```sh
 cargo build
 cargo run -- --help
-cargo run -- -m "Hello"              # single message, ephemeral (no passkey)
-cargo run                            # TUI mode, prompts for passkey
-cargo run -- -s session.json         # plaintext mode, bypasses encryption
-cargo run -- --no-encrypt            # auto-save without encryption
-cargo run -- --template chatml       # use ChatML prompt template
-cargo run -- --temperature 0.5       # override sampling params
-cargo run -- -c character_name       # load a character card
-LIBLLM_PASSKEY=foo cargo run         # passkey via env var (for scripting)
+cargo run -- -m "Hello"                         # single message, ephemeral
+cargo run                                       # TUI mode, prompts for passkey
+cargo run -- -d ./data --no-encrypt             # custom data dir, plaintext
+cargo run -- -d ./data --no-encrypt -m "Hello"  # persistent single-shot
+cargo run -- -d ./data --no-encrypt -m "Follow up" --continue <uuid>
+cargo run -- --template chatml                  # use ChatML prompt template
+cargo run -- --temperature 0.5                  # override sampling params
+cargo run -- -c character_name -p persona_name  # roleplay mode (requires both)
+cargo run -- -r "You are a helpful assistant"   # override system prompt
+LIBLLM_PASSKEY=foo cargo run -- -d ./data       # passkey via env var
 ```
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
@@ -26,8 +28,10 @@ No tests exist -- verify changes with `cargo build` and manual testing. CI build
 
 ## Data Directory
 
+The default data directory is `~/.local/share/libllm/`. A custom path can be specified with `--data/-d`, which uses the given path directly (no subdirectory created).
+
 ```
-~/.local/share/libllm/
+<data_dir>/
 ├── config.toml              # API URL, template, sampling defaults (NOT encrypted)
 ├── .salt                    # 16-byte random salt (generated on first run)
 ├── .key_check               # Passkey verification fingerprint
@@ -52,10 +56,10 @@ Old config at `~/.config/libllm/config.toml` is auto-migrated on first run. Syst
 
 The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util).
 
-- **`cli`** -- Clap-derived argument parsing with sampling flags, `--no-encrypt`, `--passkey`, `-c` for character cards
+- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`
 - **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
 - **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`
-- **`config`** -- TOML config at `~/.local/share/libllm/config.toml`, data/sessions/characters/worldinfo/system/personas directory management, migration from old config path
+- **`config`** -- TOML config at `<data_dir>/config.toml`, data/sessions/characters/worldinfo/system/personas directory management, migration from old config path. `data_dir()` supports a `OnceLock`-based override set via `set_data_dir()` for the `--data` flag
 - **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
 - **`crypto`** -- AES-256-GCM encryption/decryption, Argon2id key derivation, salt management. Encrypted file format: magic "LLMS" (4 bytes) + version (1 byte) + nonce (12 bytes) + ciphertext
 - **`character`** -- `CharacterCard` parsing from JSON and PNG (base64 text chunk extraction). Supports old (top-level) and new (nested `data` object) formats. Auto-imports PNG cards on startup
@@ -68,17 +72,28 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in encrypted `index.meta` to avoid decrypting every file on startup
 - **`migration`** -- Centralized migration orchestration. Runs all migrations (config path, system prompts, personas, worldbook normalization, plaintext encryption) on startup with warning reporting
 - **`tui`** -- Full ratatui terminal UI:
-  - `mod.rs` -- App state, Focus enum (Input/Chat/Sidebar/dialogs), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status)
-  - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution
-  - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save
+  - `mod.rs` -- App state, Focus enum (Input/Chat/Sidebar/dialogs), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields
+  - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution, `config_locked_fields()` for determining which `/config` fields are CLI-locked
+  - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save. `/system` and `/persona` open in read-only mode when overridden by `-r` or `-p`
   - `input.rs` -- Keyboard handling, tree navigation (`switch_sibling`, `navigate_up`, `navigate_down`), command picker with Tab
   - `render.rs` -- Styled text parsing (bold/italic markdown), chat rendering, status bar with branch indicators
   - `maintenance.rs` -- Background maintenance tasks (PNG import, plaintext encryption, worldbook normalization, builtin prompt setup) spawned on startup and after passkey unlock
-  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, persona editor, system prompt selector, message editor, worldbook toggle list, delete confirmation, config editor, API error
+  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, persona editor, system prompt selector, message editor, worldbook toggle list, delete confirmation, config editor, API error. `FieldDialog` supports `locked_fields` (rendered in red, non-editable)
+
+### CLI Override System
+
+CLI flags that overlap with `/config` fields (api-url, template, sampling params, tls-skip-verify) are tracked in a `CliOverrides` struct passed to the TUI. Overridden fields:
+- Display in red in the `/config` dialog and cannot be edited
+- Are excluded from config.toml writes (preserving the on-disk values)
+- Take priority when `apply_config()` reloads settings
+
+The `-r` (system prompt) flag forces `/system` into a read-only viewer. The `-p` (persona) flag forces `/persona` into a read-only viewer. Both show content in red with editing disabled.
 
 ### Encryption
 
-Sessions are encrypted with AES-256-GCM. A single salt (`.salt` file) is created on first run. The user's passkey + salt derive one key via Argon2id at startup. Each session file gets a unique random nonce. The `-s` flag bypasses encryption for backward compatibility.
+Sessions are encrypted with AES-256-GCM. A single salt (`.salt` file) is created on first run. The user's passkey + salt derive one key via Argon2id at startup. Each session file gets a unique random nonce.
+
+When using `--data/-d`, the encryption mode must be consistent with the directory: `--passkey` is rejected on unencrypted data directories, and `--no-encrypt` is rejected on encrypted ones. New directories allow either mode for first-time setup.
 
 ### Diagnostics
 

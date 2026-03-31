@@ -1,5 +1,12 @@
 # LibLLM
 
+> [!NOTE]
+> This project was initially intended to be a test as to how well Claude Opus 4.6 could handle the Rust programming language. As someone who has never used Rust before, I didn't really have any way to validate it's work other than to make it create something.
+>
+> This has since turned into a full fledged project. I intend to continue maintaining it for the near future.
+>
+> The motivation behind this project was to make an encrypted, local version of SillyTavern. Although the feature set is not as complete as the SillyTavern feature set, it's slowly getting there :D
+
 A keyboard-driven terminal chat client for local LLMs. LibLLM connects to any [llama.cpp](https://github.com/ggerganov/llama.cpp)-compatible API and gives you conversation branching, encrypted session persistence, character cards, and worldbooks -- all from the terminal.
 
 Built for power users who run local models and want a fast, private chat interface with full control over conversation history.

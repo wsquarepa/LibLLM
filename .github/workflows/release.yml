@@ -1,17 +1,12 @@
-name: Build
+name: Release
 
 on:
   push:
-    branches: [master]
-    paths:
-      - 'src/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
+    tags: ['v*']
 
 env:
   CARGO_TERM_COLOR: always
-  LIBLLM_CHANNEL: nightly
+  LIBLLM_CHANNEL: stable
 
 jobs:
   build:
@@ -74,33 +69,24 @@ jobs:
           path: libllm-${{ matrix.target }}*
           if-no-files-found: error
 
-  nightly:
-    if: github.event_name == 'push'
+  bundle:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Create nightly release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Zip bundle
         run: |
-          gh release delete nightly --yes 2>/dev/null || true
-          git tag -f nightly
-          git push -f origin nightly
-          HASH=$(git rev-parse --short HEAD)
-          TIME=$(git log -1 --format=%ci)
-          MSG=$(git log -1 --format=%B | sed '/^$/d')
-          printf -v NOTES 'Commit `%s` at `%s`\n\n```\n%s\n```' "$HASH" "$TIME" "$MSG"
-          gh release create nightly artifacts/* \
-            --title "Nightly Build" \
-            --notes "$NOTES" \
-            --prerelease
+          TAG="${GITHUB_REF#refs/tags/}"
+          zip -j "libllm-${TAG}.zip" artifacts/*
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: libllm-release-bundle
+          path: libllm-v*.zip
+          if-no-files-found: error

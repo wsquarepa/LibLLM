@@ -268,6 +268,7 @@ struct App<'a> {
     autosave_debug: AutosaveDebugState,
     unlock_debug: Option<UnlockDebugState>,
     hydration_debug: Option<HydrationDebugState>,
+    input_reject_flash: Option<std::time::Instant>,
 }
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
@@ -282,6 +283,37 @@ impl App<'_> {
             self.save_mode,
             SaveMode::Plaintext(_) | SaveMode::Encrypted { .. }
         )
+    }
+
+    fn tick_reject_flashes(&mut self) -> bool {
+        let mut needs_redraw = false;
+        if let Some(t) = self.input_reject_flash {
+            if dialogs::is_flash_active(Some(t)) {
+                needs_redraw = true;
+            } else {
+                self.input_reject_flash = None;
+                needs_redraw = true;
+            }
+        }
+        for dialog in [
+            &mut self.config_dialog,
+            &mut self.persona_editor,
+            &mut self.system_prompt_editor,
+            &mut self.character_editor,
+            &mut self.worldbook_entry_editor,
+        ] {
+            if let Some(d) = dialog.as_mut() {
+                if let Some(t) = d.reject_flash {
+                    if dialogs::is_flash_active(Some(t)) {
+                        needs_redraw = true;
+                    } else {
+                        d.reject_flash = None;
+                        needs_redraw = true;
+                    }
+                }
+            }
+        }
+        needs_redraw
     }
 
     const MAX_STATUS_LENGTH: usize = 64;
@@ -614,6 +646,7 @@ pub async fn run(
         },
         unlock_debug: None,
         hydration_debug: None,
+        input_reject_flash: None,
     };
 
     business::load_active_persona(&mut app);
@@ -685,6 +718,9 @@ pub async fn run(
                     if std::time::Instant::now() >= msg.expires {
                         app.status_message = None;
                     }
+                    needs_redraw = true;
+                }
+                if app.tick_reject_flashes() {
                     needs_redraw = true;
                 }
                 if needs_redraw {

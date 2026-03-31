@@ -155,6 +155,17 @@ pub(in crate::tui) fn handle_character_paste(
 
     match crate::character::import_card(path) {
         Ok(card) => {
+            if card.name.chars().count() > super::MAX_NAME_LENGTH {
+                app.set_status(
+                    format!(
+                        "Character name exceeds {} characters: \"{}\"",
+                        super::MAX_NAME_LENGTH,
+                        card.name,
+                    ),
+                    super::super::StatusLevel::Error,
+                );
+                return true;
+            }
             let name = card.name.clone();
             match crate::character::save_card(
                 &card,

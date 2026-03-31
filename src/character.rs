@@ -10,6 +10,7 @@ use crate::index;
 
 const EXT_ENCRYPTED: &str = "character";
 const EXT_PLAINTEXT: &str = "json";
+const MAX_IMPORT_NAME_LENGTH: usize = 32;
 
 fn sanitize_display(s: &str) -> String {
     s.chars()
@@ -347,6 +348,12 @@ pub fn auto_import_png_cards(dir: &Path, key: Option<&DerivedKey>) -> PngImportR
                 continue;
             }
         };
+        if card.name.chars().count() > MAX_IMPORT_NAME_LENGTH {
+            warnings.push(format!(
+                "skipped {display}: name exceeds {MAX_IMPORT_NAME_LENGTH} characters",
+            ));
+            continue;
+        }
         match save_card(&card, dir, key) {
             Ok(_) => {
                 imported_count += 1;

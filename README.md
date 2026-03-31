@@ -414,13 +414,14 @@ Use `--tls-skip-verify` to bypass certificate verification when connecting to a 
 
 Bug reports and feature requests: [GitHub Issues](../../issues)
 
-To build from source:
+To build from source and run tests:
 
 ```sh
 cargo build
+cargo test
 ```
 
-There is no test suite yet. Verify changes with `cargo build` and manual testing.
+Tests are organized into five integration test suites under `tests/`.
 
 ## License
 

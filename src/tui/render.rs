@@ -1,4 +1,4 @@
-use ratatui::layout::Rect;
+use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
@@ -527,12 +527,25 @@ pub fn render_status_bar(
     branch_info: Option<(usize, usize)>,
     token_count: usize,
 ) {
-    let branch_info = match branch_info {
+    let bg_style = Style::default().fg(Color::White).bg(Color::DarkGray);
+
+    if let Some(msg) = &app.status_message {
+        if matches!(msg.level, super::StatusLevel::Error) {
+            let style = Style::default().fg(Color::White).bg(Color::Red);
+            let paragraph = Paragraph::new(format!(" {} ", msg.text))
+                .style(style)
+                .alignment(Alignment::Center);
+            f.render_widget(paragraph, area);
+            return;
+        }
+    }
+
+    let branch_text = match branch_info {
         Some((idx, total)) => format!("Branch {}/{total}", idx + 1),
         None => "Linear".to_owned(),
     };
 
-    let worldbook_info = if app.session.character.is_some() {
+    let worldbook_text = if app.session.character.is_some() {
         let mut count = app.config.worldbooks.len();
         for name in &app.session.worldbooks {
             if !app.config.worldbooks.contains(name) {
@@ -544,32 +557,129 @@ pub fn render_status_bar(
         String::new()
     };
 
-    let (status, style) = match &app.status_message {
-        Some(msg) => {
-            let style = match msg.level {
-                super::StatusLevel::Info => Style::default().fg(Color::White).bg(Color::Blue),
-                super::StatusLevel::Warning => Style::default().fg(Color::Black).bg(Color::Yellow),
-                super::StatusLevel::Error => Style::default().fg(Color::White).bg(Color::Red),
-            };
-            (format!(" {} ", msg.text), style)
-        }
-        None => {
-            let display_name = app.model_name.as_deref().unwrap_or("connecting...");
-            let text = format!(
-                " {} | {} | ~{} tokens | {}{} | Tab: switch focus | Ctrl+C: quit",
-                display_name,
-                app.template.name(),
-                token_count,
-                branch_info,
-                worldbook_info,
-            );
-            (text, Style::default().fg(Color::White).bg(Color::DarkGray))
-        }
+    let display_name = app.model_name.as_deref().unwrap_or("connecting...");
+    let left_text = format!(
+        " {} | {} | ~{} tokens | {}{}",
+        display_name,
+        app.template.name(),
+        token_count,
+        branch_text,
+        worldbook_text,
+    );
+
+    let left_style = if !app.api_available {
+        Style::default().fg(Color::Red).bg(Color::DarkGray)
+    } else {
+        bg_style
     };
 
-    let paragraph = Paragraph::new(status).style(style);
+    let hints_text = "Tab: switch focus | Ctrl+C: quit ";
 
-    f.render_widget(paragraph, area);
+    let total_width = area.width as usize;
+    if total_width < 20 {
+        let paragraph = Paragraph::new(left_text).style(left_style);
+        f.render_widget(paragraph, area);
+        return;
+    }
+
+    let notification = app.status_message.as_ref().map(|msg| {
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(msg.created);
+        let remaining = msg.expires.saturating_duration_since(now);
+        let slide_dur = super::NOTIFICATION_SLIDE_DURATION.as_secs_f64();
+
+        let progress = if elapsed.as_secs_f64() < slide_dur {
+            elapsed.as_secs_f64() / slide_dur
+        } else if remaining.as_secs_f64() < slide_dur {
+            remaining.as_secs_f64() / slide_dur
+        } else {
+            1.0
+        };
+
+        let (fg, bg) = match msg.level {
+            super::StatusLevel::Info => (Color::White, Color::Blue),
+            super::StatusLevel::Warning => (Color::Black, Color::Yellow),
+            super::StatusLevel::Error => unreachable!(),
+        };
+
+        (msg.text.as_str(), fg, bg, progress)
+    });
+
+    let right_spans = build_right_spans(hints_text, notification, total_width);
+    let right_width: usize = right_spans.iter().map(|s| s.content.len()).sum();
+
+    let left_max = total_width.saturating_sub(right_width).saturating_sub(1);
+    let truncated_left = truncate_str(&left_text, left_max);
+
+    let left_area = Rect::new(area.x, area.y, left_max as u16, 1);
+    let right_area = Rect::new(
+        area.x + (total_width - right_width) as u16,
+        area.y,
+        right_width as u16,
+        1,
+    );
+
+    f.render_widget(
+        Paragraph::new("").style(bg_style),
+        area,
+    );
+    f.render_widget(
+        Paragraph::new(truncated_left).style(left_style),
+        left_area,
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(right_spans)).style(bg_style),
+        right_area,
+    );
+}
+
+fn build_right_spans<'a>(
+    hints: &'a str,
+    notification: Option<(&'a str, Color, Color, f64)>,
+    max_width: usize,
+) -> Vec<Span<'a>> {
+    let Some((text, fg, bg, progress)) = notification else {
+        return vec![Span::styled(hints, Style::default().fg(Color::White).bg(Color::DarkGray))];
+    };
+
+    let padded = format!(" {} ", text);
+    let notif_full_width = padded.len();
+    let visible_width = ((progress * notif_full_width as f64).round() as usize).min(max_width);
+
+    if visible_width == 0 {
+        return vec![Span::styled(hints, Style::default().fg(Color::White).bg(Color::DarkGray))];
+    }
+
+    let hints_width = max_width.saturating_sub(visible_width);
+    let visible_hints = truncate_str(hints, hints_width);
+
+    let visible_text: String = if visible_width >= padded.len() {
+        format!("{:width$}", padded, width = visible_width)
+    } else {
+        padded[..visible_width].to_owned()
+    };
+
+    let notif_style = Style::default().fg(fg).bg(bg);
+    let mut spans = Vec::new();
+
+    if !visible_hints.is_empty() {
+        spans.push(Span::styled(
+            visible_hints,
+            Style::default().fg(Color::White).bg(Color::DarkGray),
+        ));
+    }
+
+    spans.push(Span::styled(visible_text, notif_style));
+
+    spans
+}
+
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_owned()
+    } else {
+        s[..max_len].to_owned()
+    }
 }
 
 fn measure_wrapped_offset(lines: &[Line], up_to: usize, area: Rect) -> u16 {

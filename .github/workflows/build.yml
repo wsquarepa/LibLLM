@@ -94,8 +94,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete nightly --yes 2>/dev/null || true
+          gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/nightly 2>/dev/null || true
           git tag -f nightly
-          git push -f origin nightly
+          git push origin nightly
           HASH=$(git rev-parse --short HEAD)
           TIME=$(git log -1 --format=%ci)
           MSG=$(git log -1 --format=%B | sed '/^$/d')

@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{App, DeleteContext, Focus};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -45,18 +45,13 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
         lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: select  Right: edit",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  a: add new  Del: delete  Esc: cancel",
-        Style::default().fg(Color::DarkGray),
-    )));
-
     let paragraph = Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
     f.render_widget(paragraph, dialog);
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+        Line::from("a: add new  Del: delete  Esc: cancel"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_preset_dialog_key(

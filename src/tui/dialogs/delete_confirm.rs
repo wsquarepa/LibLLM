@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus, business, maintenance};
 
 pub(in crate::tui) enum ConfirmResult {
@@ -17,11 +17,9 @@ pub(in crate::tui) fn render_confirm_dialog(
     f: &mut ratatui::Frame,
     area: Rect,
     prompt: &str,
-    hint: Option<&str>,
     selected: usize,
-) {
-    let height = if hint.is_some() { 7 } else { 6 };
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
+) -> Rect {
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, 6, area);
 
     let cancel_style = if selected == 0 {
         Style::default()
@@ -41,7 +39,7 @@ pub(in crate::tui) fn render_confirm_dialog(
         Style::default().fg(Color::Red)
     };
 
-    let mut lines = vec![
+    let lines = vec![
         Line::from(""),
         Line::from(format!("  {prompt}")),
         Line::from(""),
@@ -54,17 +52,11 @@ pub(in crate::tui) fn render_confirm_dialog(
         Line::from(""),
     ];
 
-    if let Some(hint_text) = hint {
-        lines.push(Line::from(Span::styled(
-            format!("  {hint_text}"),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" Confirm Delete ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
+    dialog
 }
 
 pub(in crate::tui) fn handle_confirm_key(key: KeyEvent, selected: &mut usize) -> ConfirmResult {
@@ -86,13 +78,15 @@ pub(in crate::tui) fn handle_confirm_key(key: KeyEvent, selected: &mut usize) ->
 }
 
 pub(in crate::tui) fn render_delete_confirm_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    render_confirm_dialog(
+    let dialog = render_confirm_dialog(
         f,
         area,
         &format!("Delete \"{}\"?", app.delete_confirm_filename),
-        Some("Left/Right: navigate  Enter: confirm  Esc: cancel"),
         app.delete_confirm_selected,
     );
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("Left/Right: navigate  Enter: confirm  Esc: cancel"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<Action> {

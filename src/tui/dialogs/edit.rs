@@ -1,10 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::style::Color;
+use ratatui::text::Line;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
@@ -19,22 +18,14 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area
             x: dialog.x + 2,
             y: dialog.y + 1,
             width: dialog.width.saturating_sub(4),
-            height: dialog.height.saturating_sub(3),
+            height: dialog.height.saturating_sub(2),
         };
         f.render_widget(editor, editor_area);
-
-        let hint_area = Rect {
-            x: dialog.x + 2,
-            y: dialog.y + dialog.height - 2,
-            width: dialog.width.saturating_sub(4),
-            height: 1,
-        };
-        let hint_widget = Paragraph::new(Line::from(Span::styled(
-            "Alt+Enter: save edit  Esc: cancel",
-            Style::default().fg(Color::DarkGray),
-        )));
-        f.render_widget(hint_widget, hint_area);
     }
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("Alt+Enter: save edit  Esc: cancel"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {

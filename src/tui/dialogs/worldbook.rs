@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 enum WorldbookState {
@@ -49,28 +49,17 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         )));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  [G] Global  [S] Session  [ ] Off",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: cycle  Right: edit",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  a: add new  Del: delete  Esc: close",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  Drop .json to import",
-        Style::default().fg(Color::DarkGray),
-    )));
-
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" Worldbooks ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("[G] Global  [S] Session  [ ] Off"),
+        Line::from("Up/Down: navigate  Enter: cycle  Right: edit"),
+        Line::from("a: add new  Del: delete  Esc: close"),
+        Line::from("Drop .json to import"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -220,27 +209,16 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         lines.push(Line::from(Span::styled(format!("{marker}{label}"), style)));
     }
 
-    lines.push(Line::from(""));
-    lines.push(
-        Line::from(Span::styled(
-            "Up/Down: navigate  Right/Enter: edit  a: add  Del: delete",
-            Style::default().fg(Color::DarkGray),
-        ))
-        .alignment(ratatui::layout::Alignment::Center),
-    );
-    lines.push(
-        Line::from(Span::styled(
-            "Esc: save & close",
-            Style::default().fg(Color::DarkGray),
-        ))
-        .alignment(ratatui::layout::Alignment::Center),
-    );
-
     let title = format!(" Worldbook ({count} entries) ");
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
 
     f.render_widget(paragraph, dialog);
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("Up/Down: navigate  Right/Enter: edit  a: add  Del: delete"),
+        Line::from("Esc: save & close"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -443,7 +421,6 @@ pub(in crate::tui) fn render_entry_delete_dialog(f: &mut ratatui::Frame, app: &A
         f,
         area,
         &format!("Delete {}?", app.delete_confirm_filename),
-        None,
         app.delete_confirm_selected,
     );
 }

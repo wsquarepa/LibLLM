@@ -4,7 +4,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
@@ -18,22 +18,17 @@ pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App,
         )),
         Line::from(""),
         Line::from(format!("  {}", app.api_error)),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  You can browse existing chats but cannot send messages.",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Press Enter or Esc to close",
-            Style::default().fg(Color::DarkGray),
-        )),
     ];
 
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" API Error ", Color::Red));
 
     f.render_widget(paragraph, dialog);
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("You can browse existing chats but cannot send messages."),
+        Line::from("Press Enter or Esc to close"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_api_error_key(key: KeyEvent, app: &mut App) -> Option<Action> {

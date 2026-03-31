@@ -58,6 +58,41 @@ pub fn dialog_block(title: impl Into<Line<'static>>, color: Color) -> Block<'sta
         .border_style(Style::default().fg(color))
 }
 
+pub fn render_hints_below_dialog(
+    f: &mut ratatui::Frame,
+    dialog: Rect,
+    area: Rect,
+    hints: &[Line<'_>],
+) {
+    if hints.is_empty() {
+        return;
+    }
+    let hint_count = hints.len() as u16;
+    let space_below = (area.y + area.height).saturating_sub(dialog.y + dialog.height);
+    if space_below < hint_count + 1 {
+        return;
+    }
+    let max_line_width = hints
+        .iter()
+        .map(|line| line.width() as u16)
+        .max()
+        .unwrap_or(0);
+    let hint_width = (max_line_width + 2).min(area.width);
+    let hint_x = area.x + area.width.saturating_sub(hint_width) / 2;
+    let gap_start = dialog.y + dialog.height;
+    let hint_y = gap_start + (space_below.saturating_sub(hint_count)) / 2;
+    let hint_area = Rect {
+        x: hint_x,
+        y: hint_y,
+        width: hint_width,
+        height: hint_count,
+    };
+    let paragraph = Paragraph::new(Text::from(hints.to_vec()))
+        .style(Style::default().fg(Color::White).bg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    f.render_widget(paragraph, hint_area);
+}
+
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let selected_idx = app.sidebar_state.selected();
     let cache_valid = app

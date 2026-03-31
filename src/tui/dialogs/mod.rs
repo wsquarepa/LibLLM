@@ -6,7 +6,6 @@ pub mod edit;
 pub mod passkey;
 pub mod persona;
 pub mod set_passkey;
-pub mod system;
 pub mod system_prompt;
 pub mod worldbook;
 
@@ -114,6 +113,9 @@ const CHARACTER_EDITOR_FIELDS: &[&str] = &[
 ];
 const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
 
+const SYSTEM_PROMPT_FIELDS: &[&str] = &["Name", "Content"];
+const SYSTEM_PROMPT_MULTILINE: &[usize] = &[1];
+
 const ENTRY_EDITOR_FIELDS: &[&str] = &[
     "Keys [OR]",
     "Content",
@@ -147,6 +149,15 @@ pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
         CHARACTER_EDITOR_FIELDS,
         values,
         CHARACTER_EDITOR_MULTILINE,
+    )
+}
+
+pub fn open_system_prompt_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit System Prompt ",
+        SYSTEM_PROMPT_FIELDS,
+        values,
+        SYSTEM_PROMPT_MULTILINE,
     )
 }
 

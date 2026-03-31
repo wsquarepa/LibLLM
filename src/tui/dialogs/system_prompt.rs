@@ -137,18 +137,20 @@ fn open_prompt_editor(app: &mut App, name: &str) {
         crate::system_prompt::load_prompt_content(&dir, name, app.save_mode.key())
             .unwrap_or_default();
 
-    let is_roleplay = name == crate::system_prompt::BUILTIN_ROLEPLAY;
+    let values = vec![name.to_owned(), content];
+    let is_builtin = name == crate::system_prompt::BUILTIN_ASSISTANT
+        || name == crate::system_prompt::BUILTIN_ROLEPLAY;
 
-    let mut editor =
-        tui_textarea::TextArea::from(content.lines().map(String::from).collect::<Vec<_>>());
-    editor.set_cursor_line_style(ratatui::style::Style::default());
-    editor.set_wrap_mode(tui_textarea::WrapMode::WordOrGlyph);
+    let mut dialog = super::open_system_prompt_editor(values);
+    if is_builtin {
+        dialog = dialog.with_locked_fields(vec![0]);
+    }
 
-    app.system_editor = Some(editor);
-    app.system_editor_roleplay = is_roleplay;
+    app.system_prompt_editor = Some(dialog);
     app.system_editor_prompt_name = name.to_owned();
+    app.system_editor_read_only = false;
     app.system_editor_return_focus = Focus::SystemPromptDialog;
-    app.focus = Focus::SystemDialog;
+    app.focus = Focus::SystemPromptEditorDialog;
 }
 
 

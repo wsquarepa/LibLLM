@@ -44,7 +44,7 @@ enum Focus {
     WorldbookEntryEditorDialog,
     WorldbookEntryDeleteDialog,
     SystemPromptDialog,
-    SystemDialog,
+    SystemPromptEditorDialog,
     EditDialog,
     BranchDialog,
     DeleteConfirmDialog,
@@ -217,8 +217,7 @@ struct App<'a> {
 
     config_dialog: Option<FieldDialog<'a>>,
     persona_editor: Option<FieldDialog<'a>>,
-    system_editor: Option<TextArea<'a>>,
-    system_editor_roleplay: bool,
+    system_prompt_editor: Option<FieldDialog<'a>>,
     system_editor_prompt_name: String,
     system_editor_return_focus: Focus,
     system_editor_read_only: bool,
@@ -238,6 +237,9 @@ struct App<'a> {
     character_editor_slug: String,
     worldbook_editor_entries: Vec<crate::worldinfo::Entry>,
     worldbook_editor_name: String,
+    worldbook_editor_original_name: String,
+    worldbook_editor_name_selected: bool,
+    worldbook_editor_name_editing: bool,
     worldbook_editor_selected: usize,
     worldbook_entry_editor: Option<FieldDialog<'a>>,
     worldbook_entry_editor_index: usize,
@@ -546,8 +548,7 @@ pub async fn run(
         set_passkey_is_initial: initial_passkey_setup,
         config_dialog: None,
         persona_editor: None,
-        system_editor: None,
-        system_editor_roleplay: false,
+        system_prompt_editor: None,
         system_editor_prompt_name: String::new(),
         system_editor_return_focus: Focus::Input,
         system_editor_read_only: false,
@@ -563,6 +564,9 @@ pub async fn run(
         character_editor_slug: String::new(),
         worldbook_editor_entries: Vec::new(),
         worldbook_editor_name: String::new(),
+        worldbook_editor_original_name: String::new(),
+        worldbook_editor_name_selected: true,
+        worldbook_editor_name_editing: false,
         worldbook_editor_selected: 0,
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
@@ -835,7 +839,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::WorldbookEntryEditorDialog => Some("worldbook_entry_editor"),
         Focus::WorldbookEntryDeleteDialog => Some("worldbook_entry_delete"),
         Focus::SystemPromptDialog => Some("system_prompt"),
-        Focus::SystemDialog => Some("system"),
+        Focus::SystemPromptEditorDialog => Some("system_prompt_editor"),
         Focus::EditDialog => Some("edit"),
         Focus::BranchDialog => Some("branch"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
@@ -906,8 +910,10 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         Focus::SystemPromptDialog => {
             dialogs::system_prompt::render_system_prompt_dialog(f, app, f.area());
         }
-        Focus::SystemDialog => {
-            dialogs::system::render_system_dialog(f, app, f.area());
+        Focus::SystemPromptEditorDialog => {
+            if let Some(ref dialog) = app.system_prompt_editor {
+                dialog.render(f, f.area());
+            }
         }
         Focus::EditDialog => {
             dialogs::edit::render_edit_dialog(f, app, f.area());
@@ -1057,8 +1063,8 @@ fn handle_key(
     if app.focus == Focus::SystemPromptDialog {
         return dialogs::system_prompt::handle_system_prompt_dialog_key(key, app);
     }
-    if app.focus == Focus::SystemDialog {
-        return dialogs::system::handle_system_key(key, app);
+    if app.focus == Focus::SystemPromptEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::SystemPromptEditor);
     }
     if app.focus == Focus::EditDialog {
         return dialogs::edit::handle_edit_key(key, app);
@@ -1190,6 +1196,7 @@ enum DialogKind {
     Config,
     PersonaEditor,
     CharacterEditor,
+    SystemPromptEditor,
     WorldbookEntryEditor,
 }
 
@@ -1198,6 +1205,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
         DialogKind::Config => app.config_dialog.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
+        DialogKind::SystemPromptEditor => app.system_prompt_editor.as_mut(),
         DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
     };
 
@@ -1286,6 +1294,71 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         maintenance::reload_persona_picker(app);
                         app.focus = Focus::PersonaDialog;
                     }
+                    return None;
+                }
+                DialogKind::SystemPromptEditor => {
+                    if app.system_editor_read_only {
+                        app.system_prompt_editor = None;
+                        app.system_editor_read_only = false;
+                        app.focus = app.system_editor_return_focus;
+                        return None;
+                    }
+
+                    let values = &app.system_prompt_editor.as_ref().unwrap().values;
+                    let new_name = values[0].clone();
+                    let content = values[1].clone();
+                    let original_name = app.system_editor_prompt_name.clone();
+
+                    let value = if content.trim().is_empty() {
+                        None
+                    } else {
+                        Some(content.clone())
+                    };
+                    app.session.system_prompt = value;
+                    app.invalidate_chat_cache();
+                    app.mark_session_dirty(SaveTrigger::Debounced, false);
+
+                    if !original_name.is_empty() {
+                        let dir = crate::config::system_prompts_dir();
+
+                        if original_name != new_name {
+                            let old_path =
+                                crate::system_prompt::resolve_prompt_path(&dir, &original_name);
+                            if old_path.exists() {
+                                let _ = std::fs::remove_file(&old_path);
+                            }
+                        }
+
+                        let prompt = crate::system_prompt::SystemPromptFile {
+                            name: new_name.clone(),
+                            content,
+                        };
+                        match crate::system_prompt::save_prompt(
+                            &prompt,
+                            &dir,
+                            app.save_mode.key(),
+                        ) {
+                            Ok(_) => {
+                                let prompts =
+                                    crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+                                app.system_prompt_list =
+                                    prompts.into_iter().map(|p| p.name).collect();
+                                app.set_status(
+                                    format!("System prompt '{}' saved.", new_name),
+                                    StatusLevel::Info,
+                                );
+                            }
+                            Err(e) => {
+                                app.set_status(
+                                    format!("Failed to save prompt: {e}"),
+                                    StatusLevel::Error,
+                                );
+                            }
+                        }
+                    }
+
+                    app.system_prompt_editor = None;
+                    app.focus = app.system_editor_return_focus;
                     return None;
                 }
                 DialogKind::CharacterEditor => {

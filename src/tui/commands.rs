@@ -58,7 +58,7 @@ fn loaded_worldbooks(app: &mut App) -> Vec<crate::worldinfo::RuntimeWorldBook> {
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-pub fn spawn_metadata_loading(app: &mut App) {
+pub(super) fn spawn_metadata_loading(app: &mut App) {
     let key = match &app.save_mode {
         SaveMode::Encrypted { key, .. } => key.clone(),
         _ => return,
@@ -218,7 +218,7 @@ fn split_metadata_loading_batches(paths: Vec<PathBuf>, worker_count: usize) -> V
         .collect()
 }
 
-pub fn handle_slash_command(
+pub(super) fn handle_slash_command(
     cmd: &str,
     _arg: &str,
     app: &mut App,
@@ -516,7 +516,7 @@ fn cmd_report(app: &mut App) {
     }
 }
 
-pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
+pub(super) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
     if app.model_name.is_none() {
         app.set_status(
             "Connecting to API server...".to_owned(),
@@ -570,7 +570,7 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     app.streaming_task = Some(handle);
 }
 
-pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
+pub(super) fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
     if !app.is_streaming {
         return Ok(());
     }
@@ -601,7 +601,7 @@ pub fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
+pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
     match event {
         super::BackgroundEvent::KeyDerived(key, path) => {
             if let Some(debug) = app.unlock_debug.take() {

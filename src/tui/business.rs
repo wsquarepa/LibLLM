@@ -415,7 +415,7 @@ pub fn save_config_from_fields(
     crate::config::save(&cfg)
 }
 
-pub fn apply_config(app: &mut App) {
+pub(super) fn apply_config(app: &mut App) {
     let cfg = crate::config::load();
     let preset_name = app
         .cli_overrides
@@ -449,7 +449,7 @@ pub fn apply_config(app: &mut App) {
     app.invalidate_chat_cache();
 }
 
-pub fn load_active_persona(app: &mut App) {
+pub(super) fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona {
         if let Some(path) = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name) {
             if let Ok(pf) = crate::persona::load_persona(&path, app.save_mode.key()) {
@@ -514,7 +514,7 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
     }
 }
 
-pub fn refresh_sidebar(app: &mut App) {
+pub(super) fn refresh_sidebar(app: &mut App) {
     let mut sessions = discover_sidebar_sessions(&app.save_mode);
 
     for entry in &mut sessions {

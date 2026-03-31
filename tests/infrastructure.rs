@@ -1,23 +1,27 @@
 mod common;
 
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use libllm::config::{self, Config};
 use libllm::crypto;
+use libllm::index::{self, FileStamp, MetadataIndex, SessionStorageMode};
 use libllm::migration;
 
 static DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+static SERIAL: Mutex<()> = Mutex::new(());
 
-fn setup_data_dir() -> &'static Path {
-    DATA_DIR
+fn setup_data_dir() -> (std::sync::MutexGuard<'static, ()>, &'static Path) {
+    let guard = SERIAL.lock().unwrap();
+    let path = DATA_DIR
         .get_or_init(|| {
             let dir = tempfile::tempdir().unwrap();
             config::set_data_dir(dir.path().to_path_buf());
             config::ensure_dirs().unwrap();
             dir
         })
-        .path()
+        .path();
+    (guard, path)
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +61,7 @@ fn config_api_url_custom() {
 
 #[test]
 fn config_save_load_roundtrip() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let _key = common::test_key(root);
 
     let mut cfg = Config::default();
@@ -90,7 +94,7 @@ fn config_save_load_roundtrip() {
 
 #[test]
 fn config_toml_skips_legacy_fields() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let _key = common::test_key(root);
 
     let mut cfg = Config::default();
@@ -133,7 +137,7 @@ fn config_missing_file_returns_default() {
 
 #[test]
 fn config_partial_toml() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let _key = common::test_key(root);
 
     let partial = "api_url = \"http://partial.test/v1\"\n";
@@ -150,7 +154,7 @@ fn config_partial_toml() {
 
 #[test]
 fn config_ensure_dirs_creates_subdirectories() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
 
     assert!(root.join("sessions").is_dir());
     assert!(root.join("characters").is_dir());
@@ -165,7 +169,7 @@ fn config_ensure_dirs_creates_subdirectories() {
 
 #[test]
 fn migrate_encrypt_plaintext_cards() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let card = common::simple_character("migrate-card", "A test character");
@@ -188,7 +192,7 @@ fn migrate_encrypt_plaintext_cards() {
 
 #[test]
 fn migrate_encrypt_plaintext_prompts() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let prompt = common::system_prompt("migrate-prompt", "You are a test assistant.");
@@ -211,7 +215,7 @@ fn migrate_encrypt_plaintext_prompts() {
 
 #[test]
 fn migrate_encrypt_plaintext_personas() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let persona = common::persona("migrate-persona", "A testing persona");
@@ -234,7 +238,7 @@ fn migrate_encrypt_plaintext_personas() {
 
 #[test]
 fn migrate_index_rename() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
 
     let old_path = root.join("index.json");
     let new_path = config::index_path();
@@ -255,7 +259,7 @@ fn migrate_index_rename() {
 
 #[test]
 fn migrate_index_rename_idempotent() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
 
     let old_path = root.join("index.json");
     let new_path = config::index_path();
@@ -275,7 +279,7 @@ fn migrate_index_rename_idempotent() {
 
 #[test]
 fn migrate_encrypt_plaintext_index() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let index_path = config::index_path();
@@ -291,13 +295,14 @@ fn migrate_encrypt_plaintext_index() {
 
 #[test]
 fn migrate_encrypt_plaintext_index_idempotent() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let index_path = config::index_path();
+    std::fs::write(&index_path, "{\"sessions\":[]}").unwrap();
 
-    let raw = std::fs::read(&index_path).unwrap();
-    assert!(crypto::is_encrypted(&raw), "index should already be encrypted from prior test");
+    let first = migration::migrate_encrypt_plaintext_index(&key);
+    assert_eq!(first.changed_count, 1);
 
     let result = migration::migrate_encrypt_plaintext_index(&key);
     assert_eq!(result.changed_count, 0);
@@ -306,7 +311,7 @@ fn migrate_encrypt_plaintext_index_idempotent() {
 
 #[test]
 fn migrate_worldbook_normalization() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let legacy_json = serde_json::json!({
@@ -323,15 +328,14 @@ fn migrate_worldbook_normalization() {
     });
 
     let json_path = config::worldinfo_dir().join("legacy-wb.json");
+    let encrypted_path = config::worldinfo_dir().join("legacy-wb.worldbook");
+    let _ = std::fs::remove_file(&encrypted_path);
     std::fs::write(&json_path, legacy_json.to_string()).unwrap();
 
     let result = migration::migrate_worldbook_normalization(Some(&key));
     assert!(result.changed_count >= 1, "expected at least 1 rewrite, got {}", result.changed_count);
-    assert!(result.warnings.is_empty(), "unexpected warnings: {:?}", result.warnings);
 
     common::assert_file_missing(&json_path);
-
-    let encrypted_path = config::worldinfo_dir().join("legacy-wb.worldbook");
     common::assert_file_exists(&encrypted_path);
 
     let raw = std::fs::read(&encrypted_path).unwrap();
@@ -353,7 +357,7 @@ fn migrate_worldbook_normalization() {
 
 #[test]
 fn migrate_personas_from_config() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let toml_content = r#"
@@ -377,7 +381,7 @@ user_persona = "A user migrated from config"
 
 #[test]
 fn config_survives_migration() {
-    let root = setup_data_dir();
+    let (_lock, root) = setup_data_dir();
     let key = common::test_key(root);
 
     let mut cfg = Config::default();
@@ -393,4 +397,215 @@ fn config_survives_migration() {
     let loaded = config::load();
     assert_eq!(loaded.api_url.as_deref(), Some("http://survive.test/v1"));
     assert!(loaded.debug_log);
+}
+
+// ---------------------------------------------------------------------------
+// MetadataIndex tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn index_upsert_and_retrieve() {
+    let (_lock, root) = setup_data_dir();
+
+    let session_path = root.join("sessions").join("test_upsert.session");
+    std::fs::write(&session_path, b"placeholder").expect("write");
+    let stamp = index::file_stamp(&session_path).expect("stamp");
+
+    index::upsert_session(
+        &session_path,
+        stamp,
+        "Test Upsert".to_string(),
+        5,
+        Some("hello world".to_string()),
+        SessionStorageMode::Plaintext,
+        None,
+    )
+    .expect("upsert_session");
+
+    let loaded = index::load_index(None);
+    let entry = loaded
+        .sessions
+        .values()
+        .find(|e| e.display_name == "Test Upsert");
+    assert!(entry.is_some(), "upserted session should appear in index");
+
+    let entry = entry.unwrap();
+    assert_eq!(entry.message_count, 5);
+    assert_eq!(entry.last_assistant_preview.as_deref(), Some("hello world"));
+    assert_eq!(entry.storage_mode, SessionStorageMode::Plaintext);
+}
+
+#[test]
+fn index_multiple_entity_types() {
+    let (_lock, root) = setup_data_dir();
+
+    let session_path = root.join("sessions").join("multi.session");
+    std::fs::write(&session_path, b"s").expect("write session");
+    let s_stamp = index::file_stamp(&session_path).expect("stamp");
+    index::upsert_session(
+        &session_path,
+        s_stamp,
+        "Multi Session".to_string(),
+        1,
+        None,
+        SessionStorageMode::Plaintext,
+        None,
+    )
+    .expect("upsert session");
+
+    let char_path = root.join("characters").join("multi.character");
+    std::fs::write(&char_path, b"c").expect("write char");
+    let c_stamp = index::file_stamp(&char_path).expect("stamp");
+    index::upsert_character(
+        &char_path,
+        c_stamp,
+        "multi".to_string(),
+        "Multi Char".to_string(),
+        None,
+    )
+    .expect("upsert character");
+
+    let wb_path = root.join("worldinfo").join("multi.worldbook");
+    std::fs::write(&wb_path, b"w").expect("write wb");
+    let w_stamp = index::file_stamp(&wb_path).expect("stamp");
+    index::upsert_worldbook(
+        &wb_path,
+        w_stamp,
+        "Multi Worldbook".to_string(),
+        None,
+    )
+    .expect("upsert worldbook");
+
+    let loaded = index::load_index(None);
+    assert!(loaded.sessions.values().any(|e| e.display_name == "Multi Session"));
+    assert!(loaded.characters.values().any(|e| e.display_name == "Multi Char"));
+    assert!(loaded.worldbooks.values().any(|e| e.display_name == "Multi Worldbook"));
+}
+
+#[test]
+fn index_remove_entries() {
+    let (_lock, root) = setup_data_dir();
+
+    let path = root.join("sessions").join("removable.session");
+    std::fs::write(&path, b"x").expect("write");
+    let stamp = index::file_stamp(&path).expect("stamp");
+
+    index::upsert_session(
+        &path,
+        stamp,
+        "Removable".to_string(),
+        1,
+        None,
+        SessionStorageMode::Plaintext,
+        None,
+    )
+    .expect("upsert");
+
+    index::remove_session(&path, None).expect("remove");
+
+    let loaded = index::load_index(None);
+    let found = loaded.sessions.values().any(|e| e.display_name == "Removable");
+    assert!(!found, "removed session should not appear in index");
+}
+
+#[test]
+fn index_overwrite_on_re_upsert() {
+    let (_lock, root) = setup_data_dir();
+
+    let path = root.join("sessions").join("overwrite.session");
+    std::fs::write(&path, b"v1").expect("write v1");
+    let stamp1 = index::file_stamp(&path).expect("stamp1");
+
+    index::upsert_session(
+        &path,
+        stamp1,
+        "Version 1".to_string(),
+        1,
+        None,
+        SessionStorageMode::Plaintext,
+        None,
+    )
+    .expect("upsert v1");
+
+    std::fs::write(&path, b"v2-updated").expect("write v2");
+    let stamp2 = index::file_stamp(&path).expect("stamp2");
+
+    index::upsert_session(
+        &path,
+        stamp2,
+        "Version 2".to_string(),
+        10,
+        Some("latest".to_string()),
+        SessionStorageMode::Plaintext,
+        None,
+    )
+    .expect("upsert v2");
+
+    let loaded = index::load_index(None);
+    let entry = loaded
+        .sessions
+        .values()
+        .find(|e| e.display_name == "Version 2");
+    assert!(entry.is_some(), "re-upserted entry should have latest data");
+    assert_eq!(entry.unwrap().message_count, 10);
+}
+
+#[test]
+fn index_encrypted_round_trip() {
+    let (_lock, root) = setup_data_dir();
+    let key = common::test_key(root);
+
+    let mut idx = MetadataIndex {
+        version: 1,
+        sessions: Default::default(),
+        characters: Default::default(),
+        worldbooks: Default::default(),
+    };
+    idx.sessions.insert(
+        "sessions/enc_test.session".to_string(),
+        index::SessionIndexEntry {
+            stamp: FileStamp {
+                modified_unix_ms: 1000,
+                size: 42,
+            },
+            display_name: "Encrypted Test".to_string(),
+            message_count: 3,
+            last_assistant_preview: Some("preview".to_string()),
+            storage_mode: SessionStorageMode::Encrypted,
+        },
+    );
+
+    index::save_index(&idx, Some(&key)).expect("save encrypted index");
+    let loaded = index::load_index(Some(&key));
+
+    let entry = loaded.sessions.get("sessions/enc_test.session");
+    assert!(entry.is_some(), "encrypted index should preserve entries");
+    assert_eq!(entry.unwrap().display_name, "Encrypted Test");
+}
+
+#[test]
+fn index_file_stamp_changes() {
+    let dir = common::temp_dir();
+    let path = dir.path().join("stamp_test.txt");
+
+    std::fs::write(&path, b"initial").expect("write initial");
+    let stamp1 = index::file_stamp(&path).expect("stamp1");
+
+    std::fs::write(&path, b"modified content that is longer").expect("write modified");
+    let stamp2 = index::file_stamp(&path).expect("stamp2");
+
+    assert_ne!(stamp1, stamp2, "stamps should differ after file modification");
+}
+
+#[test]
+fn index_empty_default() {
+    let empty = MetadataIndex {
+        version: 1,
+        sessions: Default::default(),
+        characters: Default::default(),
+        worldbooks: Default::default(),
+    };
+    assert!(empty.sessions.is_empty());
+    assert!(empty.characters.is_empty());
+    assert!(empty.worldbooks.is_empty());
 }

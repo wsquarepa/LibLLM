@@ -2,7 +2,7 @@ mod common;
 
 use libllm::context::ContextManager;
 use libllm::preset::{
-    self, ContextPreset, ContextVars, InstructPreset,
+    self, ContextVars, InstructPreset,
 };
 use libllm::sampling::{SamplingOverrides, SamplingParams};
 

@@ -120,8 +120,8 @@ async fn main() -> Result<()> {
         return handle_edit_command(kind, name, &args);
     }
 
-    if let Some(cli::Command::Update) = &args.command {
-        return update::run().await;
+    if let Some(cli::Command::Update { nightly }) = &args.command {
+        return update::run(*nightly).await;
     }
 
     let cfg = crate::debug_log::timed_kv(
@@ -271,7 +271,7 @@ fn infer_run_mode(args: &Args) -> &'static str {
     } else if let Some(command) = &args.command {
         match command {
             cli::Command::Edit { .. } => "edit_subcommand",
-            cli::Command::Update => "update_subcommand",
+            cli::Command::Update { .. } => "update_subcommand",
         }
     } else if args.message.is_some() {
         "single_message"
@@ -329,7 +329,7 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
     if let Some(command) = &args.command {
         let command_name = match command {
             cli::Command::Edit { .. } => "edit",
-            cli::Command::Update => "update",
+            cli::Command::Update { .. } => "update",
         };
         fields.push(crate::debug_log::field("command", command_name));
         if let cli::Command::Edit { kind, name } = command {

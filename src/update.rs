@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 const REPO: &str = "wsquarepa/LibLLM";
-const TAG: &str = "nightly";
+const NIGHTLY_TAG: &str = "nightly";
+const CHANNEL: &str = env!("LIBLLM_CHANNEL");
+const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const TARGET: &str = const {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -35,7 +37,8 @@ const TARGET: &str = const {
 
 #[derive(Deserialize)]
 struct Release {
-    body: String,
+    tag_name: String,
+    body: Option<String>,
     assets: Vec<Asset>,
 }
 
@@ -43,6 +46,11 @@ struct Release {
 struct Asset {
     name: String,
     url: String,
+}
+
+enum UpdateChannel {
+    Stable,
+    Nightly,
 }
 
 fn github_token() -> Option<String> {
@@ -89,12 +97,31 @@ fn current_exe_path() -> Result<PathBuf> {
     std::env::current_exe().context("failed to determine current executable path")
 }
 
-pub async fn run() -> Result<()> {
-    let client = build_client()?;
+fn resolve_target_channel(switch_to_nightly: bool) -> Result<UpdateChannel> {
+    match CHANNEL {
+        "unknown" => anyhow::bail!(
+            "This build was not installed from a release. Use install.sh to install."
+        ),
+        "nightly" => {
+            if switch_to_nightly {
+                anyhow::bail!("Already on nightly.");
+            }
+            Ok(UpdateChannel::Nightly)
+        }
+        "stable" => {
+            if switch_to_nightly {
+                Ok(UpdateChannel::Nightly)
+            } else {
+                Ok(UpdateChannel::Stable)
+            }
+        }
+        other => anyhow::bail!("Unknown channel: {other}"),
+    }
+}
 
-    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{TAG}");
+async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
     let resp = client
-        .get(&url)
+        .get(url)
         .send()
         .await
         .context("failed to fetch release info")?;
@@ -114,31 +141,26 @@ pub async fn run() -> Result<()> {
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
-    let release: Release = resp.json().await.context("failed to parse release JSON")?;
+    resp.json().await.context("failed to parse release JSON")
+}
 
+fn find_asset<'a>(release: &'a Release) -> Result<&'a Asset> {
     let expected_name = if cfg!(target_os = "windows") {
         format!("libllm-{TARGET}.exe")
     } else {
         format!("libllm-{TARGET}")
     };
 
-    let asset = release
+    release
         .assets
         .iter()
         .find(|a| a.name == expected_name)
         .context(format!(
-            "no asset found for this platform ({TARGET}) in the nightly release"
-        ))?;
-    if let Some(remote_hash) = parse_release_hash(&release.body) {
-        let current_hash = env!("LIBLLM_COMMIT", "unknown");
-        if current_hash != "unknown" && current_hash == remote_hash {
-            println!("Already up to date (commit {current_hash}).");
-            return Ok(());
-        }
-    }
+            "no asset found for this platform ({TARGET}) in the release"
+        ))
+}
 
-    println!("Downloading {expected_name}...");
-
+async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result<()> {
     let download_resp = client
         .get(&asset.url)
         .header(reqwest::header::ACCEPT, "application/octet-stream")
@@ -178,7 +200,62 @@ pub async fn run() -> Result<()> {
     }
     let _ = std::fs::remove_file(&old_path);
 
-    let hash_display = parse_release_hash(&release.body).unwrap_or("unknown");
+    Ok(())
+}
+
+async fn update_nightly(client: &reqwest::Client) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{NIGHTLY_TAG}");
+    let release = fetch_release(client, &url).await?;
+    let asset = find_asset(&release)?;
+
+    if let Some(body) = &release.body {
+        if let Some(remote_hash) = parse_release_hash(body) {
+            let current_hash = env!("LIBLLM_COMMIT", "unknown");
+            if current_hash != "unknown" && current_hash == remote_hash {
+                println!("Already up to date (commit {current_hash}).");
+                return Ok(());
+            }
+        }
+    }
+
+    let expected_name = &asset.name;
+    println!("Downloading {expected_name}...");
+    download_and_replace(client, asset).await?;
+
+    let hash_display = release
+        .body
+        .as_deref()
+        .and_then(parse_release_hash)
+        .unwrap_or("unknown");
     println!("Updated to nightly (commit {hash_display}).");
     Ok(())
+}
+
+async fn update_stable(client: &reqwest::Client) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
+    let release = fetch_release(client, &url).await?;
+    let asset = find_asset(&release)?;
+
+    let remote_version = release.tag_name.strip_prefix('v').unwrap_or(&release.tag_name);
+    if remote_version == CURRENT_VERSION {
+        println!("Already up to date (v{CURRENT_VERSION}).");
+        return Ok(());
+    }
+
+    let expected_name = &asset.name;
+    println!("Downloading {expected_name}...");
+    download_and_replace(client, asset).await?;
+
+    println!("Updated to stable (v{remote_version}).");
+    Ok(())
+}
+
+pub async fn run(switch_to_nightly: bool) -> Result<()> {
+    let target = resolve_target_channel(switch_to_nightly)?;
+    let client = build_client()?;
+
+    match target {
+        UpdateChannel::Nightly => update_nightly(&client).await,
+        UpdateChannel::Stable => update_stable(&client).await,
+    }
 }

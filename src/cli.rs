@@ -13,8 +13,12 @@ pub enum Command {
         /// Name of the character or worldbook
         name: String,
     },
-    /// Update libllm to the latest nightly build
-    Update,
+    /// Update libllm to the latest build
+    Update {
+        /// Switch from stable to nightly channel
+        #[arg(long)]
+        nightly: bool,
+    },
 }
 
 pub struct CliOverrides {

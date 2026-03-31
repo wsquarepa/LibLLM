@@ -1398,6 +1398,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     } else if !app.persona_editor.as_ref().unwrap().has_changes() {
                         app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                         app.persona_editor = None;
+                        app.focus = Focus::PersonaDialog;
                     } else {
                         let values = &app.persona_editor.as_ref().unwrap().values;
                         let file_name = app.persona_editor_file_name.clone();

@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use libllm::character::CharacterCard;
 use libllm::crypto::DerivedKey;
@@ -38,29 +37,19 @@ pub fn test_key(root: &Path) -> DerivedKey {
         .expect("failed to derive key")
 }
 
-/// Derive an encryption key wrapped in an `Arc` (for `SaveMode::Encrypted`).
-pub fn test_key_arc(root: &Path) -> Arc<DerivedKey> {
-    Arc::new(test_key(root))
-}
-
-/// Build a `Message` with the given role and content.
-pub fn msg(role: Role, content: &str) -> Message {
-    Message::new(role, content.to_string())
-}
-
 /// Build a user message.
 pub fn user_msg(content: &str) -> Message {
-    msg(Role::User, content)
+    Message::new(Role::User, content.to_string())
 }
 
 /// Build an assistant message.
 pub fn assistant_msg(content: &str) -> Message {
-    msg(Role::Assistant, content)
+    Message::new(Role::Assistant, content.to_string())
 }
 
 /// Build a system message.
 pub fn system_msg(content: &str) -> Message {
-    msg(Role::System, content)
+    Message::new(Role::System, content.to_string())
 }
 
 /// Build a `Session` with a linear chain of messages (no branching).
@@ -204,16 +193,6 @@ pub fn empty_overrides() -> SamplingOverrides {
 /// Build a session file path inside the sessions subdirectory.
 pub fn session_path(root: &Path, name: &str) -> PathBuf {
     root.join("sessions").join(name)
-}
-
-/// Build a character file path inside the characters subdirectory.
-pub fn character_path(root: &Path, name: &str) -> PathBuf {
-    root.join("characters").join(name)
-}
-
-/// Build a worldbook file path inside the worldinfo subdirectory.
-pub fn worldbook_path(root: &Path, name: &str) -> PathBuf {
-    root.join("worldinfo").join(name)
 }
 
 /// Write raw JSON to a file for testing import/parse flows.

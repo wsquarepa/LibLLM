@@ -280,12 +280,23 @@ fn dir_for_kind(kind: PresetKind) -> std::path::PathBuf {
     }
 }
 
+fn sanitize_preset_name(raw: &str) -> Option<String> {
+    let safe: String = raw.replace(['/', '\\'], "_");
+    let safe = safe.trim_matches('.');
+    if safe.is_empty() {
+        None
+    } else {
+        Some(safe.to_owned())
+    }
+}
+
 pub(in crate::tui) fn save_preset_from_editor(
     kind: PresetKind,
     values: &[String],
     original_name: &str,
 ) -> anyhow::Result<()> {
-    let name = values[0].trim();
+    let name = sanitize_preset_name(values[0].trim())
+        .unwrap_or_default();
     if name.is_empty() {
         anyhow::bail!("preset name cannot be empty");
     }
@@ -335,19 +346,28 @@ pub(in crate::tui) fn save_preset_from_editor(
     };
 
     if !original_name.is_empty() && original_name != name {
-        let old_path = dir.join(format!("{original_name}.json"));
-        let _ = std::fs::remove_file(&old_path);
+        if let Some(safe_original) = sanitize_preset_name(original_name) {
+            let old_path = dir.join(format!("{safe_original}.json"));
+            if old_path.starts_with(&dir) {
+                let _ = std::fs::remove_file(&old_path);
+            }
+        }
     }
 
     let path = dir.join(format!("{name}.json"));
+    anyhow::ensure!(path.starts_with(&dir), "preset path escapes target directory");
     std::fs::write(&path, json)?;
     Ok(())
 }
 
 pub(in crate::tui) fn delete_preset(kind: PresetKind, name: &str) {
     let dir = dir_for_kind(kind);
-    let path = dir.join(format!("{name}.json"));
-    let _ = std::fs::remove_file(&path);
+    if let Some(safe_name) = sanitize_preset_name(name) {
+        let path = dir.join(format!("{safe_name}.json"));
+        if path.starts_with(&dir) {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 pub(in crate::tui) fn refresh_preset_list(app: &mut App) {

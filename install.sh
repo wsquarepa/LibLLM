@@ -2,7 +2,6 @@
 set -e
 
 REPO="wsquarepa/LibLLM"
-TAG="nightly"
 BINARY_NAME="libllm"
 
 main() {
@@ -11,11 +10,28 @@ main() {
         exec "$BINARY_NAME" update
     fi
 
+    select_channel
     detect_platform
     resolve_install_dir
     download_binary
     install_binary
     print_success
+}
+
+select_channel() {
+    printf "Select release channel:\n"
+    printf "  1) stable  - latest stable release\n"
+    printf "  2) nightly - latest development build\n"
+
+    while true; do
+        printf "Choice [1/2]: "
+        read -r choice
+        case "$choice" in
+            1) CHANNEL="stable"; break ;;
+            2) CHANNEL="nightly"; break ;;
+            *) printf "Invalid choice. Enter 1 or 2.\n" ;;
+        esac
+    done
 }
 
 detect_platform() {
@@ -58,7 +74,11 @@ auth_header() {
 }
 
 download_binary() {
-    API_URL="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
+    if [ "$CHANNEL" = "stable" ]; then
+        API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+    else
+        API_URL="https://api.github.com/repos/${REPO}/releases/tags/nightly"
+    fi
 
     if command -v curl >/dev/null 2>&1; then
         FETCHER="curl"
@@ -99,14 +119,14 @@ download_binary() {
 
     if [ -z "$ASSET_API_URL" ]; then
         echo "Error: no release asset found for ${ASSET_NAME}." >&2
-        echo "Available platforms can be checked at: https://github.com/${REPO}/releases/tag/${TAG}" >&2
+        echo "Available platforms can be checked at: https://github.com/${REPO}/releases" >&2
         exit 1
     fi
 
     TMPFILE=$(mktemp)
     trap 'rm -f "$TMPFILE"' EXIT
 
-    echo "Downloading ${ASSET_NAME}..."
+    echo "Downloading ${ASSET_NAME} (${CHANNEL})..."
 
     if [ "$FETCHER" = "curl" ]; then
         curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$ASSET_API_URL"
@@ -122,7 +142,7 @@ install_binary() {
 }
 
 print_success() {
-    echo "Installed libllm to ${BIN_DIR}/${BINARY_NAME}"
+    echo "Installed libllm (${CHANNEL}) to ${BIN_DIR}/${BINARY_NAME}"
 
     case ":$PATH:" in
         *":${BIN_DIR}:"*) ;;

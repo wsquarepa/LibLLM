@@ -116,8 +116,11 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 crate::worldinfo::resolve_worldbook_path(&crate::config::worldinfo_dir(), &name);
             match crate::worldinfo::load_worldbook(&wb_path, app.save_mode.key()) {
                 Ok(wb) => {
+                    app.worldbook_editor_original_name = wb.name.clone();
                     app.worldbook_editor_entries = wb.entries;
                     app.worldbook_editor_name = wb.name;
+                    app.worldbook_editor_name_selected = true;
+                    app.worldbook_editor_name_editing = false;
                     app.worldbook_editor_selected = 0;
                     app.focus = Focus::WorldbookEditorDialog;
                 }
@@ -143,12 +146,32 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
+    let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING + 2, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
+    let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
+    let name_editing = app.worldbook_editor_name_editing;
+    let name_marker = if name_selected || name_editing { "> " } else { "  " };
+    let name_style = if name_selected || name_editing {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
+
+    let name_display = if name_editing {
+        format!("{name_marker}Name: {}_", app.worldbook_editor_name)
+    } else {
+        format!("{name_marker}Name: {}", app.worldbook_editor_name)
+    };
+    lines.push(Line::from(Span::styled(name_display, name_style)));
+    lines.push(Line::from(""));
+
     for (i, entry) in app.worldbook_editor_entries.iter().enumerate() {
-        let is_selected = i == app.worldbook_editor_selected;
+        let is_selected = i == app.worldbook_editor_selected
+            && !app.worldbook_editor_name_selected;
         let marker = if is_selected { "> " } else { "  " };
         let enabled = if entry.enabled { "+" } else { "-" };
         let label = if entry.keys.is_empty() {
@@ -181,7 +204,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     lines.push(Line::from(""));
     lines.push(
         Line::from(Span::styled(
-            "Up/Down: navigate  Right: edit  a: add  Del: delete",
+            "Up/Down: navigate  Right/Enter: edit  a: add  Del: delete",
             Style::default().fg(Color::DarkGray),
         ))
         .alignment(ratatui::layout::Alignment::Center),
@@ -194,7 +217,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         .alignment(ratatui::layout::Alignment::Center),
     );
 
-    let title = format!(" {} ({} entries) ", app.worldbook_editor_name, count);
+    let title = format!(" Worldbook ({count} entries) ");
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
 
@@ -202,8 +225,51 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
 }
 
 pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if app.worldbook_editor_name_editing {
+        match key.code {
+            KeyCode::Char(c) => {
+                app.worldbook_editor_name.push(c);
+            }
+            KeyCode::Backspace => {
+                app.worldbook_editor_name.pop();
+            }
+            KeyCode::Enter | KeyCode::Esc => {
+                app.worldbook_editor_name_editing = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
+    if app.worldbook_editor_name_selected {
+        match key.code {
+            KeyCode::Down => {
+                if !app.worldbook_editor_entries.is_empty() {
+                    app.worldbook_editor_name_selected = false;
+                    app.worldbook_editor_selected = 0;
+                }
+            }
+            KeyCode::Right | KeyCode::Enter => {
+                app.worldbook_editor_name_editing = true;
+            }
+            KeyCode::Char('a') => {
+                app.worldbook_editor_name_selected = false;
+                add_new_entry(app);
+            }
+            KeyCode::Esc => {
+                save_worldbook_editor(app);
+                app.focus = Focus::WorldbookDialog;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
     if app.worldbook_editor_entries.is_empty() {
         match key.code {
+            KeyCode::Up => {
+                app.worldbook_editor_name_selected = true;
+            }
             KeyCode::Esc => {
                 save_worldbook_editor(app);
                 app.focus = Focus::WorldbookDialog;
@@ -218,7 +284,11 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
 
     match key.code {
         KeyCode::Up => {
-            super::move_selection_up(&mut app.worldbook_editor_selected);
+            if app.worldbook_editor_selected == 0 {
+                app.worldbook_editor_name_selected = true;
+            } else {
+                super::move_selection_up(&mut app.worldbook_editor_selected);
+            }
         }
         KeyCode::Down => {
             super::move_selection_down(&mut app.worldbook_editor_selected, app.worldbook_editor_entries.len());
@@ -350,8 +420,29 @@ pub(in crate::tui) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> O
 }
 
 fn save_worldbook_editor(app: &mut App) {
+    let original = app.worldbook_editor_original_name.clone();
+    let new_name = app.worldbook_editor_name.clone();
+
+    if !original.is_empty() && original != new_name {
+        let old_path = crate::worldinfo::resolve_worldbook_path(
+            &crate::config::worldinfo_dir(),
+            &original,
+        );
+        if old_path.exists() {
+            let _ = std::fs::remove_file(&old_path);
+        }
+
+        if let Some(pos) = app.session.worldbooks.iter().position(|n| n == &original) {
+            app.session.worldbooks[pos] = new_name.clone();
+        }
+        if let Some(pos) = app.config.worldbooks.iter().position(|n| n == &original) {
+            app.config.worldbooks[pos] = new_name.clone();
+            let _ = crate::config::save(&app.config);
+        }
+    }
+
     let wb = crate::worldinfo::WorldBook {
-        name: app.worldbook_editor_name.clone(),
+        name: new_name.clone(),
         entries: app.worldbook_editor_entries.clone(),
     };
     match crate::worldinfo::save_worldbook(
@@ -361,6 +452,16 @@ fn save_worldbook_editor(app: &mut App) {
     ) {
         Ok(_) => {
             app.invalidate_worldbook_cache();
+            let books = crate::worldinfo::list_worldbooks(
+                &crate::config::worldinfo_dir(),
+                app.save_mode.key(),
+            );
+            app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+            app.worldbook_selected = app
+                .worldbook_list
+                .iter()
+                .position(|n| n == &new_name)
+                .unwrap_or(0);
             app.set_status(
                 format!("Saved worldbook: {}", wb.name),
                 super::super::StatusLevel::Info,

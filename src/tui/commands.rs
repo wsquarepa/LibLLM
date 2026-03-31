@@ -300,19 +300,15 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
 
 fn cmd_system(app: &mut App) {
     if app.cli_overrides.system_prompt.is_some() {
-        let content = app.session.system_prompt.as_deref().unwrap_or("");
-        let lines: Vec<String> = content.lines().map(String::from).collect();
-        let editor = tui_textarea::TextArea::from(if lines.is_empty() {
-            vec![String::new()]
-        } else {
-            lines
-        });
-        app.system_editor = Some(editor);
+        let content = app.session.system_prompt.as_deref().unwrap_or("").to_owned();
+        let values = vec!["(set via -r)".to_owned(), content];
+        let dialog = dialogs::open_system_prompt_editor(values)
+            .with_locked_fields(vec![0, 1]);
+        app.system_prompt_editor = Some(dialog);
         app.system_editor_read_only = true;
-        app.system_editor_roleplay = false;
         app.system_editor_prompt_name = String::new();
         app.system_editor_return_focus = Focus::Input;
-        app.focus = Focus::SystemDialog;
+        app.focus = Focus::SystemPromptEditorDialog;
         return;
     }
 

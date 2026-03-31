@@ -345,6 +345,10 @@ pub(in crate::tui) fn save_preset_from_editor(
         }
     };
 
+    let path = dir.join(format!("{name}.json"));
+    anyhow::ensure!(path.starts_with(&dir), "preset path escapes target directory");
+    std::fs::write(&path, json)?;
+
     if !original_name.is_empty() && original_name != name {
         if let Some(safe_original) = sanitize_preset_name(original_name) {
             let old_path = dir.join(format!("{safe_original}.json"));
@@ -354,9 +358,6 @@ pub(in crate::tui) fn save_preset_from_editor(
         }
     }
 
-    let path = dir.join(format!("{name}.json"));
-    anyhow::ensure!(path.starts_with(&dir), "preset path escapes target directory");
-    std::fs::write(&path, json)?;
     Ok(())
 }
 

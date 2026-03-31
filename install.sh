@@ -19,19 +19,6 @@ main() {
 }
 
 select_channel() {
-    if [ -n "$LIBLLM_CHANNEL" ]; then
-        case "$LIBLLM_CHANNEL" in
-            stable|nightly) CHANNEL="$LIBLLM_CHANNEL"; return ;;
-            *) echo "Error: LIBLLM_CHANNEL must be 'stable' or 'nightly', got '$LIBLLM_CHANNEL'" >&2; exit 1 ;;
-        esac
-    fi
-
-    if [ ! -t 0 ]; then
-        CHANNEL="stable"
-        echo "Non-interactive mode detected. Defaulting to stable channel. Set LIBLLM_CHANNEL=nightly to override."
-        return
-    fi
-
     printf "Select release channel:\n"
     printf "  1) stable  - latest stable release\n"
     printf "  2) nightly - latest development build\n"

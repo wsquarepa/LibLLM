@@ -236,6 +236,7 @@ struct App<'a> {
     character_editor: Option<FieldDialog<'a>>,
     character_editor_slug: String,
     worldbook_editor_entries: Vec<crate::worldinfo::Entry>,
+    worldbook_editor_original_entries: Vec<crate::worldinfo::Entry>,
     worldbook_editor_name: String,
     worldbook_editor_original_name: String,
     worldbook_editor_name_selected: bool,
@@ -563,6 +564,7 @@ pub async fn run(
         character_editor: None,
         character_editor_slug: String::new(),
         worldbook_editor_entries: Vec::new(),
+        worldbook_editor_original_entries: Vec::new(),
         worldbook_editor_name: String::new(),
         worldbook_editor_original_name: String::new(),
         worldbook_editor_name_selected: true,
@@ -1231,27 +1233,38 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
             match kind {
                 DialogKind::Config => {
                     let dialog = app.config_dialog.as_ref().unwrap();
-                    let values = &dialog.values;
-                    let locked = business::config_locked_fields(&app.cli_overrides);
-                    match business::save_config_from_fields(values, &locked) {
-                        Ok(()) => {
-                            business::apply_config(app);
-                            app.set_status("Configuration saved.".to_owned(), StatusLevel::Info);
+                    if !dialog.has_changes() {
+                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                        app.config_dialog = None;
+                    } else {
+                        let values = &dialog.values;
+                        let locked = business::config_locked_fields(&app.cli_overrides);
+                        match business::save_config_from_fields(values, &locked) {
+                            Ok(()) => {
+                                business::apply_config(app);
+                                app.set_status(
+                                    "Configuration saved.".to_owned(),
+                                    StatusLevel::Info,
+                                );
+                            }
+                            Err(e) => {
+                                app.set_status(
+                                    format!("Failed to save config: {e}"),
+                                    StatusLevel::Error,
+                                );
+                            }
                         }
-                        Err(e) => {
-                            app.set_status(
-                                format!("Failed to save config: {e}"),
-                                StatusLevel::Error,
-                            );
-                        }
+                        app.config_dialog = None;
                     }
-                    app.config_dialog = None;
                 }
                 DialogKind::PersonaEditor => {
                     let is_cli_locked = app.cli_overrides.persona.is_some();
                     if is_cli_locked {
                         app.persona_editor = None;
                         app.focus = Focus::Input;
+                    } else if !app.persona_editor.as_ref().unwrap().has_changes() {
+                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                        app.persona_editor = None;
                     } else {
                         let values = &app.persona_editor.as_ref().unwrap().values;
                         let file_name = app.persona_editor_file_name.clone();
@@ -1311,6 +1324,13 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     if app.system_editor_read_only {
                         app.system_prompt_editor = None;
                         app.system_editor_read_only = false;
+                        app.focus = app.system_editor_return_focus;
+                        return None;
+                    }
+
+                    if !app.system_prompt_editor.as_ref().unwrap().has_changes() {
+                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                        app.system_prompt_editor = None;
                         app.focus = app.system_editor_return_focus;
                         return None;
                     }
@@ -1383,6 +1403,13 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     return None;
                 }
                 DialogKind::CharacterEditor => {
+                    if !app.character_editor.as_ref().unwrap().has_changes() {
+                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                        app.character_editor = None;
+                        app.focus = Focus::CharacterDialog;
+                        return None;
+                    }
+
                     let values = &app.character_editor.as_ref().unwrap().values;
                     let new_slug = crate::character::slugify(&values[0]);
                     if new_slug != app.character_editor_slug
@@ -1477,13 +1504,18 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     return None;
                 }
                 DialogKind::WorldbookEntryEditor => {
-                    let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
-                    let idx = app.worldbook_entry_editor_index;
-                    if idx < app.worldbook_editor_entries.len() {
-                        app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(
-                            values,
-                            &app.worldbook_editor_entries[idx],
-                        );
+                    if !app.worldbook_entry_editor.as_ref().unwrap().has_changes() {
+                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                    } else {
+                        let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
+                        let idx = app.worldbook_entry_editor_index;
+                        if idx < app.worldbook_editor_entries.len() {
+                            app.worldbook_editor_entries[idx] =
+                                dialogs::worldbook::values_to_entry(
+                                    values,
+                                    &app.worldbook_editor_entries[idx],
+                                );
+                        }
                     }
                     app.worldbook_entry_editor = None;
                     app.focus = Focus::WorldbookEditorDialog;

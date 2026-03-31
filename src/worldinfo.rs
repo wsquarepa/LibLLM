@@ -28,7 +28,7 @@ pub struct WorldBook {
     pub entries: Vec<Entry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub keys: Vec<String>,
     pub secondary_keys: Vec<String>,

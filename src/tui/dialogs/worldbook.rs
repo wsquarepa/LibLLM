@@ -154,7 +154,12 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
     let name_editing = app.worldbook_editor_name_editing;
     let name_marker = if name_selected || name_editing { "> " } else { "  " };
-    let name_style = if name_selected || name_editing {
+    let name_flashing = name_editing && super::is_flash_active(app.input_reject_flash);
+    let name_style = if name_flashing {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else if name_selected || name_editing {
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD)
@@ -229,7 +234,11 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
     if app.worldbook_editor_name_editing {
         match key.code {
             KeyCode::Char(c) => {
-                app.worldbook_editor_name.push(c);
+                if app.worldbook_editor_name.chars().count() < super::MAX_NAME_LENGTH {
+                    app.worldbook_editor_name.push(c);
+                } else {
+                    app.input_reject_flash = Some(std::time::Instant::now());
+                }
             }
             KeyCode::Backspace => {
                 app.worldbook_editor_name.pop();
@@ -507,6 +516,17 @@ pub(in crate::tui) fn handle_worldbook_paste(
 
     match crate::worldinfo::load_worldbook(path, None) {
         Ok(wb) => {
+            if wb.name.chars().count() > super::MAX_NAME_LENGTH {
+                app.set_status(
+                    format!(
+                        "Worldbook name exceeds {} characters: \"{}\"",
+                        super::MAX_NAME_LENGTH,
+                        wb.name,
+                    ),
+                    super::super::StatusLevel::Error,
+                );
+                return true;
+            }
             let name = wb.name.clone();
             match crate::worldinfo::save_worldbook(
                 &wb,

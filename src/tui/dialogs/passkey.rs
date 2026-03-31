@@ -8,15 +8,30 @@ use tokio::sync::mpsc;
 use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, BackgroundEvent};
 
-pub(in crate::tui) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let dialog = clear_centered(f, 50, 7, area);
+const DIALOG_WIDTH: u16 = 50;
+const DIALOG_HEIGHT: u16 = 7;
+const LABEL_PREFIX_LEN: usize = 11; // "  Passkey: "
 
-    let masked: String = "*".repeat(app.passkey_input.len());
+pub(in crate::tui) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let dialog = clear_centered(f, DIALOG_WIDTH, DIALOG_HEIGHT, area);
+
+    let max_visible = DIALOG_WIDTH as usize - 2 - LABEL_PREFIX_LEN - 1;
+    let masked_full: String = "*".repeat(app.passkey_input.len());
+    let masked: String = if masked_full.len() > max_visible {
+        masked_full[masked_full.len() - max_visible..].to_owned()
+    } else {
+        masked_full
+    };
+    let passkey_color = if super::is_flash_active(app.input_reject_flash) {
+        Color::Yellow
+    } else {
+        Color::Cyan
+    };
     let mut lines = vec![
         Line::from(""),
         Line::from(vec![
             Span::raw("  Passkey: "),
-            Span::styled(&masked, Style::default().fg(Color::Cyan)),
+            Span::styled(&masked, Style::default().fg(passkey_color)),
             if app.passkey_deriving {
                 Span::raw("")
             } else {
@@ -119,7 +134,11 @@ pub(in crate::tui) fn handle_passkey_key(
             None
         }
         KeyCode::Char(c) => {
-            app.passkey_input.push(c);
+            if app.passkey_input.len() < super::MAX_PASSKEY_LENGTH {
+                app.passkey_input.push(c);
+            } else {
+                app.input_reject_flash = Some(std::time::Instant::now());
+            }
             app.passkey_error.clear();
             None
         }

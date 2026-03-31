@@ -22,7 +22,8 @@ use crate::tui::BackgroundEvent;
 use super::render::{clear_centered, dialog_block};
 
 pub(in crate::tui) const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
-const MAX_IMPORT_NAME_LENGTH: usize = 64;
+pub(in crate::tui) const MAX_NAME_LENGTH: usize = 32;
+const MAX_PASSKEY_LENGTH: usize = 128;
 
 pub(in crate::tui) fn generate_unique_name(
     base: &str,
@@ -57,14 +58,16 @@ pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
         .collect();
     let trimmed = cleaned.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.chars().count() > MAX_NAME_LENGTH {
         return None;
     }
-    let truncated = match trimmed.char_indices().nth(MAX_IMPORT_NAME_LENGTH) {
-        Some((byte_idx, _)) => &trimmed[..byte_idx],
-        None => trimmed,
-    };
-    Some(truncated.to_owned())
+    Some(trimmed.to_owned())
+}
+
+const REJECT_FLASH_DURATION: std::time::Duration = std::time::Duration::from_millis(150);
+
+pub(in crate::tui) fn is_flash_active(flash: Option<std::time::Instant>) -> bool {
+    flash.is_some_and(|t| t.elapsed() < REJECT_FLASH_DURATION)
 }
 
 const MULTILINE_WIDTH_PERCENT: u16 = 70;
@@ -137,10 +140,21 @@ pub fn open_config_editor(
     FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
         .with_boolean_fields(CONFIG_BOOLEAN_FIELDS)
         .with_locked_fields(locked_fields)
+        .with_enum_fields(vec![(1, crate::prompt::Template::ALL_NAMES)])
+        .with_validated_fields(vec![
+            (2, FieldValidation::Float { min: 0.0, max: 2.0 }),
+            (3, FieldValidation::Int { min: 1, max: 100 }),
+            (4, FieldValidation::Float { min: 0.0, max: 1.0 }),
+            (5, FieldValidation::Float { min: 0.0, max: 1.0 }),
+            (6, FieldValidation::Int { min: -1, max: 32767 }),
+            (7, FieldValidation::Float { min: 0.0, max: 2.0 }),
+            (8, FieldValidation::Int { min: -1, max: 32767 }),
+        ])
 }
 
 pub fn open_persona_editor(values: Vec<String>) -> FieldDialog<'static> {
     FieldDialog::new(" Edit Persona ", PERSONA_FIELDS, values, PERSONA_MULTILINE)
+        .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
 }
 
 pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
@@ -150,6 +164,7 @@ pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
         values,
         CHARACTER_EDITOR_MULTILINE,
     )
+    .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
 }
 
 pub fn open_system_prompt_editor(values: Vec<String>) -> FieldDialog<'static> {
@@ -159,6 +174,7 @@ pub fn open_system_prompt_editor(values: Vec<String>) -> FieldDialog<'static> {
         values,
         SYSTEM_PROMPT_MULTILINE,
     )
+    .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
 }
 
 pub fn open_entry_editor(values: Vec<String>) -> FieldDialog<'static> {
@@ -169,12 +185,64 @@ pub fn open_entry_editor(values: Vec<String>) -> FieldDialog<'static> {
         ENTRY_EDITOR_MULTILINE,
     )
     .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS)
+    .with_validated_fields(vec![
+        (6, FieldValidation::Int { min: -999, max: 999 }),
+        (7, FieldValidation::Int { min: 0, max: 24 }),
+    ])
 }
 
 pub fn open_entry_editor_non_selective(values: Vec<String>) -> FieldDialog<'static> {
     let mut dialog = open_entry_editor(values);
     dialog.hidden_fields = vec![3];
     dialog
+}
+
+#[derive(Clone, Copy)]
+pub enum FieldValidation {
+    Float { min: f64, max: f64 },
+    Int { min: i64, max: i64 },
+    MaxLen(usize),
+}
+
+impl FieldValidation {
+    fn max_digits(max_abs: u64) -> usize {
+        if max_abs == 0 { 1 } else { (max_abs as f64).log10().floor() as usize + 1 }
+    }
+
+    fn accepts_char(&self, current: &str, c: char) -> bool {
+        match self {
+            Self::Float { min, max } => {
+                if c == '-' {
+                    return *min < 0.0 && current.is_empty();
+                }
+                if c == '.' {
+                    return !current.contains('.');
+                }
+                if !c.is_ascii_digit() {
+                    return false;
+                }
+                let digits_only = current.trim_start_matches('-');
+                if let Some(dot_pos) = digits_only.find('.') {
+                    digits_only.len() - dot_pos <= 2
+                } else {
+                    let max_whole = Self::max_digits(max.abs() as u64);
+                    digits_only.len() < max_whole
+                }
+            }
+            Self::Int { min, max } => {
+                if c == '-' {
+                    *min < 0 && current.is_empty()
+                } else if c.is_ascii_digit() {
+                    let digits_only = current.trim_start_matches('-');
+                    let max_abs = (*min).unsigned_abs().max((*max).unsigned_abs());
+                    digits_only.len() < Self::max_digits(max_abs)
+                } else {
+                    false
+                }
+            }
+            Self::MaxLen(max) => current.chars().count() < *max,
+        }
+    }
 }
 
 pub enum FieldDialogAction {
@@ -197,6 +265,9 @@ pub struct FieldDialog<'a> {
     boolean_fields: &'static [usize],
     pub hidden_fields: Vec<usize>,
     locked_fields: Vec<usize>,
+    validated_fields: Vec<(usize, FieldValidation)>,
+    enum_fields: Vec<(usize, &'static [&'static str])>,
+    pub reject_flash: Option<std::time::Instant>,
 }
 
 impl<'a> FieldDialog<'a> {
@@ -230,6 +301,9 @@ impl<'a> FieldDialog<'a> {
             boolean_fields: &[],
             hidden_fields: Vec::new(),
             locked_fields: Vec::new(),
+            validated_fields: Vec::new(),
+            enum_fields: Vec::new(),
+            reject_flash: None,
         }
     }
 
@@ -245,6 +319,16 @@ impl<'a> FieldDialog<'a> {
 
     pub(in crate::tui) fn with_locked_fields(mut self, fields: Vec<usize>) -> Self {
         self.locked_fields = fields;
+        self
+    }
+
+    fn with_validated_fields(mut self, fields: Vec<(usize, FieldValidation)>) -> Self {
+        self.validated_fields = fields;
+        self
+    }
+
+    fn with_enum_fields(mut self, fields: Vec<(usize, &'static [&'static str])>) -> Self {
+        self.enum_fields = fields;
         self
     }
 
@@ -271,6 +355,29 @@ impl<'a> FieldDialog<'a> {
 
     fn is_multiline(&self, index: usize) -> bool {
         self.multiline_fields.contains(&index)
+    }
+
+    fn is_enum(&self, index: usize) -> bool {
+        self.enum_fields.iter().any(|(i, _)| *i == index)
+    }
+
+    fn cycle_enum(&mut self) {
+        if let Some((_, options)) = self.enum_fields.iter().find(|(i, _)| *i == self.selected) {
+            let current = &self.values[self.selected];
+            let next_idx = options
+                .iter()
+                .position(|&v| v == current)
+                .map(|i| (i + 1) % options.len())
+                .unwrap_or(0);
+            self.values[self.selected] = options[next_idx].to_owned();
+        }
+    }
+
+    fn validation_for(&self, index: usize) -> Option<FieldValidation> {
+        self.validated_fields
+            .iter()
+            .find(|(i, _)| *i == index)
+            .map(|(_, v)| *v)
     }
 
     fn open_multiline_editor(&mut self) {
@@ -311,6 +418,8 @@ impl<'a> FieldDialog<'a> {
         }
     }
 
+    const LABEL_PREFIX_WIDTH: usize = 19;
+
     fn render_fields(&self, f: &mut ratatui::Frame, dialog: Rect) {
         let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -334,8 +443,11 @@ impl<'a> FieldDialog<'a> {
                 Style::default().fg(Color::DarkGray)
             };
 
+            let flashing = is_selected && self.editing && is_flash_active(self.reject_flash);
             let value_style = if is_locked {
                 Style::default().fg(Color::Red)
+            } else if flashing {
+                Style::default().fg(Color::Yellow)
             } else if is_selected {
                 Style::default().fg(Color::Cyan)
             } else {
@@ -356,11 +468,19 @@ impl<'a> FieldDialog<'a> {
                 .is_some_and(|(_, fields)| fields.contains(&i));
             let show_placeholder = is_empty && !self.editing && has_placeholder;
 
+            let max_value_width = dialog.width as usize - 2 - Self::LABEL_PREFIX_WIDTH;
             let value_span = if show_placeholder {
                 let ph_text = self.placeholder.unwrap().0;
                 Span::styled(ph_text, Style::default().fg(Color::DarkGray))
             } else {
-                Span::styled(format!("{display_value}{cursor}"), value_style)
+                let full = format!("{display_value}{cursor}");
+                let visible = if full.chars().count() > max_value_width {
+                    let skip = full.chars().count() - max_value_width;
+                    full.chars().skip(skip).collect()
+                } else {
+                    full
+                };
+                Span::styled(visible, value_style)
             };
 
             lines.push(Line::from(vec![
@@ -372,6 +492,8 @@ impl<'a> FieldDialog<'a> {
         lines.push(Line::from(""));
         let hint = if self.is_boolean(self.selected) {
             "  Up/Down: navigate  Enter: toggle  Esc: save & close"
+        } else if self.is_enum(self.selected) {
+            "  Up/Down: navigate  Enter: cycle  Esc: save & close"
         } else {
             "  Up/Down: navigate  Enter: edit  Esc: save & close"
         };
@@ -452,7 +574,15 @@ impl<'a> FieldDialog<'a> {
                     self.editing = false;
                 }
                 KeyCode::Char(c) => {
-                    self.values[self.selected].push(c);
+                    let accept = self
+                        .validation_for(self.selected)
+                        .map(|v| v.accepts_char(&self.values[self.selected], c))
+                        .unwrap_or(true);
+                    if accept {
+                        self.values[self.selected].push(c);
+                    } else {
+                        self.reject_flash = Some(std::time::Instant::now());
+                    }
                 }
                 KeyCode::Backspace => {
                     self.values[self.selected].pop();
@@ -486,6 +616,8 @@ impl<'a> FieldDialog<'a> {
                     // locked by CLI flag, no editing
                 } else if self.is_boolean(self.selected) {
                     self.toggle_boolean();
+                } else if self.is_enum(self.selected) {
+                    self.cycle_enum();
                 } else if self.is_multiline(self.selected) {
                     self.open_multiline_editor();
                 } else {

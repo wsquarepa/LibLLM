@@ -8,8 +8,12 @@ use tokio::sync::mpsc;
 use super::{clear_centered, dialog_block};
 use crate::tui::{Action, App, BackgroundEvent};
 
+const DIALOG_WIDTH: u16 = 50;
+const DIALOG_HEIGHT: u16 = 9;
+const LABEL_PREFIX_LEN: usize = 19; // "  New Passkey:     "
+
 pub(in crate::tui) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let dialog = clear_centered(f, 50, 9, area);
+    let dialog = clear_centered(f, DIALOG_WIDTH, DIALOG_HEIGHT, area);
 
     let title = if app.set_passkey_is_initial {
         " Set Passkey "
@@ -17,8 +21,19 @@ pub(in crate::tui) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &Ap
         " Change Passkey "
     };
 
-    let new_masked: String = "*".repeat(app.set_passkey_input.len());
-    let confirm_masked: String = "*".repeat(app.set_passkey_confirm.len());
+    let max_visible = DIALOG_WIDTH as usize - 2 - LABEL_PREFIX_LEN - 1;
+    let new_masked_full: String = "*".repeat(app.set_passkey_input.len());
+    let new_masked: String = if new_masked_full.len() > max_visible {
+        new_masked_full[new_masked_full.len() - max_visible..].to_owned()
+    } else {
+        new_masked_full
+    };
+    let confirm_masked_full: String = "*".repeat(app.set_passkey_confirm.len());
+    let confirm_masked: String = if confirm_masked_full.len() > max_visible {
+        confirm_masked_full[confirm_masked_full.len() - max_visible..].to_owned()
+    } else {
+        confirm_masked_full
+    };
 
     let new_label_style = if app.set_passkey_active_field == 0 {
         Style::default()
@@ -35,12 +50,17 @@ pub(in crate::tui) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &Ap
         Style::default().fg(Color::DarkGray)
     };
 
-    let new_value_style = if app.set_passkey_active_field == 0 {
+    let flashing = super::is_flash_active(app.input_reject_flash);
+    let new_value_style = if app.set_passkey_active_field == 0 && flashing {
+        Style::default().fg(Color::Yellow)
+    } else if app.set_passkey_active_field == 0 {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default()
     };
-    let confirm_value_style = if app.set_passkey_active_field == 1 {
+    let confirm_value_style = if app.set_passkey_active_field == 1 && flashing {
+        Style::default().fg(Color::Yellow)
+    } else if app.set_passkey_active_field == 1 {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default()
@@ -189,10 +209,22 @@ pub(in crate::tui) fn handle_set_passkey_key(
             None
         }
         KeyCode::Char(c) => {
+            let rejected;
             if app.set_passkey_active_field == 0 {
-                app.set_passkey_input.push(c);
-            } else {
+                if app.set_passkey_input.len() < super::MAX_PASSKEY_LENGTH {
+                    app.set_passkey_input.push(c);
+                    rejected = false;
+                } else {
+                    rejected = true;
+                }
+            } else if app.set_passkey_confirm.len() < super::MAX_PASSKEY_LENGTH {
                 app.set_passkey_confirm.push(c);
+                rejected = false;
+            } else {
+                rejected = true;
+            }
+            if rejected {
+                app.input_reject_flash = Some(std::time::Instant::now());
             }
             app.set_passkey_error.clear();
             None

@@ -10,6 +10,8 @@ pub enum Template {
 }
 
 impl Template {
+    pub const ALL_NAMES: &[&str] = &["llama2", "chatml", "mistral", "phi", "raw"];
+
     pub fn from_name(name: &str) -> Self {
         match name {
             "chatml" => Self::ChatMl,

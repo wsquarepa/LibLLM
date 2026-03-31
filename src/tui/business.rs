@@ -313,11 +313,25 @@ pub fn config_locked_fields(overrides: &crate::cli::CliOverrides) -> Vec<usize> 
     locked
 }
 
+fn parse_f64_clamped(s: &str, min: f64, max: f64) -> Option<f64> {
+    s.parse::<f64>().ok().map(|v| v.clamp(min, max))
+}
+
+fn parse_i64_clamped(s: &str, min: i64, max: i64) -> Option<i64> {
+    s.parse::<i64>().ok().map(|v| v.clamp(min, max))
+}
+
 pub fn save_config_from_fields(
     fields: &[String],
     locked: &[usize],
 ) -> anyhow::Result<()> {
     let existing = crate::config::load();
+    let max_tokens: Option<i64> = if locked.contains(&8) {
+        existing.sampling.max_tokens
+    } else {
+        parse_i64_clamped(&fields[8], -1, 32767)
+    };
+    let repeat_last_n_max = max_tokens.unwrap_or(32767);
     let cfg = crate::config::Config {
         api_url: if locked.contains(&0) {
             existing.api_url
@@ -336,38 +350,34 @@ pub fn save_config_from_fields(
             temperature: if locked.contains(&2) {
                 existing.sampling.temperature
             } else {
-                fields[2].parse().ok()
+                parse_f64_clamped(&fields[2], 0.0, 2.0)
             },
             top_k: if locked.contains(&3) {
                 existing.sampling.top_k
             } else {
-                fields[3].parse().ok()
+                parse_i64_clamped(&fields[3], 1, 100)
             },
             top_p: if locked.contains(&4) {
                 existing.sampling.top_p
             } else {
-                fields[4].parse().ok()
+                parse_f64_clamped(&fields[4], 0.0, 1.0)
             },
             min_p: if locked.contains(&5) {
                 existing.sampling.min_p
             } else {
-                fields[5].parse().ok()
+                parse_f64_clamped(&fields[5], 0.0, 1.0)
             },
             repeat_last_n: if locked.contains(&6) {
                 existing.sampling.repeat_last_n
             } else {
-                fields[6].parse().ok()
+                parse_i64_clamped(&fields[6], -1, repeat_last_n_max)
             },
             repeat_penalty: if locked.contains(&7) {
                 existing.sampling.repeat_penalty
             } else {
-                fields[7].parse().ok()
+                parse_f64_clamped(&fields[7], 0.0, 2.0)
             },
-            max_tokens: if locked.contains(&8) {
-                existing.sampling.max_tokens
-            } else {
-                fields[8].parse().ok()
-            },
+            max_tokens,
         },
         tls_skip_verify: if locked.contains(&9) {
             existing.tls_skip_verify

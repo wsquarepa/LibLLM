@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, DeleteContext, Focus};
@@ -28,24 +28,16 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: select  Right: edit",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  a: add new  Del: delete  Esc: cancel",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  Drop .png/.json to import",
-        Style::default().fg(Color::DarkGray),
-    )));
-
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" Select Character ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+        Line::from("a: add new  Del: delete  Esc: cancel"),
+        Line::from("Drop .png/.json to import"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {

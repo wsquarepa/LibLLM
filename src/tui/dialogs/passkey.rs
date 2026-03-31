@@ -5,11 +5,11 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 use tokio::sync::mpsc;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, BackgroundEvent};
 
 const DIALOG_WIDTH: u16 = 50;
-const DIALOG_HEIGHT: u16 = 7;
+const DIALOG_HEIGHT: u16 = 6;
 const LABEL_PREFIX_LEN: usize = 11; // "  Passkey: "
 
 pub(in crate::tui) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
@@ -56,17 +56,18 @@ pub(in crate::tui) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, a
             format!("  {}", app.passkey_error),
             Style::default().fg(Color::Red),
         )));
-    } else {
-        lines.push(Line::from(Span::styled(
-            "  Enter to submit, Esc to quit",
-            Style::default().fg(Color::DarkGray),
-        )));
     }
 
     let paragraph =
         Paragraph::new(Text::from(lines)).block(dialog_block(" Unlock Sessions ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
+
+    if !app.passkey_deriving && app.passkey_error.is_empty() {
+        render_hints_below_dialog(f, dialog, area, &[
+            Line::from("Enter to submit, Esc to quit"),
+        ]);
+    }
 }
 
 pub(in crate::tui) fn handle_passkey_key(

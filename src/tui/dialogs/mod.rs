@@ -20,7 +20,7 @@ use tui_textarea::TextArea;
 use crate::crypto::DerivedKey;
 use crate::tui::BackgroundEvent;
 
-use super::render::{clear_centered, dialog_block};
+use super::render::{clear_centered, dialog_block, render_hints_below_dialog};
 
 pub(in crate::tui) const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
 pub(in crate::tui) const MAX_NAME_LENGTH: usize = 32;
@@ -77,12 +77,12 @@ const MULTILINE_HEIGHT_PERCENT: u16 = 60;
 const DIALOG_WIDTH_RATIO: f32 = 0.7;
 const DIALOG_HEIGHT_RATIO: f32 = 0.6;
 const LIST_DIALOG_WIDTH: u16 = 50;
-const LIST_DIALOG_TALL_PADDING: u16 = 7;
+const LIST_DIALOG_TALL_PADDING: u16 = 4;
 const FIELD_DIALOG_DEFAULT_WIDTH: u16 = 60;
-const FIELD_DIALOG_PADDING_ROWS: u16 = 4;
+const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
 const FIELD_DIALOG_EDITOR_EXTRA: u16 = 8;
 const API_ERROR_DIALOG_WIDTH: u16 = 60;
-const API_ERROR_DIALOG_HEIGHT: u16 = 8;
+const API_ERROR_DIALOG_HEIGHT: u16 = 6;
 const LOADING_DIALOG_WIDTH: u16 = 40;
 const LOADING_DIALOG_HEIGHT: u16 = 5;
 
@@ -476,15 +476,15 @@ impl<'a> FieldDialog<'a> {
         let dialog = clear_centered(f, w, h, area);
 
         if self.editor.is_some() {
-            self.render_with_editor(f, dialog);
+            self.render_with_editor(f, dialog, area);
         } else {
-            self.render_fields(f, dialog);
+            self.render_fields(f, dialog, area);
         }
     }
 
     const LABEL_PREFIX_WIDTH: usize = 24;
 
-    fn render_fields(&self, f: &mut ratatui::Frame, dialog: Rect) {
+    fn render_fields(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let mut lines: Vec<Line> = vec![Line::from("")];
 
         for (i, &label) in self.labels.iter().enumerate() {
@@ -557,26 +557,22 @@ impl<'a> FieldDialog<'a> {
             ]));
         }
 
-        lines.push(Line::from(""));
-        let hint = if self.is_boolean(self.selected) {
-            "  Up/Down: navigate  Enter: toggle  Esc: save & close"
-        } else if self.is_selector(self.selected) {
-            "  Up/Down: navigate  Enter: select  Esc: save & close"
-        } else {
-            "  Up/Down: navigate  Enter: edit  Esc: save & close"
-        };
-        lines.push(Line::from(Span::styled(
-            hint,
-            Style::default().fg(Color::DarkGray),
-        )));
-
         let paragraph =
             Paragraph::new(Text::from(lines)).block(dialog_block(self.title, Color::Yellow));
 
         f.render_widget(paragraph, dialog);
+
+        let hint = if self.is_boolean(self.selected) {
+            "Up/Down: navigate  Enter: toggle  Esc: save & close"
+        } else if self.is_selector(self.selected) {
+            "Up/Down: navigate  Enter: select  Esc: save & close"
+        } else {
+            "Up/Down: navigate  Enter: edit  Esc: save & close"
+        };
+        render_hints_below_dialog(f, dialog, area, &[Line::from(hint)]);
     }
 
-    fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect) {
+    fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let editor = self.editor.as_ref().unwrap();
         let label = self.labels[self.selected];
 
@@ -593,10 +589,6 @@ impl<'a> FieldDialog<'a> {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ));
-        let hint_line = Line::from(Span::styled(
-            "  Esc: done editing",
-            Style::default().fg(Color::DarkGray),
-        ));
 
         let header = Paragraph::new(Text::from(vec![Line::from(""), title_line]));
         let header_area = Rect { height: 2, ..inner };
@@ -606,19 +598,13 @@ impl<'a> FieldDialog<'a> {
             x: inner.x + 1,
             y: inner.y + 2,
             width: inner.width.saturating_sub(2),
-            height: inner.height.saturating_sub(4),
+            height: inner.height.saturating_sub(3),
         };
         f.render_widget(editor, editor_area);
 
-        let hint_area = Rect {
-            x: inner.x,
-            y: inner.y + inner.height - 1,
-            width: inner.width,
-            height: 1,
-        };
-        f.render_widget(Paragraph::new(hint_line), hint_area);
-
         f.render_widget(dialog_block(self.title, Color::Yellow), dialog);
+
+        render_hints_below_dialog(f, dialog, area, &[Line::from("Esc: done editing")]);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FieldDialogAction {

@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_persona_dialog(
@@ -38,24 +38,16 @@ pub(in crate::tui) fn render_persona_dialog(
         )));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: select  Right: edit",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  a: add new  Del: delete  Esc: cancel",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(Span::styled(
-        "  Drop .txt to import",
-        Style::default().fg(Color::DarkGray),
-    )));
-
     let paragraph = Paragraph::new(Text::from(lines))
         .block(dialog_block(" Personas ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
+
+    render_hints_below_dialog(f, dialog, area, &[
+        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+        Line::from("a: add new  Del: delete  Esc: cancel"),
+        Line::from("Drop .txt to import"),
+    ]);
 }
 
 pub(in crate::tui) fn handle_persona_dialog_key(

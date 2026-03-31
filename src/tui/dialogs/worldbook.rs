@@ -117,6 +117,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
             match crate::worldinfo::load_worldbook(&wb_path, app.save_mode.key()) {
                 Ok(wb) => {
                     app.worldbook_editor_original_name = wb.name.clone();
+                    app.worldbook_editor_original_entries = wb.entries.clone();
                     app.worldbook_editor_entries = wb.entries;
                     app.worldbook_editor_name = wb.name;
                     app.worldbook_editor_name_selected = true;
@@ -422,6 +423,13 @@ pub(in crate::tui) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> O
 fn save_worldbook_editor(app: &mut App) {
     let original = app.worldbook_editor_original_name.clone();
     let new_name = app.worldbook_editor_name.clone();
+
+    if original == new_name
+        && app.worldbook_editor_entries == app.worldbook_editor_original_entries
+    {
+        app.set_status("No changes found.".to_owned(), super::super::StatusLevel::Info);
+        return;
+    }
 
     if original != new_name
         && app.worldbook_list.iter().any(|n| n == &new_name)

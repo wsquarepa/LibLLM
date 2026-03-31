@@ -186,6 +186,7 @@ pub struct FieldDialog<'a> {
     title: &'static str,
     labels: &'static [&'static str],
     pub values: Vec<String>,
+    pub original_values: Vec<String>,
     selected: usize,
     editing: bool,
     multiline_fields: &'static [usize],
@@ -213,10 +214,12 @@ impl<'a> FieldDialog<'a> {
                 Some(MULTILINE_HEIGHT_PERCENT),
             )
         };
+        let original_values = values.clone();
         Self {
             title,
             labels,
             values,
+            original_values,
             selected: 0,
             editing: false,
             multiline_fields,
@@ -243,6 +246,10 @@ impl<'a> FieldDialog<'a> {
     pub(in crate::tui) fn with_locked_fields(mut self, fields: Vec<usize>) -> Self {
         self.locked_fields = fields;
         self
+    }
+
+    pub fn has_changes(&self) -> bool {
+        self.values != self.original_values
     }
 
     fn is_locked(&self, index: usize) -> bool {

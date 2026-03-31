@@ -1497,14 +1497,6 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     if !original_name.is_empty() {
                         let dir = crate::config::system_prompts_dir();
 
-                        if original_name != new_name {
-                            let old_path =
-                                crate::system_prompt::resolve_prompt_path(&dir, &original_name);
-                            if old_path.exists() {
-                                let _ = std::fs::remove_file(&old_path);
-                            }
-                        }
-
                         let prompt = crate::system_prompt::SystemPromptFile {
                             name: new_name.clone(),
                             content,
@@ -1515,6 +1507,13 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             app.save_mode.key(),
                         ) {
                             Ok(_) => {
+                                if original_name != new_name {
+                                    let old_path =
+                                        crate::system_prompt::resolve_prompt_path(&dir, &original_name);
+                                    if old_path.exists() {
+                                        let _ = std::fs::remove_file(&old_path);
+                                    }
+                                }
                                 let prompts =
                                     crate::system_prompt::list_prompts(&dir, app.save_mode.key());
                                 app.system_prompt_list =

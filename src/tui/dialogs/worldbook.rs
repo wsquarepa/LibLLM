@@ -466,24 +466,6 @@ fn save_worldbook_editor(app: &mut App) {
         return;
     }
 
-    if !original.is_empty() && original != new_name {
-        let old_path = crate::worldinfo::resolve_worldbook_path(
-            &crate::config::worldinfo_dir(),
-            &original,
-        );
-        if old_path.exists() {
-            let _ = std::fs::remove_file(&old_path);
-        }
-
-        if let Some(pos) = app.session.worldbooks.iter().position(|n| n == &original) {
-            app.session.worldbooks[pos] = new_name.clone();
-        }
-        if let Some(pos) = app.config.worldbooks.iter().position(|n| n == &original) {
-            app.config.worldbooks[pos] = new_name.clone();
-            let _ = crate::config::save(&app.config);
-        }
-    }
-
     let wb = crate::worldinfo::WorldBook {
         name: new_name.clone(),
         entries: app.worldbook_editor_entries.clone(),
@@ -494,6 +476,23 @@ fn save_worldbook_editor(app: &mut App) {
         app.save_mode.key(),
     ) {
         Ok(_) => {
+            if !original.is_empty() && original != new_name {
+                let old_path = crate::worldinfo::resolve_worldbook_path(
+                    &crate::config::worldinfo_dir(),
+                    &original,
+                );
+                if old_path.exists() {
+                    let _ = std::fs::remove_file(&old_path);
+                }
+
+                if let Some(pos) = app.session.worldbooks.iter().position(|n| n == &original) {
+                    app.session.worldbooks[pos] = new_name.clone();
+                }
+                if let Some(pos) = app.config.worldbooks.iter().position(|n| n == &original) {
+                    app.config.worldbooks[pos] = new_name.clone();
+                    let _ = crate::config::save(&app.config);
+                }
+            }
             app.invalidate_worldbook_cache();
             let books = crate::worldinfo::list_worldbooks(
                 &crate::config::worldinfo_dir(),

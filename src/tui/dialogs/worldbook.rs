@@ -55,7 +55,11 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: cycle  Right: edit  Del: delete  Esc: close",
+        "  Up/Down: navigate  Enter: cycle  Right: edit",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  a: add new  Del: delete  Esc: close",
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(Span::styled(
@@ -71,8 +75,14 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
 
 pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.worldbook_list.is_empty() {
-        if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+        match key.code {
+            KeyCode::Char('a') => {
+                create_and_edit_worldbook(app);
+            }
+            KeyCode::Esc => {
+                app.focus = Focus::Input;
+            }
+            _ => {}
         }
         return None;
     }
@@ -129,6 +139,9 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
                 }
             }
+        }
+        KeyCode::Char('a') => {
+            create_and_edit_worldbook(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
@@ -331,6 +344,29 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         _ => {}
     }
     None
+}
+
+fn create_and_edit_worldbook(app: &mut App) {
+    let existing: std::collections::HashSet<String> =
+        app.worldbook_list.iter().cloned().collect();
+    let new_name = super::generate_unique_name("worldbook", &existing);
+    let wb = crate::worldinfo::WorldBook {
+        name: new_name.clone(),
+        entries: Vec::new(),
+    };
+    if let Err(e) = crate::worldinfo::save_worldbook(&wb, &crate::config::worldinfo_dir(), app.save_mode.key()) {
+        app.set_status(
+            format!("Failed to create worldbook: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+    app.worldbook_list.push(new_name.clone());
+    app.worldbook_selected = app.worldbook_list.len() - 1;
+    app.worldbook_editor_entries = Vec::new();
+    app.worldbook_editor_name = new_name;
+    app.worldbook_editor_selected = 0;
+    app.focus = Focus::WorldbookEditorDialog;
 }
 
 fn add_new_entry(app: &mut App) {

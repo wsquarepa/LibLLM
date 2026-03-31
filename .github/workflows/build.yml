@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'src/**'
+      - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/**'
@@ -14,7 +15,18 @@ env:
   LIBLLM_CHANNEL: nightly
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test
+
   build:
+    needs: test
     strategy:
       fail-fast: false
       matrix:

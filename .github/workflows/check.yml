@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'src/**'
+      - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/**'
@@ -13,7 +14,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test
+
   check:
+    needs: test
     strategy:
       fail-fast: false
       matrix:

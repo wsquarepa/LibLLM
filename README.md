@@ -11,8 +11,7 @@ Built for power users who run local models and want a fast, private chat interfa
 - **Character cards and worldbooks** -- load SillyTavern-compatible cards and keyword-activated lore entries
 - **Pipe-friendly CLI** -- send a single message with `libllm -m "prompt"` for scripting, or use `--data` and `--continue` for persistent multi-turn scripted conversations
 
-<!-- TODO: add screenshot or GIF of the TUI here -->
-*Screenshot coming soon.*
+![LibLLM TUI](assets/screenshot.png)
 
 ## Table of contents
 

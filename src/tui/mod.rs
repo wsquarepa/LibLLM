@@ -80,6 +80,7 @@ enum StatusLevel {
 struct StatusMessage {
     text: String,
     level: StatusLevel,
+    created: std::time::Instant,
     expires: std::time::Instant,
 }
 
@@ -270,6 +271,7 @@ struct App<'a> {
 }
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+const NOTIFICATION_SLIDE_DURATION: std::time::Duration = std::time::Duration::from_millis(300);
 const STREAM_REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
 const AUTOSAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
 const AUTOSAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -282,11 +284,25 @@ impl App<'_> {
         )
     }
 
+    const MAX_STATUS_LENGTH: usize = 64;
+
     fn set_status(&mut self, text: String, level: StatusLevel) {
+        let now = std::time::Instant::now();
+        let created = if self.status_message.is_some() {
+            now - NOTIFICATION_SLIDE_DURATION
+        } else {
+            now
+        };
+        let truncated = if text.len() > Self::MAX_STATUS_LENGTH {
+            format!("{}...", &text[..Self::MAX_STATUS_LENGTH - 3])
+        } else {
+            text
+        };
         self.status_message = Some(StatusMessage {
-            text,
+            text: truncated,
             level,
-            expires: std::time::Instant::now() + STATUS_DURATION,
+            created,
+            expires: now + STATUS_DURATION,
         });
     }
 
@@ -623,7 +639,6 @@ pub async fn run(
     let mut frame_tick = tokio::time::interval(STREAM_REDRAW_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut needs_redraw = false;
-    let mut stream_redraw_pending = false;
 
     crate::debug_log::timed_result(
         "startup.phase",
@@ -651,7 +666,6 @@ pub async fn run(
                 crate::debug_log::timed_result("stream", &[crate::debug_log::field("phase", "token")], || {
                     commands::handle_stream_token(stream_token, &mut app)
                 })?;
-                stream_redraw_pending = true;
                 needs_redraw = true;
             }
             Some(bg_event) = bg_rx.recv() => {
@@ -670,13 +684,12 @@ pub async fn run(
                 if let Some(ref msg) = app.status_message {
                     if std::time::Instant::now() >= msg.expires {
                         app.status_message = None;
-                        needs_redraw = true;
                     }
+                    needs_redraw = true;
                 }
-                if needs_redraw && (stream_redraw_pending || app.status_message.is_none()) {
+                if needs_redraw {
                     terminal.draw(|f| render_frame(f, &mut app))?;
                     needs_redraw = false;
-                    stream_redraw_pending = false;
                 }
             }
         }

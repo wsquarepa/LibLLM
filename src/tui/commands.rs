@@ -935,7 +935,7 @@ pub fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
             }
         }
         super::BackgroundEvent::ModelFetched(Err(err)) => {
-            app.model_name = Some("unknown".to_owned());
+            app.model_name = Some("Backend connection failure".to_owned());
             app.api_available = false;
             app.api_error = err;
             match app.focus {

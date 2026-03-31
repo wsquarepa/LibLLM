@@ -423,6 +423,16 @@ fn save_worldbook_editor(app: &mut App) {
     let original = app.worldbook_editor_original_name.clone();
     let new_name = app.worldbook_editor_name.clone();
 
+    if original != new_name
+        && app.worldbook_list.iter().any(|n| n == &new_name)
+    {
+        app.set_status(
+            format!("Name '{new_name}' is already in use."),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+
     if !original.is_empty() && original != new_name {
         let old_path = crate::worldinfo::resolve_worldbook_path(
             &crate::config::worldinfo_dir(),

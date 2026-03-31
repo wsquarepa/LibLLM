@@ -12,7 +12,14 @@ static DATA_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub api_url: Option<String>,
+    #[serde(default, skip_serializing)]
     pub template: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub template_preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub instruct_preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reasoning_preset: Option<String>,
     #[serde(default, skip_serializing)]
     pub user_name: Option<String>,
     #[serde(default, skip_serializing)]
@@ -88,7 +95,9 @@ pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(characters_dir()).context("failed to create characters directory")?;
     std::fs::create_dir_all(worldinfo_dir()).context("failed to create worldinfo directory")?;
     std::fs::create_dir_all(system_prompts_dir()).context("failed to create system prompts directory")?;
-    std::fs::create_dir_all(personas_dir()).context("failed to create personas directory")
+    std::fs::create_dir_all(personas_dir()).context("failed to create personas directory")?;
+    crate::preset::ensure_default_presets();
+    std::fs::create_dir_all(crate::preset::template_presets_dir()).context("failed to create template presets directory")
 }
 
 pub fn config_path() -> PathBuf {

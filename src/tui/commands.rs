@@ -555,15 +555,16 @@ pub fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<Stream
     let injected = super::business::replace_template_vars(app.session, injected, user_name);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
-        .template
+        .instruct_preset
         .render(&injected_refs, effective_prompt.as_deref());
-    let stop_tokens = app.stop_tokens;
+    let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();
 
     let client = app.client.clone();
     let handle = tokio::spawn(async move {
+        let stop_refs: Vec<&str> = stop_tokens.iter().map(String::as_str).collect();
         client
-            .stream_completion_to_channel(&prompt, stop_tokens, &sampling, sender)
+            .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
             .await;
     });
     app.streaming_task = Some(handle);

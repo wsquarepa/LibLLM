@@ -5,6 +5,7 @@ pub mod delete_confirm;
 pub mod edit;
 pub mod passkey;
 pub mod persona;
+pub mod preset;
 pub mod set_passkey;
 pub mod system_prompt;
 pub mod worldbook;
@@ -87,7 +88,11 @@ const LOADING_DIALOG_HEIGHT: u16 = 5;
 
 const CONFIG_FIELDS: &[&str] = &[
     "API URL",
+    "",
     "Template",
+    "Instruct",
+    "Reasoning",
+    "",
     "Temperature",
     "Top-K",
     "Top-P",
@@ -98,7 +103,35 @@ const CONFIG_FIELDS: &[&str] = &[
     "TLS Skip Verify",
     "Debug Logging",
 ];
-const CONFIG_BOOLEAN_FIELDS: &[usize] = &[9, 10];
+const CONFIG_BOOLEAN_FIELDS: &[usize] = &[13, 14];
+const CONFIG_SEPARATOR_FIELDS: &[usize] = &[1, 5];
+const CONFIG_SELECTOR_FIELDS: &[usize] = &[2, 3, 4];
+
+const TEMPLATE_EDITOR_FIELDS: &[&str] = &[
+    "Name",
+    "Story String",
+    "Example Separator",
+    "Chat Start",
+];
+const TEMPLATE_EDITOR_MULTILINE: &[usize] = &[1];
+
+const INSTRUCT_EDITOR_FIELDS: &[&str] = &[
+    "Name",
+    "Input Sequence",
+    "Output Sequence",
+    "System Sequence",
+    "Input Suffix",
+    "Output Suffix",
+    "System Suffix",
+    "Stop Sequence",
+    "Separator Sequence",
+    "Wrap",
+    "System Same As User",
+    "Seq. As Stop Strings",
+];
+const INSTRUCT_EDITOR_BOOLEAN: &[usize] = &[9, 10, 11];
+
+const REASONING_EDITOR_FIELDS: &[&str] = &["Name", "Prefix", "Suffix", "Separator"];
 
 const PERSONA_FIELDS: &[&str] = &["Name", "Persona"];
 const PERSONA_MULTILINE: &[usize] = &[1];
@@ -139,15 +172,16 @@ pub fn open_config_editor(
     FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
         .with_boolean_fields(CONFIG_BOOLEAN_FIELDS)
         .with_locked_fields(locked_fields)
-        .with_enum_fields(vec![(1, crate::prompt::Template::ALL_NAMES)])
+        .with_separator_fields(CONFIG_SEPARATOR_FIELDS)
+        .with_selector_fields(CONFIG_SELECTOR_FIELDS)
         .with_validated_fields(vec![
-            (2, FieldValidation::Float { min: 0.0, max: 2.0 }),
-            (3, FieldValidation::Int { min: 1, max: 100 }),
-            (4, FieldValidation::Float { min: 0.0, max: 1.0 }),
-            (5, FieldValidation::Float { min: 0.0, max: 1.0 }),
-            (6, FieldValidation::Int { min: -1, max: 32767 }),
-            (7, FieldValidation::Float { min: 0.0, max: 2.0 }),
-            (8, FieldValidation::Int { min: -1, max: 32767 }),
+            (6, FieldValidation::Float { min: 0.0, max: 2.0 }),
+            (7, FieldValidation::Int { min: 1, max: 100 }),
+            (8, FieldValidation::Float { min: 0.0, max: 1.0 }),
+            (9, FieldValidation::Float { min: 0.0, max: 1.0 }),
+            (10, FieldValidation::Int { min: -1, max: 32767 }),
+            (11, FieldValidation::Float { min: 0.0, max: 2.0 }),
+            (12, FieldValidation::Int { min: -1, max: 32767 }),
         ])
 }
 
@@ -162,6 +196,37 @@ pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
         CHARACTER_EDITOR_FIELDS,
         values,
         CHARACTER_EDITOR_MULTILINE,
+    )
+    .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
+}
+
+pub fn open_template_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit Template Preset ",
+        TEMPLATE_EDITOR_FIELDS,
+        values,
+        TEMPLATE_EDITOR_MULTILINE,
+    )
+    .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
+}
+
+pub fn open_instruct_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit Instruct Preset ",
+        INSTRUCT_EDITOR_FIELDS,
+        values,
+        &[],
+    )
+    .with_boolean_fields(INSTRUCT_EDITOR_BOOLEAN)
+    .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
+}
+
+pub fn open_reasoning_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit Reasoning Preset ",
+        REASONING_EDITOR_FIELDS,
+        values,
+        &[],
     )
     .with_validated_fields(vec![(0, FieldValidation::MaxLen(MAX_NAME_LENGTH))])
 }
@@ -247,6 +312,7 @@ impl FieldValidation {
 pub enum FieldDialogAction {
     Continue,
     Close,
+    OpenSelector(usize),
 }
 
 pub struct FieldDialog<'a> {
@@ -265,7 +331,8 @@ pub struct FieldDialog<'a> {
     pub hidden_fields: Vec<usize>,
     locked_fields: Vec<usize>,
     validated_fields: Vec<(usize, FieldValidation)>,
-    enum_fields: Vec<(usize, &'static [&'static str])>,
+    separator_fields: &'static [usize],
+    selector_fields: &'static [usize],
     pub reject_flash: Option<std::time::Instant>,
 }
 
@@ -301,7 +368,8 @@ impl<'a> FieldDialog<'a> {
             hidden_fields: Vec::new(),
             locked_fields: Vec::new(),
             validated_fields: Vec::new(),
-            enum_fields: Vec::new(),
+            separator_fields: &[],
+            selector_fields: &[],
             reject_flash: None,
         }
     }
@@ -326,8 +394,13 @@ impl<'a> FieldDialog<'a> {
         self
     }
 
-    fn with_enum_fields(mut self, fields: Vec<(usize, &'static [&'static str])>) -> Self {
-        self.enum_fields = fields;
+    fn with_separator_fields(mut self, fields: &'static [usize]) -> Self {
+        self.separator_fields = fields;
+        self
+    }
+
+    fn with_selector_fields(mut self, fields: &'static [usize]) -> Self {
+        self.selector_fields = fields;
         self
     }
 
@@ -356,20 +429,12 @@ impl<'a> FieldDialog<'a> {
         self.multiline_fields.contains(&index)
     }
 
-    fn is_enum(&self, index: usize) -> bool {
-        self.enum_fields.iter().any(|(i, _)| *i == index)
+    fn is_separator(&self, index: usize) -> bool {
+        self.separator_fields.contains(&index)
     }
 
-    fn cycle_enum(&mut self) {
-        if let Some((_, options)) = self.enum_fields.iter().find(|(i, _)| *i == self.selected) {
-            let current = &self.values[self.selected];
-            let next_idx = options
-                .iter()
-                .position(|&v| v == current)
-                .map(|i| (i + 1) % options.len())
-                .unwrap_or(0);
-            self.values[self.selected] = options[next_idx].to_owned();
-        }
+    pub fn is_selector(&self, index: usize) -> bool {
+        self.selector_fields.contains(&index)
     }
 
     fn validation_for(&self, index: usize) -> Option<FieldValidation> {
@@ -417,13 +482,17 @@ impl<'a> FieldDialog<'a> {
         }
     }
 
-    const LABEL_PREFIX_WIDTH: usize = 19;
+    const LABEL_PREFIX_WIDTH: usize = 24;
 
     fn render_fields(&self, f: &mut ratatui::Frame, dialog: Rect) {
         let mut lines: Vec<Line> = vec![Line::from("")];
 
         for (i, &label) in self.labels.iter().enumerate() {
             if self.hidden_fields.contains(&i) {
+                continue;
+            }
+            if self.is_separator(i) {
+                lines.push(Line::from(""));
                 continue;
             }
             let value = &self.values[i];
@@ -483,7 +552,7 @@ impl<'a> FieldDialog<'a> {
             };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("  {label:<17}"), label_style),
+                Span::styled(format!("  {label:<22}"), label_style),
                 value_span,
             ]));
         }
@@ -491,8 +560,8 @@ impl<'a> FieldDialog<'a> {
         lines.push(Line::from(""));
         let hint = if self.is_boolean(self.selected) {
             "  Up/Down: navigate  Enter: toggle  Esc: save & close"
-        } else if self.is_enum(self.selected) {
-            "  Up/Down: navigate  Enter: cycle  Esc: save & close"
+        } else if self.is_selector(self.selected) {
+            "  Up/Down: navigate  Enter: select  Esc: save & close"
         } else {
             "  Up/Down: navigate  Enter: edit  Esc: save & close"
         };
@@ -597,7 +666,9 @@ impl<'a> FieldDialog<'a> {
                     break;
                 }
                 self.selected -= 1;
-                if !self.hidden_fields.contains(&self.selected) {
+                if !self.hidden_fields.contains(&self.selected)
+                    && !self.is_separator(self.selected)
+                {
                     break;
                 }
             },
@@ -606,17 +677,19 @@ impl<'a> FieldDialog<'a> {
                     break;
                 }
                 self.selected += 1;
-                if !self.hidden_fields.contains(&self.selected) {
+                if !self.hidden_fields.contains(&self.selected)
+                    && !self.is_separator(self.selected)
+                {
                     break;
                 }
             },
             KeyCode::Enter => {
                 if self.is_locked(self.selected) {
                     // locked by CLI flag, no editing
+                } else if self.is_selector(self.selected) {
+                    return FieldDialogAction::OpenSelector(self.selected);
                 } else if self.is_boolean(self.selected) {
                     self.toggle_boolean();
-                } else if self.is_enum(self.selected) {
-                    self.cycle_enum();
                 } else if self.is_multiline(self.selected) {
                     self.open_multiline_editor();
                 } else {

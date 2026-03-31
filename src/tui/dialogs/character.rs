@@ -81,7 +81,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.discard_pending_session_save();
                     app.session.tree.clear();
                     app.session.worldbooks.clear();
-                    app.session.system_prompt = Some(crate::character::build_system_prompt(&card));
+                    let cfg = crate::config::load();
+                    let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
+                    let tpl = crate::preset::resolve_template_preset(tpl_name);
+                    app.session.system_prompt = Some(crate::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
                     app.invalidate_chat_cache();
                     app.invalidate_worldbook_cache();

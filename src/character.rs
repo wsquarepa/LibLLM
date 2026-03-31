@@ -226,7 +226,28 @@ pub fn import_card(source: &Path) -> Result<CharacterCard> {
     }
 }
 
-pub fn build_system_prompt(card: &CharacterCard) -> String {
+pub fn build_system_prompt(
+    card: &CharacterCard,
+    template: Option<&crate::preset::ContextPreset>,
+) -> String {
+    if let Some(tpl) = template {
+        let vars = crate::preset::ContextVars {
+            system: card.system_prompt.clone(),
+            description: if card.description.is_empty() {
+                String::new()
+            } else {
+                format!("You are {}.\n{}", card.name, card.description)
+            },
+            personality: card.personality.clone(),
+            scenario: card.scenario.clone(),
+            persona: String::new(),
+            wi_before: String::new(),
+            wi_after: String::new(),
+            mes_examples: card.mes_example.clone(),
+        };
+        return tpl.render_story_string(&vars);
+    }
+
     let mut parts: Vec<String> = Vec::new();
 
     if !card.system_prompt.is_empty() {

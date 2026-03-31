@@ -215,65 +215,85 @@ pub fn load_config_fields(
 ) -> Vec<String> {
     let defaults = crate::sampling::SamplingParams::default();
     vec![
+        // [0] API URL
         overrides
             .api_url
             .as_deref()
             .or(cfg.api_url.as_deref())
             .unwrap_or(crate::config::Config::default().api_url())
             .to_owned(),
+        // [1] Spacer
+        String::new(),
+        // [2] Template preset
+        cfg.template_preset.as_deref().unwrap_or("Default").to_owned(),
+        // [3] Instruct preset
         overrides
             .template
             .as_deref()
+            .or(cfg.instruct_preset.as_deref())
             .or(cfg.template.as_deref())
-            .unwrap_or("llama2")
+            .unwrap_or("Mistral V3-Tekken")
             .to_owned(),
+        // [4] Reasoning preset
+        cfg.reasoning_preset.as_deref().unwrap_or("OFF").to_owned(),
+        // [5] Spacer
+        String::new(),
+        // [6] Temperature
         overrides
             .sampling
             .temperature
             .or(cfg.sampling.temperature)
             .unwrap_or(defaults.temperature)
             .to_string(),
+        // [7] Top-K
         overrides
             .sampling
             .top_k
             .or(cfg.sampling.top_k)
             .unwrap_or(defaults.top_k)
             .to_string(),
+        // [8] Top-P
         overrides
             .sampling
             .top_p
             .or(cfg.sampling.top_p)
             .unwrap_or(defaults.top_p)
             .to_string(),
+        // [9] Min-P
         overrides
             .sampling
             .min_p
             .or(cfg.sampling.min_p)
             .unwrap_or(defaults.min_p)
             .to_string(),
+        // [10] Repeat Last N
         overrides
             .sampling
             .repeat_last_n
             .or(cfg.sampling.repeat_last_n)
             .unwrap_or(defaults.repeat_last_n)
             .to_string(),
+        // [11] Repeat Penalty
         overrides
             .sampling
             .repeat_penalty
             .or(cfg.sampling.repeat_penalty)
             .unwrap_or(defaults.repeat_penalty)
             .to_string(),
+        // [12] Max Tokens
         overrides
             .sampling
             .max_tokens
             .or(cfg.sampling.max_tokens)
             .unwrap_or(defaults.max_tokens)
             .to_string(),
+        // [13] TLS Skip Verify
         if overrides.tls_skip_verify {
             "true".to_owned()
         } else {
             cfg.tls_skip_verify.to_string()
         },
+        // [14] Debug Logging
         cfg.debug_log.to_string(),
     ]
 }
@@ -284,31 +304,31 @@ pub fn config_locked_fields(overrides: &crate::cli::CliOverrides) -> Vec<usize> 
         locked.push(0);
     }
     if overrides.template.is_some() {
-        locked.push(1);
-    }
-    if overrides.sampling.temperature.is_some() {
-        locked.push(2);
-    }
-    if overrides.sampling.top_k.is_some() {
         locked.push(3);
     }
-    if overrides.sampling.top_p.is_some() {
-        locked.push(4);
-    }
-    if overrides.sampling.min_p.is_some() {
-        locked.push(5);
-    }
-    if overrides.sampling.repeat_last_n.is_some() {
+    if overrides.sampling.temperature.is_some() {
         locked.push(6);
     }
-    if overrides.sampling.repeat_penalty.is_some() {
+    if overrides.sampling.top_k.is_some() {
         locked.push(7);
     }
-    if overrides.sampling.max_tokens.is_some() {
+    if overrides.sampling.top_p.is_some() {
         locked.push(8);
     }
-    if overrides.tls_skip_verify {
+    if overrides.sampling.min_p.is_some() {
         locked.push(9);
+    }
+    if overrides.sampling.repeat_last_n.is_some() {
+        locked.push(10);
+    }
+    if overrides.sampling.repeat_penalty.is_some() {
+        locked.push(11);
+    }
+    if overrides.sampling.max_tokens.is_some() {
+        locked.push(12);
+    }
+    if overrides.tls_skip_verify {
+        locked.push(13);
     }
     locked
 }
@@ -326,65 +346,69 @@ pub fn save_config_from_fields(
     locked: &[usize],
 ) -> anyhow::Result<()> {
     let existing = crate::config::load();
-    let max_tokens: Option<i64> = if locked.contains(&8) {
+    let max_tokens: Option<i64> = if locked.contains(&12) {
         existing.sampling.max_tokens
     } else {
-        parse_i64_clamped(&fields[8], -1, 32767)
+        parse_i64_clamped(&fields[12], -1, 32767)
     };
     let repeat_last_n_max = max_tokens.unwrap_or(32767);
+    let reasoning_value = non_empty(&fields[4]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
     let cfg = crate::config::Config {
         api_url: if locked.contains(&0) {
             existing.api_url
         } else {
             non_empty(&fields[0])
         },
-        template: if locked.contains(&1) {
-            existing.template
+        template: None,
+        template_preset: non_empty(&fields[2]),
+        instruct_preset: if locked.contains(&3) {
+            existing.instruct_preset
         } else {
-            non_empty(&fields[1])
+            non_empty(&fields[3])
         },
+        reasoning_preset: reasoning_value,
         user_name: None,
         user_persona: None,
         worldbooks: existing.worldbooks,
         sampling: crate::sampling::SamplingOverrides {
-            temperature: if locked.contains(&2) {
+            temperature: if locked.contains(&6) {
                 existing.sampling.temperature
             } else {
-                parse_f64_clamped(&fields[2], 0.0, 2.0)
+                parse_f64_clamped(&fields[6], 0.0, 2.0)
             },
-            top_k: if locked.contains(&3) {
+            top_k: if locked.contains(&7) {
                 existing.sampling.top_k
             } else {
-                parse_i64_clamped(&fields[3], 1, 100)
+                parse_i64_clamped(&fields[7], 1, 100)
             },
-            top_p: if locked.contains(&4) {
+            top_p: if locked.contains(&8) {
                 existing.sampling.top_p
             } else {
-                parse_f64_clamped(&fields[4], 0.0, 1.0)
+                parse_f64_clamped(&fields[8], 0.0, 1.0)
             },
-            min_p: if locked.contains(&5) {
+            min_p: if locked.contains(&9) {
                 existing.sampling.min_p
             } else {
-                parse_f64_clamped(&fields[5], 0.0, 1.0)
+                parse_f64_clamped(&fields[9], 0.0, 1.0)
             },
-            repeat_last_n: if locked.contains(&6) {
+            repeat_last_n: if locked.contains(&10) {
                 existing.sampling.repeat_last_n
             } else {
-                parse_i64_clamped(&fields[6], -1, repeat_last_n_max)
+                parse_i64_clamped(&fields[10], -1, repeat_last_n_max)
             },
-            repeat_penalty: if locked.contains(&7) {
+            repeat_penalty: if locked.contains(&11) {
                 existing.sampling.repeat_penalty
             } else {
-                parse_f64_clamped(&fields[7], 0.0, 2.0)
+                parse_f64_clamped(&fields[11], 0.0, 2.0)
             },
             max_tokens,
         },
-        tls_skip_verify: if locked.contains(&9) {
+        tls_skip_verify: if locked.contains(&13) {
             existing.tls_skip_verify
         } else {
-            fields[9].parse().unwrap_or(existing.tls_skip_verify)
+            fields[13].parse().unwrap_or(existing.tls_skip_verify)
         },
-        debug_log: fields[10].parse().unwrap_or(existing.debug_log),
+        debug_log: fields[14].parse().unwrap_or(existing.debug_log),
         default_persona: existing.default_persona,
     };
 
@@ -393,14 +417,15 @@ pub fn save_config_from_fields(
 
 pub fn apply_config(app: &mut App) {
     let cfg = crate::config::load();
-    let template_name = app
+    let preset_name = app
         .cli_overrides
         .template
         .as_deref()
+        .or(cfg.instruct_preset.as_deref())
         .or(cfg.template.as_deref())
-        .unwrap_or("llama2");
-    app.template = crate::prompt::Template::from_name(template_name);
-    app.stop_tokens = app.template.stop_tokens();
+        .unwrap_or("Mistral V3-Tekken");
+    app.instruct_preset = crate::preset::resolve_instruct_preset(preset_name);
+    app.stop_tokens = app.instruct_preset.stop_tokens();
     app.sampling = crate::sampling::SamplingParams::default()
         .with_overrides(&cfg.sampling)
         .with_overrides(&app.cli_overrides.sampling);

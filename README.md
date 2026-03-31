@@ -267,6 +267,9 @@ Flags that overlap with `/config` fields (`--api-url`, `--template`, `--temperat
 | Enter | Chat | Open edit dialog for selected message |
 | Up/Down | Sidebar | Browse sessions |
 | Delete | Sidebar | Delete selected session |
+| a | Character/Worldbook dialog | Create new item |
+| Right | Character/Worldbook/System dialog | Edit selected item or name |
+| Delete | Character/Worldbook dialog | Delete selected item |
 | Esc | Streaming | Cancel generation |
 | Ctrl+C | Global | Quit |
 

@@ -1259,6 +1259,17 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             name: values[0].clone(),
                             persona: values[1].clone(),
                         };
+
+                        if file_name != persona.name
+                            && app.persona_list.iter().any(|n| n == &persona.name)
+                        {
+                            app.set_status(
+                                format!("Name '{}' is already in use.", persona.name),
+                                StatusLevel::Error,
+                            );
+                            return None;
+                        }
+
                         let dir = crate::config::personas_dir();
                         if !file_name.is_empty() && file_name != persona.name {
                             if let Some(old_path) =
@@ -1308,6 +1319,16 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     let new_name = values[0].clone();
                     let content = values[1].clone();
                     let original_name = app.system_editor_prompt_name.clone();
+
+                    if original_name != new_name
+                        && app.system_prompt_list.iter().any(|n| n == &new_name)
+                    {
+                        app.set_status(
+                            format!("Name '{new_name}' is already in use."),
+                            StatusLevel::Error,
+                        );
+                        return None;
+                    }
 
                     let value = if content.trim().is_empty() {
                         None
@@ -1363,6 +1384,17 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                 }
                 DialogKind::CharacterEditor => {
                     let values = &app.character_editor.as_ref().unwrap().values;
+                    let new_slug = crate::character::slugify(&values[0]);
+                    if new_slug != app.character_editor_slug
+                        && app.character_slugs.iter().any(|s| s == &new_slug)
+                    {
+                        app.set_status(
+                            format!("Name '{}' is already in use.", values[0]),
+                            StatusLevel::Error,
+                        );
+                        return None;
+                    }
+
                     let card = crate::character::CharacterCard {
                         name: values[0].clone(),
                         description: values[1].clone(),

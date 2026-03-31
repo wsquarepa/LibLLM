@@ -41,6 +41,31 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    {
+        const CHANNEL: &str = env!("LIBLLM_CHANNEL");
+        if !matches!(CHANNEL, "stable" | "nightly") && args.data.is_none() {
+            use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
+            use crossterm::execute;
+
+            let default_data_dir = config::data_dir();
+            let _ = execute!(
+                io::stderr(),
+                SetAttribute(Attribute::Bold),
+                SetForegroundColor(Color::Red),
+                Print("You are running a dev build. Use --data/-d to specify a data directory.\n"),
+                ResetColor,
+                SetAttribute(Attribute::Reset),
+                SetForegroundColor(Color::DarkGrey),
+                Print(format!(
+                    "Run with \"libllm --data {}\" to bypass this warning.\n",
+                    default_data_dir.display()
+                )),
+                ResetColor,
+            );
+            std::process::exit(1);
+        }
+    }
+
     if args.no_encrypt && args.data.is_none() {
         anyhow::bail!("--no-encrypt requires --data/-d to specify a data directory.");
     }

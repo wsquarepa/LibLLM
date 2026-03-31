@@ -11,7 +11,7 @@ use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_SHORT_PADDING, area);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -30,7 +30,11 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  Up/Down: navigate  Enter: select  Right: edit  Del: delete  Esc: cancel",
+        "  Up/Down: navigate  Enter: select  Right: edit",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  a: add new  Del: delete  Esc: cancel",
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(Span::styled(
@@ -46,8 +50,14 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
 
 pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.character_names.is_empty() {
-        if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+        match key.code {
+            KeyCode::Char('a') => {
+                create_and_edit_character(app);
+            }
+            KeyCode::Esc => {
+                app.focus = Focus::Input;
+            }
+            _ => {}
         }
         return None;
     }
@@ -132,12 +142,58 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
             app.delete_context = DeleteContext::Character { slug };
             app.focus = Focus::DeleteConfirmDialog;
         }
+        KeyCode::Char('a') => {
+            create_and_edit_character(app);
+        }
         KeyCode::Esc => {
             app.focus = Focus::Input;
         }
         _ => {}
     }
     None
+}
+
+fn create_and_edit_character(app: &mut App) {
+    let dir = crate::config::characters_dir();
+    let existing: std::collections::HashSet<String> =
+        app.character_names.iter().cloned().collect();
+    let new_name = super::generate_unique_name("character", &existing);
+    let card = crate::character::CharacterCard {
+        name: new_name.clone(),
+        description: String::new(),
+        personality: String::new(),
+        scenario: String::new(),
+        first_mes: String::new(),
+        mes_example: String::new(),
+        system_prompt: String::new(),
+        post_history_instructions: String::new(),
+        alternate_greetings: Vec::new(),
+    };
+    if let Err(e) = crate::character::save_card(&card, &dir, app.save_mode.key()) {
+        app.set_status(
+            format!("Failed to create character: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
+    let slug = crate::character::slugify(&new_name);
+    app.character_names.push(new_name);
+    app.character_slugs.push(slug.clone());
+    app.character_selected = app.character_names.len() - 1;
+
+    let values = vec![
+        card.name,
+        card.description,
+        card.personality,
+        card.scenario,
+        card.first_mes,
+        card.mes_example,
+        card.system_prompt,
+        card.post_history_instructions,
+    ];
+    app.character_editor = Some(super::open_character_editor(values));
+    app.character_editor_slug = slug;
+    app.focus = Focus::CharacterEditorDialog;
 }
 
 pub(in crate::tui) fn handle_character_paste(

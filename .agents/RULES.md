@@ -78,7 +78,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
   - `input.rs` -- Keyboard handling, tree navigation (`switch_sibling`, `navigate_up`, `navigate_down`), command picker with Tab
   - `render.rs` -- Styled text parsing (bold/italic markdown), chat rendering, status bar with branch indicators
   - `maintenance.rs` -- Background maintenance tasks (PNG import, plaintext encryption, worldbook normalization, builtin prompt setup) spawned on startup and after passkey unlock
-  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, persona editor, system prompt selector, message editor, worldbook toggle list, delete confirmation, config editor, API error. `FieldDialog` supports `locked_fields` (rendered in red, non-editable)
+  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, persona editor, system prompt selector, message editor, worldbook toggle list, delete confirmation, config editor, API error. `FieldDialog` supports `locked_fields` (rendered in red, non-editable). Character and worldbook dialogs support inline creation via "a" key. System prompt and worldbook editor dialogs support name editing
 
 ### CLI Override System
 

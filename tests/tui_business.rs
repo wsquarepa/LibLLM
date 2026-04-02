@@ -1,3 +1,5 @@
+// Each test binary only uses a subset of shared helpers; allow unused ones.
+#[allow(dead_code)]
 mod common;
 
 use libllm::cli::CliOverrides;

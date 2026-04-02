@@ -1,3 +1,5 @@
+// Each test binary only uses a subset of shared helpers; allow unused ones.
+#[allow(dead_code)]
 mod common;
 
 use std::path::Path;
@@ -16,7 +18,7 @@ fn setup_data_dir() -> (std::sync::MutexGuard<'static, ()>, &'static Path) {
     let path = DATA_DIR
         .get_or_init(|| {
             let dir = tempfile::tempdir().unwrap();
-            config::set_data_dir(dir.path().to_path_buf());
+            let _ = config::set_data_dir(dir.path().to_path_buf());
             config::ensure_dirs().unwrap();
             dir
         })
@@ -126,7 +128,7 @@ fn config_toml_skips_legacy_fields() {
 
 #[test]
 fn config_missing_file_returns_default() {
-    setup_data_dir();
+    let _guard = setup_data_dir();
 
     let bogus = config::data_dir().join("nonexistent_config.toml");
     assert!(!bogus.exists());

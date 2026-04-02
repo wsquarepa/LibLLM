@@ -9,6 +9,7 @@ use super::App;
 
 const DIALOGUE_COLOR: Color = Color::LightBlue;
 const NAV_CURSOR_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Yellow);
+const HOVER_BG: Color = Color::Indexed(236);
 
 pub struct SidebarCache {
     selected_idx: Option<usize>,
@@ -371,6 +372,9 @@ pub fn render_chat(
     let mut lines: Vec<Line> = Vec::new();
     let mut nav_cursor_line: Option<usize> = None;
     let mut nav_cursor_end: Option<usize> = None;
+    let mut hover_height_start: Option<u16> = None;
+    let mut hover_height_end: Option<u16> = None;
+    let mut cumulative_height: u16 = 0;
     let static_height = cached
         .entries
         .iter()
@@ -379,8 +383,12 @@ pub fn render_chat(
 
     for (entry, &node_id) in cached.entries.iter().zip(branch_ids.iter()) {
         let is_nav_selected = app.nav_cursor == Some(node_id);
+        let is_hovered = !is_nav_selected && app.hover_node == Some(node_id);
         if is_nav_selected {
             nav_cursor_line = Some(lines.len());
+        }
+        if is_hovered {
+            hover_height_start = Some(cumulative_height);
         }
 
         let nav_marker = if is_nav_selected { ">> " } else { "" };
@@ -401,8 +409,13 @@ pub fn render_chat(
         lines.extend(entry.content_lines.iter().cloned());
         lines.push(Line::from(""));
 
+        cumulative_height += entry.total_height;
+
         if is_nav_selected {
             nav_cursor_end = Some(lines.len());
+        }
+        if is_hovered {
+            hover_height_end = Some(cumulative_height);
         }
     }
 
@@ -498,6 +511,29 @@ pub fn render_chat(
         .scroll((*chat_scroll, 0));
 
     f.render_widget(paragraph, area);
+
+    if let (Some(h_start), Some(h_end)) = (hover_height_start, hover_height_end) {
+        let inner_x = area.x + 1;
+        let inner_y = area.y + 1;
+        let inner_w = area.width.saturating_sub(2);
+        let inner_h = area.height.saturating_sub(2);
+        let scroll = *chat_scroll;
+
+        let vis_start = h_start.saturating_sub(scroll);
+        let vis_end = h_end.saturating_sub(scroll).min(inner_h);
+
+        if vis_start < vis_end {
+            let buf = f.buffer_mut();
+            for row in vis_start..vis_end {
+                let y = inner_y + row;
+                for col in 0..inner_w {
+                    let x = inner_x + col;
+                    let cell = &mut buf[(x, y)];
+                    cell.set_style(cell.style().bg(HOVER_BG));
+                }
+            }
+        }
+    }
 }
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
@@ -730,4 +766,27 @@ fn wrapped_line_height(line: &Line, area: Rect) -> u16 {
     Paragraph::new(line.clone())
         .wrap(Wrap { trim: false })
         .line_count(inner_width) as u16
+}
+
+pub fn hit_test_chat_message(
+    cache: &ChatContentCache,
+    branch_ids: &[NodeId],
+    chat_area: Rect,
+    chat_scroll: u16,
+    screen_row: u16,
+) -> Option<NodeId> {
+    let inner_top = chat_area.y + 1;
+    let inner_bottom = chat_area.y + chat_area.height.saturating_sub(1);
+    if screen_row < inner_top || screen_row >= inner_bottom {
+        return None;
+    }
+    let content_row = (screen_row - inner_top) as u32 + chat_scroll as u32;
+    let mut cumulative: u32 = 0;
+    for (i, entry) in cache.entries.iter().enumerate() {
+        cumulative += entry.total_height as u32;
+        if content_row < cumulative {
+            return branch_ids.get(i).copied();
+        }
+    }
+    None
 }

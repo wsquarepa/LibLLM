@@ -10,8 +10,8 @@ pub mod set_passkey;
 pub mod system_prompt;
 pub mod worldbook;
 
-use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::layout::Rect;
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
+use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
@@ -74,8 +74,8 @@ pub(in crate::tui) fn is_flash_active(flash: Option<std::time::Instant>) -> bool
 const MULTILINE_WIDTH_PERCENT: u16 = 70;
 const MULTILINE_HEIGHT_PERCENT: u16 = 60;
 
-const DIALOG_WIDTH_RATIO: f32 = 0.7;
-const DIALOG_HEIGHT_RATIO: f32 = 0.6;
+pub(in crate::tui) const DIALOG_WIDTH_RATIO: f32 = 0.7;
+pub(in crate::tui) const DIALOG_HEIGHT_RATIO: f32 = 0.6;
 const LIST_DIALOG_WIDTH: u16 = 50;
 const LIST_DIALOG_TALL_PADDING: u16 = 4;
 const FIELD_DIALOG_DEFAULT_WIDTH: u16 = 60;
@@ -702,6 +702,255 @@ impl<'a> FieldDialog<'a> {
         }
 
         FieldDialogAction::Continue
+    }
+
+    pub fn handle_mouse_click(
+        &mut self,
+        terminal_area: Rect,
+        screen_col: u16,
+        screen_row: u16,
+    ) -> bool {
+        let (w, h) = self.dialog_dimensions(terminal_area);
+        let dialog = super::render::centered_rect(w, h, terminal_area);
+        let pos = Position::new(screen_col, screen_row);
+        if !dialog.contains(pos) {
+            return false;
+        }
+
+        if self.editor.is_some() {
+            if let Some(ref mut editor) = self.editor {
+                editor.input(crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+                    kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    column: screen_col,
+                    row: screen_row,
+                    modifiers: crossterm::event::KeyModifiers::NONE,
+                }));
+            }
+            return true;
+        }
+
+        if self.editing {
+            return true;
+        }
+
+        let inner_row = screen_row.saturating_sub(dialog.y + 2);
+        let mut visible_idx: u16 = 0;
+        for (i, _label) in self.labels.iter().enumerate() {
+            if self.hidden_fields.contains(&i) {
+                continue;
+            }
+            if self.is_separator(i) {
+                visible_idx += 1;
+                continue;
+            }
+            if visible_idx == inner_row {
+                self.selected = i;
+                return true;
+            }
+            visible_idx += 1;
+        }
+        true
+    }
+
+    fn dialog_dimensions(&self, terminal_area: Rect) -> (u16, u16) {
+        let default_height = self.labels.len() as u16 + FIELD_DIALOG_PADDING_ROWS;
+        match (self.width, self.height) {
+            (Some(wp), Some(hp)) => {
+                let w = (terminal_area.width as f32 * wp as f32 / 100.0) as u16;
+                let h = (terminal_area.height as f32 * hp as f32 / 100.0) as u16;
+                (w, h)
+            }
+            _ => {
+                let editor_extra = if self.editor.is_some() {
+                    FIELD_DIALOG_EDITOR_EXTRA
+                } else {
+                    0
+                };
+                (FIELD_DIALOG_DEFAULT_WIDTH, default_height + editor_extra)
+            }
+        }
+    }
+}
+
+pub(in crate::tui) enum ListDialogHit {
+    Item(usize),
+    Outside,
+    Inside,
+}
+
+pub(in crate::tui) fn hit_test_list_dialog(
+    terminal_area: Rect,
+    item_count: usize,
+    screen_col: u16,
+    screen_row: u16,
+) -> ListDialogHit {
+    let dialog_height = item_count as u16 + LIST_DIALOG_TALL_PADDING;
+    let dialog = super::render::centered_rect(LIST_DIALOG_WIDTH, dialog_height, terminal_area);
+    let pos = Position::new(screen_col, screen_row);
+    if !dialog.contains(pos) {
+        return ListDialogHit::Outside;
+    }
+    let inner_row = screen_row.saturating_sub(dialog.y + 2);
+    if inner_row < item_count as u16 {
+        ListDialogHit::Item(inner_row as usize)
+    } else {
+        ListDialogHit::Inside
+    }
+}
+
+pub(in crate::tui) fn handle_dialog_mouse_click(
+    mouse: MouseEvent,
+    app: &mut super::App,
+) {
+    let terminal_area = match crossterm::terminal::size() {
+        Ok((w, h)) => Rect::new(0, 0, w, h),
+        Err(_) => return,
+    };
+
+    match app.focus {
+        super::Focus::CharacterDialog => {
+            match hit_test_list_dialog(terminal_area, app.character_names.len(), mouse.column, mouse.row) {
+                ListDialogHit::Item(i) => app.character_selected = i,
+                ListDialogHit::Outside => app.focus = super::Focus::Input,
+                ListDialogHit::Inside => {}
+            }
+        }
+        super::Focus::PersonaDialog => {
+            match hit_test_list_dialog(terminal_area, app.persona_list.len(), mouse.column, mouse.row) {
+                ListDialogHit::Item(i) => app.persona_selected = i,
+                ListDialogHit::Outside => app.focus = super::Focus::Input,
+                ListDialogHit::Inside => {}
+            }
+        }
+        super::Focus::SystemPromptDialog => {
+            match hit_test_list_dialog(terminal_area, app.system_prompt_list.len(), mouse.column, mouse.row) {
+                ListDialogHit::Item(i) => app.system_prompt_selected = i,
+                ListDialogHit::Outside => {
+                    app.focus = app.system_editor_return_focus;
+                }
+                ListDialogHit::Inside => {}
+            }
+        }
+        super::Focus::BranchDialog => {
+            match hit_test_list_dialog(terminal_area, app.branch_dialog_items.len(), mouse.column, mouse.row) {
+                ListDialogHit::Item(i) => app.branch_dialog_selected = i,
+                ListDialogHit::Outside => app.focus = super::Focus::Input,
+                ListDialogHit::Inside => {}
+            }
+        }
+        super::Focus::WorldbookDialog => {
+            match hit_test_list_dialog(terminal_area, app.worldbook_list.len(), mouse.column, mouse.row) {
+                ListDialogHit::Item(i) => app.worldbook_selected = i,
+                ListDialogHit::Outside => app.focus = super::Focus::Input,
+                ListDialogHit::Inside => {}
+            }
+        }
+        super::Focus::PresetPickerDialog => {
+            match hit_test_list_dialog(terminal_area, app.preset_picker_names.len(), mouse.column, mouse.row) {
+                ListDialogHit::Item(i) => app.preset_picker_selected = i,
+                ListDialogHit::Outside => app.focus = super::Focus::ConfigDialog,
+                ListDialogHit::Inside => {}
+            }
+        }
+        super::Focus::DeleteConfirmDialog => {
+            let dialog = super::render::centered_rect(LIST_DIALOG_WIDTH, 6, terminal_area);
+            let pos = Position::new(mouse.column, mouse.row);
+            if !dialog.contains(pos) {
+                app.focus = super::Focus::Input;
+            } else {
+                let mid = dialog.x + dialog.width / 2;
+                if mouse.column < mid {
+                    app.delete_confirm_selected = 0;
+                } else {
+                    app.delete_confirm_selected = 1;
+                }
+            }
+        }
+        super::Focus::ConfigDialog => {
+            if let Some(ref mut d) = app.config_dialog {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = super::Focus::Input;
+                }
+            }
+        }
+        super::Focus::PresetEditorDialog => {
+            if let Some(ref mut d) = app.preset_editor {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = super::Focus::ConfigDialog;
+                }
+            }
+        }
+        super::Focus::PersonaEditorDialog => {
+            if let Some(ref mut d) = app.persona_editor {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = super::Focus::PersonaDialog;
+                }
+            }
+        }
+        super::Focus::CharacterEditorDialog => {
+            if let Some(ref mut d) = app.character_editor {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = super::Focus::CharacterDialog;
+                }
+            }
+        }
+        super::Focus::SystemPromptEditorDialog => {
+            if let Some(ref mut d) = app.system_prompt_editor {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = super::Focus::SystemPromptDialog;
+                }
+            }
+        }
+        super::Focus::WorldbookEntryEditorDialog => {
+            if let Some(ref mut d) = app.worldbook_entry_editor {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = super::Focus::WorldbookEditorDialog;
+                }
+            }
+        }
+        super::Focus::WorldbookEditorDialog => {
+            let count = app.worldbook_editor_entries.len();
+            let dialog_height = count as u16 + LIST_DIALOG_TALL_PADDING + 2;
+            let dialog = super::render::centered_rect(FIELD_DIALOG_DEFAULT_WIDTH, dialog_height, terminal_area);
+            let pos = Position::new(mouse.column, mouse.row);
+            if !dialog.contains(pos) {
+                app.focus = super::Focus::WorldbookDialog;
+            } else {
+                let inner_row = mouse.row.saturating_sub(dialog.y + 2);
+                if inner_row == 0 {
+                    app.worldbook_editor_name_selected = true;
+                } else if inner_row >= 2 {
+                    let entry_idx = (inner_row - 2) as usize;
+                    if entry_idx < count {
+                        app.worldbook_editor_name_selected = false;
+                        app.worldbook_editor_selected = entry_idx;
+                    }
+                }
+            }
+        }
+        super::Focus::WorldbookEntryDeleteDialog => {
+            let dialog = super::render::centered_rect(LIST_DIALOG_WIDTH, 6, terminal_area);
+            let pos = Position::new(mouse.column, mouse.row);
+            if !dialog.contains(pos) {
+                app.focus = super::Focus::WorldbookEditorDialog;
+            }
+        }
+        super::Focus::EditDialog => {
+            if let Some(ref mut editor) = app.edit_editor {
+                let width = (terminal_area.width as f32 * DIALOG_WIDTH_RATIO) as u16;
+                let height = (terminal_area.height as f32 * DIALOG_HEIGHT_RATIO) as u16;
+                let dialog = super::render::centered_rect(width, height, terminal_area);
+                let editor_area = Rect {
+                    x: dialog.x + 2,
+                    y: dialog.y + 1,
+                    width: dialog.width.saturating_sub(4),
+                    height: dialog.height.saturating_sub(2),
+                };
+                editor.cancel_selection();
+                super::move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+            }
+        }
+        _ => {}
     }
 }
 

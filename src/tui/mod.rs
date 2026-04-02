@@ -7,16 +7,20 @@ mod maintenance;
 mod render;
 
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
+};
+
 use futures_util::StreamExt;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders};
 use tokio::sync::mpsc;
-use tui_textarea::TextArea;
+use tui_textarea::{CursorMove, TextArea};
 
 use crate::cli::CliOverrides;
 use crate::client::{ApiClient, StreamToken};
@@ -177,6 +181,12 @@ struct ScrollState {
 const SIDEBAR_WIDTH: u16 = 32;
 const INPUT_HEIGHT: u16 = 5;
 
+struct LayoutAreas {
+    sidebar: Rect,
+    chat: Rect,
+    input: Rect,
+}
+
 struct App<'a> {
     client: &'a ApiClient,
     session: &'a mut Session,
@@ -276,6 +286,8 @@ struct App<'a> {
     cli_overrides: CliOverrides,
     worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
+    layout_areas: Option<LayoutAreas>,
+    hover_node: Option<NodeId>,
     autosave_debug: AutosaveDebugState,
     unlock_debug: Option<UnlockDebugState>,
     hydration_debug: Option<HydrationDebugState>,
@@ -656,6 +668,8 @@ pub async fn run(
         config,
         cli_overrides,
         worldbook_cache: None,
+        layout_areas: None,
+        hover_node: None,
         bg_tx: bg_tx.clone(),
         autosave_debug: AutosaveDebugState {
             dirty_since: None,
@@ -705,13 +719,18 @@ pub async fn run(
     loop {
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
+                let is_mouse_move = matches!(&event, Event::Mouse(m) if matches!(m.kind, MouseEventKind::Moved));
                 crate::debug_log::timed_kv("event", &[crate::debug_log::field("phase", "handle")], || {
                     if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
                         process_action(action, &mut app, token_tx.clone());
                     }
                 });
-                terminal.draw(|f| render_frame(f, &mut app))?;
-                needs_redraw = false;
+                if is_mouse_move {
+                    needs_redraw = true;
+                } else {
+                    terminal.draw(|f| render_frame(f, &mut app))?;
+                    needs_redraw = false;
+                }
             }
             Some(stream_token) = token_rx.recv() => {
                 crate::debug_log::timed_result("stream", &[crate::debug_log::field("phase", "token")], || {
@@ -802,6 +821,12 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let sidebar_area = columns[0];
     let chat_area = right_split[0];
     let input_area = right_split[1];
+
+    app.layout_areas = Some(LayoutAreas {
+        sidebar: sidebar_area,
+        chat: chat_area,
+        input: input_area,
+    });
 
     let session_count = app.sidebar_sessions.len();
     crate::debug_log::timed_kv(
@@ -1021,6 +1046,7 @@ fn handle_event(
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(key, app, bg_tx),
         Event::Paste(ref text) => handle_paste(text.clone(), event, app),
+        Event::Mouse(mouse) => handle_mouse(mouse, app),
         _ => None,
     }
 }
@@ -1282,6 +1308,160 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
         _ => None,
     }
+}
+
+fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
+    let Some(ref areas) = app.layout_areas else {
+        return None;
+    };
+    let sidebar = areas.sidebar;
+    let chat = areas.chat;
+    let input = areas.input;
+    let pos = Position::new(mouse.column, mouse.row);
+
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if is_dialog_focus(app.focus) {
+                dialogs::handle_dialog_mouse_click(mouse, app);
+                return None;
+            }
+
+            if sidebar.contains(pos) {
+                app.focus = Focus::Sidebar;
+                app.nav_cursor = None;
+                let inner_row = mouse.row.saturating_sub(sidebar.y + 1) as usize;
+                let offset = app.sidebar_state.offset();
+                let selected_idx = app.sidebar_state.selected();
+                let mut cumulative: usize = 0;
+                let mut hit_index: Option<usize> = None;
+                for i in offset..app.sidebar_sessions.len() {
+                    let has_preview = selected_idx == Some(i)
+                        && app.sidebar_sessions[i].sidebar_preview.is_some();
+                    let item_height: usize = if has_preview { 2 } else { 1 };
+                    if inner_row < cumulative + item_height {
+                        hit_index = Some(i);
+                        break;
+                    }
+                    cumulative += item_height;
+                }
+                if let Some(index) = hit_index {
+                    if selected_idx != Some(index) {
+                        app.sidebar_state.select(Some(index));
+                        input::load_sidebar_selection(app);
+                    }
+                }
+            } else if chat.contains(pos) {
+                app.focus = Focus::Chat;
+                if let Some(ref cache) = app.chat_content_cache {
+                    let branch_ids = app.session.tree.current_branch_ids();
+                    if let Some(node_id) =
+                        render::hit_test_chat_message(cache, &branch_ids, chat, app.chat_scroll, mouse.row)
+                    {
+                        app.nav_cursor = Some(node_id);
+                    }
+                }
+                app.auto_scroll = false;
+            } else if input.contains(pos) {
+                app.focus = Focus::Input;
+                app.nav_cursor = None;
+                app.auto_scroll = true;
+                app.textarea.cancel_selection();
+                move_textarea_cursor_to_mouse(&mut app.textarea, input, mouse.column, mouse.row);
+            }
+            None
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if app.focus == Focus::Input && input.contains(pos) {
+                if app.textarea.selection_range().is_none() {
+                    app.textarea.start_selection();
+                }
+                move_textarea_cursor_to_mouse(&mut app.textarea, input, mouse.column, mouse.row);
+            } else if app.focus == Focus::EditDialog {
+                if let Some(ref mut editor) = app.edit_editor {
+                    if let Ok((tw, th)) = crossterm::terminal::size() {
+                        let terminal_area = Rect::new(0, 0, tw, th);
+                        let width = (tw as f32 * dialogs::DIALOG_WIDTH_RATIO) as u16;
+                        let height = (th as f32 * dialogs::DIALOG_HEIGHT_RATIO) as u16;
+                        let dialog = render::centered_rect(width, height, terminal_area);
+                        let editor_area = Rect {
+                            x: dialog.x + 2,
+                            y: dialog.y + 1,
+                            width: dialog.width.saturating_sub(4),
+                            height: dialog.height.saturating_sub(2),
+                        };
+                        if editor.selection_range().is_none() {
+                            editor.start_selection();
+                        }
+                        move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+                    }
+                }
+            }
+            None
+        }
+        MouseEventKind::ScrollUp => {
+            if chat.contains(pos) {
+                app.chat_scroll = app.chat_scroll.saturating_sub(3);
+                app.auto_scroll = false;
+            } else if sidebar.contains(pos) {
+                let selected = app.sidebar_state.selected().unwrap_or(0);
+                let new = selected.saturating_sub(1);
+                app.sidebar_state.select(Some(new));
+                input::load_sidebar_selection(app);
+            }
+            None
+        }
+        MouseEventKind::ScrollDown => {
+            if chat.contains(pos) {
+                app.chat_scroll = app.chat_scroll.saturating_add(3);
+                app.auto_scroll = false;
+            } else if sidebar.contains(pos) {
+                let selected = app.sidebar_state.selected().unwrap_or(0);
+                let count = app.sidebar_sessions.len();
+                if count > 0 {
+                    let new = (selected + 1).min(count - 1);
+                    app.sidebar_state.select(Some(new));
+                    input::load_sidebar_selection(app);
+                }
+            }
+            None
+        }
+        MouseEventKind::Moved => {
+            let old_hover = app.hover_node;
+            if chat.contains(pos) {
+                if let Some(ref cache) = app.chat_content_cache {
+                    let branch_ids = app.session.tree.current_branch_ids();
+                    app.hover_node = render::hit_test_chat_message(
+                        cache,
+                        &branch_ids,
+                        chat,
+                        app.chat_scroll,
+                        mouse.row,
+                    );
+                } else {
+                    app.hover_node = None;
+                }
+            } else {
+                app.hover_node = None;
+            }
+            if app.hover_node != old_hover { None } else { None }
+        }
+        _ => None,
+    }
+}
+
+fn move_textarea_cursor_to_mouse(
+    textarea: &mut TextArea,
+    widget_area: Rect,
+    screen_col: u16,
+    screen_row: u16,
+) {
+    let inner_row = screen_row.saturating_sub(widget_area.y + 1);
+    let inner_col = screen_col.saturating_sub(widget_area.x + 1);
+    textarea.move_cursor(CursorMove::Jump(inner_row, inner_col));
+}
+
+fn is_dialog_focus(focus: Focus) -> bool {
+    !matches!(focus, Focus::Input | Focus::Chat | Focus::Sidebar)
 }
 
 fn cancel_generation(app: &mut App) {

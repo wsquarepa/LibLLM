@@ -2,16 +2,36 @@ use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tui_textarea::TextArea;
 
+#[cfg(target_os = "linux")]
+use arboard::SetExtLinux;
+
 fn set_clipboard(text: &str) -> Result<(), String> {
-    Clipboard::new()
-        .and_then(|mut cb| cb.set_text(text.to_owned()))
-        .map_err(|e| format!("Clipboard error: {e}"))
+    let text = text.to_owned();
+
+    #[cfg(target_os = "linux")]
+    {
+        std::thread::spawn(move || {
+            let mut cb = match Clipboard::new() {
+                Ok(cb) => cb,
+                Err(_) => return,
+            };
+            let _ = cb.set().wait().text(text);
+        });
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Clipboard::new()
+            .and_then(|mut cb| cb.set_text(text))
+            .map_err(|e| format!("Clipboard: {e}"))
+    }
 }
 
 fn get_clipboard() -> Result<String, String> {
     Clipboard::new()
         .and_then(|mut cb| cb.get_text())
-        .map_err(|e| format!("Clipboard error: {e}"))
+        .map_err(|e| format!("Clipboard: {e}"))
 }
 
 /// Intercept Ctrl+C/V/X for system clipboard on a TextArea.

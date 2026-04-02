@@ -1,5 +1,6 @@
 pub mod business;
 pub mod commands;
+mod clipboard;
 mod dialogs;
 mod input;
 mod maintenance;
@@ -1057,8 +1058,41 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
         }
     }
 
-    if app.focus == Focus::Input {
-        app.textarea.input(raw_event);
+    match app.focus {
+        Focus::Input => {
+            app.textarea.input(raw_event);
+        }
+        Focus::EditDialog => {
+            if let Some(ref mut editor) = app.edit_editor {
+                editor.insert_str(&text);
+            }
+        }
+        Focus::PresetEditorDialog => {
+            if let Some(ref mut d) = app.preset_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
+        Focus::PersonaEditorDialog => {
+            if let Some(ref mut d) = app.persona_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
+        Focus::CharacterEditorDialog => {
+            if let Some(ref mut d) = app.character_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
+        Focus::SystemPromptEditorDialog => {
+            if let Some(ref mut d) = app.system_prompt_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
+        Focus::WorldbookEntryEditorDialog => {
+            if let Some(ref mut d) = app.worldbook_entry_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
+        _ => {}
     }
     None
 }
@@ -1171,6 +1205,15 @@ fn handle_key(
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if app.focus == Focus::Input && app.textarea.selection_range().is_some() {
+            let (consumed, warning) = clipboard::handle_clipboard_key(&key, &mut app.textarea);
+            if let Some(msg) = warning {
+                app.set_status(msg, StatusLevel::Warning);
+            }
+            if consumed {
+                return None;
+            }
+        }
         return Some(Action::Quit);
     }
     if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -1300,6 +1343,10 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
     };
 
     let result = dialog.handle_key(key);
+
+    if let Some(msg) = dialog.clipboard_warning.take() {
+        app.set_status(msg, StatusLevel::Warning);
+    }
 
     if matches!(kind, DialogKind::WorldbookEntryEditor) {
         if let Some(ref mut d) = app.worldbook_entry_editor {

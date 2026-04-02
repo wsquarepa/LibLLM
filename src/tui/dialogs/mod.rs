@@ -334,6 +334,7 @@ pub struct FieldDialog<'a> {
     separator_fields: &'static [usize],
     selector_fields: &'static [usize],
     pub reject_flash: Option<std::time::Instant>,
+    pub clipboard_warning: Option<String>,
 }
 
 impl<'a> FieldDialog<'a> {
@@ -371,6 +372,7 @@ impl<'a> FieldDialog<'a> {
             separator_fields: &[],
             selector_fields: &[],
             reject_flash: None,
+            clipboard_warning: None,
         }
     }
 
@@ -442,6 +444,12 @@ impl<'a> FieldDialog<'a> {
             .iter()
             .find(|(i, _)| *i == index)
             .map(|(_, v)| *v)
+    }
+
+    pub fn insert_into_active_editor(&mut self, text: &str) {
+        if let Some(ref mut editor) = self.editor {
+            editor.insert_str(text);
+        }
     }
 
     fn open_multiline_editor(&mut self) {
@@ -616,7 +624,12 @@ impl<'a> FieldDialog<'a> {
                     self.editor = None;
                 }
                 _ => {
-                    editor.input(key);
+                    let (consumed, warning) =
+                        crate::tui::clipboard::handle_clipboard_key(&key, editor);
+                    self.clipboard_warning = warning;
+                    if !consumed {
+                        editor.input(key);
+                    }
                 }
             }
             return FieldDialogAction::Continue;

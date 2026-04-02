@@ -112,6 +112,20 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
             Some(Action::SendMessage(trimmed))
         }
+        _ if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('v') | KeyCode::Char('x')) =>
+        {
+            let (consumed, warning) =
+                super::clipboard::handle_clipboard_key(&key, &mut app.textarea);
+            if let Some(msg) = warning {
+                app.set_status(msg, super::StatusLevel::Warning);
+            }
+            if !consumed {
+                app.textarea.input(key);
+            }
+            app.command_picker_selected = 0;
+            None
+        }
         _ => {
             app.textarea.input(key);
             app.command_picker_selected = 0;

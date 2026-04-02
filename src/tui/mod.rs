@@ -1,6 +1,6 @@
 pub mod business;
-pub mod commands;
 mod clipboard;
+pub mod commands;
 mod dialogs;
 mod input;
 mod maintenance;
@@ -553,10 +553,7 @@ pub async fn run(
             .ok()
             .map(|entries| {
                 entries.flatten().any(|e| {
-                    e.path()
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        == Some("session")
+                    e.path().extension().and_then(|ext| ext.to_str()) == Some("session")
                         && std::fs::read(e.path())
                             .ok()
                             .is_some_and(|data| crate::crypto::is_encrypted(&data))
@@ -1065,18 +1062,12 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
             .to_lowercase();
 
         let handled = match app.focus {
-            Focus::CharacterDialog => {
-                dialogs::character::handle_character_paste(path, &ext, app)
-            }
-            Focus::WorldbookDialog => {
-                dialogs::worldbook::handle_worldbook_paste(path, &ext, app)
-            }
+            Focus::CharacterDialog => dialogs::character::handle_character_paste(path, &ext, app),
+            Focus::WorldbookDialog => dialogs::worldbook::handle_worldbook_paste(path, &ext, app),
             Focus::SystemPromptDialog => {
                 dialogs::system_prompt::handle_system_prompt_paste(path, &ext, app)
             }
-            Focus::PersonaDialog => {
-                dialogs::persona::handle_persona_paste(path, &ext, app)
-            }
+            Focus::PersonaDialog => dialogs::persona::handle_persona_paste(path, &ext, app),
             Focus::Sidebar => input::handle_sidebar_paste(path, &ext, app),
             _ => false,
         };
@@ -1356,9 +1347,13 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 app.focus = Focus::Chat;
                 if let Some(ref cache) = app.chat_content_cache {
                     let branch_ids = app.session.tree.current_branch_ids();
-                    if let Some(node_id) =
-                        render::hit_test_chat_message(cache, &branch_ids, chat, app.chat_scroll, mouse.row)
-                    {
+                    if let Some(node_id) = render::hit_test_chat_message(
+                        cache,
+                        &branch_ids,
+                        chat,
+                        app.chat_scroll,
+                        mouse.row,
+                    ) {
                         app.nav_cursor = Some(node_id);
                     }
                 }
@@ -1445,7 +1440,11 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             } else {
                 app.hover_node = None;
             }
-            if app.hover_node != old_hover { None } else { None }
+            if app.hover_node != old_hover {
+                None
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -1618,10 +1617,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             &original_name,
                         ) {
                             Ok(()) => {
-                                app.set_status(
-                                    "Preset saved.".to_owned(),
-                                    StatusLevel::Info,
-                                );
+                                app.set_status("Preset saved.".to_owned(), StatusLevel::Info);
                                 dialogs::preset::refresh_preset_list(app);
                             }
                             Err(e) => {
@@ -1675,8 +1671,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             Ok(_) => {
                                 app.invalidate_chat_cache();
                                 if app.session.persona.as_deref() == Some(&file_name)
-                                    || app.session.persona.as_deref()
-                                        == Some(persona.name.as_str())
+                                    || app.session.persona.as_deref() == Some(persona.name.as_str())
                                 {
                                     app.active_persona_name = Some(persona.name.clone());
                                     app.active_persona_desc = Some(persona.persona.clone());
@@ -1746,15 +1741,14 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             name: new_name.clone(),
                             content,
                         };
-                        match crate::system_prompt::save_prompt(
-                            &prompt,
-                            &dir,
-                            app.save_mode.key(),
-                        ) {
+                        match crate::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key())
+                        {
                             Ok(_) => {
                                 if original_name != new_name {
-                                    let old_path =
-                                        crate::system_prompt::resolve_prompt_path(&dir, &original_name);
+                                    let old_path = crate::system_prompt::resolve_prompt_path(
+                                        &dir,
+                                        &original_name,
+                                    );
                                     if old_path.exists() {
                                         let _ = std::fs::remove_file(&old_path);
                                     }
@@ -1835,13 +1829,19 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                         );
                                     } else {
                                         crate::index::warn_if_save_fails(
-                                            crate::index::remove_character(&old_path, app.save_mode.key()),
+                                            crate::index::remove_character(
+                                                &old_path,
+                                                app.save_mode.key(),
+                                            ),
                                             "failed to remove character index entry",
                                         );
                                     }
                                 } else {
                                     crate::index::warn_if_save_fails(
-                                        crate::index::remove_character(&old_path, app.save_mode.key()),
+                                        crate::index::remove_character(
+                                            &old_path,
+                                            app.save_mode.key(),
+                                        ),
                                         "failed to remove character index entry",
                                     );
                                 }
@@ -1889,11 +1889,10 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
                         let idx = app.worldbook_entry_editor_index;
                         if idx < app.worldbook_editor_entries.len() {
-                            app.worldbook_editor_entries[idx] =
-                                dialogs::worldbook::values_to_entry(
-                                    values,
-                                    &app.worldbook_editor_entries[idx],
-                                );
+                            app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(
+                                values,
+                                &app.worldbook_editor_entries[idx],
+                            );
                         }
                     }
                     app.worldbook_entry_editor = None;

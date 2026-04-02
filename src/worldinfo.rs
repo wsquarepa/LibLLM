@@ -12,7 +12,13 @@ const EXT_PLAINTEXT: &str = "json";
 
 fn sanitize_display(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_control() && c != '\n' { '\u{FFFD}' } else { c })
+        .map(|c| {
+            if c.is_control() && c != '\n' {
+                '\u{FFFD}'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -106,9 +112,15 @@ pub fn save_worldbook(
     let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
     let safe_name: String = worldbook.name.replace(['/', '\\'], "_");
     let safe_name = safe_name.trim_matches('.');
-    anyhow::ensure!(!safe_name.is_empty(), "worldbook name is empty after sanitization");
+    anyhow::ensure!(
+        !safe_name.is_empty(),
+        "worldbook name is empty after sanitization"
+    );
     let path = dir.join(format!("{safe_name}.{ext}"));
-    anyhow::ensure!(path.starts_with(dir), "worldbook path escapes target directory");
+    anyhow::ensure!(
+        path.starts_with(dir),
+        "worldbook path escapes target directory"
+    );
     save_worldbook_to(worldbook, &path, key)?;
     if let Ok(stamp) = index::file_stamp(&path) {
         index::warn_if_save_fails(

@@ -84,9 +84,14 @@ pub(in crate::tui) fn render_delete_confirm_dialog(f: &mut ratatui::Frame, app: 
         &format!("Delete \"{}\"?", app.delete_confirm_filename),
         app.delete_confirm_selected,
     );
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Left/Right: navigate  Enter: confirm  Esc: cancel"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[Line::from(
+            "Left/Right: navigate  Enter: confirm  Esc: cancel",
+        )],
+    );
 }
 
 pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -236,7 +241,8 @@ fn delete_persona(app: &mut App, name: &str) {
 }
 
 fn delete_system_prompt(app: &mut App, name: &str) {
-    let path = crate::system_prompt::resolve_prompt_path(&crate::config::system_prompts_dir(), name);
+    let path =
+        crate::system_prompt::resolve_prompt_path(&crate::config::system_prompts_dir(), name);
 
     if let Err(e) = std::fs::remove_file(&path) {
         app.set_status(
@@ -271,7 +277,10 @@ fn delete_worldbook(app: &mut App, name: &str) {
     app.config.worldbooks.retain(|n| n != name);
     app.session.worldbooks.retain(|n| n != name);
     if let Err(e) = crate::config::save(&app.config) {
-        app.set_status(format!("Failed to save config: {e}"), super::super::StatusLevel::Error);
+        app.set_status(
+            format!("Failed to save config: {e}"),
+            super::super::StatusLevel::Error,
+        );
     }
     app.invalidate_worldbook_cache();
 

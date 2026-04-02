@@ -38,10 +38,7 @@ fn get_clipboard() -> Result<String, String> {
 ///
 /// Returns `(consumed, optional_warning)`. When `consumed` is false the caller
 /// should forward the key to `textarea.input()` or handle it otherwise.
-pub fn handle_clipboard_key(
-    key: &KeyEvent,
-    textarea: &mut TextArea<'_>,
-) -> (bool, Option<String>) {
+pub fn handle_clipboard_key(key: &KeyEvent, textarea: &mut TextArea<'_>) -> (bool, Option<String>) {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match (ctrl, key.code) {
         (true, KeyCode::Char('c')) => {

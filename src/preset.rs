@@ -22,17 +22,19 @@ const BUILTIN_INSTRUCT: &[(&str, &str)] = &[
     ("Alpaca", include_str!("presets/instruct/alpaca.json")),
 ];
 
-const BUILTIN_REASONING: &[(&str, &str)] = &[(
-    "DeepSeek",
-    include_str!("presets/reasoning/deepseek.json"),
-)];
+const BUILTIN_REASONING: &[(&str, &str)] =
+    &[("DeepSeek", include_str!("presets/reasoning/deepseek.json"))];
 
 const DEFAULT_TEMPLATE_PRESET: &str = "Default";
 
-const BUILTIN_TEMPLATE: &[(&str, &str)] = &[(
-    "Default",
-    include_str!("presets/template/default.json"),
-)];
+const BUILTIN_TEMPLATE: &[(&str, &str)] =
+    &[("Default", include_str!("presets/template/default.json"))];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RenderMode {
+    Complete,
+    Continuation,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -125,74 +127,7 @@ impl InstructPreset {
     }
 
     pub fn render(&self, messages: &[&Message], system_prompt: Option<&str>) -> String {
-        let mut prompt = String::new();
-        let msg_count = messages.len();
-        let mut system_emitted = false;
-
-        if let Some(sys) = system_prompt {
-            if !self.system_same_as_user {
-                let seq = self.effective_system_sequence();
-                let suffix = self.effective_system_suffix();
-                prompt.push_str(seq);
-                prompt.push_str(sys);
-                prompt.push_str(suffix);
-                system_emitted = true;
-            }
-        }
-
-        let mut is_first_user = true;
-        let mut is_first_assistant = true;
-
-        for (i, msg) in messages.iter().enumerate() {
-            let is_last = i == msg_count - 1;
-
-            if !self.separator_sequence.is_empty() && i > 0 {
-                prompt.push_str(&self.separator_sequence);
-            }
-
-            match msg.role {
-                Role::User => {
-                    let seq = self.select_input_sequence(is_first_user, is_last);
-                    prompt.push_str(seq);
-
-                    if is_first_user && !system_emitted {
-                        if let Some(sys) = system_prompt {
-                            prompt.push_str(sys);
-                            prompt.push_str("\n\n");
-                        }
-                        system_emitted = true;
-                    }
-
-                    prompt.push_str(&msg.content);
-                    prompt.push_str(&self.input_suffix);
-                    is_first_user = false;
-                }
-                Role::Assistant => {
-                    let seq = self.select_output_sequence(is_first_assistant, is_last);
-                    prompt.push_str(seq);
-                    prompt.push_str(&msg.content);
-                    prompt.push_str(&self.output_suffix);
-                    is_first_assistant = false;
-                }
-                Role::System => {
-                    let seq = self.effective_system_sequence();
-                    let suffix = self.effective_system_suffix();
-                    prompt.push_str(seq);
-                    prompt.push_str(&msg.content);
-                    prompt.push_str(suffix);
-                }
-            }
-        }
-
-        if messages
-            .last()
-            .is_some_and(|m| m.role == Role::User || m.role == Role::System)
-        {
-            let seq = self.select_output_sequence(is_first_assistant, false);
-            prompt.push_str(seq);
-        }
-
-        prompt
+        self.render_with_mode(messages, system_prompt, RenderMode::Complete)
     }
 
     pub fn render_continuation(
@@ -200,20 +135,18 @@ impl InstructPreset {
         messages: &[&Message],
         system_prompt: Option<&str>,
     ) -> String {
+        self.render_with_mode(messages, system_prompt, RenderMode::Continuation)
+    }
+
+    fn render_with_mode(
+        &self,
+        messages: &[&Message],
+        system_prompt: Option<&str>,
+        mode: RenderMode,
+    ) -> String {
         let mut prompt = String::new();
         let msg_count = messages.len();
-        let mut system_emitted = false;
-
-        if let Some(sys) = system_prompt {
-            if !self.system_same_as_user {
-                let seq = self.effective_system_sequence();
-                let suffix = self.effective_system_suffix();
-                prompt.push_str(seq);
-                prompt.push_str(sys);
-                prompt.push_str(suffix);
-                system_emitted = true;
-            }
-        }
+        let mut system_emitted = self.append_prefixed_system_prompt(&mut prompt, system_prompt);
 
         let mut is_first_user = true;
         let mut is_first_assistant = true;
@@ -231,10 +164,7 @@ impl InstructPreset {
                     prompt.push_str(seq);
 
                     if is_first_user && !system_emitted {
-                        if let Some(sys) = system_prompt {
-                            prompt.push_str(sys);
-                            prompt.push_str("\n\n");
-                        }
+                        self.append_inline_system_prompt(&mut prompt, system_prompt);
                         system_emitted = true;
                     }
 
@@ -246,7 +176,7 @@ impl InstructPreset {
                     let seq = self.select_output_sequence(is_first_assistant, is_last);
                     prompt.push_str(seq);
                     prompt.push_str(&msg.content);
-                    if !is_last {
+                    if mode == RenderMode::Complete || !is_last {
                         prompt.push_str(&self.output_suffix);
                     }
                     is_first_assistant = false;
@@ -270,6 +200,30 @@ impl InstructPreset {
         }
 
         prompt
+    }
+
+    fn append_prefixed_system_prompt(
+        &self,
+        prompt: &mut String,
+        system_prompt: Option<&str>,
+    ) -> bool {
+        if let Some(sys) = system_prompt
+            && !self.system_same_as_user
+        {
+            prompt.push_str(self.effective_system_sequence());
+            prompt.push_str(sys);
+            prompt.push_str(self.effective_system_suffix());
+            return true;
+        }
+
+        false
+    }
+
+    fn append_inline_system_prompt(&self, prompt: &mut String, system_prompt: Option<&str>) {
+        if let Some(sys) = system_prompt {
+            prompt.push_str(sys);
+            prompt.push_str("\n\n");
+        }
     }
 
     pub fn stop_tokens(&self) -> Vec<String> {
@@ -319,7 +273,6 @@ impl InstructPreset {
         }
     }
 }
-
 
 pub fn instruct_presets_dir() -> PathBuf {
     crate::config::data_dir().join("presets").join("instruct")
@@ -374,10 +327,10 @@ fn load_json_from_dir<T: serde::de::DeserializeOwned>(dir: &Path, name: &str) ->
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
-            if stem == name_lower {
-                if let Ok(contents) = std::fs::read_to_string(&path) {
-                    return serde_json::from_str(&contents).ok();
-                }
+            if stem == name_lower
+                && let Ok(contents) = std::fs::read_to_string(&path)
+            {
+                return serde_json::from_str(&contents).ok();
             }
         }
     }
@@ -392,10 +345,10 @@ fn list_json_names_in_dir(dir: &Path) -> Vec<String> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "json") {
-            if let Some(stem) = path.file_stem() {
-                names.push(stem.to_string_lossy().to_string());
-            }
+        if path.extension().is_some_and(|ext| ext == "json")
+            && let Some(stem) = path.file_stem()
+        {
+            names.push(stem.to_string_lossy().to_string());
         }
     }
     names.sort();
@@ -534,7 +487,6 @@ impl ContextPreset {
 fn render_handlebars_template(template: &str, vars: &ContextVars) -> String {
     let mut result = String::with_capacity(template.len());
     let mut cursor = 0;
-    let bytes = template.as_bytes();
 
     while cursor < template.len() {
         if let Some(pos) = template[cursor..].find("{{") {
@@ -548,9 +500,9 @@ fn render_handlebars_template(template: &str, vars: &ContextVars) -> String {
                     if !value.is_empty() {
                         result.push_str(&render_handlebars_template(body, vars));
                     }
-                    let close_tag = format!("{{{{/if}}}}");
+                    let close_tag = "{{/if}}";
                     let skip = template[abs_pos..]
-                        .find(&close_tag)
+                        .find(close_tag)
                         .map(|p| p + close_tag.len())
                         .unwrap_or(template.len() - abs_pos);
                     cursor = abs_pos + skip;
@@ -577,7 +529,6 @@ fn render_handlebars_template(template: &str, vars: &ContextVars) -> String {
         }
     }
 
-    let _ = bytes;
     result
 }
 
@@ -642,4 +593,3 @@ pub fn list_template_preset_names() -> Vec<String> {
 
     names
 }
-

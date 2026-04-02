@@ -170,7 +170,9 @@ fn session_set_message_content() {
     ]);
 
     let head_id = session.tree.head().expect("has head");
-    let updated = session.tree.set_message_content(head_id, "edited reply".to_string());
+    let updated = session
+        .tree
+        .set_message_content(head_id, "edited reply".to_string());
     assert!(updated, "set_message_content should return true");
 
     session::save(&path, &session).expect("save");
@@ -244,7 +246,10 @@ fn crypto_different_passkeys_differ() {
 
     let blob = crypto::encrypt(b"secret", &key_a).expect("encrypt");
     let result = crypto::decrypt(&blob, &key_b);
-    assert!(result.is_err(), "decrypting with a different key should fail");
+    assert!(
+        result.is_err(),
+        "decrypting with a different key should fail"
+    );
 }
 
 #[test]
@@ -256,16 +261,15 @@ fn crypto_encrypt_and_write_read_and_decrypt() {
     let enc_path = dir.path().join("encrypted.bin");
     crypto::encrypt_and_write(&enc_path, b"encrypted content", Some(&key))
         .expect("encrypt_and_write");
-    let decrypted = crypto::read_and_decrypt(&enc_path, Some(&key))
-        .expect("read_and_decrypt");
+    let decrypted = crypto::read_and_decrypt(&enc_path, Some(&key)).expect("read_and_decrypt");
     assert_eq!(decrypted, "encrypted content");
 
     // Plaintext file round-trip (key = None)
     let plain_path = dir.path().join("plain.bin");
     crypto::encrypt_and_write(&plain_path, b"plain content", None)
         .expect("encrypt_and_write plaintext");
-    let plain_read = crypto::read_and_decrypt(&plain_path, None)
-        .expect("read_and_decrypt plaintext");
+    let plain_read =
+        crypto::read_and_decrypt(&plain_path, None).expect("read_and_decrypt plaintext");
     assert_eq!(plain_read, "plain content");
 }
 
@@ -281,7 +285,10 @@ fn crypto_tampered_ciphertext_fails() {
     blob[tamper_idx] ^= 0xFF;
 
     let result = crypto::decrypt(&blob, &key);
-    assert!(result.is_err(), "tampered ciphertext should fail decryption");
+    assert!(
+        result.is_err(),
+        "tampered ciphertext should fail decryption"
+    );
 }
 
 #[test]
@@ -293,4 +300,3 @@ fn crypto_empty_plaintext() {
     let decrypted = crypto::decrypt(&blob, &key).expect("decrypt empty");
     assert!(decrypted.is_empty());
 }
-

@@ -266,6 +266,20 @@ pub fn relative_data_path(path: &Path) -> Option<String> {
         .map(|relative| relative.to_string_lossy().into_owned())
 }
 
+fn update_index_with_path(
+    path: &Path,
+    key: Option<&DerivedKey>,
+    apply: impl FnOnce(&mut MetadataIndex, String),
+) -> Result<()> {
+    let Some(relative_path) = relative_data_path(path) else {
+        return Ok(());
+    };
+
+    let mut index = load_index(key);
+    apply(&mut index, relative_path);
+    save_index(&index, key)
+}
+
 pub fn upsert_session(
     path: &Path,
     stamp: FileStamp,
@@ -275,22 +289,18 @@ pub fn upsert_session(
     storage_mode: SessionStorageMode,
     key: Option<&DerivedKey>,
 ) -> Result<()> {
-    let Some(relative_path) = relative_data_path(path) else {
-        return Ok(());
-    };
-
-    let mut index = load_index(key);
-    index.sessions.insert(
-        relative_path,
-        SessionIndexEntry {
-            stamp,
-            display_name,
-            message_count,
-            last_assistant_preview,
-            storage_mode,
-        },
-    );
-    save_index(&index, key)
+    update_index_with_path(path, key, move |index, relative_path| {
+        index.sessions.insert(
+            relative_path,
+            SessionIndexEntry {
+                stamp,
+                display_name,
+                message_count,
+                last_assistant_preview,
+                storage_mode,
+            },
+        );
+    })
 }
 
 pub fn upsert_character(
@@ -300,20 +310,16 @@ pub fn upsert_character(
     display_name: String,
     key: Option<&DerivedKey>,
 ) -> Result<()> {
-    let Some(relative_path) = relative_data_path(path) else {
-        return Ok(());
-    };
-
-    let mut index = load_index(key);
-    index.characters.insert(
-        relative_path,
-        CharacterIndexEntry {
-            stamp,
-            slug,
-            display_name,
-        },
-    );
-    save_index(&index, key)
+    update_index_with_path(path, key, move |index, relative_path| {
+        index.characters.insert(
+            relative_path,
+            CharacterIndexEntry {
+                stamp,
+                slug,
+                display_name,
+            },
+        );
+    })
 }
 
 pub fn upsert_worldbook(
@@ -322,47 +328,31 @@ pub fn upsert_worldbook(
     display_name: String,
     key: Option<&DerivedKey>,
 ) -> Result<()> {
-    let Some(relative_path) = relative_data_path(path) else {
-        return Ok(());
-    };
-
-    let mut index = load_index(key);
-    index.worldbooks.insert(
-        relative_path,
-        WorldbookIndexEntry {
-            stamp,
-            display_name,
-        },
-    );
-    save_index(&index, key)
+    update_index_with_path(path, key, move |index, relative_path| {
+        index.worldbooks.insert(
+            relative_path,
+            WorldbookIndexEntry {
+                stamp,
+                display_name,
+            },
+        );
+    })
 }
 
 pub fn remove_session(path: &Path, key: Option<&DerivedKey>) -> Result<()> {
-    let Some(relative_path) = relative_data_path(path) else {
-        return Ok(());
-    };
-
-    let mut index = load_index(key);
-    index.sessions.remove(&relative_path);
-    save_index(&index, key)
+    update_index_with_path(path, key, |index, relative_path| {
+        index.sessions.remove(&relative_path);
+    })
 }
 
 pub fn remove_character(path: &Path, key: Option<&DerivedKey>) -> Result<()> {
-    let Some(relative_path) = relative_data_path(path) else {
-        return Ok(());
-    };
-
-    let mut index = load_index(key);
-    index.characters.remove(&relative_path);
-    save_index(&index, key)
+    update_index_with_path(path, key, |index, relative_path| {
+        index.characters.remove(&relative_path);
+    })
 }
 
 pub fn remove_worldbook(path: &Path, key: Option<&DerivedKey>) -> Result<()> {
-    let Some(relative_path) = relative_data_path(path) else {
-        return Ok(());
-    };
-
-    let mut index = load_index(key);
-    index.worldbooks.remove(&relative_path);
-    save_index(&index, key)
+    update_index_with_path(path, key, |index, relative_path| {
+        index.worldbooks.remove(&relative_path);
+    })
 }

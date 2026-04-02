@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::sampling::SamplingOverrides;
@@ -44,10 +44,10 @@ impl Config {
     }
 }
 
-pub fn set_data_dir(path: PathBuf) {
+pub fn set_data_dir(path: PathBuf) -> Result<()> {
     DATA_DIR_OVERRIDE
         .set(path)
-        .expect("data directory override already set");
+        .map_err(|_| anyhow!("data directory override already set"))
 }
 
 pub fn data_dir() -> PathBuf {
@@ -94,10 +94,12 @@ pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(sessions_dir()).context("failed to create sessions directory")?;
     std::fs::create_dir_all(characters_dir()).context("failed to create characters directory")?;
     std::fs::create_dir_all(worldinfo_dir()).context("failed to create worldinfo directory")?;
-    std::fs::create_dir_all(system_prompts_dir()).context("failed to create system prompts directory")?;
+    std::fs::create_dir_all(system_prompts_dir())
+        .context("failed to create system prompts directory")?;
     std::fs::create_dir_all(personas_dir()).context("failed to create personas directory")?;
     crate::preset::ensure_default_presets();
-    std::fs::create_dir_all(crate::preset::template_presets_dir()).context("failed to create template presets directory")
+    std::fs::create_dir_all(crate::preset::template_presets_dir())
+        .context("failed to create template presets directory")
 }
 
 pub fn config_path() -> PathBuf {

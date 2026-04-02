@@ -543,11 +543,13 @@ pub fn render_chat(
 }
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
-    let hidden: &[&str] = if crate::config::load().debug_log { &[] } else { &["/report"] };
-    let matches = crate::commands::matching_commands(
-        prefix.split_whitespace().next().unwrap_or("/"),
-        hidden,
-    );
+    let hidden: &[&str] = if crate::config::load().debug_log {
+        &[]
+    } else {
+        &["/report"]
+    };
+    let matches =
+        crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"), hidden);
     if matches.is_empty() {
         return;
     }
@@ -628,11 +630,7 @@ pub fn render_status_bar(
     let display_name = app.model_name.as_deref().unwrap_or("connecting...");
     let left_text = format!(
         " {} | {} | ~{} tokens | {}{}",
-        display_name,
-        app.instruct_preset.name,
-        token_count,
-        branch_text,
-        worldbook_text,
+        display_name, app.instruct_preset.name, token_count, branch_text, worldbook_text,
     );
 
     let left_style = if !app.api_available {
@@ -687,14 +685,8 @@ pub fn render_status_bar(
         1,
     );
 
-    f.render_widget(
-        Paragraph::new("").style(bg_style),
-        area,
-    );
-    f.render_widget(
-        Paragraph::new(truncated_left).style(left_style),
-        left_area,
-    );
+    f.render_widget(Paragraph::new("").style(bg_style), area);
+    f.render_widget(Paragraph::new(truncated_left).style(left_style), left_area);
     f.render_widget(
         Paragraph::new(Line::from(right_spans)).style(bg_style),
         right_area,
@@ -707,7 +699,10 @@ fn build_right_spans<'a>(
     max_width: usize,
 ) -> Vec<Span<'a>> {
     let Some((text, fg, bg, progress)) = notification else {
-        return vec![Span::styled(hints, Style::default().fg(Color::White).bg(Color::DarkGray))];
+        return vec![Span::styled(
+            hints,
+            Style::default().fg(Color::White).bg(Color::DarkGray),
+        )];
     };
 
     let padded = format!(" {} ", text);
@@ -715,7 +710,10 @@ fn build_right_spans<'a>(
     let visible_width = ((progress * notif_full_width as f64).round() as usize).min(max_width);
 
     if visible_width == 0 {
-        return vec![Span::styled(hints, Style::default().fg(Color::White).bg(Color::DarkGray))];
+        return vec![Span::styled(
+            hints,
+            Style::default().fg(Color::White).bg(Color::DarkGray),
+        )];
     }
 
     let hints_width = max_width.saturating_sub(visible_width);

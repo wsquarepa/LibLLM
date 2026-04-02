@@ -48,10 +48,15 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
     let paragraph = Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
-        Line::from("a: add new  Del: delete  Esc: cancel"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[
+            Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+            Line::from("a: add new  Del: delete  Esc: cancel"),
+        ],
+    );
 }
 
 pub(in crate::tui) fn handle_preset_dialog_key(
@@ -295,8 +300,7 @@ pub(in crate::tui) fn save_preset_from_editor(
     values: &[String],
     original_name: &str,
 ) -> anyhow::Result<()> {
-    let name = sanitize_preset_name(values[0].trim())
-        .unwrap_or_default();
+    let name = sanitize_preset_name(values[0].trim()).unwrap_or_default();
     if name.is_empty() {
         anyhow::bail!("preset name cannot be empty");
     }
@@ -306,14 +310,12 @@ pub(in crate::tui) fn save_preset_from_editor(
 
     let dir = dir_for_kind(kind);
     let json = match kind {
-        PresetKind::Template => {
-            serde_json::to_string_pretty(&serde_json::json!({
-                "name": name,
-                "story_string": values[1],
-                "example_separator": values[2],
-                "chat_start": values[3],
-            }))?
-        }
+        PresetKind::Template => serde_json::to_string_pretty(&serde_json::json!({
+            "name": name,
+            "story_string": values[1],
+            "example_separator": values[2],
+            "chat_start": values[3],
+        }))?,
         PresetKind::Instruct => {
             let stop_seqs: Vec<&str> = values[7]
                 .split(',')
@@ -335,18 +337,19 @@ pub(in crate::tui) fn save_preset_from_editor(
                 "sequences_as_stop_strings": values[11].parse::<bool>().unwrap_or(false),
             }))?
         }
-        PresetKind::Reasoning => {
-            serde_json::to_string_pretty(&serde_json::json!({
-                "name": name,
-                "prefix": values[1],
-                "suffix": values[2],
-                "separator": values[3],
-            }))?
-        }
+        PresetKind::Reasoning => serde_json::to_string_pretty(&serde_json::json!({
+            "name": name,
+            "prefix": values[1],
+            "suffix": values[2],
+            "separator": values[3],
+        }))?,
     };
 
     let path = dir.join(format!("{name}.json"));
-    anyhow::ensure!(path.starts_with(&dir), "preset path escapes target directory");
+    anyhow::ensure!(
+        path.starts_with(&dir),
+        "preset path escapes target directory"
+    );
     std::fs::write(&path, json)?;
 
     if !original_name.is_empty() && original_name != name {

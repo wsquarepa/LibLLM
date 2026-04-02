@@ -28,11 +28,22 @@ impl DerivedKey {
 }
 
 pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
-    if let Ok(data) = std::fs::read(path) {
-        if data.len() == SALT_LEN {
+    match std::fs::read(path) {
+        Ok(data) => {
+            if data.len() != SALT_LEN {
+                bail!(
+                    "invalid salt file length for {}: expected {SALT_LEN} bytes, got {}",
+                    path.display(),
+                    data.len()
+                );
+            }
             let mut salt = [0u8; SALT_LEN];
             salt.copy_from_slice(&data);
             return Ok(salt);
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(err).context(format!("failed to read salt file: {}", path.display()));
         }
     }
 
@@ -208,9 +219,23 @@ pub fn encrypt_and_write(path: &Path, plaintext: &[u8], key: Option<&DerivedKey>
 pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {
     let fingerprint = key_fingerprint(key);
 
-    if let Ok(stored) = std::fs::read(check_path) {
-        if stored.len() == KEY_CHECK_LEN {
+    match std::fs::read(check_path) {
+        Ok(stored) => {
+            if stored.len() != KEY_CHECK_LEN {
+                bail!(
+                    "invalid key check file length for {}: expected {KEY_CHECK_LEN} bytes, got {}",
+                    check_path.display(),
+                    stored.len()
+                );
+            }
             return Ok(stored == fingerprint);
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(err).context(format!(
+                "failed to read key check file: {}",
+                check_path.display()
+            ));
         }
     }
 

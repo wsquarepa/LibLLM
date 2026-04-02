@@ -30,13 +30,23 @@ pub fn load_prompt(path: &Path, key: Option<&DerivedKey>) -> Result<SystemPrompt
     serde_json::from_str(&contents).context("failed to parse system prompt JSON")
 }
 
-pub fn save_prompt(prompt: &SystemPromptFile, dir: &Path, key: Option<&DerivedKey>) -> Result<PathBuf> {
+pub fn save_prompt(
+    prompt: &SystemPromptFile,
+    dir: &Path,
+    key: Option<&DerivedKey>,
+) -> Result<PathBuf> {
     let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
     let safe_name: String = prompt.name.replace(['/', '\\'], "_");
     let safe_name = safe_name.trim_matches('.');
-    anyhow::ensure!(!safe_name.is_empty(), "prompt name is empty after sanitization");
+    anyhow::ensure!(
+        !safe_name.is_empty(),
+        "prompt name is empty after sanitization"
+    );
     let path = dir.join(format!("{safe_name}.{ext}"));
-    anyhow::ensure!(path.starts_with(dir), "prompt path escapes target directory");
+    anyhow::ensure!(
+        path.starts_with(dir),
+        "prompt path escapes target directory"
+    );
     save_prompt_to(prompt, &path, key)?;
     Ok(path)
 }
@@ -220,7 +230,10 @@ pub fn encrypt_plaintext_prompts(dir: &Path, key: &DerivedKey) -> Vec<String> {
         }
 
         if let Err(e) = std::fs::remove_file(&path) {
-            warnings.push(format!("encrypted but failed to remove plaintext {}: {e}", path.display()));
+            warnings.push(format!(
+                "encrypted but failed to remove plaintext {}: {e}",
+                path.display()
+            ));
         }
     }
 

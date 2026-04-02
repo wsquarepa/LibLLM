@@ -23,9 +23,12 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area
         f.render_widget(editor, editor_area);
     }
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Alt+Enter: save edit  Esc: cancel"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[Line::from("Alt+Enter: save edit  Esc: cancel")],
+    );
 }
 
 pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {

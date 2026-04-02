@@ -11,7 +11,12 @@ use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.character_names.len();
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
+    let dialog = clear_centered(
+        f,
+        super::LIST_DIALOG_WIDTH,
+        count as u16 + super::LIST_DIALOG_TALL_PADDING,
+        area,
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -33,11 +38,16 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
-        Line::from("a: add new  Del: delete  Esc: cancel"),
-        Line::from("Drop .png/.json to import"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[
+            Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+            Line::from("a: add new  Del: delete  Esc: cancel"),
+            Line::from("Drop .png/.json to import"),
+        ],
+    );
 }
 
 pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -76,7 +86,8 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     let cfg = crate::config::load();
                     let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
                     let tpl = crate::preset::resolve_template_preset(tpl_name);
-                    app.session.system_prompt = Some(crate::character::build_system_prompt(&card, Some(&tpl)));
+                    app.session.system_prompt =
+                        Some(crate::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
                     app.invalidate_chat_cache();
                     app.invalidate_worldbook_cache();
@@ -150,8 +161,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
 
 fn create_and_edit_character(app: &mut App) {
     let dir = crate::config::characters_dir();
-    let existing: std::collections::HashSet<String> =
-        app.character_names.iter().cloned().collect();
+    let existing: std::collections::HashSet<String> = app.character_names.iter().cloned().collect();
     let new_name = super::generate_unique_name("character", &existing);
     let card = crate::character::CharacterCard {
         name: new_name.clone(),
@@ -242,7 +252,10 @@ pub(in crate::tui) fn handle_character_paste(
             }
         }
         Err(e) => {
-            app.set_status(format!("Import error: {e}"), super::super::StatusLevel::Error);
+            app.set_status(
+                format!("Import error: {e}"),
+                super::super::StatusLevel::Error,
+            );
         }
     }
     true

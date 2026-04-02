@@ -40,8 +40,10 @@ async fn main() -> Result<()> {
     {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
         if !matches!(CHANNEL, "stable" | "preview" | "nightly") && args.data.is_none() {
-            use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
             use crossterm::execute;
+            use crossterm::style::{
+                Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor,
+            };
 
             let default_data_dir = config::data_dir();
             let _ = execute!(
@@ -78,15 +80,20 @@ async fn main() -> Result<()> {
     if let Some(ref data_path) = args.data {
         let is_existing_dir = if data_path.exists() {
             if !data_path.is_dir() {
-                anyhow::bail!("--data path exists but is not a directory: {}", data_path.display());
+                anyhow::bail!(
+                    "--data path exists but is not a directory: {}",
+                    data_path.display()
+                );
             }
             let is_empty = std::fs::read_dir(data_path)
-                .with_context(|| format!("failed to read --data directory: {}", data_path.display()))?
+                .with_context(|| {
+                    format!("failed to read --data directory: {}", data_path.display())
+                })?
                 .next()
                 .is_none();
             if !is_empty {
-                let has_config = data_path.join("config.toml").exists()
-                    || data_path.join("sessions").exists();
+                let has_config =
+                    data_path.join("config.toml").exists() || data_path.join("sessions").exists();
                 if !has_config {
                     anyhow::bail!(
                         "--data directory is not empty and does not appear to be a libllm data directory: {}",
@@ -96,23 +103,20 @@ async fn main() -> Result<()> {
             }
             !is_empty
         } else {
-            std::fs::create_dir_all(data_path)
-                .with_context(|| format!("failed to create --data directory: {}", data_path.display()))?;
+            std::fs::create_dir_all(data_path).with_context(|| {
+                format!("failed to create --data directory: {}", data_path.display())
+            })?;
             false
         };
-        config::set_data_dir(data_path.clone());
+        config::set_data_dir(data_path.clone())?;
 
         if is_existing_dir {
             let is_encrypted_dir = config::key_check_path().exists();
             if is_encrypted_dir && args.no_encrypt {
-                anyhow::bail!(
-                    "Data directory is encrypted; --no-encrypt cannot be used with it."
-                );
+                anyhow::bail!("Data directory is encrypted; --no-encrypt cannot be used with it.");
             }
             if !is_encrypted_dir && args.passkey.is_some() {
-                anyhow::bail!(
-                    "Data directory is not encrypted; --passkey cannot be used with it."
-                );
+                anyhow::bail!("Data directory is not encrypted; --passkey cannot be used with it.");
             }
         }
     }
@@ -215,7 +219,10 @@ async fn main() -> Result<()> {
                 ],
                 || resolve_character(char_arg, content_key),
             )?;
-            session.system_prompt = Some(character::build_system_prompt(&card, Some(&template_preset)));
+            session.system_prompt = Some(character::build_system_prompt(
+                &card,
+                Some(&template_preset),
+            ));
             session.character = Some(card.name.clone());
             if session.tree.head().is_none() && !card.first_mes.is_empty() {
                 session
@@ -243,7 +250,7 @@ async fn main() -> Result<()> {
             tui::build_effective_system_prompt_standalone(&session, save_mode.key());
 
         let parent = session.tree.head();
-        session.tree.push(parent, Message::new(Role::User, text));
+        let user_node = session.tree.push(parent, Message::new(Role::User, text));
 
         let branch_path = session.tree.branch_path();
         let prompt_text = instruct_preset.render(&branch_path, effective_prompt.as_deref());
@@ -255,17 +262,16 @@ async fn main() -> Result<()> {
             .await?;
         writeln!(stdout)?;
 
-        let user_node = session.tree.head().unwrap();
         session
             .tree
             .push(Some(user_node), Message::new(Role::Assistant, response));
 
         session.maybe_save(&save_mode)?;
 
-        if let Some(path) = save_mode.path() {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                eprintln!("Session: {stem}");
-            }
+        if let Some(path) = save_mode.path()
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        {
+            eprintln!("Session: {stem}");
         }
 
         return Ok(());
@@ -306,50 +312,21 @@ fn infer_run_mode(args: &Args) -> &'static str {
 }
 
 fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
-    let mut fields = Vec::new();
-    fields.push(crate::debug_log::field("has_message", args.message.is_some()));
-    fields.push(crate::debug_log::field(
-        "message_from_stdin",
-        args.message.as_deref() == Some("-"),
-    ));
-    fields.push(crate::debug_log::field("has_data_dir", args.data.is_some()));
-    fields.push(crate::debug_log::field(
-        "has_continue",
-        args.continue_session.is_some(),
-    ));
-    fields.push(crate::debug_log::field("no_encrypt", args.no_encrypt));
-    fields.push(crate::debug_log::field(
-        "has_passkey_arg",
-        args.passkey.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "has_system_prompt_arg",
-        args.system_prompt.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "has_character_arg",
-        args.character.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "has_persona_arg",
-        args.persona.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "has_api_url_arg",
-        args.api_url.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "has_template_arg",
-        args.template.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "timings_enabled",
-        args.timings.is_some(),
-    ));
-    fields.push(crate::debug_log::field(
-        "tls_skip_verify",
-        args.tls_skip_verify,
-    ));
+    let mut fields = vec![
+        crate::debug_log::field("has_message", args.message.is_some()),
+        crate::debug_log::field("message_from_stdin", args.message.as_deref() == Some("-")),
+        crate::debug_log::field("has_data_dir", args.data.is_some()),
+        crate::debug_log::field("has_continue", args.continue_session.is_some()),
+        crate::debug_log::field("no_encrypt", args.no_encrypt),
+        crate::debug_log::field("has_passkey_arg", args.passkey.is_some()),
+        crate::debug_log::field("has_system_prompt_arg", args.system_prompt.is_some()),
+        crate::debug_log::field("has_character_arg", args.character.is_some()),
+        crate::debug_log::field("has_persona_arg", args.persona.is_some()),
+        crate::debug_log::field("has_api_url_arg", args.api_url.is_some()),
+        crate::debug_log::field("has_template_arg", args.template.is_some()),
+        crate::debug_log::field("timings_enabled", args.timings.is_some()),
+        crate::debug_log::field("tls_skip_verify", args.tls_skip_verify),
+    ];
 
     if let Some(command) = &args.command {
         let command_name = match command {
@@ -467,10 +444,13 @@ fn resolve_edit_key(args: &Args) -> Result<Option<Arc<crypto::DerivedKey>>> {
         return Ok(None);
     }
 
-    let passkey = args.passkey.clone().or_else(|| {
-        eprint!("Passkey: ");
-        rpassword::read_password().ok()
-    });
+    let passkey = match args.passkey.clone() {
+        Some(passkey) => Some(passkey),
+        None => {
+            eprint!("Passkey: ");
+            Some(rpassword::read_password().context("failed to read interactive passkey")?)
+        }
+    };
 
     let Some(passkey) = passkey else {
         anyhow::bail!(

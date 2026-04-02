@@ -66,6 +66,19 @@ pub struct SessionMetadata {
     pub last_assistant_preview: Option<String>,
 }
 
+impl SessionMetadata {
+    fn from_session(session: &Session) -> Self {
+        Self {
+            character: session.character.clone(),
+            message_count: session.tree.node_count(),
+            last_assistant_preview: session
+                .tree
+                .current_last_assistant_preview()
+                .map(str::to_owned),
+        }
+    }
+}
+
 fn session_display_name(character: Option<&str>) -> String {
     character.unwrap_or("Assistant").to_owned()
 }
@@ -104,7 +117,9 @@ pub fn apply_indexed_session_metadata(
 
     entry.display_name.clone_from(&indexed.display_name);
     entry.message_count = Some(indexed.message_count);
-    entry.last_assistant_preview.clone_from(&indexed.last_assistant_preview);
+    entry
+        .last_assistant_preview
+        .clone_from(&indexed.last_assistant_preview);
     Ok(true)
 }
 
@@ -150,11 +165,7 @@ pub fn persist_saved_session_index(
     storage_mode: SessionStorageMode,
     key: Option<&DerivedKey>,
 ) {
-    let metadata = SessionMetadata {
-        character: session.character.clone(),
-        message_count: session.tree.node_count(),
-        last_assistant_preview: session.tree.current_last_assistant_preview().map(str::to_owned),
-    };
+    let metadata = SessionMetadata::from_session(session);
     persist_session_index(path, &metadata, storage_mode, key);
 }
 
@@ -224,6 +235,16 @@ struct CacheDebugState {
     first_preview_hits: std::cell::Cell<u64>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct TreeRuntimeCache {
+    branch_ids: Vec<NodeId>,
+    user_branch_ids: Vec<NodeId>,
+    deepest_branch_info: Option<(usize, usize)>,
+    last_assistant_preview: Option<String>,
+    #[cfg(debug_assertions)]
+    debug: CacheDebugState,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTree {
     nodes: Vec<Node>,
@@ -231,16 +252,7 @@ pub struct MessageTree {
     #[serde(default)]
     preferred_child: HashMap<NodeId, NodeId>,
     #[serde(skip)]
-    current_branch_ids: Vec<NodeId>,
-    #[serde(skip)]
-    current_user_branch_ids: Vec<NodeId>,
-    #[serde(skip)]
-    current_deepest_branch_info: Option<(usize, usize)>,
-    #[serde(skip)]
-    current_last_assistant_preview: Option<String>,
-    #[cfg(debug_assertions)]
-    #[serde(skip)]
-    cache_debug: CacheDebugState,
+    runtime: TreeRuntimeCache,
 }
 
 impl MessageTree {
@@ -249,12 +261,7 @@ impl MessageTree {
             nodes: Vec::new(),
             head: None,
             preferred_child: HashMap::new(),
-            current_branch_ids: Vec::new(),
-            current_user_branch_ids: Vec::new(),
-            current_deepest_branch_info: None,
-            current_last_assistant_preview: None,
-            #[cfg(debug_assertions)]
-            cache_debug: CacheDebugState::default(),
+            runtime: TreeRuntimeCache::default(),
         }
     }
 
@@ -269,7 +276,7 @@ impl MessageTree {
                     crate::debug_log::field("phase", "hit"),
                     crate::debug_log::field("accessor", accessor),
                     crate::debug_log::field("hits", hits),
-                    crate::debug_log::field("rebuilds", self.cache_debug.rebuild_count),
+                    crate::debug_log::field("rebuilds", self.runtime.debug.rebuild_count),
                 ],
             );
         }
@@ -301,10 +308,10 @@ impl MessageTree {
     fn refresh_runtime_caches(&mut self) {
         #[cfg(debug_assertions)]
         let rebuild_start = Instant::now();
-        self.current_branch_ids.clear();
-        self.current_user_branch_ids.clear();
-        self.current_deepest_branch_info = None;
-        self.current_last_assistant_preview = None;
+        self.runtime.branch_ids.clear();
+        self.runtime.user_branch_ids.clear();
+        self.runtime.deepest_branch_info = None;
+        self.runtime.last_assistant_preview = None;
 
         let Some(head) = self.head else {
             return;
@@ -313,25 +320,25 @@ impl MessageTree {
         let max_steps = self.nodes.len();
         let mut current = head;
         for _ in 0..max_steps {
-            self.current_branch_ids.push(current);
+            self.runtime.branch_ids.push(current);
             match self.nodes.get(current).and_then(|n| n.parent) {
                 Some(parent) => current = parent,
                 None => break,
             }
         }
-        self.current_branch_ids.reverse();
+        self.runtime.branch_ids.reverse();
 
-        for &id in &self.current_branch_ids {
+        for &id in &self.runtime.branch_ids {
             let node = &self.nodes[id];
             if node.message.role == Role::User {
-                self.current_user_branch_ids.push(id);
+                self.runtime.user_branch_ids.push(id);
             }
             if node.message.role == Role::Assistant {
-                self.current_last_assistant_preview = Some(node.message.content.clone());
+                self.runtime.last_assistant_preview = Some(node.message.content.clone());
             }
         }
 
-        self.current_deepest_branch_info = self.current_branch_ids.iter().rev().find_map(|&id| {
+        self.runtime.deepest_branch_info = self.runtime.branch_ids.iter().rev().find_map(|&id| {
             let info = self.sibling_info(id);
             (info.1 > 1).then_some(info)
         });
@@ -339,37 +346,37 @@ impl MessageTree {
         #[cfg(debug_assertions)]
         {
             let elapsed_us = rebuild_start.elapsed().as_micros();
-            self.cache_debug.rebuild_count += 1;
-            self.cache_debug.total_rebuild_us += elapsed_us;
-            self.cache_debug.last_rebuild_us = elapsed_us;
+            self.runtime.debug.rebuild_count += 1;
+            self.runtime.debug.total_rebuild_us += elapsed_us;
+            self.runtime.debug.last_rebuild_us = elapsed_us;
             crate::debug_log::log_kv(
                 "session.cache",
                 &[
                     crate::debug_log::field("phase", "rebuild"),
-                    crate::debug_log::field("rebuilds", self.cache_debug.rebuild_count),
+                    crate::debug_log::field("rebuilds", self.runtime.debug.rebuild_count),
                     crate::debug_log::field(
                         "elapsed_ms",
                         format!("{:.3}", elapsed_us as f64 / 1000.0),
                     ),
                     crate::debug_log::field(
                         "total_elapsed_ms",
-                        format!("{:.3}", self.cache_debug.total_rebuild_us as f64 / 1000.0),
+                        format!("{:.3}", self.runtime.debug.total_rebuild_us as f64 / 1000.0),
                     ),
                     crate::debug_log::field("node_count", self.nodes.len()),
-                    crate::debug_log::field("branch_count", self.current_branch_ids.len()),
+                    crate::debug_log::field("branch_count", self.runtime.branch_ids.len()),
                     crate::debug_log::field(
                         "user_branch_count",
-                        self.current_user_branch_ids.len(),
+                        self.runtime.user_branch_ids.len(),
                     ),
-                    crate::debug_log::field("branch_hits", self.cache_debug.branch_hits.get()),
+                    crate::debug_log::field("branch_hits", self.runtime.debug.branch_hits.get()),
                     crate::debug_log::field(
                         "user_branch_hits",
-                        self.cache_debug.user_branch_hits.get(),
+                        self.runtime.debug.user_branch_hits.get(),
                     ),
-                    crate::debug_log::field("deepest_hits", self.cache_debug.deepest_hits.get()),
+                    crate::debug_log::field("deepest_hits", self.runtime.debug.deepest_hits.get()),
                     crate::debug_log::field(
                         "first_preview_hits",
-                        self.cache_debug.first_preview_hits.get(),
+                        self.runtime.debug.first_preview_hits.get(),
                     ),
                 ],
             );
@@ -391,6 +398,12 @@ impl MessageTree {
 
     pub fn head(&self) -> Option<NodeId> {
         self.head
+    }
+
+    fn update_head(&mut self, new_head: Option<NodeId>) {
+        self.head = new_head;
+        self.update_preferred_children();
+        self.refresh_runtime_caches();
     }
 
     pub fn node(&self, id: NodeId) -> Option<&Node> {
@@ -463,40 +476,40 @@ impl MessageTree {
     }
 
     pub fn branch_path_ids(&self) -> Vec<NodeId> {
-        self.current_branch_ids.clone()
+        self.current_branch_ids().to_vec()
     }
 
     pub fn current_branch_ids(&self) -> &[NodeId] {
         #[cfg(debug_assertions)]
-        self.bump_cache_hit("current_branch_ids", &self.cache_debug.branch_hits);
-        &self.current_branch_ids
+        self.bump_cache_hit("current_branch_ids", &self.runtime.debug.branch_hits);
+        &self.runtime.branch_ids
     }
 
     pub fn current_user_branch_ids(&self) -> &[NodeId] {
         #[cfg(debug_assertions)]
         self.bump_cache_hit(
             "current_user_branch_ids",
-            &self.cache_debug.user_branch_hits,
+            &self.runtime.debug.user_branch_hits,
         );
-        &self.current_user_branch_ids
+        &self.runtime.user_branch_ids
     }
 
     pub fn current_deepest_branch_info(&self) -> Option<(usize, usize)> {
         #[cfg(debug_assertions)]
         self.bump_cache_hit(
             "current_deepest_branch_info",
-            &self.cache_debug.deepest_hits,
+            &self.runtime.debug.deepest_hits,
         );
-        self.current_deepest_branch_info
+        self.runtime.deepest_branch_info
     }
 
     pub fn current_last_assistant_preview(&self) -> Option<&str> {
         #[cfg(debug_assertions)]
         self.bump_cache_hit(
             "current_last_assistant_preview",
-            &self.cache_debug.first_preview_hits,
+            &self.runtime.debug.first_preview_hits,
         );
-        self.current_last_assistant_preview.as_deref()
+        self.runtime.last_assistant_preview.as_deref()
     }
 
     pub fn sibling_info(&self, id: NodeId) -> (usize, usize) {
@@ -533,9 +546,7 @@ impl MessageTree {
                 .copied()
                 .unwrap_or(self.nodes[current].children[0]);
         }
-        self.head = Some(current);
-        self.update_preferred_children();
-        self.refresh_runtime_caches();
+        self.update_head(Some(current));
     }
 
     pub fn switch_sibling(&mut self, offset: isize) {
@@ -575,16 +586,12 @@ impl MessageTree {
 
     pub fn retreat_head(&mut self) -> Option<&Message> {
         let head = self.head?;
-        self.head = self.nodes[head].parent;
-        self.update_preferred_children();
-        self.refresh_runtime_caches();
+        self.update_head(self.nodes[head].parent);
         Some(&self.nodes[head].message)
     }
 
     pub fn set_head(&mut self, id: Option<NodeId>) {
-        self.head = id;
-        self.update_preferred_children();
-        self.refresh_runtime_caches();
+        self.update_head(id);
     }
 
     pub fn pop_head(&mut self) -> Option<Message> {
@@ -606,9 +613,7 @@ impl MessageTree {
 
         self.preferred_child.remove(&head);
 
-        self.head = parent;
-        self.update_preferred_children();
-        self.refresh_runtime_caches();
+        self.update_head(parent);
         Some(message)
     }
 
@@ -663,7 +668,7 @@ impl Default for MessageTree {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Session {
     pub tree: MessageTree,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -678,20 +683,6 @@ pub struct Session {
     pub worldbooks: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub persona: Option<String>,
-}
-
-impl Default for Session {
-    fn default() -> Self {
-        Self {
-            tree: MessageTree::new(),
-            model: None,
-            template: None,
-            system_prompt: None,
-            character: None,
-            worldbooks: Vec::new(),
-            persona: None,
-        }
-    }
 }
 
 impl Session {
@@ -1053,26 +1044,14 @@ pub fn list_session_paths(dir: &Path, key: Option<&DerivedKey>) -> Result<Vec<Se
         ],
     );
 
-    sessions.sort_by(|a, b| {
-        let mtime = |p: &Path| {
-            p.metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-        };
-        mtime(&b.path).cmp(&mtime(&a.path))
-    });
+    sessions.sort_by(|a, b| session_modified_at(&b.path).cmp(&session_modified_at(&a.path)));
     Ok(sessions)
 }
 
 pub fn load_metadata(path: &Path, key: &DerivedKey) -> Result<SessionMetadata> {
     let session = load_encrypted(path, key)
         .with_context(|| format!("failed to load session metadata from {}", path.display()))?;
-    let last_assistant_preview = session.tree.current_last_assistant_preview().map(str::to_owned);
-    Ok(SessionMetadata {
-        character: session.character,
-        message_count: session.tree.node_count(),
-        last_assistant_preview,
-    })
+    Ok(SessionMetadata::from_session(&session))
 }
 
 fn load_from_str(contents: &str) -> Result<Session> {
@@ -1141,6 +1120,12 @@ fn load_from_str(contents: &str) -> Result<Session> {
         tree: MessageTree::from_messages(vec![Message::new(Role::User, contents.to_owned())]),
         ..Session::default()
     })
+}
+
+fn session_modified_at(path: &Path) -> std::time::SystemTime {
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
 }
 
 fn now_iso8601() -> String {

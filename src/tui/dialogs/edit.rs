@@ -64,6 +64,12 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
         };
     }
 
-    editor.input(key);
+    let (consumed, warning) = crate::tui::clipboard::handle_clipboard_key(&key, editor);
+    if !consumed {
+        editor.input(key);
+    }
+    if let Some(msg) = warning {
+        app.set_status(msg, crate::tui::StatusLevel::Warning);
+    }
     None
 }

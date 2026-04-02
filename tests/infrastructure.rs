@@ -179,7 +179,11 @@ fn migrate_encrypt_plaintext_cards() {
 
     let result = migration::migrate_encrypt_plaintext_cards(&key);
     assert_eq!(result.changed_count, 1);
-    assert!(result.warnings.is_empty(), "unexpected warnings: {:?}", result.warnings);
+    assert!(
+        result.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        result.warnings
+    );
 
     common::assert_file_missing(&json_path);
 
@@ -201,8 +205,15 @@ fn migrate_encrypt_plaintext_prompts() {
     std::fs::write(&json_path, &json).unwrap();
 
     let result = migration::migrate_encrypt_plaintext_prompts(&key);
-    assert_eq!(result.changed_count, 0, "clean migration should have changed_count 0 (warnings only)");
-    assert!(result.warnings.is_empty(), "unexpected warnings: {:?}", result.warnings);
+    assert_eq!(
+        result.changed_count, 0,
+        "clean migration should have changed_count 0 (warnings only)"
+    );
+    assert!(
+        result.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        result.warnings
+    );
 
     common::assert_file_missing(&json_path);
 
@@ -224,8 +235,15 @@ fn migrate_encrypt_plaintext_personas() {
     std::fs::write(&json_path, &json).unwrap();
 
     let result = migration::migrate_encrypt_plaintext_personas(&key);
-    assert_eq!(result.changed_count, 0, "clean migration should have changed_count 0 (warnings only)");
-    assert!(result.warnings.is_empty(), "unexpected warnings: {:?}", result.warnings);
+    assert_eq!(
+        result.changed_count, 0,
+        "clean migration should have changed_count 0 (warnings only)"
+    );
+    assert!(
+        result.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        result.warnings
+    );
 
     common::assert_file_missing(&json_path);
 
@@ -333,7 +351,11 @@ fn migrate_worldbook_normalization() {
     std::fs::write(&json_path, legacy_json.to_string()).unwrap();
 
     let result = migration::migrate_worldbook_normalization(Some(&key));
-    assert!(result.changed_count >= 1, "expected at least 1 rewrite, got {}", result.changed_count);
+    assert!(
+        result.changed_count >= 1,
+        "expected at least 1 rewrite, got {}",
+        result.changed_count
+    );
 
     common::assert_file_missing(&json_path);
     common::assert_file_exists(&encrypted_path);
@@ -368,7 +390,11 @@ user_persona = "A user migrated from config"
 
     let result = migration::migrate_personas_from_config(Some(&key));
     assert_eq!(result.changed_count, 1);
-    assert!(result.warnings.is_empty(), "unexpected warnings: {:?}", result.warnings);
+    assert!(
+        result.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        result.warnings
+    );
 
     let persona_path = config::personas_dir().join("ConfigUser.persona");
     common::assert_file_exists(&persona_path);
@@ -468,18 +494,28 @@ fn index_multiple_entity_types() {
     let wb_path = root.join("worldinfo").join("multi.worldbook");
     std::fs::write(&wb_path, b"w").expect("write wb");
     let w_stamp = index::file_stamp(&wb_path).expect("stamp");
-    index::upsert_worldbook(
-        &wb_path,
-        w_stamp,
-        "Multi Worldbook".to_string(),
-        None,
-    )
-    .expect("upsert worldbook");
+    index::upsert_worldbook(&wb_path, w_stamp, "Multi Worldbook".to_string(), None)
+        .expect("upsert worldbook");
 
     let loaded = index::load_index(None);
-    assert!(loaded.sessions.values().any(|e| e.display_name == "Multi Session"));
-    assert!(loaded.characters.values().any(|e| e.display_name == "Multi Char"));
-    assert!(loaded.worldbooks.values().any(|e| e.display_name == "Multi Worldbook"));
+    assert!(
+        loaded
+            .sessions
+            .values()
+            .any(|e| e.display_name == "Multi Session")
+    );
+    assert!(
+        loaded
+            .characters
+            .values()
+            .any(|e| e.display_name == "Multi Char")
+    );
+    assert!(
+        loaded
+            .worldbooks
+            .values()
+            .any(|e| e.display_name == "Multi Worldbook")
+    );
 }
 
 #[test]
@@ -504,7 +540,10 @@ fn index_remove_entries() {
     index::remove_session(&path, None).expect("remove");
 
     let loaded = index::load_index(None);
-    let found = loaded.sessions.values().any(|e| e.display_name == "Removable");
+    let found = loaded
+        .sessions
+        .values()
+        .any(|e| e.display_name == "Removable");
     assert!(!found, "removed session should not appear in index");
 }
 
@@ -594,7 +633,10 @@ fn index_file_stamp_changes() {
     std::fs::write(&path, b"modified content that is longer").expect("write modified");
     let stamp2 = index::file_stamp(&path).expect("stamp2");
 
-    assert_ne!(stamp1, stamp2, "stamps should differ after file modification");
+    assert_ne!(
+        stamp1, stamp2,
+        "stamps should differ after file modification"
+    );
 }
 
 #[test]

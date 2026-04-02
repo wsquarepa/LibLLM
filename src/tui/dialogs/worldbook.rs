@@ -25,7 +25,12 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
+    let dialog = clear_centered(
+        f,
+        super::LIST_DIALOG_WIDTH,
+        count as u16 + super::LIST_DIALOG_TALL_PADDING,
+        area,
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -54,12 +59,17 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("[G] Global  [S] Session  [ ] Off"),
-        Line::from("Up/Down: navigate  Enter: cycle  Right: edit"),
-        Line::from("a: add new  Del: delete  Esc: close"),
-        Line::from("Drop .json to import"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[
+            Line::from("[G] Global  [S] Session  [ ] Off"),
+            Line::from("Up/Down: navigate  Enter: cycle  Right: edit"),
+            Line::from("a: add new  Del: delete  Esc: close"),
+            Line::from("Drop .json to import"),
+        ],
+    );
 }
 
 pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -97,14 +107,20 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.invalidate_worldbook_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
                     if let Err(e) = crate::config::save(&app.config) {
-                        app.set_status(format!("Failed to save config: {e}"), super::super::StatusLevel::Error);
+                        app.set_status(
+                            format!("Failed to save config: {e}"),
+                            super::super::StatusLevel::Error,
+                        );
                     }
                 }
                 WorldbookState::Global => {
                     app.config.worldbooks.retain(|n| n != &name);
                     app.invalidate_worldbook_cache();
                     if let Err(e) = crate::config::save(&app.config) {
-                        app.set_status(format!("Failed to save config: {e}"), super::super::StatusLevel::Error);
+                        app.set_status(
+                            format!("Failed to save config: {e}"),
+                            super::super::StatusLevel::Error,
+                        );
                     }
                 }
             }
@@ -149,13 +165,22 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING + 2, area);
+    let dialog = clear_centered(
+        f,
+        super::FIELD_DIALOG_DEFAULT_WIDTH,
+        count as u16 + super::LIST_DIALOG_TALL_PADDING + 2,
+        area,
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
     let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
     let name_editing = app.worldbook_editor_name_editing;
-    let name_marker = if name_selected || name_editing { "> " } else { "  " };
+    let name_marker = if name_selected || name_editing {
+        "> "
+    } else {
+        "  "
+    };
     let name_flashing = name_editing && super::is_flash_active(app.input_reject_flash);
     let name_style = if name_flashing {
         Style::default()
@@ -178,8 +203,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     lines.push(Line::from(""));
 
     for (i, entry) in app.worldbook_editor_entries.iter().enumerate() {
-        let is_selected = i == app.worldbook_editor_selected
-            && !app.worldbook_editor_name_selected;
+        let is_selected = i == app.worldbook_editor_selected && !app.worldbook_editor_name_selected;
         let marker = if is_selected { "> " } else { "  " };
         let enabled = if entry.enabled { "+" } else { "-" };
         let label = if entry.keys.is_empty() {
@@ -210,15 +234,19 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     }
 
     let title = format!(" Worldbook ({count} entries) ");
-    let paragraph =
-        Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
+    let paragraph = Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Up/Down: navigate  Right/Enter: edit  a: add  Del: delete"),
-        Line::from("Esc: save & close"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[
+            Line::from("Up/Down: navigate  Right/Enter: edit  a: add  Del: delete"),
+            Line::from("Esc: save & close"),
+        ],
+    );
 }
 
 pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -292,7 +320,10 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             }
         }
         KeyCode::Down => {
-            super::move_selection_down(&mut app.worldbook_editor_selected, app.worldbook_editor_entries.len());
+            super::move_selection_down(
+                &mut app.worldbook_editor_selected,
+                app.worldbook_editor_entries.len(),
+            );
         }
         KeyCode::Right | KeyCode::Enter => {
             let idx = app.worldbook_editor_selected;
@@ -325,14 +356,15 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
 }
 
 fn create_and_edit_worldbook(app: &mut App) {
-    let existing: std::collections::HashSet<String> =
-        app.worldbook_list.iter().cloned().collect();
+    let existing: std::collections::HashSet<String> = app.worldbook_list.iter().cloned().collect();
     let new_name = super::generate_unique_name("worldbook", &existing);
     let wb = crate::worldinfo::WorldBook {
         name: new_name.clone(),
         entries: Vec::new(),
     };
-    if let Err(e) = crate::worldinfo::save_worldbook(&wb, &crate::config::worldinfo_dir(), app.save_mode.key()) {
+    if let Err(e) =
+        crate::worldinfo::save_worldbook(&wb, &crate::config::worldinfo_dir(), app.save_mode.key())
+    {
         app.set_status(
             format!("Failed to create worldbook: {e}"),
             super::super::StatusLevel::Error,
@@ -449,16 +481,16 @@ fn save_worldbook_editor(app: &mut App) {
     let original = app.worldbook_editor_original_name.clone();
     let new_name = app.worldbook_editor_name.clone();
 
-    if original == new_name
-        && app.worldbook_editor_entries == app.worldbook_editor_original_entries
+    if original == new_name && app.worldbook_editor_entries == app.worldbook_editor_original_entries
     {
-        app.set_status("No changes found.".to_owned(), super::super::StatusLevel::Info);
+        app.set_status(
+            "No changes found.".to_owned(),
+            super::super::StatusLevel::Info,
+        );
         return;
     }
 
-    if original != new_name
-        && app.worldbook_list.iter().any(|n| n == &new_name)
-    {
+    if original != new_name && app.worldbook_list.iter().any(|n| n == &new_name) {
         app.set_status(
             format!("Name '{new_name}' is already in use."),
             super::super::StatusLevel::Error,
@@ -567,7 +599,10 @@ pub(in crate::tui) fn handle_worldbook_paste(
             }
         }
         Err(e) => {
-            app.set_status(format!("Import error: {e}"), super::super::StatusLevel::Error);
+            app.set_status(
+                format!("Import error: {e}"),
+                super::super::StatusLevel::Error,
+            );
         }
     }
     true

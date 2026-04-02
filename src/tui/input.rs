@@ -16,8 +16,11 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let prefix = app.textarea.lines()[0].as_str();
-        let hidden: &[&str] =
-            if crate::config::load().debug_log { &[] } else { &["/report"] };
+        let hidden: &[&str] = if crate::config::load().debug_log {
+            &[]
+        } else {
+            &["/report"]
+        };
         let matches = crate::commands::matching_commands(
             prefix.split_whitespace().next().unwrap_or("/"),
             hidden,
@@ -402,9 +405,7 @@ pub fn handle_sidebar_paste(path: &std::path::Path, ext: &str, app: &mut App) ->
             let new_path = crate::config::sessions_dir().join(&new_name);
 
             let save_result = match &app.save_mode {
-                SaveMode::Encrypted { key, .. } => {
-                    session::save_encrypted(&new_path, &loaded, key)
-                }
+                SaveMode::Encrypted { key, .. } => session::save_encrypted(&new_path, &loaded, key),
                 _ => session::save(&new_path, &loaded),
             };
 

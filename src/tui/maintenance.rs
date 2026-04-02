@@ -162,10 +162,7 @@ fn spawn_plaintext_card_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<Ba
     });
 }
 
-fn spawn_system_prompt_setup(
-    key: Option<Arc<DerivedKey>>,
-    bg_tx: &mpsc::Sender<BackgroundEvent>,
-) {
+fn spawn_system_prompt_setup(key: Option<Arc<DerivedKey>>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::SystemPromptSetup, bg_tx, move || {
         crate::migration::migrate_system_prompts_from_config(key.as_deref());
         crate::system_prompt::ensure_builtin_prompts(
@@ -180,24 +177,22 @@ fn spawn_system_prompt_setup(
     });
 }
 
-fn spawn_plaintext_prompt_encryption(
-    key: Arc<DerivedKey>,
-    bg_tx: &mpsc::Sender<BackgroundEvent>,
-) {
-    spawn_job(MaintenanceJob::PlaintextPromptEncryption, bg_tx, move || {
-        let result = crate::migration::migrate_encrypt_plaintext_prompts(&key);
-        MaintenanceUpdate {
-            job: MaintenanceJob::PlaintextPromptEncryption,
-            changed_count: result.changed_count,
-            warnings: result.warnings,
-        }
-    });
+fn spawn_plaintext_prompt_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
+    spawn_job(
+        MaintenanceJob::PlaintextPromptEncryption,
+        bg_tx,
+        move || {
+            let result = crate::migration::migrate_encrypt_plaintext_prompts(&key);
+            MaintenanceUpdate {
+                job: MaintenanceJob::PlaintextPromptEncryption,
+                changed_count: result.changed_count,
+                warnings: result.warnings,
+            }
+        },
+    );
 }
 
-fn spawn_persona_migration(
-    key: Option<Arc<DerivedKey>>,
-    bg_tx: &mpsc::Sender<BackgroundEvent>,
-) {
+fn spawn_persona_migration(key: Option<Arc<DerivedKey>>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::PersonaMigration, bg_tx, move || {
         let result = crate::migration::migrate_personas_from_config(key.as_deref());
         MaintenanceUpdate {
@@ -208,18 +203,19 @@ fn spawn_persona_migration(
     });
 }
 
-fn spawn_plaintext_persona_encryption(
-    key: Arc<DerivedKey>,
-    bg_tx: &mpsc::Sender<BackgroundEvent>,
-) {
-    spawn_job(MaintenanceJob::PlaintextPersonaEncryption, bg_tx, move || {
-        let result = crate::migration::migrate_encrypt_plaintext_personas(&key);
-        MaintenanceUpdate {
-            job: MaintenanceJob::PlaintextPersonaEncryption,
-            changed_count: result.changed_count,
-            warnings: result.warnings,
-        }
-    });
+fn spawn_plaintext_persona_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
+    spawn_job(
+        MaintenanceJob::PlaintextPersonaEncryption,
+        bg_tx,
+        move || {
+            let result = crate::migration::migrate_encrypt_plaintext_personas(&key);
+            MaintenanceUpdate {
+                job: MaintenanceJob::PlaintextPersonaEncryption,
+                changed_count: result.changed_count,
+                warnings: result.warnings,
+            }
+        },
+    );
 }
 
 fn spawn_index_rename(bg_tx: &mpsc::Sender<BackgroundEvent>) {
@@ -233,10 +229,7 @@ fn spawn_index_rename(bg_tx: &mpsc::Sender<BackgroundEvent>) {
     });
 }
 
-fn spawn_plaintext_index_encryption(
-    key: Arc<DerivedKey>,
-    bg_tx: &mpsc::Sender<BackgroundEvent>,
-) {
+fn spawn_plaintext_index_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::PlaintextIndexEncryption, bg_tx, move || {
         let result = crate::migration::migrate_encrypt_plaintext_index(&key);
         MaintenanceUpdate {
@@ -314,10 +307,8 @@ pub(in crate::tui) fn reload_worldbook_picker(app: &mut App) {
 
 pub(in crate::tui) fn reload_persona_picker(app: &mut App) {
     let selected_name = app.persona_list.get(app.persona_selected).cloned();
-    let personas = crate::persona::list_personas(
-        &crate::config::personas_dir(),
-        app.save_mode.key(),
-    );
+    let personas =
+        crate::persona::list_personas(&crate::config::personas_dir(), app.save_mode.key());
 
     app.persona_list = personas.into_iter().map(|p| p.name).collect();
     app.persona_selected = selected_name
@@ -331,7 +322,10 @@ pub(in crate::tui) fn reload_persona_picker(app: &mut App) {
 }
 
 pub(in crate::tui) fn reload_system_prompt_picker(app: &mut App) {
-    let selected_name = app.system_prompt_list.get(app.system_prompt_selected).cloned();
+    let selected_name = app
+        .system_prompt_list
+        .get(app.system_prompt_selected)
+        .cloned();
     let prompts = crate::system_prompt::list_prompts(
         &crate::config::system_prompts_dir(),
         app.save_mode.key(),

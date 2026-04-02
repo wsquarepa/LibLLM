@@ -31,10 +31,8 @@ pub fn create_data_dirs(root: &Path) {
 /// The salt is written to `root/.salt`. Returns the derived key.
 pub fn test_key(root: &Path) -> DerivedKey {
     let salt_path = root.join(".salt");
-    let salt = libllm::crypto::load_or_create_salt(&salt_path)
-        .expect("failed to create salt");
-    libllm::crypto::derive_key("test-passkey", &salt)
-        .expect("failed to derive key")
+    let salt = libllm::crypto::load_or_create_salt(&salt_path).expect("failed to create salt");
+    libllm::crypto::derive_key("test-passkey", &salt).expect("failed to derive key")
 }
 
 /// Build a user message.
@@ -212,5 +210,9 @@ pub fn assert_file_exists(path: &Path) {
 
 /// Assert that a file does NOT exist at the given path.
 pub fn assert_file_missing(path: &Path) {
-    assert!(!path.exists(), "expected file to not exist: {}", path.display());
+    assert!(
+        !path.exists(),
+        "expected file to not exist: {}",
+        path.display()
+    );
 }

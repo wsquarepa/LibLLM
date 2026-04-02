@@ -29,15 +29,13 @@ fn apply_template_vars_basic_char() {
 
 #[test]
 fn apply_template_vars_both_variables() {
-    let result =
-        business::apply_template_vars("{{user}} talks to {{char}}", "Alice", "Bob");
+    let result = business::apply_template_vars("{{user}} talks to {{char}}", "Alice", "Bob");
     assert_eq!(result, "Bob talks to Alice");
 }
 
 #[test]
 fn apply_template_vars_multiple_occurrences() {
-    let result =
-        business::apply_template_vars("{{char}} meets {{char}}", "Alice", "Bob");
+    let result = business::apply_template_vars("{{char}} meets {{char}}", "Alice", "Bob");
     assert_eq!(result, "Alice meets Alice");
 }
 

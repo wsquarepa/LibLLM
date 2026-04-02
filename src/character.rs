@@ -14,7 +14,13 @@ const MAX_IMPORT_NAME_LENGTH: usize = 32;
 
 fn sanitize_display(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_control() && c != '\n' { '\u{FFFD}' } else { c })
+        .map(|c| {
+            if c.is_control() && c != '\n' {
+                '\u{FFFD}'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 

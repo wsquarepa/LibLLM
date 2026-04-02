@@ -31,13 +31,17 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
         lines.push(Line::from(Span::styled(format!("{marker}{label}"), style)));
     }
 
-    let paragraph = Paragraph::new(Text::from(lines)).block(dialog_block(" Select Branch ", Color::Yellow));
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Select Branch ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Up/Down: navigate  Enter: select  Esc: cancel"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[Line::from("Up/Down: navigate  Enter: select  Esc: cancel")],
+    );
 }
 
 pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -53,7 +57,10 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             super::move_selection_up(&mut app.branch_dialog_selected);
         }
         KeyCode::Down => {
-            super::move_selection_down(&mut app.branch_dialog_selected, app.branch_dialog_items.len());
+            super::move_selection_down(
+                &mut app.branch_dialog_selected,
+                app.branch_dialog_items.len(),
+            );
         }
         KeyCode::Enter => {
             let (node_id, _) = app.branch_dialog_items[app.branch_dialog_selected];

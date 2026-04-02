@@ -7,13 +7,14 @@ use ratatui::widgets::Paragraph;
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
-pub(in crate::tui) fn render_persona_dialog(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.persona_list.len();
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
+    let dialog = clear_centered(
+        f,
+        super::LIST_DIALOG_WIDTH,
+        count as u16 + super::LIST_DIALOG_TALL_PADDING,
+        area,
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -38,22 +39,24 @@ pub(in crate::tui) fn render_persona_dialog(
         )));
     }
 
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(dialog_block(" Personas ", Color::Yellow));
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Personas ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
-        Line::from("a: add new  Del: delete  Esc: cancel"),
-        Line::from("Drop .txt to import"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[
+            Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+            Line::from("a: add new  Del: delete  Esc: cancel"),
+            Line::from("Drop .txt to import"),
+        ],
+    );
 }
 
-pub(in crate::tui) fn handle_persona_dialog_key(
-    key: KeyEvent,
-    app: &mut App,
-) -> Option<Action> {
+pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.persona_list.is_empty() {
         match key.code {
             KeyCode::Char('a') => {
@@ -149,8 +152,7 @@ fn open_persona_editor(app: &mut App, file_name: &str) {
 
 fn create_and_edit_persona(app: &mut App) {
     let dir = crate::config::personas_dir();
-    let existing: std::collections::HashSet<String> =
-        app.persona_list.iter().cloned().collect();
+    let existing: std::collections::HashSet<String> = app.persona_list.iter().cloned().collect();
     let new_name = super::generate_unique_name("persona", &existing);
     let persona = crate::persona::PersonaFile {
         name: new_name.clone(),
@@ -167,7 +169,6 @@ fn create_and_edit_persona(app: &mut App) {
     app.persona_selected = app.persona_list.len() - 1;
     open_persona_editor(app, &new_name);
 }
-
 
 pub(in crate::tui) fn handle_persona_paste(
     path: &std::path::Path,
@@ -191,7 +192,10 @@ pub(in crate::tui) fn handle_persona_paste(
             return true;
         }
         Err(e) => {
-            app.set_status(format!("Cannot read file: {e}"), super::super::StatusLevel::Error);
+            app.set_status(
+                format!("Cannot read file: {e}"),
+                super::super::StatusLevel::Error,
+            );
             return true;
         }
         _ => {}
@@ -200,7 +204,10 @@ pub(in crate::tui) fn handle_persona_paste(
     let stem = match path.file_stem().and_then(|s| s.to_str()) {
         Some(s) => s,
         None => {
-            app.set_status("Invalid filename.".to_owned(), super::super::StatusLevel::Error);
+            app.set_status(
+                "Invalid filename.".to_owned(),
+                super::super::StatusLevel::Error,
+            );
             return true;
         }
     };

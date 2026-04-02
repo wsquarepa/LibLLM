@@ -7,13 +7,14 @@ use ratatui::widgets::Paragraph;
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
-pub(in crate::tui) fn render_system_prompt_dialog(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.system_prompt_list.len();
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, count as u16 + super::LIST_DIALOG_TALL_PADDING, area);
+    let dialog = clear_centered(
+        f,
+        super::LIST_DIALOG_WIDTH,
+        count as u16 + super::LIST_DIALOG_TALL_PADDING,
+        area,
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -30,16 +31,21 @@ pub(in crate::tui) fn render_system_prompt_dialog(
         lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
     }
 
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(dialog_block(" System Prompts ", Color::Yellow));
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" System Prompts ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[
-        Line::from("Up/Down: navigate  Enter: select  Right: edit"),
-        Line::from("a: add new  Del: delete  Esc: cancel"),
-        Line::from("Drop .txt to import"),
-    ]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[
+            Line::from("Up/Down: navigate  Enter: select  Right: edit"),
+            Line::from("a: add new  Del: delete  Esc: cancel"),
+            Line::from("Drop .txt to import"),
+        ],
+    );
 }
 
 pub(in crate::tui) fn handle_system_prompt_dialog_key(
@@ -58,7 +64,10 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             super::move_selection_up(&mut app.system_prompt_selected);
         }
         KeyCode::Down => {
-            super::move_selection_down(&mut app.system_prompt_selected, app.system_prompt_list.len());
+            super::move_selection_down(
+                &mut app.system_prompt_selected,
+                app.system_prompt_list.len(),
+            );
         }
         KeyCode::Enter => {
             let name = app.system_prompt_list[app.system_prompt_selected].clone();
@@ -125,9 +134,8 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
 
 fn open_prompt_editor(app: &mut App, name: &str) {
     let dir = crate::config::system_prompts_dir();
-    let content =
-        crate::system_prompt::load_prompt_content(&dir, name, app.save_mode.key())
-            .unwrap_or_default();
+    let content = crate::system_prompt::load_prompt_content(&dir, name, app.save_mode.key())
+        .unwrap_or_default();
 
     let values = vec![name.to_owned(), content];
     let is_builtin = name == crate::system_prompt::BUILTIN_ASSISTANT
@@ -144,7 +152,6 @@ fn open_prompt_editor(app: &mut App, name: &str) {
     app.system_editor_return_focus = Focus::SystemPromptDialog;
     app.focus = Focus::SystemPromptEditorDialog;
 }
-
 
 pub(in crate::tui) fn handle_system_prompt_paste(
     path: &std::path::Path,
@@ -168,7 +175,10 @@ pub(in crate::tui) fn handle_system_prompt_paste(
             return true;
         }
         Err(e) => {
-            app.set_status(format!("Cannot read file: {e}"), super::super::StatusLevel::Error);
+            app.set_status(
+                format!("Cannot read file: {e}"),
+                super::super::StatusLevel::Error,
+            );
             return true;
         }
         _ => {}
@@ -177,7 +187,10 @@ pub(in crate::tui) fn handle_system_prompt_paste(
     let stem = match path.file_stem().and_then(|s| s.to_str()) {
         Some(s) => s,
         None => {
-            app.set_status("Invalid filename.".to_owned(), super::super::StatusLevel::Error);
+            app.set_status(
+                "Invalid filename.".to_owned(),
+                super::super::StatusLevel::Error,
+            );
             return true;
         }
     };

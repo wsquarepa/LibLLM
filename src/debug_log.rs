@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use sysinfo::{RefreshKind, System};
-use time::macros::format_description;
 use time::UtcOffset;
+use time::macros::format_description;
 
 const TEMP_LOG_PREFIX: &str = "libllm-debug-";
 const DEFAULT_TIMESTAMP: &str = "1970-01-01 00:00:00.000 +00:00";

@@ -111,9 +111,12 @@ pub(in crate::tui) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &Ap
     f.render_widget(paragraph, dialog);
 
     if !app.set_passkey_deriving && app.set_passkey_error.is_empty() {
-        render_hints_below_dialog(f, dialog, area, &[
-            Line::from("Tab: switch field  Enter: submit  Esc: cancel"),
-        ]);
+        render_hints_below_dialog(
+            f,
+            dialog,
+            area,
+            &[Line::from("Tab: switch field  Enter: submit  Esc: cancel")],
+        );
     }
 }
 
@@ -162,41 +165,35 @@ pub(in crate::tui) fn handle_set_passkey_key(
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {
-                    super::derive_key_blocking(
-                        passkey,
-                        debug_kind,
-                        |derived_key, check_path| {
-                            if is_initial {
-                                let fingerprint_start = std::time::Instant::now();
-                                let fingerprint_result =
-                                    crate::crypto::set_key_fingerprint(check_path, &derived_key);
-                                let fingerprint_status = if fingerprint_result.is_ok() {
-                                    "ok"
-                                } else {
-                                    "error"
-                                };
-                                super::log_phase_with_path(
-                                    debug_kind,
-                                    "fingerprint",
-                                    fingerprint_status,
-                                    fingerprint_start.elapsed(),
-                                    check_path.display(),
-                                );
-                                match fingerprint_result {
-                                    Ok(()) => {
-                                        let key = std::sync::Arc::new(derived_key);
-                                        BackgroundEvent::PasskeySet(key)
-                                    }
-                                    Err(err) => {
-                                        BackgroundEvent::PasskeySetFailed(err.to_string())
-                                    }
-                                }
+                    super::derive_key_blocking(passkey, debug_kind, |derived_key, check_path| {
+                        if is_initial {
+                            let fingerprint_start = std::time::Instant::now();
+                            let fingerprint_result =
+                                crate::crypto::set_key_fingerprint(check_path, &derived_key);
+                            let fingerprint_status = if fingerprint_result.is_ok() {
+                                "ok"
                             } else {
-                                let key = std::sync::Arc::new(derived_key);
-                                BackgroundEvent::PasskeySet(key)
+                                "error"
+                            };
+                            super::log_phase_with_path(
+                                debug_kind,
+                                "fingerprint",
+                                fingerprint_status,
+                                fingerprint_start.elapsed(),
+                                check_path.display(),
+                            );
+                            match fingerprint_result {
+                                Ok(()) => {
+                                    let key = std::sync::Arc::new(derived_key);
+                                    BackgroundEvent::PasskeySet(key)
+                                }
+                                Err(err) => BackgroundEvent::PasskeySetFailed(err.to_string()),
                             }
-                        },
-                    )
+                        } else {
+                            let key = std::sync::Arc::new(derived_key);
+                            BackgroundEvent::PasskeySet(key)
+                        }
+                    })
                 })
                 .await
                 {

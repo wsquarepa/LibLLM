@@ -25,7 +25,10 @@ fn character_plaintext_round_trip() {
     assert_eq!(loaded.first_mes, card.first_mes);
     assert_eq!(loaded.mes_example, card.mes_example);
     assert_eq!(loaded.system_prompt, card.system_prompt);
-    assert_eq!(loaded.post_history_instructions, card.post_history_instructions);
+    assert_eq!(
+        loaded.post_history_instructions,
+        card.post_history_instructions
+    );
     assert_eq!(loaded.alternate_greetings, card.alternate_greetings);
 }
 
@@ -266,7 +269,10 @@ fn worldbook_selective_entries() {
 
     let only_primary = vec!["The king walked through town"];
     let activated = worldinfo::scan_runtime_entries(&runtime, &only_primary);
-    assert!(activated.is_empty(), "should not activate with only primary key");
+    assert!(
+        activated.is_empty(),
+        "should not activate with only primary key"
+    );
 
     let both_keys = vec!["The king returned to the castle"];
     let activated = worldinfo::scan_runtime_entries(&runtime, &both_keys);
@@ -345,7 +351,11 @@ fn worldbook_case_sensitivity() {
     let messages = vec!["I saw a dragon and an elf"];
     let activated = worldinfo::scan_runtime_entries(&runtime, &messages);
 
-    assert_eq!(activated.len(), 1, "only case-insensitive should match lowercase");
+    assert_eq!(
+        activated.len(),
+        1,
+        "only case-insensitive should match lowercase"
+    );
     assert_eq!(activated[0].content, "Case insensitive entry");
 }
 
@@ -420,7 +430,11 @@ fn worldbook_depth_filtering() {
     ];
     let activated = worldinfo::scan_runtime_entries(&runtime, &messages);
 
-    assert_eq!(activated.len(), 2, "both entries should match since keyword is in recent message");
+    assert_eq!(
+        activated.len(),
+        2,
+        "both entries should match since keyword is in recent message"
+    );
 
     let far_messages = vec![
         "Message with keyword here",
@@ -481,8 +495,14 @@ fn system_prompt_ensure_builtins() {
     let entries = system_prompt::list_prompts(&dir, None);
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
 
-    assert!(names.contains(&"assistant"), "should contain assistant builtin");
-    assert!(names.contains(&"roleplay"), "should contain roleplay builtin");
+    assert!(
+        names.contains(&"assistant"),
+        "should contain assistant builtin"
+    );
+    assert!(
+        names.contains(&"roleplay"),
+        "should contain roleplay builtin"
+    );
 }
 
 #[test]
@@ -493,12 +513,10 @@ fn system_prompt_builtin_idempotency() {
     let dir = root.join("system");
 
     system_prompt::ensure_builtin_prompts(&dir, None);
-    let content_first =
-        system_prompt::load_prompt_content(&dir, "assistant", None).unwrap();
+    let content_first = system_prompt::load_prompt_content(&dir, "assistant", None).unwrap();
 
     system_prompt::ensure_builtin_prompts(&dir, None);
-    let content_second =
-        system_prompt::load_prompt_content(&dir, "assistant", None).unwrap();
+    let content_second = system_prompt::load_prompt_content(&dir, "assistant", None).unwrap();
 
     assert_eq!(content_first, content_second);
 }

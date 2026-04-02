@@ -373,10 +373,14 @@ fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
 
 fn cmd_system(app: &mut App) {
     if app.cli_overrides.system_prompt.is_some() {
-        let content = app.session.system_prompt.as_deref().unwrap_or("").to_owned();
+        let content = app
+            .session
+            .system_prompt
+            .as_deref()
+            .unwrap_or("")
+            .to_owned();
         let values = vec!["(set via -r)".to_owned(), content];
-        let dialog = dialogs::open_system_prompt_editor(values)
-            .with_locked_fields(vec![0, 1]);
+        let dialog = dialogs::open_system_prompt_editor(values).with_locked_fields(vec![0, 1]);
         app.system_prompt_editor = Some(dialog);
         app.system_editor_read_only = true;
         app.system_editor_prompt_name = String::new();
@@ -473,27 +477,22 @@ fn cmd_persona(app: &mut App) {
         };
         let all_locked = vec![0, 1];
         app.persona_editor_file_name = persona_name.clone();
-        app.persona_editor = Some(
-            dialogs::open_persona_editor(values).with_locked_fields(all_locked),
-        );
+        app.persona_editor =
+            Some(dialogs::open_persona_editor(values).with_locked_fields(all_locked));
         app.focus = Focus::PersonaEditorDialog;
         return;
     }
 
-    let personas = crate::persona::list_personas(
-        &crate::config::personas_dir(),
-        app.save_mode.key(),
-    );
+    let personas =
+        crate::persona::list_personas(&crate::config::personas_dir(), app.save_mode.key());
     app.persona_list = personas.into_iter().map(|p| p.name).collect();
     app.persona_selected = 0;
     app.focus = Focus::PersonaDialog;
 }
 
 fn cmd_worldbook(app: &mut App) {
-    let books = crate::worldinfo::list_worldbooks(
-        &crate::config::worldinfo_dir(),
-        app.save_mode.key(),
-    );
+    let books =
+        crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
     if books.is_empty() {
         app.set_status(
             "No worldbooks found in worldinfo/ directory.".to_owned(),
@@ -507,10 +506,7 @@ fn cmd_worldbook(app: &mut App) {
 }
 
 fn cmd_character(app: &mut App) {
-    let cards = crate::character::list_cards(
-        &crate::config::characters_dir(),
-        app.save_mode.key(),
-    );
+    let cards = crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
     if cards.is_empty() {
         app.set_status(
             "No characters found. Drop a .png or .json file to import.".to_owned(),
@@ -617,7 +613,8 @@ pub(super) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender
     let worldbooks = loaded_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt = super::business::build_effective_system_prompt(app.session, app.save_mode.key());
+    let effective_prompt =
+        super::business::build_effective_system_prompt(app.session, app.save_mode.key());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = super::business::inject_loaded_worldbook_entries(
         app.session,
@@ -975,8 +972,7 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
             generation: _generation,
             loaded_count: _loaded_count,
             failed_count: _failed_count,
-        } =>
-        {
+        } => {
             if let Some(debug) = app.hydration_debug.as_mut() {
                 if debug.generation == _generation {
                     debug.completed += _loaded_count;

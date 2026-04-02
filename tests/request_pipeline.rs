@@ -1,9 +1,7 @@
 mod common;
 
 use libllm::context::ContextManager;
-use libllm::preset::{
-    self, ContextVars, InstructPreset,
-};
+use libllm::preset::{self, ContextVars, InstructPreset};
 use libllm::sampling::{SamplingOverrides, SamplingParams};
 
 // ---------------------------------------------------------------------------
@@ -13,16 +11,16 @@ use libllm::sampling::{SamplingOverrides, SamplingParams};
 #[test]
 fn raw_preset_render() {
     let preset = InstructPreset::raw();
-    let msgs = vec![
-        common::user_msg("Hello"),
-        common::assistant_msg("Hi there"),
-    ];
+    let msgs = vec![common::user_msg("Hello"), common::assistant_msg("Hi there")];
     let refs: Vec<&_> = msgs.iter().collect();
     let output = preset.render(&refs, None);
 
     assert!(output.contains("Hello"), "user content missing");
     assert!(output.contains("Hi there"), "assistant content missing");
-    assert!(!output.contains("<|"), "raw preset should not contain special tokens");
+    assert!(
+        !output.contains("<|"),
+        "raw preset should not contain special tokens"
+    );
 }
 
 #[test]
@@ -38,8 +36,14 @@ fn chatml_render() {
 
     assert!(output.contains("<|im_start|>system"), "missing system tag");
     assert!(output.contains("<|im_start|>user"), "missing user tag");
-    assert!(output.contains("<|im_start|>assistant"), "missing assistant tag");
-    assert!(output.contains("You are helpful."), "system content missing");
+    assert!(
+        output.contains("<|im_start|>assistant"),
+        "missing assistant tag"
+    );
+    assert!(
+        output.contains("You are helpful."),
+        "system content missing"
+    );
     assert!(output.contains("Hi"), "user content missing");
     assert!(output.contains("Hello!"), "assistant content missing");
     assert!(output.contains("<|im_end|>"), "missing im_end tag");
@@ -48,10 +52,7 @@ fn chatml_render() {
 #[test]
 fn llama3_render() {
     let preset = preset::resolve_instruct_preset("Llama 3 Instruct");
-    let msgs = vec![
-        common::user_msg("Hi"),
-        common::assistant_msg("Hello!"),
-    ];
+    let msgs = vec![common::user_msg("Hi"), common::assistant_msg("Hello!")];
     let refs: Vec<&_> = msgs.iter().collect();
     let output = preset.render(&refs, Some("System text"));
 
@@ -80,8 +81,14 @@ fn system_prompt_injection() {
     let without = preset.render(&refs, None);
     let with = preset.render(&refs, Some("Be helpful."));
 
-    assert!(!without.contains("Be helpful."), "system prompt should be absent");
-    assert!(with.contains("Be helpful."), "system prompt should be present");
+    assert!(
+        !without.contains("Be helpful."),
+        "system prompt should be absent"
+    );
+    assert!(
+        with.contains("Be helpful."),
+        "system prompt should be present"
+    );
 }
 
 #[test]
@@ -134,7 +141,10 @@ fn empty_message_list_with_system_prompt() {
     let preset = preset::resolve_instruct_preset("ChatML");
     let refs: Vec<&libllm::session::Message> = Vec::new();
     let output = preset.render(&refs, Some("System"));
-    assert!(output.contains("System"), "system prompt should appear even with no messages");
+    assert!(
+        output.contains("System"),
+        "system prompt should appear even with no messages"
+    );
 }
 
 #[test]
@@ -151,14 +161,19 @@ fn multi_turn_conversation() {
     let refs: Vec<&_> = msgs.iter().collect();
     let output = preset.render(&refs, None);
 
-    for content in &["Turn 1", "Reply 1", "Turn 2", "Reply 2", "Turn 3", "Reply 3"] {
+    for content in &[
+        "Turn 1", "Reply 1", "Turn 2", "Reply 2", "Turn 3", "Reply 3",
+    ] {
         assert!(output.contains(content), "missing content: {content}");
     }
 
     let user_count = output.matches("<|im_start|>user").count();
     let assistant_count = output.matches("<|im_start|>assistant").count();
     assert_eq!(user_count, 3, "expected 3 user tags, got {user_count}");
-    assert_eq!(assistant_count, 3, "expected 3 assistant tags, got {assistant_count}");
+    assert_eq!(
+        assistant_count, 3,
+        "expected 3 assistant tags, got {assistant_count}"
+    );
 }
 
 #[test]
@@ -171,7 +186,10 @@ fn special_characters_in_messages() {
     let refs: Vec<&_> = msgs.iter().collect();
     let output = preset.render(&refs, None);
 
-    assert!(output.contains("line1\nline2\nline3"), "newlines should be preserved");
+    assert!(
+        output.contains("line1\nline2\nline3"),
+        "newlines should be preserved"
+    );
     assert!(
         output.contains("<tag>content</tag> | pipe | test"),
         "angle brackets and pipes should be preserved"
@@ -185,7 +203,10 @@ fn special_characters_in_messages() {
 #[test]
 fn all_template_presets_load() {
     let names = preset::list_template_preset_names();
-    assert!(!names.is_empty(), "should have at least one template preset");
+    assert!(
+        !names.is_empty(),
+        "should have at least one template preset"
+    );
     for name in &names {
         let _p = preset::resolve_template_preset(name);
     }
@@ -226,7 +247,10 @@ fn render_story_string_populated() {
         ("wi_after", "WiAfterText"),
     ];
     for (label, text) in &expected_vars {
-        assert!(output.contains(text), "{label} not substituted, output: {output:?}");
+        assert!(
+            output.contains(text),
+            "{label} not substituted, output: {output:?}"
+        );
     }
 }
 
@@ -372,7 +396,10 @@ fn token_estimation_empty_message() {
     let refs: Vec<&_> = vec![&msg];
 
     let estimated = ContextManager::estimate_message_tokens(&refs);
-    assert_eq!(estimated, 4, "empty message should still count 4 overhead tokens");
+    assert_eq!(
+        estimated, 4,
+        "empty message should still count 4 overhead tokens"
+    );
 }
 
 #[test]
@@ -468,10 +495,7 @@ fn single_message_exceeding_limit() {
 fn two_messages_exceeding_limit() {
     let ctx = ContextManager::default();
     let huge = "x".repeat(100_000);
-    let msgs = vec![
-        common::user_msg(&huge),
-        common::assistant_msg(&huge),
-    ];
+    let msgs = vec![common::user_msg(&huge), common::assistant_msg(&huge)];
     let refs: Vec<&_> = msgs.iter().collect();
 
     let truncated = ctx.truncated_path(&refs);

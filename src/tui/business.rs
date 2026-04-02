@@ -83,7 +83,11 @@ pub fn build_effective_system_prompt(
     }
     if has_persona {
         let pf = persona.as_ref().unwrap();
-        let name = if pf.name.is_empty() { "the user" } else { &pf.name };
+        let name = if pf.name.is_empty() {
+            "the user"
+        } else {
+            &pf.name
+        };
         let mut persona_line = format!("The user's name is {name}.");
         if !pf.persona.is_empty() {
             persona_line.push_str(&format!(" {}", pf.persona));
@@ -96,7 +100,13 @@ pub fn build_effective_system_prompt(
         let char_name = session.character.as_deref().unwrap_or("");
         let user_name = persona
             .as_ref()
-            .and_then(|p| if p.name.is_empty() { None } else { Some(p.name.as_str()) })
+            .and_then(|p| {
+                if p.name.is_empty() {
+                    None
+                } else {
+                    Some(p.name.as_str())
+                }
+            })
             .unwrap_or("User");
         result = apply_template_vars(&result, char_name, user_name);
     }
@@ -225,7 +235,10 @@ pub fn load_config_fields(
         // [1] Spacer
         String::new(),
         // [2] Template preset
-        cfg.template_preset.as_deref().unwrap_or("Default").to_owned(),
+        cfg.template_preset
+            .as_deref()
+            .unwrap_or("Default")
+            .to_owned(),
         // [3] Instruct preset
         overrides
             .template
@@ -341,10 +354,7 @@ fn parse_i64_clamped(s: &str, min: i64, max: i64) -> Option<i64> {
     s.parse::<i64>().ok().map(|v| v.clamp(min, max))
 }
 
-pub fn save_config_from_fields(
-    fields: &[String],
-    locked: &[usize],
-) -> anyhow::Result<()> {
+pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::Result<()> {
     let existing = crate::config::load();
     let max_tokens: Option<i64> = if locked.contains(&12) {
         existing.sampling.max_tokens
@@ -451,7 +461,9 @@ pub(super) fn apply_config(app: &mut App) {
 
 pub(super) fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona {
-        if let Some(path) = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name) {
+        if let Some(path) =
+            crate::persona::resolve_persona_path(&crate::config::personas_dir(), name)
+        {
             if let Ok(pf) = crate::persona::load_persona(&path, app.save_mode.key()) {
                 app.active_persona_name = Some(pf.name);
                 app.active_persona_desc = Some(pf.persona);
@@ -510,7 +522,10 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
             .map(|n| format!(" ({n})"))
             .unwrap_or_default();
         entry.sidebar_label = format!("[{idx}] {}{count_str}", entry.display_name);
-        entry.sidebar_preview = entry.last_assistant_preview.as_deref().map(truncate_preview);
+        entry.sidebar_preview = entry
+            .last_assistant_preview
+            .as_deref()
+            .map(truncate_preview);
     }
 }
 
@@ -529,7 +544,9 @@ pub(super) fn refresh_sidebar(app: &mut App) {
                 entry.message_count = cached.message_count;
             }
             if cached.last_assistant_preview.is_some() {
-                entry.last_assistant_preview.clone_from(&cached.last_assistant_preview);
+                entry
+                    .last_assistant_preview
+                    .clone_from(&cached.last_assistant_preview);
             }
         }
     }

@@ -64,13 +64,11 @@ fn build_client() -> Result<reqwest::Client> {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT,
-        "application/vnd.github+json"
-            .parse()
-            .expect("valid header value"),
+        reqwest::header::HeaderValue::from_static("application/vnd.github+json"),
     );
     headers.insert(
         reqwest::header::USER_AGENT,
-        "libllm-updater".parse().expect("valid header value"),
+        reqwest::header::HeaderValue::from_static("libllm-updater"),
     );
 
     if let Some(token) = github_token() {
@@ -99,9 +97,9 @@ fn current_exe_path() -> Result<PathBuf> {
 
 fn resolve_target_channel(switch_to_nightly: bool) -> Result<UpdateChannel> {
     match CHANNEL {
-        "unknown" => anyhow::bail!(
-            "This build was not installed from a release. Use install.sh to install."
-        ),
+        "unknown" => {
+            anyhow::bail!("This build was not installed from a release. Use install.sh to install.")
+        }
         "preview" | "nightly" => {
             if switch_to_nightly {
                 anyhow::bail!("Already on nightly.");
@@ -144,7 +142,7 @@ async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
     resp.json().await.context("failed to parse release JSON")
 }
 
-fn find_asset<'a>(release: &'a Release) -> Result<&'a Asset> {
+fn find_asset(release: &Release) -> Result<&Asset> {
     let expected_name = if cfg!(target_os = "windows") {
         format!("libllm-{TARGET}.exe")
     } else {
@@ -169,7 +167,8 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
         .context("failed to download binary")?;
     if !download_resp.status().is_success() {
         let status = download_resp.status();
-        anyhow::bail!("download failed with status {status}");
+        let body = download_resp.text().await.unwrap_or_default();
+        anyhow::bail!("download failed with status {status}: {body}");
     }
 
     let bytes = download_resp
@@ -236,7 +235,10 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
-    let remote_version = release.tag_name.strip_prefix('v').unwrap_or(&release.tag_name);
+    let remote_version = release
+        .tag_name
+        .strip_prefix('v')
+        .unwrap_or(&release.tag_name);
     if remote_version == CURRENT_VERSION {
         println!("Already up to date (v{CURRENT_VERSION}).");
         return Ok(());

@@ -94,8 +94,7 @@ pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandI
         .iter()
         .filter(|c| {
             !hidden.contains(&c.name)
-                && (c.name.starts_with(prefix)
-                    || c.aliases.iter().any(|a| a.starts_with(prefix)))
+                && (c.name.starts_with(prefix) || c.aliases.iter().any(|a| a.starts_with(prefix)))
         })
         .collect()
 }

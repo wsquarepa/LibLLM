@@ -107,12 +107,8 @@ const CONFIG_BOOLEAN_FIELDS: &[usize] = &[13, 14];
 const CONFIG_SEPARATOR_FIELDS: &[usize] = &[1, 5];
 const CONFIG_SELECTOR_FIELDS: &[usize] = &[2, 3, 4];
 
-const TEMPLATE_EDITOR_FIELDS: &[&str] = &[
-    "Name",
-    "Story String",
-    "Example Separator",
-    "Chat Start",
-];
+const TEMPLATE_EDITOR_FIELDS: &[&str] =
+    &["Name", "Story String", "Example Separator", "Chat Start"];
 const TEMPLATE_EDITOR_MULTILINE: &[usize] = &[1];
 
 const INSTRUCT_EDITOR_FIELDS: &[&str] = &[
@@ -165,10 +161,7 @@ const ENTRY_EDITOR_FIELDS: &[&str] = &[
 const ENTRY_EDITOR_MULTILINE: &[usize] = &[1];
 const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
 
-pub fn open_config_editor(
-    values: Vec<String>,
-    locked_fields: Vec<usize>,
-) -> FieldDialog<'static> {
+pub fn open_config_editor(values: Vec<String>, locked_fields: Vec<usize>) -> FieldDialog<'static> {
     FieldDialog::new(" Configuration ", CONFIG_FIELDS, values, &[])
         .with_boolean_fields(CONFIG_BOOLEAN_FIELDS)
         .with_locked_fields(locked_fields)
@@ -179,9 +172,21 @@ pub fn open_config_editor(
             (7, FieldValidation::Int { min: 1, max: 100 }),
             (8, FieldValidation::Float { min: 0.0, max: 1.0 }),
             (9, FieldValidation::Float { min: 0.0, max: 1.0 }),
-            (10, FieldValidation::Int { min: -1, max: 32767 }),
+            (
+                10,
+                FieldValidation::Int {
+                    min: -1,
+                    max: 32767,
+                },
+            ),
             (11, FieldValidation::Float { min: 0.0, max: 2.0 }),
-            (12, FieldValidation::Int { min: -1, max: 32767 }),
+            (
+                12,
+                FieldValidation::Int {
+                    min: -1,
+                    max: 32767,
+                },
+            ),
         ])
 }
 
@@ -250,7 +255,13 @@ pub fn open_entry_editor(values: Vec<String>) -> FieldDialog<'static> {
     )
     .with_placeholder("keyword1, keyword2, ...", ENTRY_EDITOR_PLACEHOLDER_FIELDS)
     .with_validated_fields(vec![
-        (6, FieldValidation::Int { min: -999, max: 999 }),
+        (
+            6,
+            FieldValidation::Int {
+                min: -999,
+                max: 999,
+            },
+        ),
         (7, FieldValidation::Int { min: 0, max: 24 }),
     ])
 }
@@ -270,7 +281,11 @@ pub enum FieldValidation {
 
 impl FieldValidation {
     fn max_digits(max_abs: u64) -> usize {
-        if max_abs == 0 { 1 } else { (max_abs as f64).log10().floor() as usize + 1 }
+        if max_abs == 0 {
+            1
+        } else {
+            (max_abs as f64).log10().floor() as usize + 1
+        }
     }
 
     fn accepts_char(&self, current: &str, c: char) -> bool {
@@ -532,7 +547,11 @@ impl<'a> FieldDialog<'a> {
 
             let is_empty = value.is_empty();
             let display_value = if self.is_boolean(i) {
-                if value == "true" { "[x]".to_owned() } else { "[ ]".to_owned() }
+                if value == "true" {
+                    "[x]".to_owned()
+                } else {
+                    "[ ]".to_owned()
+                }
             } else if self.is_multiline(i) && value.contains('\n') {
                 format!("({} lines)", value.lines().count())
             } else {
@@ -665,8 +684,7 @@ impl<'a> FieldDialog<'a> {
                     break;
                 }
                 self.selected -= 1;
-                if !self.hidden_fields.contains(&self.selected)
-                    && !self.is_separator(self.selected)
+                if !self.hidden_fields.contains(&self.selected) && !self.is_separator(self.selected)
                 {
                     break;
                 }
@@ -676,8 +694,7 @@ impl<'a> FieldDialog<'a> {
                     break;
                 }
                 self.selected += 1;
-                if !self.hidden_fields.contains(&self.selected)
-                    && !self.is_separator(self.selected)
+                if !self.hidden_fields.contains(&self.selected) && !self.is_separator(self.selected)
                 {
                     break;
                 }
@@ -719,12 +736,16 @@ impl<'a> FieldDialog<'a> {
 
         if self.editor.is_some() {
             if let Some(ref mut editor) = self.editor {
-                editor.input(crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
-                    kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                    column: screen_col,
-                    row: screen_row,
-                    modifiers: crossterm::event::KeyModifiers::NONE,
-                }));
+                editor.input(crossterm::event::Event::Mouse(
+                    crossterm::event::MouseEvent {
+                        kind: crossterm::event::MouseEventKind::Down(
+                            crossterm::event::MouseButton::Left,
+                        ),
+                        column: screen_col,
+                        row: screen_row,
+                        modifiers: crossterm::event::KeyModifiers::NONE,
+                    },
+                ));
             }
             return true;
         }
@@ -798,10 +819,7 @@ pub(in crate::tui) fn hit_test_list_dialog(
     }
 }
 
-pub(in crate::tui) fn handle_dialog_mouse_click(
-    mouse: MouseEvent,
-    app: &mut super::App,
-) {
+pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut super::App) {
     let terminal_area = match crossterm::terminal::size() {
         Ok((w, h)) => Rect::new(0, 0, w, h),
         Err(_) => return,
@@ -809,21 +827,36 @@ pub(in crate::tui) fn handle_dialog_mouse_click(
 
     match app.focus {
         super::Focus::CharacterDialog => {
-            match hit_test_list_dialog(terminal_area, app.character_names.len(), mouse.column, mouse.row) {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.character_names.len(),
+                mouse.column,
+                mouse.row,
+            ) {
                 ListDialogHit::Item(i) => app.character_selected = i,
                 ListDialogHit::Outside => app.focus = super::Focus::Input,
                 ListDialogHit::Inside => {}
             }
         }
         super::Focus::PersonaDialog => {
-            match hit_test_list_dialog(terminal_area, app.persona_list.len(), mouse.column, mouse.row) {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.persona_list.len(),
+                mouse.column,
+                mouse.row,
+            ) {
                 ListDialogHit::Item(i) => app.persona_selected = i,
                 ListDialogHit::Outside => app.focus = super::Focus::Input,
                 ListDialogHit::Inside => {}
             }
         }
         super::Focus::SystemPromptDialog => {
-            match hit_test_list_dialog(terminal_area, app.system_prompt_list.len(), mouse.column, mouse.row) {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.system_prompt_list.len(),
+                mouse.column,
+                mouse.row,
+            ) {
                 ListDialogHit::Item(i) => app.system_prompt_selected = i,
                 ListDialogHit::Outside => {
                     app.focus = app.system_editor_return_focus;
@@ -832,21 +865,36 @@ pub(in crate::tui) fn handle_dialog_mouse_click(
             }
         }
         super::Focus::BranchDialog => {
-            match hit_test_list_dialog(terminal_area, app.branch_dialog_items.len(), mouse.column, mouse.row) {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.branch_dialog_items.len(),
+                mouse.column,
+                mouse.row,
+            ) {
                 ListDialogHit::Item(i) => app.branch_dialog_selected = i,
                 ListDialogHit::Outside => app.focus = super::Focus::Input,
                 ListDialogHit::Inside => {}
             }
         }
         super::Focus::WorldbookDialog => {
-            match hit_test_list_dialog(terminal_area, app.worldbook_list.len(), mouse.column, mouse.row) {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.worldbook_list.len(),
+                mouse.column,
+                mouse.row,
+            ) {
                 ListDialogHit::Item(i) => app.worldbook_selected = i,
                 ListDialogHit::Outside => app.focus = super::Focus::Input,
                 ListDialogHit::Inside => {}
             }
         }
         super::Focus::PresetPickerDialog => {
-            match hit_test_list_dialog(terminal_area, app.preset_picker_names.len(), mouse.column, mouse.row) {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.preset_picker_names.len(),
+                mouse.column,
+                mouse.row,
+            ) {
                 ListDialogHit::Item(i) => app.preset_picker_selected = i,
                 ListDialogHit::Outside => app.focus = super::Focus::ConfigDialog,
                 ListDialogHit::Inside => {}
@@ -911,7 +959,11 @@ pub(in crate::tui) fn handle_dialog_mouse_click(
         super::Focus::WorldbookEditorDialog => {
             let count = app.worldbook_editor_entries.len();
             let dialog_height = count as u16 + LIST_DIALOG_TALL_PADDING + 2;
-            let dialog = super::render::centered_rect(FIELD_DIALOG_DEFAULT_WIDTH, dialog_height, terminal_area);
+            let dialog = super::render::centered_rect(
+                FIELD_DIALOG_DEFAULT_WIDTH,
+                dialog_height,
+                terminal_area,
+            );
             let pos = Position::new(mouse.column, mouse.row);
             if !dialog.contains(pos) {
                 app.focus = super::Focus::WorldbookDialog;
@@ -1058,11 +1110,6 @@ where
     };
 
     let result = apply(derived_key, &check_path);
-    log_phase(
-        debug_kind,
-        "blocking_total",
-        "done",
-        total_start.elapsed(),
-    );
+    log_phase(debug_kind, "blocking_total", "done", total_start.elapsed());
     result
 }

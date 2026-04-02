@@ -64,9 +64,12 @@ pub(in crate::tui) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, a
     f.render_widget(paragraph, dialog);
 
     if !app.passkey_deriving && app.passkey_error.is_empty() {
-        render_hints_below_dialog(f, dialog, area, &[
-            Line::from("Enter to submit, Esc to quit"),
-        ]);
+        render_hints_below_dialog(
+            f,
+            dialog,
+            area,
+            &[Line::from("Enter to submit, Esc to quit")],
+        );
     }
 }
 

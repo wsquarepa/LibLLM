@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
 
     {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
-        if !matches!(CHANNEL, "stable" | "nightly") && args.data.is_none() {
+        if !matches!(CHANNEL, "stable" | "preview" | "nightly") && args.data.is_none() {
             use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
             use crossterm::execute;
 

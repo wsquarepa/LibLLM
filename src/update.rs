@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 const REPO: &str = "wsquarepa/LibLLM";
-const NIGHTLY_TAG: &str = "nightly";
+const PREVIEW_TAG: &str = "preview";
 const CHANNEL: &str = env!("LIBLLM_CHANNEL");
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -50,7 +50,7 @@ struct Asset {
 
 enum UpdateChannel {
     Stable,
-    Nightly,
+    Preview,
 }
 
 fn github_token() -> Option<String> {
@@ -102,15 +102,15 @@ fn resolve_target_channel(switch_to_nightly: bool) -> Result<UpdateChannel> {
         "unknown" => anyhow::bail!(
             "This build was not installed from a release. Use install.sh to install."
         ),
-        "nightly" => {
+        "preview" | "nightly" => {
             if switch_to_nightly {
                 anyhow::bail!("Already on nightly.");
             }
-            Ok(UpdateChannel::Nightly)
+            Ok(UpdateChannel::Preview)
         }
         "stable" => {
             if switch_to_nightly {
-                Ok(UpdateChannel::Nightly)
+                Ok(UpdateChannel::Preview)
             } else {
                 Ok(UpdateChannel::Stable)
             }
@@ -203,8 +203,8 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
     Ok(())
 }
 
-async fn update_nightly(client: &reqwest::Client) -> Result<()> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{NIGHTLY_TAG}");
+async fn update_preview(client: &reqwest::Client) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{PREVIEW_TAG}");
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
@@ -255,7 +255,7 @@ pub async fn run(switch_to_nightly: bool) -> Result<()> {
     let client = build_client()?;
 
     match target {
-        UpdateChannel::Nightly => update_nightly(&client).await,
+        UpdateChannel::Preview => update_preview(&client).await,
         UpdateChannel::Stable => update_stable(&client).await,
     }
 }

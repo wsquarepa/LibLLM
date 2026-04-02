@@ -420,13 +420,19 @@ pub fn render_chat(
     }
 
     if app.is_streaming && !app.streaming_buffer.is_empty() {
-        lines.push(Line::from(vec![Span::styled(
-            format!("{assistant_label}: "),
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Blue)
-                .add_modifier(Modifier::BOLD),
-        )]));
+        if app.is_continuation {
+            if lines.last().is_some_and(|l| l.spans.is_empty()) {
+                lines.pop();
+            }
+        } else {
+            lines.push(Line::from(vec![Span::styled(
+                format!("{assistant_label}: "),
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+        }
         let buffer = replace_vars(&app.streaming_buffer);
         for content_line in buffer.lines() {
             let styled = parse_styled_line(content_line);

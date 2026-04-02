@@ -229,6 +229,7 @@ pub(super) fn handle_slash_command(
         "/quit" => cmd_quit(app),
         "/clear" => cmd_clear(app),
         "/retry" => cmd_retry(app, sender),
+        "/continue" => cmd_continue(app, sender),
         "/system" => cmd_system(app),
         "/config" => cmd_config(app),
         "/branch" => cmd_branch(app),
@@ -296,6 +297,78 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
             );
         }
     }
+}
+
+fn cmd_continue(app: &mut App, sender: mpsc::Sender<StreamToken>) {
+    app.nav_cursor = None;
+
+    let head_is_assistant = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .is_some_and(|n| n.message.role == Role::Assistant);
+
+    if !head_is_assistant {
+        app.set_status(
+            "Cannot continue: last message is not from assistant.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+        return;
+    }
+
+    start_continuation(app, sender);
+}
+
+fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
+    if app.model_name.is_none() {
+        app.set_status(
+            "Connecting to API server...".to_owned(),
+            super::StatusLevel::Warning,
+        );
+        return;
+    }
+    if !app.api_available {
+        app.set_status(
+            "Cannot send: API server is not available".to_owned(),
+            super::StatusLevel::Error,
+        );
+        return;
+    }
+
+    app.is_streaming = true;
+    app.is_continuation = true;
+    app.streaming_buffer.clear();
+    app.auto_scroll = true;
+
+    let worldbooks = loaded_worldbooks(app);
+    let branch_path = app.session.tree.branch_path();
+    let truncated = app.context_mgr.truncated_path(&branch_path);
+    let effective_prompt =
+        super::business::build_effective_system_prompt(app.session, app.save_mode.key());
+    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
+    let injected = super::business::inject_loaded_worldbook_entries(
+        app.session,
+        truncated,
+        user_name,
+        &worldbooks,
+    );
+    let injected = super::business::replace_template_vars(app.session, injected, user_name);
+    let injected_refs: Vec<&Message> = injected.iter().collect();
+    let prompt = app
+        .instruct_preset
+        .render_continuation(&injected_refs, effective_prompt.as_deref());
+    let stop_tokens = app.stop_tokens.clone();
+    let sampling = app.sampling.clone();
+
+    let client = app.client.clone();
+    let handle = tokio::spawn(async move {
+        let stop_refs: Vec<&str> = stop_tokens.iter().map(String::as_str).collect();
+        client
+            .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
+            .await;
+    });
+    app.streaming_task = Some(handle);
 }
 
 fn cmd_system(app: &mut App) {
@@ -581,9 +654,16 @@ pub(super) fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<(
         }
         StreamToken::Done(full_response) => {
             let head = app.session.tree.head().unwrap();
-            app.session
-                .tree
-                .push(Some(head), Message::new(Role::Assistant, full_response));
+            if app.is_continuation {
+                let existing = app.session.tree.node(head).unwrap().message.content.clone();
+                let combined = format!("{}{}", existing, full_response);
+                app.session.tree.set_message_content(head, combined);
+                app.is_continuation = false;
+            } else {
+                app.session
+                    .tree
+                    .push(Some(head), Message::new(Role::Assistant, full_response));
+            }
             app.mark_session_dirty(super::SaveTrigger::StreamDone, true);
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
@@ -595,6 +675,7 @@ pub(super) fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<(
         StreamToken::Error(err) => {
             app.streaming_buffer.clear();
             app.is_streaming = false;
+            app.is_continuation = false;
             app.set_status(format!("Error: {err}"), super::StatusLevel::Error);
         }
     }

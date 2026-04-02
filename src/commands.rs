@@ -25,6 +25,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Regenerate last response (new branch)",
     },
     CommandInfo {
+        name: "/continue",
+        aliases: &["/cont"],
+        args: "",
+        description: "Continue the last assistant response",
+    },
+    CommandInfo {
         name: "/branch",
         aliases: &[],
         args: "",

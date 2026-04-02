@@ -195,6 +195,83 @@ impl InstructPreset {
         prompt
     }
 
+    pub fn render_continuation(
+        &self,
+        messages: &[&Message],
+        system_prompt: Option<&str>,
+    ) -> String {
+        let mut prompt = String::new();
+        let msg_count = messages.len();
+        let mut system_emitted = false;
+
+        if let Some(sys) = system_prompt {
+            if !self.system_same_as_user {
+                let seq = self.effective_system_sequence();
+                let suffix = self.effective_system_suffix();
+                prompt.push_str(seq);
+                prompt.push_str(sys);
+                prompt.push_str(suffix);
+                system_emitted = true;
+            }
+        }
+
+        let mut is_first_user = true;
+        let mut is_first_assistant = true;
+
+        for (i, msg) in messages.iter().enumerate() {
+            let is_last = i == msg_count - 1;
+
+            if !self.separator_sequence.is_empty() && i > 0 {
+                prompt.push_str(&self.separator_sequence);
+            }
+
+            match msg.role {
+                Role::User => {
+                    let seq = self.select_input_sequence(is_first_user, is_last);
+                    prompt.push_str(seq);
+
+                    if is_first_user && !system_emitted {
+                        if let Some(sys) = system_prompt {
+                            prompt.push_str(sys);
+                            prompt.push_str("\n\n");
+                        }
+                        system_emitted = true;
+                    }
+
+                    prompt.push_str(&msg.content);
+                    prompt.push_str(&self.input_suffix);
+                    is_first_user = false;
+                }
+                Role::Assistant => {
+                    let seq = self.select_output_sequence(is_first_assistant, is_last);
+                    prompt.push_str(seq);
+                    prompt.push_str(&msg.content);
+                    if !is_last {
+                        prompt.push_str(&self.output_suffix);
+                    }
+                    is_first_assistant = false;
+                }
+                Role::System => {
+                    let seq = self.effective_system_sequence();
+                    let suffix = self.effective_system_suffix();
+                    prompt.push_str(seq);
+                    prompt.push_str(&msg.content);
+                    prompt.push_str(suffix);
+                }
+            }
+        }
+
+        if messages
+            .last()
+            .is_some_and(|m| m.role == Role::User || m.role == Role::System)
+        {
+            let seq = self.select_output_sequence(is_first_assistant, false);
+            prompt.push_str(seq);
+        }
+
+        prompt
+    }
+
     pub fn stop_tokens(&self) -> Vec<String> {
         let mut tokens = self.stop_sequence.as_vec();
         if self.sequences_as_stop_strings {

@@ -335,7 +335,7 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 }
 
-fn load_sidebar_selection(app: &mut App) {
+pub(super) fn load_sidebar_selection(app: &mut App) {
     let Some(selected) = app.sidebar_state.selected() else {
         return;
     };

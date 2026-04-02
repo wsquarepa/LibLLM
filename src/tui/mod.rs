@@ -27,7 +27,7 @@ use crate::client::{ApiClient, StreamToken};
 use crate::context::ContextManager;
 use crate::preset::InstructPreset;
 use crate::sampling::SamplingParams;
-use crate::session::{self, NodeId, SaveMode, Session, SessionEntry};
+use crate::session::{self, Message, NodeId, Role, SaveMode, Session, SessionEntry};
 use crate::worldinfo::RuntimeWorldBook;
 
 use dialogs::FieldDialog;
@@ -209,6 +209,7 @@ struct App<'a> {
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
     is_streaming: bool,
+    is_continuation: bool,
     streaming_task: Option<tokio::task::JoinHandle<()>>,
     model_name: Option<String>,
     api_available: bool,
@@ -601,6 +602,7 @@ pub async fn run(
         sidebar_state,
         streaming_buffer: String::new(),
         is_streaming: false,
+        is_continuation: false,
         streaming_task: None,
         model_name: None,
         api_available: true,
@@ -1468,11 +1470,27 @@ fn cancel_generation(app: &mut App) {
     if let Some(handle) = app.streaming_task.take() {
         handle.abort();
     }
+
+    if app.is_continuation {
+        if !app.streaming_buffer.is_empty() {
+            let head = app.session.tree.head().unwrap();
+            let existing = app.session.tree.node(head).unwrap().message.content.clone();
+            let combined = format!("{}{}", existing, app.streaming_buffer);
+            app.session.tree.set_message_content(head, combined);
+        }
+        app.is_continuation = false;
+    } else if !app.streaming_buffer.is_empty() {
+        let content = std::mem::take(&mut app.streaming_buffer);
+        let head = app.session.tree.head().unwrap();
+        app.session
+            .tree
+            .push(Some(head), Message::new(Role::Assistant, content));
+    }
+
     app.streaming_buffer.clear();
     app.is_streaming = false;
-    if app.session.tree.pop_head().is_some() {
-        app.mark_session_dirty(SaveTrigger::Debounced, false);
-    }
+    app.mark_session_dirty(SaveTrigger::StreamDone, true);
+    app.invalidate_chat_cache();
     app.auto_scroll = true;
 }
 

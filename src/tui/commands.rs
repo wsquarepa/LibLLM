@@ -493,31 +493,17 @@ fn cmd_persona(app: &mut App) {
 fn cmd_worldbook(app: &mut App) {
     let books =
         crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
-    if books.is_empty() {
-        app.set_status(
-            "No worldbooks found in worldinfo/ directory.".to_owned(),
-            super::StatusLevel::Warning,
-        );
-    } else {
-        app.worldbook_list = books.into_iter().map(|b| b.name).collect();
-        app.worldbook_selected = 0;
-        app.focus = Focus::WorldbookDialog;
-    }
+    app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+    app.worldbook_selected = 0;
+    app.focus = Focus::WorldbookDialog;
 }
 
 fn cmd_character(app: &mut App) {
     let cards = crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
-    if cards.is_empty() {
-        app.set_status(
-            "No characters found. Drop a .png or .json file to import.".to_owned(),
-            super::StatusLevel::Warning,
-        );
-    } else {
-        app.character_names = cards.iter().map(|c| c.name.clone()).collect();
-        app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
-        app.character_selected = 0;
-        app.focus = Focus::CharacterDialog;
-    }
+    app.character_names = cards.iter().map(|c| c.name.clone()).collect();
+    app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+    app.character_selected = 0;
+    app.focus = Focus::CharacterDialog;
 }
 
 fn cmd_passkey(app: &mut App) {

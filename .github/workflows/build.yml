@@ -12,7 +12,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  LIBLLM_CHANNEL: nightly
+  LIBLLM_CHANNEL: preview
 
 jobs:
   test:
@@ -86,7 +86,7 @@ jobs:
           path: libllm-${{ matrix.target }}*
           if-no-files-found: error
 
-  nightly:
+  preview:
     if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
@@ -101,7 +101,7 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Create nightly release
+      - name: Create preview release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -110,12 +110,12 @@ jobs:
           MSG=$(git log -1 --format=%B | sed '/^$/d')
           printf -v NOTES 'Commit `%s` at `%s`\n\n```\n%s\n```' "$HASH" "$TIME" "$MSG"
 
-          if gh release view nightly >/dev/null 2>&1; then
-            gh release delete nightly --yes --cleanup-tag
+          if gh release view preview >/dev/null 2>&1; then
+            gh release delete preview --yes --cleanup-tag
           fi
 
-          gh release create nightly artifacts/* \
+          gh release create preview artifacts/* \
             --target "$GITHUB_SHA" \
-            --title "Nightly Build" \
+            --title "Preview Build" \
             --notes "$NOTES" \
             --prerelease

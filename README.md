@@ -42,7 +42,7 @@ Built for power users who run local models and want a fast, private chat interfa
 
 **1. Install**
 
-Download a pre-built binary from the [nightly release](../../releases/tag/nightly) (Linux, macOS, Windows). Or build from source:
+Download a pre-built binary from the [preview release](../../releases/tag/preview) (Linux, macOS, Windows). Or build from source:
 
 ```sh
 git clone https://github.com/wsquarepa/LibLLM.git
@@ -189,7 +189,7 @@ libllm -d ./data --passkey mypasskey
 curl -fsSL https://raw.githubusercontent.com/wsquarepa/LibLLM/master/install.sh | sh
 ```
 
-This downloads the latest nightly binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
+This downloads the latest preview binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
 
 ### Update
 
@@ -199,11 +199,11 @@ libllm update
 
 Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
 
-### From nightly release (recommended)
+### From preview release (recommended)
 
-Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [nightly release](../../releases/tag/nightly).
+Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [preview release](../../releases/tag/preview).
 
-There are no stable releases yet. Nightly is the recommended install method.
+There are no stable releases yet. Preview is the recommended install method.
 
 ### From source
 
@@ -245,7 +245,7 @@ cargo build --release
 ### Subcommands
 
 ```sh
-# Update to the latest nightly build
+# Update to the latest preview build
 libllm update
 
 # Edit a character card or worldbook in $EDITOR

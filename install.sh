@@ -77,7 +77,7 @@ download_binary() {
     if [ "$CHANNEL" = "stable" ]; then
         API_URL="https://api.github.com/repos/${REPO}/releases/latest"
     else
-        API_URL="https://api.github.com/repos/${REPO}/releases/tags/nightly"
+        API_URL="https://api.github.com/repos/${REPO}/releases/tags/preview"
     fi
 
     if command -v curl >/dev/null 2>&1; then

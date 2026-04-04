@@ -121,8 +121,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    let debug_enabled = args.debug.is_some() || config::load().debug_log;
-    let _diagnostics = if debug_enabled {
+    let diagnostics_needed =
+        args.debug.is_some() || args.timings.is_some() || config::load().debug_log;
+    let _diagnostics = if diagnostics_needed {
         Some(debug_log::init(
             args.debug.as_deref(),
             args.timings.as_deref(),

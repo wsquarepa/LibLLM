@@ -506,7 +506,17 @@ pub fn render_chat(
         .borders(Borders::ALL)
         .title(" Chat ")
         .border_style(border_style(chat_focused));
-    if chat_focused {
+    if app.is_streaming {
+        chat_block = chat_block.title_bottom(
+            Line::from(Span::styled(
+                " Generating... Esc to cancel ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .centered(),
+        );
+    } else if chat_focused {
         chat_block = chat_block
             .title_bottom(Line::from(" Up/Down: navigate, Left/Right: branch ").centered());
     }
@@ -540,6 +550,91 @@ pub fn render_chat(
             }
         }
     }
+}
+
+fn queue_user_label(app: &App) -> String {
+    let has_replacements = app.session.character.is_some();
+    if has_replacements && app.active_persona_name.is_some() {
+        app.active_persona_name.as_deref().unwrap_or("User").to_owned()
+    } else {
+        "You".to_owned()
+    }
+}
+
+fn build_queue_lines(queue: &[String], user_label: &str) -> Vec<Line<'static>> {
+    let dim_style = Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::ITALIC);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    for (idx, msg) in queue.iter().enumerate() {
+        if idx > 0 {
+            lines.push(Line::from(""));
+        }
+        lines.push(Line::from(vec![Span::styled(
+            format!("{user_label}:"),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::DIM),
+        )]));
+        for content_line in msg.lines() {
+            let styled = parse_styled_line(content_line);
+            let mut indented: Vec<Span<'static>> = vec![Span::raw("  ")];
+            for span in styled.spans {
+                let merged = span.style.patch(dim_style);
+                indented.push(Span::styled(span.content.into_owned(), merged));
+            }
+            lines.push(Line::from(indented));
+        }
+    }
+    lines
+}
+
+pub fn split_chat_area_for_queue(chat_area: Rect, app: &App) -> (Rect, Option<Rect>) {
+    if app.message_queue.is_empty() || chat_area.height < 8 {
+        return (chat_area, None);
+    }
+
+    let user_label = queue_user_label(app);
+    let queue_lines = build_queue_lines(&app.message_queue, &user_label);
+    let content_rows = measure_wrapped_height(&queue_lines, chat_area);
+    let desired = content_rows.saturating_add(2);
+
+    let max_queue_height = (chat_area.height / 2).max(3);
+    let queue_height = desired.min(max_queue_height).max(3);
+
+    if queue_height + 5 > chat_area.height {
+        return (chat_area, None);
+    }
+
+    let messages_height = chat_area.height - queue_height;
+    let messages_area = Rect {
+        x: chat_area.x,
+        y: chat_area.y,
+        width: chat_area.width,
+        height: messages_height,
+    };
+    let queue_area = Rect {
+        x: chat_area.x,
+        y: chat_area.y + messages_height,
+        width: chat_area.width,
+        height: queue_height,
+    };
+    (messages_area, Some(queue_area))
+}
+
+pub fn render_message_queue(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let user_label = queue_user_label(app);
+    let lines = build_queue_lines(&app.message_queue, &user_label);
+    let title = format!(" Queued ({}) ", app.message_queue.len());
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(block)
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, area);
 }
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {

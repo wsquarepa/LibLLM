@@ -593,6 +593,9 @@ pub(super) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender
     app.mark_session_dirty(super::SaveTrigger::Debounced, false);
     app.invalidate_chat_cache();
     app.is_streaming = true;
+    app.focus = super::Focus::Input;
+    app.nav_cursor = None;
+    app.hover_node = None;
     app.streaming_buffer.clear();
     app.auto_scroll = true;
 
@@ -626,7 +629,11 @@ pub(super) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender
     app.streaming_task = Some(handle);
 }
 
-pub(super) fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<()> {
+pub(super) fn handle_stream_token(
+    token: StreamToken,
+    app: &mut App,
+    sender: mpsc::Sender<StreamToken>,
+) -> Result<()> {
     if !app.is_streaming {
         return Ok(());
     }
@@ -654,11 +661,19 @@ pub(super) fn handle_stream_token(token: StreamToken, app: &mut App) -> Result<(
             app.auto_scroll = true;
             app.flush_session_save(super::SaveTrigger::StreamDone)?;
             refresh_sidebar(app);
+            if !app.message_queue.is_empty() {
+                let next = app.message_queue.remove(0);
+                start_streaming(app, &next, sender);
+                if !app.is_streaming {
+                    app.message_queue.clear();
+                }
+            }
         }
         StreamToken::Error(err) => {
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.is_continuation = false;
+            app.message_queue.clear();
             app.set_status(format!("Error: {err}"), super::StatusLevel::Error);
         }
     }

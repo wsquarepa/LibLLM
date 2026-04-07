@@ -210,6 +210,7 @@ struct App<'a> {
     streaming_buffer: String,
     is_streaming: bool,
     is_continuation: bool,
+    message_queue: Vec<String>,
     streaming_task: Option<tokio::task::JoinHandle<()>>,
     model_name: Option<String>,
     api_available: bool,
@@ -600,6 +601,7 @@ pub async fn run(
         streaming_buffer: String::new(),
         is_streaming: false,
         is_continuation: false,
+        message_queue: Vec::new(),
         streaming_task: None,
         model_name: None,
         api_available: true,
@@ -733,7 +735,7 @@ pub async fn run(
             }
             Some(stream_token) = token_rx.recv() => {
                 crate::debug_log::timed_result("stream", &[crate::debug_log::field("phase", "token")], || {
-                    commands::handle_stream_token(stream_token, &mut app)
+                    commands::handle_stream_token(stream_token, &mut app, token_tx.clone())
                 })?;
                 needs_redraw = true;
             }
@@ -853,13 +855,15 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.textarea.set_block(input_block);
     f.render_widget(&app.textarea, input_area);
 
+    let (messages_area, queue_area) = render::split_chat_area_for_queue(chat_area, app);
+
     let current_scroll_state = ScrollState {
         auto_scroll: app.auto_scroll,
         nav_cursor: app.nav_cursor,
         head: app.session.tree.head(),
         buffer_len: app.streaming_buffer.len(),
-        width: chat_area.width,
-        height: chat_area.height,
+        width: messages_area.width,
+        height: messages_area.height,
     };
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
@@ -884,12 +888,15 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 render::render_chat(
                     f,
                     app,
-                    chat_area,
+                    messages_area,
                     &mut chat_scroll,
                     branch_ids,
                     scroll_dirty,
                     &mut cache,
                 );
+                if let Some(queue_rect) = queue_area {
+                    render::render_message_queue(f, app, queue_rect);
+                }
             },
         );
 
@@ -1293,17 +1300,48 @@ fn handle_key(
 }
 
 fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    match key.code {
-        KeyCode::Esc => {
-            cancel_generation(app);
-            None
+    if key.code == KeyCode::Esc {
+        cancel_generation(app);
+        if !app.message_queue.is_empty() {
+            let next = app.message_queue.remove(0);
+            return Some(Action::SendMessage(next));
         }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
-        _ => None,
+        return None;
     }
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return Some(Action::Quit);
+    }
+
+    if key.code == KeyCode::Enter && key.modifiers.is_empty() {
+        let lines: Vec<String> = app.textarea.lines().to_vec();
+        let trimmed = lines.join("\n").trim().to_owned();
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if trimmed.starts_with('/') {
+            app.set_status(
+                "Slash commands cannot be queued during generation".to_owned(),
+                StatusLevel::Warning,
+            );
+            return None;
+        }
+
+        app.textarea = TextArea::default();
+        configure_textarea(&mut app.textarea);
+        app.message_queue.push(trimmed);
+        return None;
+    }
+
+    app.textarea.input(key);
+    None
 }
 
 fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
+    if app.is_streaming {
+        return None;
+    }
     let Some(ref areas) = app.layout_areas else {
         return None;
     };

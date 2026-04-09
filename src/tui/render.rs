@@ -79,6 +79,7 @@ pub fn render_hints_below_dialog(
         width: dialog.width,
         height: hint_count,
     };
+    f.render_widget(ratatui::widgets::Clear, hint_area);
     let paragraph = Paragraph::new(Text::from(hints.to_vec()))
         .style(Style::default().fg(Color::White).bg(Color::DarkGray))
         .alignment(Alignment::Center);

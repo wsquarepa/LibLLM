@@ -55,6 +55,7 @@ enum Focus {
     EditDialog,
     BranchDialog,
     DeleteConfirmDialog,
+    EditConfirmDialog,
     ApiErrorDialog,
     LoadingDialog,
 }
@@ -274,6 +275,8 @@ struct App<'a> {
     cached_token_count: Option<usize>,
     sidebar_cache: Option<render::SidebarCache>,
     raw_edit_node: Option<NodeId>,
+    edit_original_content: String,
+    edit_confirm_selected: usize,
     nav_cursor: Option<NodeId>,
     branch_dialog_items: Vec<(NodeId, String)>,
     branch_dialog_selected: usize,
@@ -657,6 +660,8 @@ pub async fn run(
         cached_token_count: None,
         sidebar_cache: None,
         raw_edit_node: None,
+        edit_original_content: String::new(),
+        edit_confirm_selected: 0,
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
@@ -946,6 +951,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::SystemPromptDialog => Some("system_prompt"),
         Focus::SystemPromptEditorDialog => Some("system_prompt_editor"),
         Focus::EditDialog => Some("edit"),
+        Focus::EditConfirmDialog => Some("edit_confirm"),
         Focus::BranchDialog => Some("branch"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
@@ -1030,6 +1036,10 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::EditDialog => {
             dialogs::edit::render_edit_dialog(f, app, f.area());
+        }
+        Focus::EditConfirmDialog => {
+            dialogs::edit::render_edit_dialog(f, app, f.area());
+            dialogs::edit::render_edit_confirm_dialog(f, app, f.area());
         }
         Focus::BranchDialog => {
             dialogs::branch::render_branch_dialog(f, app, f.area());
@@ -1215,6 +1225,9 @@ fn handle_key(
     }
     if app.focus == Focus::EditDialog {
         return dialogs::edit::handle_edit_key(key, app);
+    }
+    if app.focus == Focus::EditConfirmDialog {
+        return dialogs::edit::handle_edit_confirm_key(key, app);
     }
     if app.focus == Focus::BranchDialog {
         return dialogs::branch::handle_branch_dialog_key(key, app);
@@ -1543,6 +1556,7 @@ fn open_edit_dialog_with(app: &mut App, content: &str) {
     });
     configure_textarea_at_end(&mut editor);
     app.edit_editor = Some(editor);
+    app.edit_original_content = content.lines().collect::<Vec<_>>().join("\n");
     app.focus = Focus::EditDialog;
 }
 

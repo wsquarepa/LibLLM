@@ -337,6 +337,7 @@ pub struct FieldDialog<'a> {
     pub original_values: Vec<String>,
     selected: usize,
     editing: bool,
+    cursor_pos: usize,
     multiline_fields: &'static [usize],
     editor: Option<TextArea<'a>>,
     width: Option<u16>,
@@ -375,6 +376,7 @@ impl<'a> FieldDialog<'a> {
             original_values,
             selected: 0,
             editing: false,
+            cursor_pos: 0,
             multiline_fields,
             editor: None,
             width,
@@ -520,7 +522,7 @@ impl<'a> FieldDialog<'a> {
             }
             let value = &self.values[i];
             let is_selected = i == self.selected;
-            let cursor = if is_selected && self.editing { "_" } else { "" };
+            let show_cursor = is_selected && self.editing;
 
             let is_locked = self.is_locked(i);
 
@@ -564,24 +566,47 @@ impl<'a> FieldDialog<'a> {
             let show_placeholder = is_empty && !self.editing && has_placeholder;
 
             let max_value_width = dialog.width as usize - 2 - Self::LABEL_PREFIX_WIDTH;
-            let value_span = if show_placeholder {
+            let mut spans = vec![Span::styled(format!("  {label:<22}"), label_style)];
+
+            if show_placeholder {
                 let ph_text = self.placeholder.unwrap().0;
-                Span::styled(ph_text, Style::default().fg(Color::DarkGray))
+                spans.push(Span::styled(ph_text, Style::default().fg(Color::DarkGray)));
+            } else if show_cursor {
+                let chars: Vec<char> = display_value.chars().collect();
+                let char_count = chars.len();
+                let visible_width = max_value_width.saturating_sub(1);
+                let scroll = if self.cursor_pos > visible_width {
+                    self.cursor_pos - visible_width
+                } else {
+                    0
+                };
+                let visible_end = (scroll + max_value_width).min(char_count);
+
+                let before: String = chars[scroll..self.cursor_pos].iter().collect();
+                let cursor_ch = if self.cursor_pos < char_count {
+                    chars[self.cursor_pos].to_string()
+                } else {
+                    " ".to_string()
+                };
+                let after_start = (self.cursor_pos + 1).min(char_count);
+                let after: String = chars[after_start..visible_end].iter().collect();
+
+                let cursor_style = value_style.add_modifier(Modifier::REVERSED);
+                spans.push(Span::styled(before, value_style));
+                spans.push(Span::styled(cursor_ch, cursor_style));
+                spans.push(Span::styled(after, value_style));
             } else {
-                let full = format!("{display_value}{cursor}");
-                let visible = if full.chars().count() > max_value_width {
+                let full = &display_value;
+                let visible: String = if full.chars().count() > max_value_width {
                     let skip = full.chars().count() - max_value_width;
                     full.chars().skip(skip).collect()
                 } else {
-                    full
+                    full.clone()
                 };
-                Span::styled(visible, value_style)
+                spans.push(Span::styled(visible, value_style));
             };
 
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {label:<22}"), label_style),
-                value_span,
-            ]));
+            lines.push(Line::from(spans));
         }
 
         let paragraph =
@@ -665,13 +690,55 @@ impl<'a> FieldDialog<'a> {
                         .map(|v| v.accepts_char(&self.values[self.selected], c))
                         .unwrap_or(true);
                     if accept {
-                        self.values[self.selected].push(c);
+                        let byte_pos = self.values[self.selected]
+                            .char_indices()
+                            .nth(self.cursor_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(self.values[self.selected].len());
+                        self.values[self.selected].insert(byte_pos, c);
+                        self.cursor_pos += 1;
                     } else {
                         self.reject_flash = Some(std::time::Instant::now());
                     }
                 }
                 KeyCode::Backspace => {
-                    self.values[self.selected].pop();
+                    if self.cursor_pos > 0 {
+                        self.cursor_pos -= 1;
+                        let byte_pos = self.values[self.selected]
+                            .char_indices()
+                            .nth(self.cursor_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(self.values[self.selected].len());
+                        self.values[self.selected].remove(byte_pos);
+                    }
+                }
+                KeyCode::Delete => {
+                    let char_count = self.values[self.selected].chars().count();
+                    if self.cursor_pos < char_count {
+                        let byte_pos = self.values[self.selected]
+                            .char_indices()
+                            .nth(self.cursor_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(self.values[self.selected].len());
+                        self.values[self.selected].remove(byte_pos);
+                    }
+                }
+                KeyCode::Left => {
+                    if self.cursor_pos > 0 {
+                        self.cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    let char_count = self.values[self.selected].chars().count();
+                    if self.cursor_pos < char_count {
+                        self.cursor_pos += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    self.cursor_pos = 0;
+                }
+                KeyCode::End => {
+                    self.cursor_pos = self.values[self.selected].chars().count();
                 }
                 _ => {}
             }
@@ -709,6 +776,7 @@ impl<'a> FieldDialog<'a> {
                 } else if self.is_multiline(self.selected) {
                     self.open_multiline_editor();
                 } else {
+                    self.cursor_pos = self.values[self.selected].chars().count();
                     self.editing = true;
                 }
             }

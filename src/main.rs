@@ -287,7 +287,7 @@ async fn main() -> Result<()> {
     );
     let cli_overrides = args.cli_overrides();
     tui::run(
-        &client,
+        client,
         &mut session,
         save_mode,
         instruct_preset,

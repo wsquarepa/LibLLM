@@ -188,7 +188,7 @@ struct LayoutAreas {
 }
 
 struct App<'a> {
-    client: &'a ApiClient,
+    client: ApiClient,
     session: &'a mut Session,
     save_mode: SaveMode,
     session_dirty: bool,
@@ -510,7 +510,7 @@ pub fn build_effective_system_prompt_standalone(
 }
 
 pub async fn run(
-    client: &ApiClient,
+    client: ApiClient,
     session: &mut Session,
     save_mode: SaveMode,
     instruct_preset: InstructPreset,
@@ -1647,16 +1647,31 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     if !app.preset_editor.as_ref().unwrap().has_changes() {
                         app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                     } else {
-                        let values = &app.preset_editor.as_ref().unwrap().values;
+                        let editor = app.preset_editor.as_ref().unwrap();
                         let original_name = app.preset_editor_original_name.clone();
+                        let edited_preset_name = editor.values[0].trim().to_owned();
                         match dialogs::preset::save_preset_from_editor(
                             app.preset_editor_kind,
-                            values,
+                            &editor.values,
                             &original_name,
                         ) {
                             Ok(()) => {
                                 app.set_status("Preset saved.".to_owned(), StatusLevel::Info);
                                 dialogs::preset::refresh_preset_list(app);
+                                if matches!(
+                                    app.preset_editor_kind,
+                                    dialogs::preset::PresetKind::Instruct
+                                ) && app.instruct_preset.name == original_name
+                                {
+                                    let resolve_name = if edited_preset_name.is_empty() {
+                                        &original_name
+                                    } else {
+                                        &edited_preset_name
+                                    };
+                                    app.instruct_preset =
+                                        crate::preset::resolve_instruct_preset(resolve_name);
+                                    app.stop_tokens = app.instruct_preset.stop_tokens();
+                                }
                             }
                             Err(e) => {
                                 app.set_status(
@@ -1909,6 +1924,26 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                     format!("Saved character: {}", card.name),
                                     StatusLevel::Info,
                                 );
+                            }
+                            let is_active =
+                                app.session.character.as_deref().is_some_and(|name| {
+                                    crate::character::slugify(name)
+                                        == app.character_editor_slug
+                                });
+                            if is_active {
+                                let cfg = crate::config::load();
+                                let tpl_name =
+                                    cfg.template_preset.as_deref().unwrap_or("Default");
+                                let tpl =
+                                    crate::preset::resolve_template_preset(tpl_name);
+                                app.session.system_prompt = Some(
+                                    crate::character::build_system_prompt(
+                                        &card,
+                                        Some(&tpl),
+                                    ),
+                                );
+                                app.session.character = Some(card.name.clone());
+                                app.invalidate_chat_cache();
                             }
                         }
                         Err(e) => app.set_status(

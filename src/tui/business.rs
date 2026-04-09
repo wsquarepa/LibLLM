@@ -440,19 +440,18 @@ pub(super) fn apply_config(app: &mut App) {
         .with_overrides(&cfg.sampling)
         .with_overrides(&app.cli_overrides.sampling);
 
-    if app.cli_overrides.system_prompt.is_none() {
-        let is_character = app.session.character.is_some();
-        let builtin_name = if is_character {
-            crate::system_prompt::BUILTIN_ROLEPLAY
-        } else {
-            crate::system_prompt::BUILTIN_ASSISTANT
-        };
-        app.session.system_prompt = crate::system_prompt::load_prompt_content(
-            &crate::config::system_prompts_dir(),
-            builtin_name,
-            app.save_mode.key(),
-        );
-    }
+    let new_url = app.cli_overrides.api_url.as_deref().unwrap_or(cfg.api_url());
+    let new_tls_skip = app.cli_overrides.tls_skip_verify || cfg.tls_skip_verify;
+    app.client = crate::client::ApiClient::new(new_url, new_tls_skip);
+    app.model_name = None;
+    app.api_available = true;
+    app.api_error.clear();
+    let client = app.client.clone();
+    let tx = app.bg_tx.clone();
+    tokio::spawn(async move {
+        let result = client.fetch_model_name().await;
+        let _ = tx.send(super::BackgroundEvent::ModelFetched(result)).await;
+    });
 
     app.config = cfg;
     app.invalidate_worldbook_cache();

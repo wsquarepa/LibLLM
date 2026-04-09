@@ -202,6 +202,7 @@ struct App<'a> {
     focus: Focus,
     textarea: TextArea<'a>,
     chat_scroll: u16,
+    chat_max_scroll: u16,
     auto_scroll: bool,
     last_scroll_state: ScrollState,
     sidebar_sessions: Vec<SessionEntry>,
@@ -586,6 +587,7 @@ pub async fn run(
         context_mgr: ContextManager::default(),
         textarea,
         chat_scroll: 0,
+        chat_max_scroll: 0,
         auto_scroll: true,
         last_scroll_state: ScrollState {
             auto_scroll: false,
@@ -868,6 +870,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
 
+    let mut max_scroll = 0u16;
     let mut cache = app.chat_content_cache.take();
     {
         let branch_ids = app.session.tree.current_branch_ids();
@@ -877,7 +880,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             "chat.branch",
             &[crate::debug_log::field("node_count", msg_count)],
         );
-
         crate::debug_log::timed_kv(
             "chat",
             &[
@@ -885,7 +887,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 crate::debug_log::field("scroll_dirty", scroll_dirty),
             ],
             || {
-                render::render_chat(
+                max_scroll = render::render_chat(
                     f,
                     app,
                     messages_area,
@@ -914,6 +916,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
     app.chat_content_cache = cache;
     app.chat_scroll = chat_scroll;
+    app.chat_max_scroll = max_scroll;
     app.last_scroll_state = current_scroll_state;
 
     if app.focus == Focus::Input && input::input_has_command_picker(app) {
@@ -1447,7 +1450,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
         }
         MouseEventKind::ScrollDown => {
             if chat.contains(pos) {
-                app.chat_scroll = app.chat_scroll.saturating_add(3);
+                app.chat_scroll = app.chat_scroll.saturating_add(3).min(app.chat_max_scroll);
                 app.auto_scroll = false;
             } else if sidebar.contains(pos) {
                 let selected = app.sidebar_state.selected().unwrap_or(0);

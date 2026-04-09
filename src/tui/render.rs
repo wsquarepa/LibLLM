@@ -242,7 +242,7 @@ pub fn render_chat(
     branch_ids: &[NodeId],
     scroll_dirty: bool,
     cache: &mut Option<ChatContentCache>,
-) {
+) -> u16 {
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let has_replacements = app.session.character.is_some();
@@ -443,6 +443,13 @@ pub fn render_chat(
     }
 
     let visible_height = area.height.saturating_sub(2);
+    let streaming_height = if app.is_streaming && !app.streaming_buffer.is_empty() {
+        measure_wrapped_height(&lines, area).saturating_sub(static_height)
+    } else {
+        0
+    };
+    let content_height = static_height + streaming_height;
+    let max_scroll = content_height.saturating_sub(visible_height);
 
     if scroll_dirty {
         crate::debug_log::timed_kv(
@@ -454,12 +461,6 @@ pub fn render_chat(
             ],
             || {
                 if app.auto_scroll {
-                    let streaming_height = if app.is_streaming && !app.streaming_buffer.is_empty() {
-                        measure_wrapped_height(&lines, area).saturating_sub(static_height)
-                    } else {
-                        0
-                    };
-                    let content_height = static_height + streaming_height;
                     crate::debug_log::log_kv(
                         "chat.measure",
                         &[
@@ -468,11 +469,7 @@ pub fn render_chat(
                         ],
                     );
 
-                    if content_height > visible_height {
-                        *chat_scroll = content_height.saturating_sub(visible_height);
-                    } else {
-                        *chat_scroll = 0;
-                    }
+                    *chat_scroll = max_scroll;
                 } else if let Some(cursor_line_idx) = nav_cursor_line {
                     let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
 
@@ -500,6 +497,8 @@ pub fn render_chat(
             ],
         );
     }
+
+    *chat_scroll = (*chat_scroll).min(max_scroll);
 
     let chat_focused = app.focus == super::Focus::Chat;
     let mut chat_block = Block::default()
@@ -550,6 +549,8 @@ pub fn render_chat(
             }
         }
     }
+
+    max_scroll
 }
 
 fn queue_user_label(app: &App) -> String {

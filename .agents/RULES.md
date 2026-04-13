@@ -15,20 +15,24 @@ cargo run                                       # TUI mode, prompts for passkey
 cargo run -- -d ./data --no-encrypt             # custom data dir, plaintext
 cargo run -- -d ./data --no-encrypt -m "Hello"  # persistent single-shot
 cargo run -- -d ./data --no-encrypt -m "Follow up" --continue <uuid>
-cargo run -- --template chatml                  # use ChatML prompt template
+cargo run -- --template chatml                  # use ChatML instruct preset
 cargo run -- --temperature 0.5                  # override sampling params
 cargo run -- -c character_name -p persona_name  # roleplay mode (requires both)
 cargo run -- -r "You are a helpful assistant"   # override system prompt
+cargo run -- edit character my_char             # edit character in $EDITOR
+cargo run -- edit worldbook my_book             # edit worldbook in $EDITOR
+cargo run -- update                             # update to latest build
+cargo run -- update --nightly                   # switch to nightly channel
 LIBLLM_PASSKEY=foo cargo run -- -d ./data       # passkey via env var
 ```
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
 
-CI runs `cargo test` before building on push to master (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Run tests locally with `cargo test` before submitting changes.
+CI runs `cargo test` before building on push to master (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Releases are built by `.github/workflows/release.yml` on version tags (`v*`). Run tests locally with `cargo test` before submitting changes.
 
 ## Testing
 
-Integration tests live in `tests/` and are organized into five suites:
+Integration tests live in `tests/` and are organized into six suites:
 
 ```sh
 cargo test                          # run all tests
@@ -37,6 +41,7 @@ cargo test --test content_management # characters, worldbooks, prompts, personas
 cargo test --test request_pipeline  # preset rendering, sampling, context truncation
 cargo test --test infrastructure    # config, migrations, metadata index
 cargo test --test tui_business      # template vars, command registry, business logic
+cargo test --test smoke             # end-to-end smoke tests
 ```
 
 Shared test helpers are in `tests/common/mod.rs` (temp dirs, key derivation, fixture builders). The crate exposes modules for integration tests via `src/lib.rs`.
@@ -63,8 +68,12 @@ The default data directory is `~/.local/share/libllm/`. A custom path can be spe
 │   ├── assistant.prompt     # Builtin system prompt
 │   ├── roleplay.prompt      # Builtin system prompt
 │   └── *.prompt / *.json    # Custom system prompts (JSON auto-encrypted)
-└── personas/
-    └── *.persona / *.json   # User personas (JSON auto-encrypted)
+├── personas/
+│   └── *.persona / *.json   # User personas (JSON auto-encrypted)
+└── presets/
+    ├── instruct/            # Instruct presets (Mistral V3-Tekken, Llama 3, ChatML, Phi, Alpaca)
+    ├── reasoning/           # Reasoning presets (DeepSeek)
+    └── template/            # Context template presets (Default)
 ```
 
 Old config at `~/.config/libllm/config.toml` is auto-migrated on first run. System prompts and personas previously stored in `config.toml` are auto-migrated to their respective directories.
@@ -73,29 +82,31 @@ Old config at `~/.config/libllm/config.toml` is auto-migrated on first run. Syst
 
 The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util).
 
-- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`
+- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `update` (self-update with optional `--nightly`)
 - **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
-- **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`
-- **`config`** -- TOML config at `<data_dir>/config.toml`, data/sessions/characters/worldinfo/system/personas directory management, migration from old config path. `data_dir()` supports a `OnceLock`-based override set via `set_data_dir()` for the `--data` flag
+- **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`. Commands: `/clear` (`/new`), `/system`, `/retry`, `/continue` (`/cont`), `/branch`, `/character`, `/persona` (`/self`, `/user`, `/me`), `/worldbook` (`/lore`, `/world`, `/lorebook`), `/passkey` (`/password`, `/pass`, `/auth`), `/config`, `/report`, `/quit` (`/exit`)
+- **`config`** -- TOML config at `<data_dir>/config.toml`, data/sessions/characters/worldinfo/system/personas/presets directory management, migration from old config path. `data_dir()` supports a `OnceLock`-based override set via `set_data_dir()` for the `--data` flag
 - **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
 - **`crypto`** -- AES-256-GCM encryption/decryption, Argon2id key derivation, salt management. Encrypted file format: magic "LLMS" (4 bytes) + version (1 byte) + nonce (12 bytes) + ciphertext
 - **`character`** -- `CharacterCard` parsing from JSON and PNG (base64 text chunk extraction). Supports old (top-level) and new (nested `data` object) formats. Auto-imports PNG cards on startup
 - **`worldinfo`** -- `WorldBook` with entry scanning by keyword match. `scan_entries()` activates entries whose keys appear in message text. `normalize_worldbooks()` converts legacy field names
-- **`prompt`** -- `Template` enum (Llama2, ChatML, Mistral, Phi, Raw)
+- **`preset`** -- Three preset types loaded from JSON files in `<data_dir>/presets/`: `InstructPreset` (prompt formatting -- builtins: Mistral V3-Tekken, Llama 3 Instruct, ChatML, Phi, Alpaca; plus synthetic `Raw`), `ReasoningPreset` (thinking block support -- builtin: DeepSeek), `ContextPreset` (context template variables -- builtin: Default). The `--template`/`-t` CLI flag resolves to an instruct preset
 - **`sampling`** -- `SamplingParams` and `SamplingOverrides` with `with_overrides` merge
 - **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Plaintext/Encrypted/PendingPasskey), encrypted save/load, session listing with previews. Supports legacy flat session format migration
 - **`system_prompt`** -- File-based system prompt management. Two hardcoded builtins (`assistant`, `roleplay`) are auto-created if missing. Custom prompts stored as encrypted `.prompt` files. Handles migration from old `config.toml` fields
 - **`persona`** -- File-based user persona management (`name` + `persona` text). Stored as encrypted `.persona` files. Migrates from old `config.toml` `user_name`/`user_persona` fields
 - **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in encrypted `index.meta` to avoid decrypting every file on startup
 - **`migration`** -- Centralized migration orchestration. Runs all migrations (config path, system prompts, personas, worldbook normalization, plaintext encryption) on startup with warning reporting
+- **`update`** -- Self-update via GitHub releases. Supports stable and nightly channels, cross-platform binary replacement
 - **`tui`** -- Full ratatui terminal UI:
-  - `mod.rs` -- App state, Focus enum (Input/Chat/Sidebar/dialogs), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields
+  - `mod.rs` -- App state, Focus enum with 24 variants (Input, Chat, Sidebar, plus 21 dialog-specific variants), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields
   - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution, `config_locked_fields()` for determining which `/config` fields are CLI-locked
+  - `clipboard.rs` -- Clipboard integration for copy/paste
   - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save. `/system` and `/persona` open in read-only mode when overridden by `-r` or `-p`
   - `input.rs` -- Keyboard handling, tree navigation (`switch_sibling`, `navigate_up`, `navigate_down`), command picker with Tab
   - `render.rs` -- Styled text parsing (bold/italic markdown), chat rendering, status bar with branch indicators
   - `maintenance.rs` -- Background maintenance tasks (PNG import, plaintext encryption, worldbook normalization, builtin prompt setup) spawned on startup and after passkey unlock
-  - `dialogs/` -- Modal dialogs: passkey, branch selector, character picker, persona editor, system prompt selector, message editor, worldbook toggle list, delete confirmation, config editor, API error. `FieldDialog` supports `locked_fields` (rendered in red, non-editable). Character and worldbook dialogs support inline creation via "a" key. System prompt and worldbook editor dialogs support name editing
+  - `dialogs/` -- Modal dialogs organized by file: `passkey` (unlock), `set_passkey` (set/change passkey), `branch` (branch selector), `character` (picker + inline editor), `persona` (picker + inline editor), `system_prompt` (selector + inline editor), `edit` (message editor + confirm), `worldbook` (toggle list + entry editor + entry delete confirm), `preset` (instruct/reasoning/template picker + inline editor), `delete_confirm` (generic deletion), `api_error` (API error display). `FieldDialog` supports `locked_fields` (rendered in red, non-editable). Character and worldbook dialogs support inline creation via "a" key. System prompt and worldbook editor dialogs support name editing
 
 ### CLI Override System
 

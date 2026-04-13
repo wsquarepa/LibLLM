@@ -80,7 +80,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     },
     CommandInfo {
         name: "/macro",
-        aliases: &[],
+        aliases: &["/m"],
         args: "<name> <args...>",
         description: "Run a user-defined macro",
     },

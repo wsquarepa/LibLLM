@@ -1,5 +1,5 @@
 use crate::session::{self, Message, Role};
-use crate::tui::business;
+use crate::template;
 
 pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) -> String {
     let mut out = String::new();
@@ -9,7 +9,7 @@ pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) 
             Role::Assistant => char_name,
             Role::System => "System",
         };
-        let content = business::apply_template_vars(&msg.content, char_name, user_name);
+        let content = template::apply_template_vars(&msg.content, char_name, user_name);
         out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
     }
     out
@@ -23,7 +23,7 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
             Role::Assistant => char_name,
             Role::System => "System",
         };
-        let content = business::apply_template_vars(&msg.content, char_name, user_name);
+        let content = template::apply_template_vars(&msg.content, char_name, user_name);
         let formatted = html_format_content(&content);
         let class = match msg.role {
             Role::User => "user",
@@ -288,7 +288,7 @@ pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> 
     lines.push(serde_json::to_string(&header).unwrap_or_default());
 
     for msg in messages {
-        let content = business::apply_template_vars(&msg.content, char_name, user_name);
+        let content = template::apply_template_vars(&msg.content, char_name, user_name);
         let name = match msg.role {
             Role::User => user_name,
             Role::Assistant => char_name,

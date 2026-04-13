@@ -21,14 +21,16 @@ cargo run -- -c character_name -p persona_name  # roleplay mode (requires both)
 cargo run -- -r "You are a helpful assistant"   # override system prompt
 cargo run -- edit character my_char             # edit character in $EDITOR
 cargo run -- edit worldbook my_book             # edit worldbook in $EDITOR
-cargo run -- update                             # update to latest build
-cargo run -- update --nightly                   # switch to nightly channel
+cargo run -- update                             # update to stable (or stay on current channel)
+cargo run -- update feature/branch              # switch to a branch build
+cargo run -- update --list                      # list available branch builds
+cargo run -- update --yes                       # skip channel-switch confirmation
 LIBLLM_PASSKEY=foo cargo run -- -d ./data       # passkey via env var
 ```
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
 
-CI runs `cargo test` before building on push to master (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Releases are built by `.github/workflows/release.yml` on version tags (`v*`). Run tests locally with `cargo test` before submitting changes.
+CI runs `cargo test` before building on push to any branch (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Pushing to master creates a `stable` release; pushing to other branches creates pre-releases tagged with the branch name. Run tests locally with `cargo test` before submitting changes.
 
 ## Testing
 
@@ -47,6 +49,16 @@ cargo test --test smoke             # end-to-end smoke tests
 Shared test helpers are in `tests/common/mod.rs` (temp dirs, key derivation, fixture builders). The crate exposes modules for integration tests via `src/lib.rs`.
 
 `config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
+
+### Verifying test results
+
+`cargo test` runs multiple test binaries (unit tests, six integration suites, doctests). Some binaries may report `0 tests` if they have no matching tests. **Do not use `tail` to check results** -- it only shows the last binary's output, which may be an empty suite. Instead, grep for all result lines:
+
+```sh
+cargo test 2>&1 | grep -E "^test result:"
+```
+
+Every line must show `0 failed`. If any line shows failures, the full output is needed to diagnose which tests failed.
 
 ## Data Directory
 
@@ -82,7 +94,7 @@ Old config at `~/.config/libllm/config.toml` is auto-migrated on first run. Syst
 
 The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util).
 
-- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `update` (self-update with optional `--nightly`)
+- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `update` (self-update with optional branch target, `--list`, `--yes`)
 - **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
 - **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`. Commands: `/clear` (`/new`), `/system`, `/retry`, `/continue` (`/cont`), `/branch`, `/character`, `/persona` (`/self`, `/user`, `/me`), `/worldbook` (`/lore`, `/world`, `/lorebook`), `/passkey` (`/password`, `/pass`, `/auth`), `/config`, `/theme`, `/export`, `/macro` (`/m`), `/report`, `/quit` (`/exit`)
 - **`export`** -- Conversation branch export to HTML (styled, responsive dark/light), Markdown, or JSONL (SillyTavern-compatible format with metadata header)
@@ -98,7 +110,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`persona`** -- File-based user persona management (`name` + `persona` text). Stored as encrypted `.persona` files. Migrates from old `config.toml` `user_name`/`user_persona` fields
 - **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in encrypted `index.meta` to avoid decrypting every file on startup
 - **`migration`** -- Centralized migration orchestration. Runs all migrations (config path, system prompts, personas, worldbook normalization, plaintext encryption) on startup with warning reporting
-- **`update`** -- Self-update via GitHub releases. Supports stable and nightly channels, cross-platform binary replacement
+- **`update`** -- Self-update via GitHub releases. Supports stable and branch channels with interactive branch selection, channel-switch confirmation, and cross-platform binary replacement
 - **`tui`** -- Full ratatui terminal UI:
   - `mod.rs` -- App state, Focus enum with 24 variants (Input, Chat, Sidebar, plus 21 dialog-specific variants), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields
   - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution, `config_locked_fields()` for determining which `/config` fields are CLI-locked

@@ -296,6 +296,9 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/worldbook` | `/lore`, `/world`, `/lorebook` | Toggle worldbooks for this session |
 | `/passkey` | `/password`, `/pass`, `/auth` | Set or change encryption passkey |
 | `/config` | | Open configuration dialog (CLI-overridden fields shown in red) |
+| `/theme` | | Switch color theme (`dark`, `light`) |
+| `/export` | | Export current branch to file (`html`, `md`, `jsonl`) |
+| `/macro` | | Run a user-defined macro (see [Macros](#macros)) |
 | `/report` | | Copy the active debug log to `./debug.log` (requires `debug_log = true`) |
 | `/quit` | `/exit` | Exit the chat |
 
@@ -349,6 +352,63 @@ max_tokens = -1
 ```
 
 System prompts and user personas are managed as separate encrypted files via the `/system` and `/persona` TUI commands, not in `config.toml`.
+
+### Macros
+
+Define reusable prompt templates in `config.toml` under `[macros]`. Invoke them with `/macro <name> <args...>`.
+
+```toml
+[macros]
+refactor = "Refactor the following code to be more idiomatic Rust: {{}}"
+compare = "Compare {{1}} with {{2}} and explain the differences"
+translate = "Translate from {{1}} to {{2}}: {{3..}}"
+```
+
+**Placeholders:**
+
+| Syntax | Meaning |
+|---|---|
+| `{{}}` | All arguments |
+| `{{1}}` | First argument |
+| `{{N..M}}` | Arguments N through M |
+| `{{N..}}` | Argument N and everything after |
+
+All indices from 1 to the maximum must be covered (no gaps). A `\` before `{{` escapes it as a literal.
+
+### Theming
+
+Switch between built-in themes with `/theme dark` or `/theme light`, or set the default in `config.toml`:
+
+```toml
+theme = "dark"
+```
+
+Override individual colors with a `[theme_colors]` section:
+
+```toml
+[theme_colors]
+user_message = "green"
+assistant_message_fg = "white"
+assistant_message_bg = "#2a1f4e"
+border_focused = "cyan"
+dialogue = "light_blue"
+hover_bg = "indexed(236)"
+```
+
+Color values can be named colors (`red`, `dark_gray`, `light_blue`, etc.), hex (`#RRGGBB`), or 256-color indexed (`indexed(N)`).
+
+### Export
+
+Export the current conversation branch with `/export`. The default format is HTML.
+
+```
+/export          # HTML (default)
+/export html     # Styled HTML with dark/light mode support
+/export md       # Markdown
+/export jsonl    # SillyTavern-compatible JSONL
+```
+
+Files are written to the current working directory as `export-<timestamp>.<ext>`.
 
 ## Data directory
 
@@ -425,7 +485,7 @@ cargo build
 cargo test
 ```
 
-Tests are organized into five integration test suites under `tests/`.
+Tests are organized into six integration test suites under `tests/`.
 
 ## License
 

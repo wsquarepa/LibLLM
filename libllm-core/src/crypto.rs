@@ -22,7 +22,7 @@ pub struct DerivedKey {
 }
 
 impl DerivedKey {
-    fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
     }
 

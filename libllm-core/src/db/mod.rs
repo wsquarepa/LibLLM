@@ -17,7 +17,19 @@ mod schema;
 mod sessions;
 mod worldbooks;
 
+pub use prompts::PromptListEntry;
 pub use sessions::SessionListEntry;
+
+fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Result<Vec<(String, String)>> {
+    let err_owned = err_context.to_owned();
+    let mut stmt = conn.prepare(sql).with_context(|| err_owned.clone())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .with_context(|| err_owned.clone())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
+}
 
 pub struct Database {
     conn: Connection,
@@ -44,8 +56,16 @@ impl Database {
         Ok(Self { conn })
     }
 
-    pub fn conn(&self) -> &Connection {
+    #[cfg(test)]
+    pub(crate) fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    pub fn in_transaction(&self, f: impl FnOnce(&Connection) -> Result<()>) -> Result<()> {
+        let tx = self.conn.unchecked_transaction().context("failed to begin transaction")?;
+        f(&tx)?;
+        tx.commit().context("failed to commit transaction")?;
+        Ok(())
     }
 
     pub fn insert_session(&self, id: &str, session: &Session) -> Result<()> {
@@ -133,7 +153,7 @@ impl Database {
         prompts::load_prompt(&self.conn, slug)
     }
 
-    pub fn list_prompts(&self) -> Result<Vec<(String, String, bool)>> {
+    pub fn list_prompts(&self) -> Result<Vec<PromptListEntry>> {
         prompts::list_prompts(&self.conn)
     }
 

@@ -1781,7 +1781,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             Ok(()) => {
                                 let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
                                 app.system_prompt_list =
-                                    prompts.into_iter().map(|(_, n, _)| n).collect();
+                                    prompts.into_iter().map(|e| e.name).collect();
                                 app.set_status(
                                     format!("System prompt '{}' saved.", new_name),
                                     StatusLevel::Info,

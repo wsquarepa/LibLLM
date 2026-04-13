@@ -4,6 +4,12 @@ use rusqlite::{Connection, params};
 use crate::session::now_iso8601;
 use crate::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
+pub struct PromptListEntry {
+    pub slug: String,
+    pub name: String,
+    pub builtin: bool,
+}
+
 pub fn insert_prompt(
     conn: &Connection,
     slug: &str,
@@ -32,7 +38,7 @@ pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
     .with_context(|| format!("system prompt not found: {slug}"))
 }
 
-pub fn list_prompts(conn: &Connection) -> Result<Vec<(String, String, bool)>> {
+pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
     let mut stmt = conn
         .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
         .context("failed to prepare list_prompts query")?;
@@ -42,7 +48,11 @@ pub fn list_prompts(conn: &Connection) -> Result<Vec<(String, String, bool)>> {
             let slug: String = row.get(0)?;
             let name: String = row.get(1)?;
             let builtin: i64 = row.get(2)?;
-            Ok((slug, name, builtin != 0))
+            Ok(PromptListEntry {
+                slug,
+                name,
+                builtin: builtin != 0,
+            })
         })
         .context("failed to query system prompts")?;
 
@@ -148,11 +158,11 @@ mod tests {
         let list = list_prompts(&conn).unwrap();
         assert_eq!(list.len(), 2);
 
-        let builtin_entry = list.iter().find(|(slug, _, _)| slug == BUILTIN_ASSISTANT).unwrap();
-        assert!(builtin_entry.2);
+        let builtin_entry = list.iter().find(|e| e.slug == BUILTIN_ASSISTANT).unwrap();
+        assert!(builtin_entry.builtin);
 
-        let custom_entry = list.iter().find(|(slug, _, _)| slug == "custom").unwrap();
-        assert!(!custom_entry.2);
+        let custom_entry = list.iter().find(|e| e.slug == "custom").unwrap();
+        assert!(!custom_entry.builtin);
     }
 
     #[test]
@@ -163,8 +173,8 @@ mod tests {
         ensure_builtins(&conn).unwrap();
 
         let list = list_prompts(&conn).unwrap();
-        let assistant_count = list.iter().filter(|(slug, _, _)| slug == BUILTIN_ASSISTANT).count();
-        let roleplay_count = list.iter().filter(|(slug, _, _)| slug == BUILTIN_ROLEPLAY).count();
+        let assistant_count = list.iter().filter(|e| e.slug == BUILTIN_ASSISTANT).count();
+        let roleplay_count = list.iter().filter(|e| e.slug == BUILTIN_ROLEPLAY).count();
 
         assert_eq!(assistant_count, 1);
         assert_eq!(roleplay_count, 1);

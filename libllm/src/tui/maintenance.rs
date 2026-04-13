@@ -89,7 +89,7 @@ pub(in crate::tui) fn reload_system_prompt_picker(app: &mut App) {
         .get(app.system_prompt_selected)
         .cloned();
     let prompts = match app.db.as_ref().and_then(|db| db.list_prompts().ok()) {
-        Some(ps) => ps.into_iter().map(|(_, name, _)| name).collect(),
+        Some(ps) => ps.into_iter().map(|e| e.name).collect(),
         None => Vec::new(),
     };
 

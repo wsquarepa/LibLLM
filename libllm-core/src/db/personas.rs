@@ -28,23 +28,11 @@ pub fn load_persona(conn: &Connection, slug: &str) -> Result<PersonaFile> {
 }
 
 pub fn list_personas(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn
-        .prepare("SELECT slug, name FROM personas ORDER BY name")
-        .context("failed to prepare list_personas query")?;
-
-    let rows = stmt
-        .query_map([], |row| {
-            let slug: String = row.get(0)?;
-            let name: String = row.get(1)?;
-            Ok((slug, name))
-        })
-        .context("failed to query personas")?;
-
-    let mut entries = Vec::new();
-    for row in rows {
-        entries.push(row.context("failed to read persona row")?);
-    }
-    Ok(entries)
+    super::query_slug_name_pairs(
+        conn,
+        "SELECT slug, name FROM personas ORDER BY name",
+        "failed to list personas",
+    )
 }
 
 pub fn update_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> Result<()> {

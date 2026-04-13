@@ -24,12 +24,12 @@ use tokio::sync::mpsc;
 use tui_textarea::{CursorMove, TextArea};
 
 use crate::cli::CliOverrides;
-use crate::client::{ApiClient, StreamToken};
-use crate::context::ContextManager;
-use crate::preset::InstructPreset;
-use crate::sampling::SamplingParams;
-use crate::session::{self, Message, NodeId, Role, SaveMode, Session, SessionEntry};
-use crate::worldinfo::RuntimeWorldBook;
+use libllm_core::client::{ApiClient, StreamToken};
+use libllm_core::context::ContextManager;
+use libllm_core::preset::InstructPreset;
+use libllm_core::sampling::SamplingParams;
+use libllm_core::session::{self, Message, NodeId, Role, SaveMode, Session, SessionEntry};
+use libllm_core::worldinfo::RuntimeWorldBook;
 
 use dialogs::FieldDialog;
 
@@ -64,7 +64,7 @@ enum Focus {
 enum Action {
     SendMessage(String),
     EditMessage {
-        node_id: crate::session::NodeId,
+        node_id: libllm_core::session::NodeId,
         content: String,
     },
     SlashCommand(String, String),
@@ -149,11 +149,11 @@ struct HydrationDebugState {
 
 enum BackgroundEvent {
     KeyDerived(
-        std::sync::Arc<crate::crypto::DerivedKey>,
+        std::sync::Arc<libllm_core::crypto::DerivedKey>,
         std::path::PathBuf,
     ),
     KeyDeriveFailed(String),
-    PasskeySet(std::sync::Arc<crate::crypto::DerivedKey>),
+    PasskeySet(std::sync::Arc<libllm_core::crypto::DerivedKey>),
     PasskeySetFailed(String),
     ReEncryptionComplete(Vec<String>),
     MetadataLoaded {
@@ -221,7 +221,7 @@ struct App<'a> {
     status_message: Option<StatusMessage>,
     should_quit: bool,
     passkey_changed: bool,
-    re_encrypt_old_key: Option<std::sync::Arc<crate::crypto::DerivedKey>>,
+    re_encrypt_old_key: Option<std::sync::Arc<libllm_core::crypto::DerivedKey>>,
     command_picker_selected: usize,
 
     passkey_input: String,
@@ -262,8 +262,8 @@ struct App<'a> {
 
     character_editor: Option<FieldDialog<'a>>,
     character_editor_slug: String,
-    worldbook_editor_entries: Vec<crate::worldinfo::Entry>,
-    worldbook_editor_original_entries: Vec<crate::worldinfo::Entry>,
+    worldbook_editor_entries: Vec<libllm_core::worldinfo::Entry>,
+    worldbook_editor_original_entries: Vec<libllm_core::worldinfo::Entry>,
     worldbook_editor_name: String,
     worldbook_editor_original_name: String,
     worldbook_editor_name_selected: bool,
@@ -289,7 +289,7 @@ struct App<'a> {
     persona_list: Vec<String>,
     persona_selected: usize,
     persona_editor_file_name: String,
-    config: crate::config::Config,
+    config: libllm_core::config::Config,
     theme: theme::Theme,
     cli_overrides: CliOverrides,
     worldbook_cache: Option<WorldbookCache>,
@@ -397,13 +397,13 @@ impl App<'_> {
         if self.autosave_debug.dirty_since.is_none() {
             self.autosave_debug.dirty_since = Some(std::time::Instant::now());
         }
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "autosave",
             &[
-                crate::debug_log::field("phase", "schedule"),
-                crate::debug_log::field("trigger", trigger.as_str()),
-                crate::debug_log::field("persistable", self.can_persist_session()),
-                crate::debug_log::field("session_dirty", self.session_dirty),
+                libllm_core::debug_log::field("phase", "schedule"),
+                libllm_core::debug_log::field("trigger", trigger.as_str()),
+                libllm_core::debug_log::field("persistable", self.can_persist_session()),
+                libllm_core::debug_log::field("session_dirty", self.session_dirty),
             ],
         );
     }
@@ -417,14 +417,14 @@ impl App<'_> {
 
     fn flush_session_save(&mut self, trigger: SaveTrigger) -> Result<()> {
         if !self.session_dirty || !self.can_persist_session() {
-            crate::debug_log::log_kv(
+            libllm_core::debug_log::log_kv(
                 "autosave",
                 &[
-                    crate::debug_log::field("phase", "flush"),
-                    crate::debug_log::field("trigger", trigger.as_str()),
-                    crate::debug_log::field("result", "skipped"),
-                    crate::debug_log::field("session_dirty", self.session_dirty),
-                    crate::debug_log::field("persistable", self.can_persist_session()),
+                    libllm_core::debug_log::field("phase", "flush"),
+                    libllm_core::debug_log::field("trigger", trigger.as_str()),
+                    libllm_core::debug_log::field("result", "skipped"),
+                    libllm_core::debug_log::field("session_dirty", self.session_dirty),
+                    libllm_core::debug_log::field("persistable", self.can_persist_session()),
                 ],
             );
             return Ok(());
@@ -444,25 +444,25 @@ impl App<'_> {
             Ok(()) => {
                 self.autosave_debug.save_count += 1;
                 let mut fields = vec![
-                    crate::debug_log::field("phase", "flush"),
-                    crate::debug_log::field("trigger", trigger.as_str()),
-                    crate::debug_log::field("result", "ok"),
-                    crate::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    libllm_core::debug_log::field("phase", "flush"),
+                    libllm_core::debug_log::field("trigger", trigger.as_str()),
+                    libllm_core::debug_log::field("result", "ok"),
+                    libllm_core::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
                 ];
                 if let Some(path) = path.as_deref() {
-                    fields.push(crate::debug_log::field("path", path));
+                    fields.push(libllm_core::debug_log::field("path", path));
                 }
                 if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
-                    fields.push(crate::debug_log::field(
+                    fields.push(libllm_core::debug_log::field(
                         "dirty_elapsed_ms",
                         format!("{dirty_elapsed_ms:.3}"),
                     ));
                 }
-                fields.push(crate::debug_log::field(
+                fields.push(libllm_core::debug_log::field(
                     "save_count",
                     self.autosave_debug.save_count,
                 ));
-                crate::debug_log::log_kv("autosave", &fields);
+                libllm_core::debug_log::log_kv("autosave", &fields);
                 self.discard_pending_session_save();
                 Ok(())
             }
@@ -471,27 +471,27 @@ impl App<'_> {
                 self.pending_save_trigger = Some(SaveTrigger::Retry);
                 self.autosave_debug.retry_count += 1;
                 let mut fields = vec![
-                    crate::debug_log::field("phase", "flush"),
-                    crate::debug_log::field("trigger", trigger.as_str()),
-                    crate::debug_log::field("result", "error"),
-                    crate::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    crate::debug_log::field("retry_delay_ms", AUTOSAVE_RETRY_DELAY.as_millis()),
-                    crate::debug_log::field("error", &err),
+                    libllm_core::debug_log::field("phase", "flush"),
+                    libllm_core::debug_log::field("trigger", trigger.as_str()),
+                    libllm_core::debug_log::field("result", "error"),
+                    libllm_core::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    libllm_core::debug_log::field("retry_delay_ms", AUTOSAVE_RETRY_DELAY.as_millis()),
+                    libllm_core::debug_log::field("error", &err),
                 ];
                 if let Some(path) = path.as_deref() {
-                    fields.push(crate::debug_log::field("path", path));
+                    fields.push(libllm_core::debug_log::field("path", path));
                 }
                 if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
-                    fields.push(crate::debug_log::field(
+                    fields.push(libllm_core::debug_log::field(
                         "dirty_elapsed_ms",
                         format!("{dirty_elapsed_ms:.3}"),
                     ));
                 }
-                fields.push(crate::debug_log::field(
+                fields.push(libllm_core::debug_log::field(
                     "retry_count",
                     self.autosave_debug.retry_count,
                 ));
-                crate::debug_log::log_kv("autosave", &fields);
+                libllm_core::debug_log::log_kv("autosave", &fields);
                 Err(err)
             }
         }
@@ -510,7 +510,7 @@ impl App<'_> {
 
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
-    key: Option<&crate::crypto::DerivedKey>,
+    key: Option<&libllm_core::crypto::DerivedKey>,
 ) -> Option<String> {
     business::build_effective_system_prompt(session, key)
 }
@@ -523,9 +523,9 @@ pub async fn run(
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
 ) -> Result<()> {
-    let sidebar_sessions = crate::debug_log::timed_kv(
+    let sidebar_sessions = libllm_core::debug_log::timed_kv(
         "startup.phase",
-        &[crate::debug_log::field("phase", "sidebar_discovery")],
+        &[libllm_core::debug_log::field("phase", "sidebar_discovery")],
         || business::discover_sidebar_sessions(&save_mode),
     );
 
@@ -552,18 +552,18 @@ pub async fn run(
         });
     }
 
-    let config = crate::config::load();
+    let config = libllm_core::config::load();
 
-    let key_check_exists = crate::config::key_check_path().exists();
+    let key_check_exists = libllm_core::config::key_check_path().exists();
     let has_encrypted_sessions = !key_check_exists
-        && std::fs::read_dir(crate::config::sessions_dir())
+        && std::fs::read_dir(libllm_core::config::sessions_dir())
             .ok()
             .map(|entries| {
                 entries.flatten().any(|e| {
                     e.path().extension().and_then(|ext| ext.to_str()) == Some("session")
                         && std::fs::read(e.path())
                             .ok()
-                            .is_some_and(|data| crate::crypto::is_encrypted(&data))
+                            .is_some_and(|data| libllm_core::crypto::is_encrypted(&data))
                 })
             })
             .unwrap_or(false);
@@ -706,9 +706,9 @@ pub async fn run(
 
     let mut event_stream = EventStream::new();
 
-    crate::debug_log::timed_kv(
+    libllm_core::debug_log::timed_kv(
         "startup.phase",
-        &[crate::debug_log::field("phase", "metadata_schedule")],
+        &[libllm_core::debug_log::field("phase", "metadata_schedule")],
         || commands::spawn_metadata_loading(&mut app),
     );
 
@@ -716,14 +716,14 @@ pub async fn run(
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut needs_redraw = false;
 
-    crate::debug_log::timed_result(
+    libllm_core::debug_log::timed_result(
         "startup.phase",
-        &[crate::debug_log::field("phase", "first_draw")],
+        &[libllm_core::debug_log::field("phase", "first_draw")],
         || terminal.draw(|f| render_frame(f, &mut app)),
     )?;
-    crate::debug_log::timed_kv(
+    libllm_core::debug_log::timed_kv(
         "startup.phase",
-        &[crate::debug_log::field("phase", "maintenance_schedule")],
+        &[libllm_core::debug_log::field("phase", "maintenance_schedule")],
         || maintenance::spawn_startup_maintenance(&app.save_mode, &bg_tx),
     );
 
@@ -731,7 +731,7 @@ pub async fn run(
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
                 let is_mouse_move = matches!(&event, Event::Mouse(m) if matches!(m.kind, MouseEventKind::Moved));
-                crate::debug_log::timed_kv("event", &[crate::debug_log::field("phase", "handle")], || {
+                libllm_core::debug_log::timed_kv("event", &[libllm_core::debug_log::field("phase", "handle")], || {
                     if let Some(action) = handle_event(event, &mut app, bg_tx.clone()) {
                         process_action(action, &mut app, token_tx.clone());
                     }
@@ -744,7 +744,7 @@ pub async fn run(
                 }
             }
             Some(stream_token) = token_rx.recv() => {
-                crate::debug_log::timed_result("stream", &[crate::debug_log::field("phase", "token")], || {
+                libllm_core::debug_log::timed_result("stream", &[libllm_core::debug_log::field("phase", "token")], || {
                     commands::handle_stream_token(stream_token, &mut app, token_tx.clone())
                 })?;
                 needs_redraw = true;
@@ -808,9 +808,9 @@ pub async fn run(
 fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let _frame_start = std::time::Instant::now();
 
-    let (outer, columns, right_split) = crate::debug_log::timed_kv(
+    let (outer, columns, right_split) = libllm_core::debug_log::timed_kv(
         "layout",
-        &[crate::debug_log::field("phase", "splits")],
+        &[libllm_core::debug_log::field("phase", "splits")],
         || {
             let outer = Layout::default()
                 .direction(Direction::Vertical)
@@ -840,9 +840,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     });
 
     let session_count = app.sidebar_sessions.len();
-    crate::debug_log::timed_kv(
+    libllm_core::debug_log::timed_kv(
         "sidebar",
-        &[crate::debug_log::field("session_count", session_count)],
+        &[libllm_core::debug_log::field("session_count", session_count)],
         || {
             render::render_sidebar(f, app, sidebar_area);
         },
@@ -884,15 +884,15 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         let branch_ids = app.session.tree.current_branch_ids();
         let branch_info = app.session.tree.current_deepest_branch_info();
         let msg_count = branch_ids.len();
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "chat.branch",
-            &[crate::debug_log::field("node_count", msg_count)],
+            &[libllm_core::debug_log::field("node_count", msg_count)],
         );
-        crate::debug_log::timed_kv(
+        libllm_core::debug_log::timed_kv(
             "chat",
             &[
-                crate::debug_log::field("message_count", msg_count),
-                crate::debug_log::field("scroll_dirty", scroll_dirty),
+                libllm_core::debug_log::field("message_count", msg_count),
+                libllm_core::debug_log::field("scroll_dirty", scroll_dirty),
             ],
             || {
                 max_scroll = render::render_chat(
@@ -918,7 +918,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             )
         });
 
-        crate::debug_log::timed_kv("status", &[crate::debug_log::field("phase", "bar")], || {
+        libllm_core::debug_log::timed_kv("status", &[libllm_core::debug_log::field("phase", "bar")], || {
             render::render_status_bar(f, app, status_area, branch_info, token_count);
         });
     }
@@ -928,9 +928,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.last_scroll_state = current_scroll_state;
 
     if app.focus == Focus::Input && input::input_has_command_picker(app) {
-        crate::debug_log::timed_kv(
+        libllm_core::debug_log::timed_kv(
             "picker",
-            &[crate::debug_log::field("phase", "command_picker")],
+            &[libllm_core::debug_log::field("phase", "command_picker")],
             || {
                 render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
             },
@@ -963,17 +963,17 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     };
 
     if let Some(name) = dialog_name {
-        crate::debug_log::timed_kv("dialog", &[crate::debug_log::field("name", name)], || {
+        libllm_core::debug_log::timed_kv("dialog", &[libllm_core::debug_log::field("name", name)], || {
             render_dialog(f, app);
         });
     }
 
     let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "frame",
         &[
-            crate::debug_log::field("phase", "frame"),
-            crate::debug_log::field("elapsed_ms", format!("{frame_ms:.3}")),
+            libllm_core::debug_log::field("phase", "frame"),
+            libllm_core::debug_log::field("elapsed_ms", format!("{frame_ms:.3}")),
         ],
     );
 }
@@ -1689,7 +1689,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                         &edited_preset_name
                                     };
                                     app.instruct_preset =
-                                        crate::preset::resolve_instruct_preset(resolve_name);
+                                        libllm_core::preset::resolve_instruct_preset(resolve_name);
                                     app.stop_tokens = app.instruct_preset.stop_tokens();
                                 }
                             }
@@ -1717,7 +1717,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     } else {
                         let values = &app.persona_editor.as_ref().unwrap().values;
                         let file_name = app.persona_editor_file_name.clone();
-                        let persona = crate::persona::PersonaFile {
+                        let persona = libllm_core::persona::PersonaFile {
                             name: values[0].clone(),
                             persona: values[1].clone(),
                         };
@@ -1732,15 +1732,15 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             return None;
                         }
 
-                        let dir = crate::config::personas_dir();
+                        let dir = libllm_core::config::personas_dir();
                         if !file_name.is_empty() && file_name != persona.name {
                             if let Some(old_path) =
-                                crate::persona::resolve_persona_path(&dir, &file_name)
+                                libllm_core::persona::resolve_persona_path(&dir, &file_name)
                             {
                                 let _ = std::fs::remove_file(&old_path);
                             }
                         }
-                        match crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+                        match libllm_core::persona::save_persona(&persona, &dir, app.save_mode.key()) {
                             Ok(_) => {
                                 app.invalidate_chat_cache();
                                 if app.session.persona.as_deref() == Some(&file_name)
@@ -1808,17 +1808,17 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     app.mark_session_dirty(SaveTrigger::Debounced, false);
 
                     if !original_name.is_empty() {
-                        let dir = crate::config::system_prompts_dir();
+                        let dir = libllm_core::config::system_prompts_dir();
 
-                        let prompt = crate::system_prompt::SystemPromptFile {
+                        let prompt = libllm_core::system_prompt::SystemPromptFile {
                             name: new_name.clone(),
                             content,
                         };
-                        match crate::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key())
+                        match libllm_core::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key())
                         {
                             Ok(_) => {
                                 if original_name != new_name {
-                                    let old_path = crate::system_prompt::resolve_prompt_path(
+                                    let old_path = libllm_core::system_prompt::resolve_prompt_path(
                                         &dir,
                                         &original_name,
                                     );
@@ -1827,7 +1827,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                     }
                                 }
                                 let prompts =
-                                    crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+                                    libllm_core::system_prompt::list_prompts(&dir, app.save_mode.key());
                                 app.system_prompt_list =
                                     prompts.into_iter().map(|p| p.name).collect();
                                 app.set_status(
@@ -1857,7 +1857,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     }
 
                     let values = &app.character_editor.as_ref().unwrap().values;
-                    let new_slug = crate::character::slugify(&values[0]);
+                    let new_slug = libllm_core::character::slugify(&values[0]);
                     if new_slug != app.character_editor_slug
                         && app.character_slugs.iter().any(|s| s == &new_slug)
                     {
@@ -1868,7 +1868,7 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         return None;
                     }
 
-                    let card = crate::character::CharacterCard {
+                    let card = libllm_core::character::CharacterCard {
                         name: values[0].clone(),
                         description: values[1].clone(),
                         personality: values[2].clone(),
@@ -1879,13 +1879,13 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         post_history_instructions: values[7].clone(),
                         alternate_greetings: Vec::new(),
                     };
-                    let old_path = crate::character::resolve_card_path(
-                        &crate::config::characters_dir(),
+                    let old_path = libllm_core::character::resolve_card_path(
+                        &libllm_core::config::characters_dir(),
                         &app.character_editor_slug,
                     );
-                    match crate::character::save_card(
+                    match libllm_core::character::save_card(
                         &card,
-                        &crate::config::characters_dir(),
+                        &libllm_core::config::characters_dir(),
                         app.save_mode.key(),
                     ) {
                         Ok(new_path) => {
@@ -1901,8 +1901,8 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                             StatusLevel::Warning,
                                         );
                                     } else {
-                                        crate::index::warn_if_save_fails(
-                                            crate::index::remove_character(
+                                        libllm_core::index::warn_if_save_fails(
+                                            libllm_core::index::remove_character(
                                                 &old_path,
                                                 app.save_mode.key(),
                                             ),
@@ -1910,8 +1910,8 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                         );
                                     }
                                 } else {
-                                    crate::index::warn_if_save_fails(
-                                        crate::index::remove_character(
+                                    libllm_core::index::warn_if_save_fails(
+                                        libllm_core::index::remove_character(
                                             &old_path,
                                             app.save_mode.key(),
                                         ),
@@ -1920,8 +1920,8 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                                 }
                             }
 
-                            let cards = crate::character::list_cards(
-                                &crate::config::characters_dir(),
+                            let cards = libllm_core::character::list_cards(
+                                &libllm_core::config::characters_dir(),
                                 app.save_mode.key(),
                             );
                             app.character_names =
@@ -1947,17 +1947,17 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             }
                             let is_active =
                                 app.session.character.as_deref().is_some_and(|name| {
-                                    crate::character::slugify(name)
+                                    libllm_core::character::slugify(name)
                                         == app.character_editor_slug
                                 });
                             if is_active {
-                                let cfg = crate::config::load();
+                                let cfg = libllm_core::config::load();
                                 let tpl_name =
                                     cfg.template_preset.as_deref().unwrap_or("Default");
                                 let tpl =
-                                    crate::preset::resolve_template_preset(tpl_name);
+                                    libllm_core::preset::resolve_template_preset(tpl_name);
                                 app.session.system_prompt = Some(
-                                    crate::character::build_system_prompt(
+                                    libllm_core::character::build_system_prompt(
                                         &card,
                                         Some(&tpl),
                                     ),

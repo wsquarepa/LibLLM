@@ -1,6 +1,6 @@
 use ratatui::style::Color;
 
-use crate::config::{Config, ThemeColorOverrides};
+use libllm_core::config::{Config, ThemeColorOverrides};
 
 pub struct Theme {
     pub user_message: Color,

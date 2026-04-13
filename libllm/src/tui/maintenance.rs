@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
-use crate::crypto::DerivedKey;
-use crate::session::SaveMode;
+use libllm_core::crypto::DerivedKey;
+use libllm_core::session::SaveMode;
 
 use super::{App, BackgroundEvent, Focus, StatusLevel};
 
@@ -106,11 +106,11 @@ pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
     }
 
     for warning in &warnings {
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "maintenance.warning",
             &[
-                crate::debug_log::field("phase", "warning"),
-                crate::debug_log::field("message", warning),
+                libllm_core::debug_log::field("phase", "warning"),
+                libllm_core::debug_log::field("message", warning),
             ],
         );
     }
@@ -125,8 +125,8 @@ pub(super) fn handle_finished(update: MaintenanceUpdate, app: &mut App) {
 
 fn spawn_character_png_import(key: Option<Arc<DerivedKey>>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::CharacterPngImport, bg_tx, move || {
-        let report = crate::character::auto_import_png_cards(
-            &crate::config::characters_dir(),
+        let report = libllm_core::character::auto_import_png_cards(
+            &libllm_core::config::characters_dir(),
             key.as_deref(),
         );
         MaintenanceUpdate {
@@ -142,7 +142,7 @@ fn spawn_worldbook_normalization(
     bg_tx: &mpsc::Sender<BackgroundEvent>,
 ) {
     spawn_job(MaintenanceJob::WorldbookNormalization, bg_tx, move || {
-        let result = crate::migration::migrate_worldbook_normalization(key.as_deref());
+        let result = libllm_core::migration::migrate_worldbook_normalization(key.as_deref());
         MaintenanceUpdate {
             job: MaintenanceJob::WorldbookNormalization,
             changed_count: result.changed_count,
@@ -153,7 +153,7 @@ fn spawn_worldbook_normalization(
 
 fn spawn_plaintext_card_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::PlaintextCardEncryption, bg_tx, move || {
-        let result = crate::migration::migrate_encrypt_plaintext_cards(&key);
+        let result = libllm_core::migration::migrate_encrypt_plaintext_cards(&key);
         MaintenanceUpdate {
             job: MaintenanceJob::PlaintextCardEncryption,
             changed_count: result.changed_count,
@@ -164,9 +164,9 @@ fn spawn_plaintext_card_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<Ba
 
 fn spawn_system_prompt_setup(key: Option<Arc<DerivedKey>>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::SystemPromptSetup, bg_tx, move || {
-        crate::migration::migrate_system_prompts_from_config(key.as_deref());
-        crate::system_prompt::ensure_builtin_prompts(
-            &crate::config::system_prompts_dir(),
+        libllm_core::migration::migrate_system_prompts_from_config(key.as_deref());
+        libllm_core::system_prompt::ensure_builtin_prompts(
+            &libllm_core::config::system_prompts_dir(),
             key.as_deref(),
         );
         MaintenanceUpdate {
@@ -182,7 +182,7 @@ fn spawn_plaintext_prompt_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<
         MaintenanceJob::PlaintextPromptEncryption,
         bg_tx,
         move || {
-            let result = crate::migration::migrate_encrypt_plaintext_prompts(&key);
+            let result = libllm_core::migration::migrate_encrypt_plaintext_prompts(&key);
             MaintenanceUpdate {
                 job: MaintenanceJob::PlaintextPromptEncryption,
                 changed_count: result.changed_count,
@@ -194,7 +194,7 @@ fn spawn_plaintext_prompt_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<
 
 fn spawn_persona_migration(key: Option<Arc<DerivedKey>>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::PersonaMigration, bg_tx, move || {
-        let result = crate::migration::migrate_personas_from_config(key.as_deref());
+        let result = libllm_core::migration::migrate_personas_from_config(key.as_deref());
         MaintenanceUpdate {
             job: MaintenanceJob::PersonaMigration,
             changed_count: result.changed_count,
@@ -208,7 +208,7 @@ fn spawn_plaintext_persona_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender
         MaintenanceJob::PlaintextPersonaEncryption,
         bg_tx,
         move || {
-            let result = crate::migration::migrate_encrypt_plaintext_personas(&key);
+            let result = libllm_core::migration::migrate_encrypt_plaintext_personas(&key);
             MaintenanceUpdate {
                 job: MaintenanceJob::PlaintextPersonaEncryption,
                 changed_count: result.changed_count,
@@ -220,7 +220,7 @@ fn spawn_plaintext_persona_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender
 
 fn spawn_index_rename(bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::IndexRename, bg_tx, || {
-        let result = crate::migration::migrate_index_rename();
+        let result = libllm_core::migration::migrate_index_rename();
         MaintenanceUpdate {
             job: MaintenanceJob::IndexRename,
             changed_count: result.changed_count,
@@ -231,7 +231,7 @@ fn spawn_index_rename(bg_tx: &mpsc::Sender<BackgroundEvent>) {
 
 fn spawn_plaintext_index_encryption(key: Arc<DerivedKey>, bg_tx: &mpsc::Sender<BackgroundEvent>) {
     spawn_job(MaintenanceJob::PlaintextIndexEncryption, bg_tx, move || {
-        let result = crate::migration::migrate_encrypt_plaintext_index(&key);
+        let result = libllm_core::migration::migrate_encrypt_plaintext_index(&key);
         MaintenanceUpdate {
             job: MaintenanceJob::PlaintextIndexEncryption,
             changed_count: result.changed_count,
@@ -245,11 +245,11 @@ where
     F: FnOnce() -> MaintenanceUpdate + Send + 'static,
 {
     let tx = bg_tx.clone();
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "maintenance.schedule",
         &[
-            crate::debug_log::field("job", job.label()),
-            crate::debug_log::field("phase", "schedule"),
+            libllm_core::debug_log::field("job", job.label()),
+            libllm_core::debug_log::field("phase", "schedule"),
         ],
     );
     tokio::spawn(async move {
@@ -261,12 +261,12 @@ where
                 warnings: vec![format!("{} failed: {err}", job.label())],
             },
         };
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "maintenance.complete",
             &[
-                crate::debug_log::field("job", update.job.label()),
-                crate::debug_log::field("changed", update.changed_count),
-                crate::debug_log::field("warnings", update.warnings.len()),
+                libllm_core::debug_log::field("job", update.job.label()),
+                libllm_core::debug_log::field("changed", update.changed_count),
+                libllm_core::debug_log::field("warnings", update.warnings.len()),
             ],
         );
         let _ = tx.send(BackgroundEvent::MaintenanceFinished(update)).await;
@@ -275,7 +275,7 @@ where
 
 pub(in crate::tui) fn reload_character_picker(app: &mut App) {
     let selected_slug = app.character_slugs.get(app.character_selected).cloned();
-    let cards = crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
+    let cards = libllm_core::character::list_cards(&libllm_core::config::characters_dir(), app.save_mode.key());
 
     app.character_names = cards.iter().map(|card| card.name.clone()).collect();
     app.character_slugs = cards.into_iter().map(|card| card.slug).collect();
@@ -292,7 +292,7 @@ pub(in crate::tui) fn reload_character_picker(app: &mut App) {
 pub(in crate::tui) fn reload_worldbook_picker(app: &mut App) {
     let selected_name = app.worldbook_list.get(app.worldbook_selected).cloned();
     let books =
-        crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
+        libllm_core::worldinfo::list_worldbooks(&libllm_core::config::worldinfo_dir(), app.save_mode.key());
 
     app.worldbook_list = books.into_iter().map(|book| book.name).collect();
     app.worldbook_selected = selected_name
@@ -308,7 +308,7 @@ pub(in crate::tui) fn reload_worldbook_picker(app: &mut App) {
 pub(in crate::tui) fn reload_persona_picker(app: &mut App) {
     let selected_name = app.persona_list.get(app.persona_selected).cloned();
     let personas =
-        crate::persona::list_personas(&crate::config::personas_dir(), app.save_mode.key());
+        libllm_core::persona::list_personas(&libllm_core::config::personas_dir(), app.save_mode.key());
 
     app.persona_list = personas.into_iter().map(|p| p.name).collect();
     app.persona_selected = selected_name
@@ -326,8 +326,8 @@ pub(in crate::tui) fn reload_system_prompt_picker(app: &mut App) {
         .system_prompt_list
         .get(app.system_prompt_selected)
         .cloned();
-    let prompts = crate::system_prompt::list_prompts(
-        &crate::config::system_prompts_dir(),
+    let prompts = libllm_core::system_prompt::list_prompts(
+        &libllm_core::config::system_prompts_dir(),
         app.save_mode.key(),
     );
 

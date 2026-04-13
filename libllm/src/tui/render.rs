@@ -3,7 +3,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::session::{NodeId, Role};
+use libllm_core::session::{NodeId, Role};
 
 use super::App;
 
@@ -276,13 +276,13 @@ pub fn render_chat(
     });
 
     if !cache_valid {
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "chat.cache",
             &[
-                crate::debug_log::field("result", "miss"),
-                crate::debug_log::field("action", "rebuild"),
-                crate::debug_log::field("message_count", branch_ids.len()),
-                crate::debug_log::field("width", area.width),
+                libllm_core::debug_log::field("result", "miss"),
+                libllm_core::debug_log::field("action", "rebuild"),
+                libllm_core::debug_log::field("message_count", branch_ids.len()),
+                libllm_core::debug_log::field("width", area.width),
             ],
         );
         let entries: Vec<CachedMessageLines> = branch_ids
@@ -359,12 +359,12 @@ pub fn render_chat(
             entries,
         });
     } else {
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "chat.cache",
             &[
-                crate::debug_log::field("result", "hit"),
-                crate::debug_log::field("message_count", branch_ids.len()),
-                crate::debug_log::field("width", area.width),
+                libllm_core::debug_log::field("result", "hit"),
+                libllm_core::debug_log::field("message_count", branch_ids.len()),
+                libllm_core::debug_log::field("width", area.width),
             ],
         );
     }
@@ -457,20 +457,20 @@ pub fn render_chat(
     let max_scroll = content_height.saturating_sub(visible_height);
 
     if scroll_dirty {
-        crate::debug_log::timed_kv(
+        libllm_core::debug_log::timed_kv(
             "scroll",
             &[
-                crate::debug_log::field("phase", "adjust"),
-                crate::debug_log::field("dirty", scroll_dirty),
-                crate::debug_log::field("auto", app.auto_scroll),
+                libllm_core::debug_log::field("phase", "adjust"),
+                libllm_core::debug_log::field("dirty", scroll_dirty),
+                libllm_core::debug_log::field("auto", app.auto_scroll),
             ],
             || {
                 if app.auto_scroll {
-                    crate::debug_log::log_kv(
+                    libllm_core::debug_log::log_kv(
                         "chat.measure",
                         &[
-                            crate::debug_log::field("content_height", content_height),
-                            crate::debug_log::field("visible_height", visible_height),
+                            libllm_core::debug_log::field("content_height", content_height),
+                            libllm_core::debug_log::field("visible_height", visible_height),
                         ],
                     );
 
@@ -494,11 +494,11 @@ pub fn render_chat(
                 }
             },
         );
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "scroll",
             &[
-                crate::debug_log::field("phase", "value"),
-                crate::debug_log::field("value", *chat_scroll),
+                libllm_core::debug_log::field("phase", "value"),
+                libllm_core::debug_log::field("value", *chat_scroll),
             ],
         );
     }
@@ -648,13 +648,13 @@ pub fn render_message_queue(f: &mut ratatui::Frame, app: &App, area: Rect) {
 }
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
-    let hidden: &[&str] = if crate::config::load().debug_log {
+    let hidden: &[&str] = if libllm_core::config::load().debug_log {
         &[]
     } else {
         &["/report"]
     };
     let matches =
-        crate::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"), hidden);
+        libllm_core::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"), hidden);
     if matches.is_empty() {
         return;
     }

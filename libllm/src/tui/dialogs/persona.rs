@@ -79,8 +79,8 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
         }
         KeyCode::Enter => {
             let file_name = app.persona_list[app.persona_selected].clone();
-            let dir = crate::config::personas_dir();
-            match crate::persona::load_persona_by_name(&dir, &file_name, app.save_mode.key()) {
+            let dir = libllm_core::config::personas_dir();
+            match libllm_core::persona::load_persona_by_name(&dir, &file_name, app.save_mode.key()) {
                 Some(pf) => {
                     app.active_persona_name = Some(pf.name);
                     app.active_persona_desc = Some(pf.persona);
@@ -89,14 +89,14 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
                     app.config.default_persona = Some(file_name.clone());
-                    let mut cfg = crate::config::load();
+                    let mut cfg = libllm_core::config::load();
                     cfg.default_persona = Some(file_name.clone());
-                    if let Err(e) = crate::config::save(&cfg) {
-                        crate::debug_log::log_kv(
+                    if let Err(e) = libllm_core::config::save(&cfg) {
+                        libllm_core::debug_log::log_kv(
                             "config.default_persona",
                             &[
-                                crate::debug_log::field("result", "error"),
-                                crate::debug_log::field("error", &e),
+                                libllm_core::debug_log::field("result", "error"),
+                                libllm_core::debug_log::field("error", &e),
                             ],
                         );
                     }
@@ -138,8 +138,8 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
 }
 
 fn open_persona_editor(app: &mut App, file_name: &str) {
-    let dir = crate::config::personas_dir();
-    let pf = crate::persona::load_persona_by_name(&dir, file_name, app.save_mode.key());
+    let dir = libllm_core::config::personas_dir();
+    let pf = libllm_core::persona::load_persona_by_name(&dir, file_name, app.save_mode.key());
     let values = match pf {
         Some(pf) => vec![pf.name, pf.persona],
         None => vec![file_name.to_owned(), String::new()],
@@ -151,14 +151,14 @@ fn open_persona_editor(app: &mut App, file_name: &str) {
 }
 
 fn create_and_edit_persona(app: &mut App) {
-    let dir = crate::config::personas_dir();
+    let dir = libllm_core::config::personas_dir();
     let existing: std::collections::HashSet<String> = app.persona_list.iter().cloned().collect();
     let new_name = super::generate_unique_name("persona", &existing);
-    let persona = crate::persona::PersonaFile {
+    let persona = libllm_core::persona::PersonaFile {
         name: new_name.clone(),
         persona: String::new(),
     };
-    if let Err(e) = crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+    if let Err(e) = libllm_core::persona::save_persona(&persona, &dir, app.save_mode.key()) {
         app.set_status(
             format!("Failed to create persona: {e}"),
             super::super::StatusLevel::Error,
@@ -231,14 +231,14 @@ pub(in crate::tui) fn handle_persona_paste(
         }
     };
 
-    let persona = crate::persona::PersonaFile {
+    let persona = libllm_core::persona::PersonaFile {
         name: name.clone(),
         persona: content,
     };
-    let dir = crate::config::personas_dir();
-    match crate::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+    let dir = libllm_core::config::personas_dir();
+    match libllm_core::persona::save_persona(&persona, &dir, app.save_mode.key()) {
         Ok(_) => {
-            let personas = crate::persona::list_personas(&dir, app.save_mode.key());
+            let personas = libllm_core::persona::list_personas(&dir, app.save_mode.key());
             app.persona_list = personas.into_iter().map(|p| p.name).collect();
             app.persona_selected = 0;
             app.set_status(

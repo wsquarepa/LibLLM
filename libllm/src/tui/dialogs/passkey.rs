@@ -85,7 +85,7 @@ pub(in crate::tui) fn handle_passkey_key(
         KeyCode::Enter => {
             let passkey = app.passkey_input.clone();
             let path = match &app.save_mode {
-                crate::session::SaveMode::PendingPasskey(p) => p.clone(),
+                libllm_core::session::SaveMode::PendingPasskey(p) => p.clone(),
                 _ => return None,
             };
             app.passkey_input.clear();
@@ -101,7 +101,7 @@ pub(in crate::tui) fn handle_passkey_key(
                     super::derive_key_blocking(passkey, "unlock", |derived_key, check_path| {
                         let verify_start = std::time::Instant::now();
                         let verify_result =
-                            crate::crypto::verify_or_set_key(check_path, &derived_key);
+                            libllm_core::crypto::verify_or_set_key(check_path, &derived_key);
                         let verify_status = match verify_result {
                             Ok(true) => "ok",
                             Ok(false) => "wrong_passkey",

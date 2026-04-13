@@ -17,7 +17,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 use tui_textarea::TextArea;
 
-use crate::crypto::DerivedKey;
+use libllm_core::crypto::DerivedKey;
 use crate::tui::BackgroundEvent;
 
 use super::render::{clear_centered, dialog_block, render_hints_below_dialog};
@@ -1075,13 +1075,13 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut sup
 }
 
 fn log_phase(kind: &str, phase: &str, result: &str, elapsed: std::time::Duration) {
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "unlock.phase",
         &[
-            crate::debug_log::field("kind", kind),
-            crate::debug_log::field("phase", phase),
-            crate::debug_log::field("result", result),
-            crate::debug_log::field(
+            libllm_core::debug_log::field("kind", kind),
+            libllm_core::debug_log::field("phase", phase),
+            libllm_core::debug_log::field("result", result),
+            libllm_core::debug_log::field(
                 "elapsed_ms",
                 format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
             ),
@@ -1096,17 +1096,17 @@ fn log_phase_with_path(
     elapsed: std::time::Duration,
     path: std::path::Display<'_>,
 ) {
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "unlock.phase",
         &[
-            crate::debug_log::field("kind", kind),
-            crate::debug_log::field("phase", phase),
-            crate::debug_log::field("result", result),
-            crate::debug_log::field(
+            libllm_core::debug_log::field("kind", kind),
+            libllm_core::debug_log::field("phase", phase),
+            libllm_core::debug_log::field("result", result),
+            libllm_core::debug_log::field(
                 "elapsed_ms",
                 format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
             ),
-            crate::debug_log::field("path", path),
+            libllm_core::debug_log::field("path", path),
         ],
     );
 }
@@ -1117,17 +1117,17 @@ fn log_phase_with_error(
     elapsed: std::time::Duration,
     error: &anyhow::Error,
 ) {
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "unlock.phase",
         &[
-            crate::debug_log::field("kind", kind),
-            crate::debug_log::field("phase", phase),
-            crate::debug_log::field("result", "error"),
-            crate::debug_log::field(
+            libllm_core::debug_log::field("kind", kind),
+            libllm_core::debug_log::field("phase", phase),
+            libllm_core::debug_log::field("result", "error"),
+            libllm_core::debug_log::field(
                 "elapsed_ms",
                 format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
             ),
-            crate::debug_log::field("error", error),
+            libllm_core::debug_log::field("error", error),
         ],
     );
 }
@@ -1141,11 +1141,11 @@ where
     F: FnOnce(DerivedKey, &std::path::Path) -> BackgroundEvent,
 {
     let total_start = std::time::Instant::now();
-    let salt_path = crate::config::salt_path();
-    let check_path = crate::config::key_check_path();
+    let salt_path = libllm_core::config::salt_path();
+    let check_path = libllm_core::config::key_check_path();
 
     let salt_start = std::time::Instant::now();
-    let salt_result = crate::crypto::load_or_create_salt(&salt_path);
+    let salt_result = libllm_core::crypto::load_or_create_salt(&salt_path);
     log_phase_with_path(
         debug_kind,
         "salt",
@@ -1162,7 +1162,7 @@ where
     };
 
     let derive_start = std::time::Instant::now();
-    let derive_result = crate::crypto::derive_key(&passkey, &salt);
+    let derive_result = libllm_core::crypto::derive_key(&passkey, &salt);
     log_phase(
         debug_kind,
         "argon2",

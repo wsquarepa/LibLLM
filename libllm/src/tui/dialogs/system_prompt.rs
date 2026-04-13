@@ -71,9 +71,9 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
         }
         KeyCode::Enter => {
             let name = app.system_prompt_list[app.system_prompt_selected].clone();
-            let dir = crate::config::system_prompts_dir();
+            let dir = libllm_core::config::system_prompts_dir();
             let content =
-                crate::system_prompt::load_prompt_content(&dir, &name, app.save_mode.key());
+                libllm_core::system_prompt::load_prompt_content(&dir, &name, app.save_mode.key());
 
             app.session.system_prompt = content;
             app.invalidate_chat_cache();
@@ -89,15 +89,15 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             open_prompt_editor(app, &name);
         }
         KeyCode::Char('a') => {
-            let dir = crate::config::system_prompts_dir();
+            let dir = libllm_core::config::system_prompts_dir();
             let existing: std::collections::HashSet<String> =
                 app.system_prompt_list.iter().cloned().collect();
             let new_name = super::generate_unique_name("custom", &existing);
-            let prompt = crate::system_prompt::SystemPromptFile {
+            let prompt = libllm_core::system_prompt::SystemPromptFile {
                 name: new_name.clone(),
                 content: String::new(),
             };
-            if let Err(e) = crate::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
+            if let Err(e) = libllm_core::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
                 app.set_status(
                     format!("Failed to create prompt: {e}"),
                     super::super::StatusLevel::Error,
@@ -110,8 +110,8 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
         }
         KeyCode::Backspace | KeyCode::Delete => {
             let name = app.system_prompt_list[app.system_prompt_selected].clone();
-            if name == crate::system_prompt::BUILTIN_ASSISTANT
-                || name == crate::system_prompt::BUILTIN_ROLEPLAY
+            if name == libllm_core::system_prompt::BUILTIN_ASSISTANT
+                || name == libllm_core::system_prompt::BUILTIN_ROLEPLAY
             {
                 app.set_status(
                     "Cannot delete built-in prompts.".to_owned(),
@@ -133,13 +133,13 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
 }
 
 fn open_prompt_editor(app: &mut App, name: &str) {
-    let dir = crate::config::system_prompts_dir();
-    let content = crate::system_prompt::load_prompt_content(&dir, name, app.save_mode.key())
+    let dir = libllm_core::config::system_prompts_dir();
+    let content = libllm_core::system_prompt::load_prompt_content(&dir, name, app.save_mode.key())
         .unwrap_or_default();
 
     let values = vec![name.to_owned(), content];
-    let is_builtin = name == crate::system_prompt::BUILTIN_ASSISTANT
-        || name == crate::system_prompt::BUILTIN_ROLEPLAY;
+    let is_builtin = name == libllm_core::system_prompt::BUILTIN_ASSISTANT
+        || name == libllm_core::system_prompt::BUILTIN_ROLEPLAY;
 
     let mut dialog = super::open_system_prompt_editor(values);
     if is_builtin {
@@ -214,14 +214,14 @@ pub(in crate::tui) fn handle_system_prompt_paste(
         }
     };
 
-    let prompt = crate::system_prompt::SystemPromptFile {
+    let prompt = libllm_core::system_prompt::SystemPromptFile {
         name: name.clone(),
         content,
     };
-    let dir = crate::config::system_prompts_dir();
-    match crate::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
+    let dir = libllm_core::config::system_prompts_dir();
+    match libllm_core::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
         Ok(_) => {
-            let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+            let prompts = libllm_core::system_prompt::list_prompts(&dir, app.save_mode.key());
             app.system_prompt_list = prompts.into_iter().map(|p| p.name).collect();
             app.system_prompt_selected = 0;
             app.set_status(

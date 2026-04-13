@@ -4,8 +4,8 @@ use std::time::Instant;
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use crate::client::StreamToken;
-use crate::session::{self, Message, Role, SaveMode};
+use libllm_core::client::StreamToken;
+use libllm_core::session::{self, Message, Role, SaveMode};
 
 use super::business::{self, load_config_fields, refresh_sidebar};
 use super::{App, Focus, dialogs, maintenance};
@@ -22,7 +22,7 @@ fn post_passkey_focus(app: &App) -> Focus {
     }
 }
 
-fn loaded_worldbooks(app: &mut App) -> Vec<crate::worldinfo::RuntimeWorldBook> {
+fn loaded_worldbooks(app: &mut App) -> Vec<libllm_core::worldinfo::RuntimeWorldBook> {
     let enabled_names = super::business::enabled_worldbook_names(app.session, &app.config);
     let cache_stale = app
         .worldbook_cache
@@ -30,12 +30,12 @@ fn loaded_worldbooks(app: &mut App) -> Vec<crate::worldinfo::RuntimeWorldBook> {
         .is_none_or(|cache| cache.enabled_names != enabled_names);
 
     if cache_stale {
-        let books = crate::debug_log::timed_kv(
+        let books = libllm_core::debug_log::timed_kv(
             "worldbook.runtime",
             &[
-                crate::debug_log::field("phase", "load"),
-                crate::debug_log::field("cache", "miss"),
-                crate::debug_log::field("enabled_count", enabled_names.len()),
+                libllm_core::debug_log::field("phase", "load"),
+                libllm_core::debug_log::field("cache", "miss"),
+                libllm_core::debug_log::field("enabled_count", enabled_names.len()),
             ],
             || super::business::load_runtime_worldbooks(&enabled_names, app.save_mode.key()),
         );
@@ -44,13 +44,13 @@ fn loaded_worldbooks(app: &mut App) -> Vec<crate::worldinfo::RuntimeWorldBook> {
             books,
         });
     } else if let Some(cache) = app.worldbook_cache.as_ref() {
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "worldbook.runtime",
             &[
-                crate::debug_log::field("phase", "load"),
-                crate::debug_log::field("cache", "hit"),
-                crate::debug_log::field("enabled_count", enabled_names.len()),
-                crate::debug_log::field("book_count", cache.books.len()),
+                libllm_core::debug_log::field("phase", "load"),
+                libllm_core::debug_log::field("cache", "hit"),
+                libllm_core::debug_log::field("enabled_count", enabled_names.len()),
+                libllm_core::debug_log::field("book_count", cache.books.len()),
             ],
         );
     }
@@ -69,14 +69,14 @@ pub(super) fn spawn_metadata_loading(app: &mut App) {
     let candidate_paths = collect_metadata_loading_paths(&app.sidebar_sessions);
 
     if candidate_paths.is_empty() {
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "sidebar.hydration",
             &[
-                crate::debug_log::field("phase", "schedule"),
-                crate::debug_log::field("generation", generation),
-                crate::debug_log::field("scheduled", 0),
-                crate::debug_log::field("workers", 0),
-                crate::debug_log::field("result", "skipped"),
+                libllm_core::debug_log::field("phase", "schedule"),
+                libllm_core::debug_log::field("generation", generation),
+                libllm_core::debug_log::field("scheduled", 0),
+                libllm_core::debug_log::field("workers", 0),
+                libllm_core::debug_log::field("result", "skipped"),
             ],
         );
         app.hydration_debug = None;
@@ -85,15 +85,15 @@ pub(super) fn spawn_metadata_loading(app: &mut App) {
 
     let worker_count = candidate_paths.len().min(SIDEBAR_METADATA_WORKERS);
     let batches = split_metadata_loading_batches(candidate_paths, worker_count);
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "sidebar.hydration",
         &[
-            crate::debug_log::field("phase", "schedule"),
-            crate::debug_log::field("generation", generation),
-            crate::debug_log::field("scheduled", batches.iter().map(Vec::len).sum::<usize>()),
-            crate::debug_log::field("workers", worker_count),
-            crate::debug_log::field("batch_count", batches.len()),
-            crate::debug_log::field("result", "scheduled"),
+            libllm_core::debug_log::field("phase", "schedule"),
+            libllm_core::debug_log::field("generation", generation),
+            libllm_core::debug_log::field("scheduled", batches.iter().map(Vec::len).sum::<usize>()),
+            libllm_core::debug_log::field("workers", worker_count),
+            libllm_core::debug_log::field("batch_count", batches.len()),
+            libllm_core::debug_log::field("result", "scheduled"),
         ],
     );
     app.hydration_debug = Some(super::HydrationDebugState {
@@ -111,13 +111,13 @@ pub(super) fn spawn_metadata_loading(app: &mut App) {
     for (batch_index, batch) in batches.into_iter().enumerate() {
         let key = key.clone();
         let tx = app.bg_tx.clone();
-        crate::debug_log::log_kv(
+        libllm_core::debug_log::log_kv(
             "sidebar.hydration",
             &[
-                crate::debug_log::field("phase", "batch_schedule"),
-                crate::debug_log::field("generation", generation),
-                crate::debug_log::field("batch", batch_index),
-                crate::debug_log::field("batch_size", batch.len()),
+                libllm_core::debug_log::field("phase", "batch_schedule"),
+                libllm_core::debug_log::field("generation", generation),
+                libllm_core::debug_log::field("batch", batch_index),
+                libllm_core::debug_log::field("batch_size", batch.len()),
             ],
         );
         tokio::spawn(async move {
@@ -148,41 +148,41 @@ pub(super) fn spawn_metadata_loading(app: &mut App) {
                     }
                     Ok(Err(err)) => {
                         failed_count += 1;
-                        crate::debug_log::log_kv(
+                        libllm_core::debug_log::log_kv(
                             "sidebar.hydration",
                             &[
-                                crate::debug_log::field("phase", "load"),
-                                crate::debug_log::field("generation", generation),
-                                crate::debug_log::field("result", "error"),
-                                crate::debug_log::field("path", path_for_event.display()),
-                                crate::debug_log::field("error", err),
+                                libllm_core::debug_log::field("phase", "load"),
+                                libllm_core::debug_log::field("generation", generation),
+                                libllm_core::debug_log::field("result", "error"),
+                                libllm_core::debug_log::field("path", path_for_event.display()),
+                                libllm_core::debug_log::field("error", err),
                             ],
                         );
                     }
                     Err(err) => {
                         failed_count += 1;
-                        crate::debug_log::log_kv(
+                        libllm_core::debug_log::log_kv(
                             "sidebar.hydration",
                             &[
-                                crate::debug_log::field("phase", "task"),
-                                crate::debug_log::field("generation", generation),
-                                crate::debug_log::field("result", "error"),
-                                crate::debug_log::field("path", path_for_event.display()),
-                                crate::debug_log::field("error", err),
+                                libllm_core::debug_log::field("phase", "task"),
+                                libllm_core::debug_log::field("generation", generation),
+                                libllm_core::debug_log::field("result", "error"),
+                                libllm_core::debug_log::field("path", path_for_event.display()),
+                                libllm_core::debug_log::field("error", err),
                             ],
                         );
                     }
                 }
             }
-            crate::debug_log::log_kv(
+            libllm_core::debug_log::log_kv(
                 "sidebar.hydration",
                 &[
-                    crate::debug_log::field("phase", "batch_complete"),
-                    crate::debug_log::field("generation", generation),
-                    crate::debug_log::field("batch", batch_index),
-                    crate::debug_log::field("loaded", loaded_count),
-                    crate::debug_log::field("failed", failed_count),
-                    crate::debug_log::field(
+                    libllm_core::debug_log::field("phase", "batch_complete"),
+                    libllm_core::debug_log::field("generation", generation),
+                    libllm_core::debug_log::field("batch", batch_index),
+                    libllm_core::debug_log::field("loaded", loaded_count),
+                    libllm_core::debug_log::field("failed", failed_count),
+                    libllm_core::debug_log::field(
                         "elapsed_ms",
                         format!("{:.3}", batch_start.elapsed().as_secs_f64() * 1000.0),
                     ),
@@ -224,7 +224,7 @@ pub(super) fn handle_slash_command(
     app: &mut App,
     sender: mpsc::Sender<StreamToken>,
 ) {
-    let cmd = crate::commands::resolve_alias(cmd);
+    let cmd = libllm_core::commands::resolve_alias(cmd);
     match cmd {
         "/quit" => cmd_quit(app),
         "/clear" => cmd_clear(app),
@@ -271,7 +271,7 @@ fn cmd_clear(app: &mut App) {
     app.chat_scroll = 0;
     app.auto_scroll = true;
     let new_name = session::generate_session_name();
-    let new_path = crate::config::sessions_dir().join(&new_name);
+    let new_path = libllm_core::config::sessions_dir().join(&new_name);
     app.save_mode.set_path(new_path);
     refresh_sidebar(app);
 }
@@ -392,8 +392,8 @@ fn cmd_system(app: &mut App) {
         return;
     }
 
-    let dir = crate::config::system_prompts_dir();
-    let prompts = crate::system_prompt::list_prompts(&dir, app.save_mode.key());
+    let dir = libllm_core::config::system_prompts_dir();
+    let prompts = libllm_core::system_prompt::list_prompts(&dir, app.save_mode.key());
     if prompts.is_empty() {
         app.set_status(
             "No system prompts found.".to_owned(),
@@ -409,7 +409,7 @@ fn cmd_system(app: &mut App) {
 fn cmd_config(app: &mut App) {
     let locked = business::config_locked_fields(&app.cli_overrides);
     app.config_dialog = Some(dialogs::open_config_editor(
-        load_config_fields(&crate::config::load(), &app.cli_overrides),
+        load_config_fields(&libllm_core::config::load(), &app.cli_overrides),
         locked,
     ));
     app.focus = Focus::ConfigDialog;
@@ -472,8 +472,8 @@ fn cmd_branch(app: &mut App) {
 
 fn cmd_persona(app: &mut App) {
     if let Some(ref persona_name) = app.cli_overrides.persona {
-        let dir = crate::config::personas_dir();
-        let pf = crate::persona::load_persona_by_name(&dir, persona_name, app.save_mode.key());
+        let dir = libllm_core::config::personas_dir();
+        let pf = libllm_core::persona::load_persona_by_name(&dir, persona_name, app.save_mode.key());
         let values = match pf {
             Some(pf) => vec![pf.name, pf.persona],
             None => vec![persona_name.clone(), String::new()],
@@ -487,7 +487,7 @@ fn cmd_persona(app: &mut App) {
     }
 
     let personas =
-        crate::persona::list_personas(&crate::config::personas_dir(), app.save_mode.key());
+        libllm_core::persona::list_personas(&libllm_core::config::personas_dir(), app.save_mode.key());
     app.persona_list = personas.into_iter().map(|p| p.name).collect();
     app.persona_selected = 0;
     app.focus = Focus::PersonaDialog;
@@ -495,14 +495,14 @@ fn cmd_persona(app: &mut App) {
 
 fn cmd_worldbook(app: &mut App) {
     let books =
-        crate::worldinfo::list_worldbooks(&crate::config::worldinfo_dir(), app.save_mode.key());
+        libllm_core::worldinfo::list_worldbooks(&libllm_core::config::worldinfo_dir(), app.save_mode.key());
     app.worldbook_list = books.into_iter().map(|b| b.name).collect();
     app.worldbook_selected = 0;
     app.focus = Focus::WorldbookDialog;
 }
 
 fn cmd_character(app: &mut App) {
-    let cards = crate::character::list_cards(&crate::config::characters_dir(), app.save_mode.key());
+    let cards = libllm_core::character::list_cards(&libllm_core::config::characters_dir(), app.save_mode.key());
     app.character_names = cards.iter().map(|c| c.name.clone()).collect();
     app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
     app.character_selected = 0;
@@ -560,7 +560,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
     app.theme = super::theme::resolve_theme(&app.config);
     app.invalidate_chat_cache();
 
-    if let Err(err) = crate::config::save(&app.config) {
+    if let Err(err) = libllm_core::config::save(&app.config) {
         app.set_status(
             format!("Theme applied but failed to save config: {err}"),
             super::StatusLevel::Warning,
@@ -634,9 +634,9 @@ fn cmd_export(app: &mut App, arg: &str) {
         .unwrap_or("User");
 
     let content = match format {
-        ExportFormat::Markdown => crate::export::render_markdown(&messages, char_name, user_name),
-        ExportFormat::Html => crate::export::render_html(&messages, char_name, user_name),
-        ExportFormat::Jsonl => crate::export::render_jsonl(&messages, char_name, user_name),
+        ExportFormat::Markdown => libllm_core::export::render_markdown(&messages, char_name, user_name),
+        ExportFormat::Html => libllm_core::export::render_html(&messages, char_name, user_name),
+        ExportFormat::Jsonl => libllm_core::export::render_jsonl(&messages, char_name, user_name),
     };
 
     let timestamp = session::now_compact();
@@ -938,7 +938,7 @@ pub fn expand_macro(template: &str, raw_args: &str) -> Result<String, String> {
 }
 
 fn cmd_report(app: &mut App) {
-    if !crate::config::load().debug_log {
+    if !libllm_core::config::load().debug_log {
         app.set_status(
             "Debug logging is disabled in config".to_owned(),
             super::StatusLevel::Error,
@@ -964,7 +964,7 @@ fn cmd_report(app: &mut App) {
         return;
     }
 
-    match crate::debug_log::copy_current_log_to(&output_path) {
+    match libllm_core::debug_log::copy_current_log_to(&output_path) {
         Ok(()) => app.set_status(
             format!("Debug log copied to {}", output_path.display()),
             super::StatusLevel::Info,
@@ -1089,13 +1089,13 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
     match event {
         super::BackgroundEvent::KeyDerived(key, path) => {
             if let Some(debug) = app.unlock_debug.take() {
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "unlock.phase",
                     &[
-                        crate::debug_log::field("phase", "ui_complete"),
-                        crate::debug_log::field("kind", debug.kind),
-                        crate::debug_log::field("result", "ok"),
-                        crate::debug_log::field(
+                        libllm_core::debug_log::field("phase", "ui_complete"),
+                        libllm_core::debug_log::field("kind", debug.kind),
+                        libllm_core::debug_log::field("result", "ok"),
+                        libllm_core::debug_log::field(
                             "elapsed_ms",
                             format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
                         ),
@@ -1117,17 +1117,17 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
             if let Some(debug) = app.unlock_debug.take() {
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "unlock.phase",
                     &[
-                        crate::debug_log::field("phase", "ui_complete"),
-                        crate::debug_log::field("kind", debug.kind),
-                        crate::debug_log::field("result", "error"),
-                        crate::debug_log::field(
+                        libllm_core::debug_log::field("phase", "ui_complete"),
+                        libllm_core::debug_log::field("kind", debug.kind),
+                        libllm_core::debug_log::field("result", "error"),
+                        libllm_core::debug_log::field(
                             "elapsed_ms",
                             format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
                         ),
-                        crate::debug_log::field("error", &err),
+                        libllm_core::debug_log::field("error", &err),
                     ],
                 );
             }
@@ -1136,13 +1136,13 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
         }
         super::BackgroundEvent::PasskeySet(new_key) => {
             if let Some(debug) = app.unlock_debug.take() {
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "unlock.phase",
                     &[
-                        crate::debug_log::field("phase", "ui_complete"),
-                        crate::debug_log::field("kind", debug.kind),
-                        crate::debug_log::field("result", "ok"),
-                        crate::debug_log::field(
+                        libllm_core::debug_log::field("phase", "ui_complete"),
+                        libllm_core::debug_log::field("kind", debug.kind),
+                        libllm_core::debug_log::field("result", "ok"),
+                        libllm_core::debug_log::field(
                             "elapsed_ms",
                             format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
                         ),
@@ -1154,7 +1154,7 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
             if app.set_passkey_is_initial {
                 let path = match &app.save_mode {
                     SaveMode::PendingPasskey(p) => p.clone(),
-                    _ => crate::config::sessions_dir().join(session::generate_session_name()),
+                    _ => libllm_core::config::sessions_dir().join(session::generate_session_name()),
                 };
                 app.save_mode = SaveMode::Encrypted {
                     path,
@@ -1207,39 +1207,39 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
                 tokio::spawn(async move {
                     let warnings = match tokio::task::spawn_blocking(move || {
                         let mut warnings = Vec::new();
-                        warnings.extend(crate::crypto::re_encrypt_directory_excluding(
-                            &crate::config::sessions_dir(),
+                        warnings.extend(libllm_core::crypto::re_encrypt_directory_excluding(
+                            &libllm_core::config::sessions_dir(),
                             &["session"],
                             &old_key,
                             &new_key,
                             current_session_path.as_deref(),
                         ));
-                        warnings.extend(crate::crypto::re_encrypt_directory(
-                            &crate::config::characters_dir(),
+                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
+                            &libllm_core::config::characters_dir(),
                             &["character"],
                             &old_key,
                             &new_key,
                         ));
-                        warnings.extend(crate::crypto::re_encrypt_directory(
-                            &crate::config::worldinfo_dir(),
+                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
+                            &libllm_core::config::worldinfo_dir(),
                             &["worldbook"],
                             &old_key,
                             &new_key,
                         ));
-                        warnings.extend(crate::crypto::re_encrypt_directory(
-                            &crate::config::system_prompts_dir(),
+                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
+                            &libllm_core::config::system_prompts_dir(),
                             &["prompt"],
                             &old_key,
                             &new_key,
                         ));
-                        warnings.extend(crate::crypto::re_encrypt_directory(
-                            &crate::config::personas_dir(),
+                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
+                            &libllm_core::config::personas_dir(),
                             &["persona"],
                             &old_key,
                             &new_key,
                         ));
-                        if let Err(e) = crate::crypto::re_encrypt_file(
-                            &crate::config::index_path(),
+                        if let Err(e) = libllm_core::crypto::re_encrypt_file(
+                            &libllm_core::config::index_path(),
                             &old_key,
                             &new_key,
                         ) {
@@ -1260,17 +1260,17 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
         }
         super::BackgroundEvent::PasskeySetFailed(err) => {
             if let Some(debug) = app.unlock_debug.take() {
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "unlock.phase",
                     &[
-                        crate::debug_log::field("phase", "ui_complete"),
-                        crate::debug_log::field("kind", debug.kind),
-                        crate::debug_log::field("result", "error"),
-                        crate::debug_log::field(
+                        libllm_core::debug_log::field("phase", "ui_complete"),
+                        libllm_core::debug_log::field("kind", debug.kind),
+                        libllm_core::debug_log::field("result", "error"),
+                        libllm_core::debug_log::field(
                             "elapsed_ms",
                             format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
                         ),
-                        crate::debug_log::field("error", &err),
+                        libllm_core::debug_log::field("error", &err),
                     ],
                 );
             }
@@ -1279,9 +1279,9 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
         }
         super::BackgroundEvent::ReEncryptionComplete(warnings) => {
             if warnings.is_empty() {
-                let check_path = crate::config::key_check_path();
+                let check_path = libllm_core::config::key_check_path();
                 if let SaveMode::Encrypted { key, .. } = &app.save_mode {
-                    if let Err(err) = crate::crypto::set_key_fingerprint(&check_path, key) {
+                    if let Err(err) = libllm_core::crypto::set_key_fingerprint(&check_path, key) {
                         app.set_status(
                             format!("Failed to update key fingerprint: {err}"),
                             super::StatusLevel::Error,
@@ -1325,17 +1325,17 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
                         debug.stale_dropped += 1;
                     }
                 }
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "sidebar.hydration",
                     &[
-                        crate::debug_log::field("phase", "apply"),
-                        crate::debug_log::field("result", "stale_drop"),
-                        crate::debug_log::field("generation", generation),
-                        crate::debug_log::field(
+                        libllm_core::debug_log::field("phase", "apply"),
+                        libllm_core::debug_log::field("result", "stale_drop"),
+                        libllm_core::debug_log::field("generation", generation),
+                        libllm_core::debug_log::field(
                             "current_generation",
                             app.sidebar_hydration_generation,
                         ),
-                        crate::debug_log::field("path", path.display()),
+                        libllm_core::debug_log::field("path", path.display()),
                     ],
                 );
                 return;
@@ -1347,13 +1347,13 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
                         debug.missing_dropped += 1;
                     }
                 }
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "sidebar.hydration",
                     &[
-                        crate::debug_log::field("phase", "apply"),
-                        crate::debug_log::field("result", "missing_drop"),
-                        crate::debug_log::field("generation", generation),
-                        crate::debug_log::field("path", path.display()),
+                        libllm_core::debug_log::field("phase", "apply"),
+                        libllm_core::debug_log::field("result", "missing_drop"),
+                        libllm_core::debug_log::field("generation", generation),
+                        libllm_core::debug_log::field("path", path.display()),
                     ],
                 );
                 return;
@@ -1368,7 +1368,7 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
             session::persist_loaded_metadata_index(
                 &path,
                 &metadata,
-                crate::index::SessionStorageMode::Encrypted,
+                libllm_core::index::SessionStorageMode::Encrypted,
                 app.save_mode.key(),
             );
             super::business::prepare_sidebar_entries(&mut app.sidebar_sessions);
@@ -1385,17 +1385,17 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
                     debug.failed += _failed_count;
                     debug.batch_finished += 1;
                     if debug.batch_finished == debug.batch_total {
-                        crate::debug_log::log_kv(
+                        libllm_core::debug_log::log_kv(
                             "sidebar.hydration",
                             &[
-                                crate::debug_log::field("phase", "complete"),
-                                crate::debug_log::field("generation", debug.generation),
-                                crate::debug_log::field("scheduled", debug.scheduled),
-                                crate::debug_log::field("loaded", debug.completed),
-                                crate::debug_log::field("failed", debug.failed),
-                                crate::debug_log::field("stale_dropped", debug.stale_dropped),
-                                crate::debug_log::field("missing_dropped", debug.missing_dropped),
-                                crate::debug_log::field(
+                                libllm_core::debug_log::field("phase", "complete"),
+                                libllm_core::debug_log::field("generation", debug.generation),
+                                libllm_core::debug_log::field("scheduled", debug.scheduled),
+                                libllm_core::debug_log::field("loaded", debug.completed),
+                                libllm_core::debug_log::field("failed", debug.failed),
+                                libllm_core::debug_log::field("stale_dropped", debug.stale_dropped),
+                                libllm_core::debug_log::field("missing_dropped", debug.missing_dropped),
+                                libllm_core::debug_log::field(
                                     "elapsed_ms",
                                     format!(
                                         "{:.3}",

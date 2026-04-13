@@ -104,12 +104,8 @@ fn character_list_cards() {
         character::save_card(&card, &dir, None).unwrap();
     }
 
-    // BUG: list_cards internally calls index::relative_data_path which
-    // requires the directory to be under the global config::data_dir().
-    // When using an isolated temp directory, all paths return None and
-    // no entries are listed. This is a code bug, not a test bug.
     let entries = character::list_cards(&dir, None);
-    assert_eq!(entries.len(), 0);
+    assert_eq!(entries.len(), 3);
 }
 
 #[test]

@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::DerivedKey;
-use crate::index;
 
 const EXT_ENCRYPTED: &str = "worldbook";
 const EXT_PLAINTEXT: &str = "json";
@@ -122,12 +121,6 @@ pub fn save_worldbook(
         "worldbook path escapes target directory"
     );
     save_worldbook_to(worldbook, &path, key)?;
-    if let Ok(stamp) = index::file_stamp(&path) {
-        index::warn_if_save_fails(
-            index::upsert_worldbook(&path, stamp, worldbook.name.clone(), key),
-            "failed to update worldbook index",
-        );
-    }
     Ok(path)
 }
 
@@ -385,11 +378,6 @@ pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> WorldbookNo
                             "failed to remove migrated worldbook {}: {err}",
                             sanitize_display(&path.display().to_string())
                         ));
-                    } else {
-                        index::warn_if_save_fails(
-                            index::remove_worldbook(&path, key),
-                            "failed to remove worldbook index entry",
-                        );
                     }
                 }
             }
@@ -412,11 +400,6 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
     };
 
     let mut books: Vec<WorldBookEntry> = Vec::new();
-    let mut index_state = index::load_index(key);
-    let mut hit_count = 0usize;
-    let mut miss_count = 0usize;
-    let mut refreshed_count = 0usize;
-    let mut changed = false;
 
     for path in entries
         .filter_map(|entry| entry.ok())
@@ -430,93 +413,26 @@ pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEnt
             Some(stem) => stem.to_string_lossy().to_string(),
             None => continue,
         };
-        let stamp = match index::file_stamp(&path) {
-            Ok(stamp) => stamp,
-            Err(err) => {
-                miss_count += 1;
-                crate::debug_log::log_kv(
-                    "index.worldbooks",
-                    &[
-                        crate::debug_log::field("phase", "stamp"),
-                        crate::debug_log::field("result", "error"),
-                        crate::debug_log::field("path", path.display()),
-                        crate::debug_log::field("error", err),
-                    ],
-                );
-                books.push(WorldBookEntry {
-                    name: fallback_name,
-                });
-                continue;
-            }
-        };
-        let Some(relative_path) = index::relative_data_path(&path) else {
-            miss_count += 1;
-            books.push(WorldBookEntry {
-                name: fallback_name,
-            });
-            continue;
-        };
-
-        if let Some(indexed) = index_state.worldbooks.get(&relative_path) {
-            if indexed.stamp == stamp {
-                hit_count += 1;
-                books.push(WorldBookEntry {
-                    name: indexed.display_name.clone(),
-                });
-                continue;
-            }
-        }
-
-        miss_count += 1;
         match load_worldbook(&path, key) {
             Ok(worldbook) => {
-                refreshed_count += 1;
-                changed = true;
-                index_state.worldbooks.insert(
-                    relative_path,
-                    index::WorldbookIndexEntry {
-                        stamp,
-                        display_name: worldbook.name.clone(),
-                    },
-                );
                 books.push(WorldBookEntry {
                     name: worldbook.name,
                 });
             }
             Err(err) => {
                 crate::debug_log::log_kv(
-                    "index.worldbooks",
+                    "worldbooks.list",
                     &[
-                        crate::debug_log::field("phase", "refresh"),
                         crate::debug_log::field("result", "error"),
                         crate::debug_log::field("path", path.display()),
                         crate::debug_log::field("error", err),
                     ],
                 );
-                changed |= index_state.worldbooks.remove(&relative_path).is_some();
                 books.push(WorldBookEntry {
                     name: fallback_name,
                 });
             }
         }
-    }
-
-    crate::debug_log::log_kv(
-        "index.worldbooks",
-        &[
-            crate::debug_log::field("hits", hit_count),
-            crate::debug_log::field("misses", miss_count),
-            crate::debug_log::field("refreshed", refreshed_count),
-            crate::debug_log::field("count", books.len()),
-            crate::debug_log::field("rewrote_index", changed),
-        ],
-    );
-
-    if changed {
-        index::warn_if_save_fails(
-            index::save_index(&index_state, key),
-            "failed to refresh worldbook index",
-        );
     }
 
     books.sort_by(|a, b| a.name.cmp(&b.name));

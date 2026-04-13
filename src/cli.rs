@@ -48,7 +48,7 @@ pub struct Args {
     pub continue_session: Option<String>,
 
     /// Passkey for session encryption (or set LIBLLM_PASSKEY env var, requires -d)
-    #[arg(long, env = "LIBLLM_PASSKEY", hide = true)]
+    #[arg(long, env = "LIBLLM_PASSKEY", hide_env_values = true)]
     pub passkey: Option<String>,
 
     /// Disable session encryption (requires -d)
@@ -146,5 +146,23 @@ impl Args {
             system_prompt: self.system_prompt.clone(),
             persona: self.persona.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::Args;
+
+    #[test]
+    fn long_help_includes_passkey_flag() {
+        let mut command = Args::command();
+        let help = command.render_long_help().to_string();
+
+        assert!(
+            help.contains("--passkey"),
+            "long help was missing --passkey: {help}"
+        );
     }
 }

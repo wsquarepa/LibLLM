@@ -15,9 +15,14 @@ pub enum Command {
     },
     /// Update libllm to the latest build
     Update {
-        /// Switch from stable to nightly channel
+        /// Target branch name (omit for stable)
+        branch: Option<String>,
+        /// List available branch builds
         #[arg(long)]
-        nightly: bool,
+        list: bool,
+        /// Skip downgrade confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 

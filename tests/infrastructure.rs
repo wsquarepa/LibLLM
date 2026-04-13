@@ -2,28 +2,16 @@
 #[allow(dead_code)]
 mod common;
 
-use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-
 use libllm::config::{self, Config};
 use libllm::crypto;
 use libllm::index::{self, FileStamp, MetadataIndex, SessionStorageMode};
 use libllm::migration;
 
-static DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
-static SERIAL: Mutex<()> = Mutex::new(());
-
-fn setup_data_dir() -> (std::sync::MutexGuard<'static, ()>, &'static Path) {
-    let guard = SERIAL.lock().unwrap();
-    let path = DATA_DIR
-        .get_or_init(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let _ = config::set_data_dir(dir.path().to_path_buf());
-            config::ensure_dirs().unwrap();
-            dir
-        })
-        .path();
-    (guard, path)
+fn setup_data_dir() -> tempfile::TempDir {
+    let dir = common::temp_dir();
+    config::set_data_dir(dir.path().to_path_buf()).unwrap();
+    config::ensure_dirs().unwrap();
+    dir
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +51,8 @@ fn config_api_url_custom() {
 
 #[test]
 fn config_save_load_roundtrip() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let _key = common::test_key(root);
 
     let mut cfg = Config::default();
@@ -96,7 +85,8 @@ fn config_save_load_roundtrip() {
 
 #[test]
 fn config_toml_skips_legacy_fields() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let _key = common::test_key(root);
 
     let mut cfg = Config::default();
@@ -128,7 +118,8 @@ fn config_toml_skips_legacy_fields() {
 
 #[test]
 fn config_missing_file_returns_default() {
-    let _guard = setup_data_dir();
+    let dir = setup_data_dir();
+    let _root = dir.path();
 
     let bogus = config::data_dir().join("nonexistent_config.toml");
     assert!(!bogus.exists());
@@ -139,7 +130,8 @@ fn config_missing_file_returns_default() {
 
 #[test]
 fn config_partial_toml() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let _key = common::test_key(root);
 
     let partial = "api_url = \"http://partial.test/v1\"\n";
@@ -156,7 +148,8 @@ fn config_partial_toml() {
 
 #[test]
 fn config_ensure_dirs_creates_subdirectories() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     assert!(root.join("sessions").is_dir());
     assert!(root.join("characters").is_dir());
@@ -171,7 +164,8 @@ fn config_ensure_dirs_creates_subdirectories() {
 
 #[test]
 fn migrate_encrypt_plaintext_cards() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let card = common::simple_character("migrate-card", "A test character");
@@ -198,7 +192,8 @@ fn migrate_encrypt_plaintext_cards() {
 
 #[test]
 fn migrate_encrypt_plaintext_prompts() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let prompt = common::system_prompt("migrate-prompt", "You are a test assistant.");
@@ -228,7 +223,8 @@ fn migrate_encrypt_plaintext_prompts() {
 
 #[test]
 fn migrate_encrypt_plaintext_personas() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let persona = common::persona("migrate-persona", "A testing persona");
@@ -258,7 +254,8 @@ fn migrate_encrypt_plaintext_personas() {
 
 #[test]
 fn migrate_index_rename() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     let old_path = root.join("index.json");
     let new_path = config::index_path();
@@ -279,7 +276,8 @@ fn migrate_index_rename() {
 
 #[test]
 fn migrate_index_rename_idempotent() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     let old_path = root.join("index.json");
     let new_path = config::index_path();
@@ -299,7 +297,8 @@ fn migrate_index_rename_idempotent() {
 
 #[test]
 fn migrate_encrypt_plaintext_index() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let index_path = config::index_path();
@@ -315,7 +314,8 @@ fn migrate_encrypt_plaintext_index() {
 
 #[test]
 fn migrate_encrypt_plaintext_index_idempotent() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let index_path = config::index_path();
@@ -331,7 +331,8 @@ fn migrate_encrypt_plaintext_index_idempotent() {
 
 #[test]
 fn migrate_worldbook_normalization() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let legacy_json = serde_json::json!({
@@ -381,7 +382,8 @@ fn migrate_worldbook_normalization() {
 
 #[test]
 fn migrate_personas_from_config() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let toml_content = r#"
@@ -409,7 +411,8 @@ user_persona = "A user migrated from config"
 
 #[test]
 fn config_survives_migration() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let mut cfg = Config::default();
@@ -433,7 +436,8 @@ fn config_survives_migration() {
 
 #[test]
 fn index_upsert_and_retrieve() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     let session_path = root.join("sessions").join("test_upsert.session");
     std::fs::write(&session_path, b"placeholder").expect("write");
@@ -465,7 +469,8 @@ fn index_upsert_and_retrieve() {
 
 #[test]
 fn index_multiple_entity_types() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     let session_path = root.join("sessions").join("multi.session");
     std::fs::write(&session_path, b"s").expect("write session");
@@ -522,7 +527,8 @@ fn index_multiple_entity_types() {
 
 #[test]
 fn index_remove_entries() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     let path = root.join("sessions").join("removable.session");
     std::fs::write(&path, b"x").expect("write");
@@ -551,7 +557,8 @@ fn index_remove_entries() {
 
 #[test]
 fn index_overwrite_on_re_upsert() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
 
     let path = root.join("sessions").join("overwrite.session");
     std::fs::write(&path, b"v1").expect("write v1");
@@ -593,7 +600,8 @@ fn index_overwrite_on_re_upsert() {
 
 #[test]
 fn index_encrypted_round_trip() {
-    let (_lock, root) = setup_data_dir();
+    let dir = setup_data_dir();
+    let root = dir.path();
     let key = common::test_key(root);
 
     let mut idx = MetadataIndex {

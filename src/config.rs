@@ -1,14 +1,21 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use std::time::Instant;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+#[cfg(not(feature = "test-support"))]
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::sampling::SamplingOverrides;
 
-static DATA_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+#[cfg(not(feature = "test-support"))]
+static DATA_DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(feature = "test-support")]
+thread_local! {
+    static DATA_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -80,17 +87,38 @@ impl Config {
     }
 }
 
+#[cfg(not(feature = "test-support"))]
 pub fn set_data_dir(path: PathBuf) -> Result<()> {
     DATA_DIR_OVERRIDE
         .set(path)
         .map_err(|_| anyhow!("data directory override already set"))
 }
 
+#[cfg(feature = "test-support")]
+pub fn set_data_dir(path: PathBuf) -> Result<()> {
+    DATA_DIR_OVERRIDE.with(|cell| {
+        *cell.borrow_mut() = Some(path);
+    });
+    Ok(())
+}
+
+#[cfg(not(feature = "test-support"))]
 pub fn data_dir() -> PathBuf {
     DATA_DIR_OVERRIDE.get().cloned().unwrap_or_else(|| {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("libllm")
+    })
+}
+
+#[cfg(feature = "test-support")]
+pub fn data_dir() -> PathBuf {
+    DATA_DIR_OVERRIDE.with(|cell| {
+        cell.borrow().clone().unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("libllm")
+        })
     })
 }
 

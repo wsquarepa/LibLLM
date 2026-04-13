@@ -28,5 +28,9 @@ sysinfo = "0.37"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 arboard = "3"
 
+[features]
+test-support = []
+
 [dev-dependencies]
+libllm = { path = ".", features = ["test-support"] }
 tempfile = "3.27.0"

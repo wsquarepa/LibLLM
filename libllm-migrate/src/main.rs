@@ -31,13 +31,8 @@ fn default_data_dir() -> PathBuf {
 }
 
 fn prompt_passkey() -> Result<String> {
-    eprint!("Enter passkey: ");
-    std::io::stderr().flush().context("failed to flush stderr")?;
-    let mut passkey = String::new();
-    std::io::stdin()
-        .read_line(&mut passkey)
-        .context("failed to read passkey from stdin")?;
-    let passkey = passkey.trim_end().to_owned();
+    let passkey = rpassword::prompt_password("Enter passkey: ")
+        .context("failed to read passkey")?;
     if passkey.is_empty() {
         bail!("passkey cannot be empty");
     }

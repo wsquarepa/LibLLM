@@ -81,12 +81,14 @@ jobs:
       - name: Rename binaries
         shell: bash
         run: |
-          for bin in libllm libllm-migrate; do
-            src="target/${{ matrix.target }}/release/${bin}"
+          for pair in "libllm:libllm" "libllm-migrate:migrate"; do
+            cargo_name="${pair%%:*}"
+            release_name="${pair##*:}"
+            src="target/${{ matrix.target }}/release/${cargo_name}"
             if [[ -f "${src}.exe" ]]; then
-              mv "${src}.exe" "${bin}-${{ matrix.target }}.exe"
+              mv "${src}.exe" "${release_name}-${{ matrix.target }}.exe"
             elif [[ -f "${src}" ]]; then
-              mv "${src}" "${bin}-${{ matrix.target }}"
+              mv "${src}" "${release_name}-${{ matrix.target }}"
             fi
           done
 
@@ -96,7 +98,7 @@ jobs:
           name: binaries-${{ matrix.target }}
           path: |
             libllm-${{ matrix.target }}*
-            libllm-migrate-${{ matrix.target }}*
+            migrate-${{ matrix.target }}*
           if-no-files-found: error
 
   release:

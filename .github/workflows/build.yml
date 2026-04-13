@@ -2,7 +2,6 @@ name: Build
 
 on:
   push:
-    branches: [master]
     paths:
       - 'src/**'
       - 'tests/**'
@@ -12,7 +11,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  LIBLLM_CHANNEL: preview
 
 jobs:
   test:
@@ -66,6 +64,16 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      - name: Set channel
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            echo "LIBLLM_CHANNEL=stable" >> "$GITHUB_ENV"
+          else
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            echo "LIBLLM_CHANNEL=${BRANCH}" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
@@ -86,8 +94,7 @@ jobs:
           path: libllm-${{ matrix.target }}*
           if-no-files-found: error
 
-  preview:
-    if: github.event_name == 'push'
+  release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -101,21 +108,49 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Create preview release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Determine release params
+        id: params
+        shell: bash
         run: |
           HASH=$(git rev-parse --short HEAD)
           TIME=$(git log -1 --format=%ci)
           MSG=$(git log -1 --format=%B | sed '/^$/d')
           printf -v NOTES 'Commit `%s` at `%s`\n\n```\n%s\n```' "$HASH" "$TIME" "$MSG"
 
-          if gh release view preview >/dev/null 2>&1; then
-            gh release delete preview --yes --cleanup-tag
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            echo "tag=stable" >> "$GITHUB_OUTPUT"
+            echo "title=Stable Build" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            echo "tag=${BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "title=Branch: ${BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "notes<<NOTES_EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "NOTES_EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Delete existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.params.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
           fi
 
-          gh release create preview artifacts/* \
-            --target "$GITHUB_SHA" \
-            --title "Preview Build" \
-            --notes "$NOTES" \
-            --prerelease
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.params.outputs.tag }}"
+          PRERELEASE="${{ steps.params.outputs.prerelease }}"
+          TITLE="${{ steps.params.outputs.title }}"
+
+          FLAGS=(--target "$GITHUB_SHA" --title "$TITLE" --notes "${{ steps.params.outputs.notes }}")
+          if [[ "$PRERELEASE" == "true" ]]; then
+            FLAGS+=(--prerelease)
+          fi
+
+          gh release create "$TAG" artifacts/* "${FLAGS[@]}"

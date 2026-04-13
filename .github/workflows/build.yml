@@ -115,7 +115,7 @@ jobs:
           HASH=$(git rev-parse --short HEAD)
           TIME=$(git log -1 --format=%ci)
           MSG=$(git log -1 --format=%B | sed '/^$/d')
-          printf -v NOTES 'Commit `%s` at `%s`\n\n```\n%s\n```' "$HASH" "$TIME" "$MSG"
+          printf 'Commit `%s` at `%s`\n\n```\n%s\n```\n' "$HASH" "$TIME" "$MSG" > notes.md
 
           if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
             echo "tag=stable" >> "$GITHUB_OUTPUT"
@@ -127,9 +127,6 @@ jobs:
             echo "title=Branch: ${BRANCH}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "notes<<NOTES_EOF" >> "$GITHUB_OUTPUT"
-          echo "$NOTES" >> "$GITHUB_OUTPUT"
-          echo "NOTES_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Delete existing release
         env:
@@ -148,7 +145,7 @@ jobs:
           PRERELEASE="${{ steps.params.outputs.prerelease }}"
           TITLE="${{ steps.params.outputs.title }}"
 
-          FLAGS=(--target "$GITHUB_SHA" --title "$TITLE" --notes "${{ steps.params.outputs.notes }}")
+          FLAGS=(--target "$GITHUB_SHA" --title "$TITLE" --notes-file notes.md)
           if [[ "$PRERELEASE" == "true" ]]; then
             FLAGS+=(--prerelease)
           fi

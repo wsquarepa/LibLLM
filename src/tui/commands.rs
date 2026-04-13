@@ -237,6 +237,7 @@ pub(super) fn handle_slash_command(
         "/worldbook" => cmd_worldbook(app),
         "/character" => cmd_character(app),
         "/passkey" => cmd_passkey(app),
+        "/theme" => cmd_theme(app, arg),
         "/export" => cmd_export(app, arg),
         "/macro" => cmd_macro(app, arg, sender),
         "/report" => cmd_report(app),
@@ -531,6 +532,44 @@ fn cmd_passkey(app: &mut App) {
                 super::StatusLevel::Warning,
             );
         }
+    }
+}
+
+fn cmd_theme(app: &mut App, arg: &str) {
+    let arg = arg.trim();
+    if arg.is_empty() {
+        let current = app.config.theme.as_deref().unwrap_or("dark");
+        let available = super::theme::Theme::available_themes().join(", ");
+        app.set_status(
+            format!("Current theme: {current}. Available: {available}"),
+            super::StatusLevel::Info,
+        );
+        return;
+    }
+
+    if super::theme::Theme::from_name(arg).is_none() {
+        let available = super::theme::Theme::available_themes().join(", ");
+        app.set_status(
+            format!("Unknown theme: {arg}. Available: {available}"),
+            super::StatusLevel::Error,
+        );
+        return;
+    }
+
+    app.config.theme = Some(arg.to_owned());
+    app.theme = super::theme::resolve_theme(&app.config);
+    app.invalidate_chat_cache();
+
+    if let Err(err) = crate::config::save(&app.config) {
+        app.set_status(
+            format!("Theme applied but failed to save config: {err}"),
+            super::StatusLevel::Warning,
+        );
+    } else {
+        app.set_status(
+            format!("Switched to {arg} theme"),
+            super::StatusLevel::Info,
+        );
     }
 }
 

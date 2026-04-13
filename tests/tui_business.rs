@@ -10,6 +10,7 @@ use libllm::tui::business;
 use libllm::export;
 use libllm::session::{Message, Role};
 use libllm::tui::commands::expand_macro;
+use libllm::tui::theme;
 
 fn no_overrides() -> CliOverrides {
     CliOverrides {
@@ -673,4 +674,122 @@ fn export_jsonl_applies_template_vars() {
     let lines: Vec<&str> = result.lines().collect();
     let user_msg: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(user_msg["mes"], "Hello Alice");
+}
+
+// ---------------------------------------------------------------------------
+// Theme Engine
+// ---------------------------------------------------------------------------
+
+#[test]
+fn theme_parse_color_named() {
+    use ratatui::style::Color;
+    assert_eq!(theme::parse_color("red"), Some(Color::Red));
+    assert_eq!(theme::parse_color("green"), Some(Color::Green));
+    assert_eq!(theme::parse_color("dark_gray"), Some(Color::DarkGray));
+    assert_eq!(theme::parse_color("darkgray"), Some(Color::DarkGray));
+    assert_eq!(theme::parse_color("light_blue"), Some(Color::LightBlue));
+    assert_eq!(theme::parse_color("lightblue"), Some(Color::LightBlue));
+    assert_eq!(theme::parse_color("white"), Some(Color::White));
+    assert_eq!(theme::parse_color("black"), Some(Color::Black));
+}
+
+#[test]
+fn theme_parse_color_hex() {
+    use ratatui::style::Color;
+    assert_eq!(theme::parse_color("#ff0000"), Some(Color::Rgb(255, 0, 0)));
+    assert_eq!(theme::parse_color("#00ff00"), Some(Color::Rgb(0, 255, 0)));
+    assert_eq!(theme::parse_color("#1a2b3c"), Some(Color::Rgb(26, 43, 60)));
+}
+
+#[test]
+fn theme_parse_color_indexed() {
+    use ratatui::style::Color;
+    assert_eq!(theme::parse_color("indexed(236)"), Some(Color::Indexed(236)));
+    assert_eq!(theme::parse_color("indexed(0)"), Some(Color::Indexed(0)));
+}
+
+#[test]
+fn theme_parse_color_invalid() {
+    assert_eq!(theme::parse_color("notacolor"), None);
+    assert_eq!(theme::parse_color("#xyz"), None);
+    assert_eq!(theme::parse_color("#12345"), None);
+    assert_eq!(theme::parse_color("indexed(abc)"), None);
+    assert_eq!(theme::parse_color(""), None);
+}
+
+#[test]
+fn theme_parse_color_case_insensitive() {
+    use ratatui::style::Color;
+    assert_eq!(theme::parse_color("RED"), Some(Color::Red));
+    assert_eq!(theme::parse_color("Dark_Gray"), Some(Color::DarkGray));
+    assert_eq!(theme::parse_color("LightBlue"), Some(Color::LightBlue));
+}
+
+#[test]
+fn theme_parse_color_with_whitespace() {
+    use ratatui::style::Color;
+    assert_eq!(theme::parse_color("  red  "), Some(Color::Red));
+    assert_eq!(theme::parse_color(" #ff0000 "), Some(Color::Rgb(255, 0, 0)));
+}
+
+#[test]
+fn theme_from_name_dark() {
+    assert!(theme::Theme::from_name("dark").is_some());
+}
+
+#[test]
+fn theme_from_name_light() {
+    assert!(theme::Theme::from_name("light").is_some());
+}
+
+#[test]
+fn theme_from_name_unknown() {
+    assert!(theme::Theme::from_name("solarized").is_none());
+    assert!(theme::Theme::from_name("").is_none());
+}
+
+#[test]
+fn theme_resolve_default() {
+    let config = Config::default();
+    let t = theme::resolve_theme(&config);
+    assert_eq!(t.user_message, ratatui::style::Color::Green);
+}
+
+#[test]
+fn theme_resolve_light() {
+    let mut config = Config::default();
+    config.theme = Some("light".to_owned());
+    let t = theme::resolve_theme(&config);
+    assert_eq!(t.user_message, ratatui::style::Color::Blue);
+}
+
+#[test]
+fn theme_resolve_with_overrides() {
+    use libllm::config::ThemeColorOverrides;
+    let mut config = Config::default();
+    config.theme_colors = Some(ThemeColorOverrides {
+        user_message: Some("red".to_owned()),
+        ..Default::default()
+    });
+    let t = theme::resolve_theme(&config);
+    assert_eq!(t.user_message, ratatui::style::Color::Red);
+}
+
+#[test]
+fn theme_resolve_invalid_override_ignored() {
+    use libllm::config::ThemeColorOverrides;
+    let mut config = Config::default();
+    config.theme_colors = Some(ThemeColorOverrides {
+        user_message: Some("notacolor".to_owned()),
+        ..Default::default()
+    });
+    let t = theme::resolve_theme(&config);
+    assert_eq!(t.user_message, ratatui::style::Color::Green);
+}
+
+#[test]
+fn theme_available_themes_not_empty() {
+    let themes = theme::Theme::available_themes();
+    assert!(themes.contains(&"dark"));
+    assert!(themes.contains(&"light"));
 }

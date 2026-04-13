@@ -421,6 +421,8 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
         debug_log: fields[14].parse().unwrap_or(existing.debug_log),
         default_persona: existing.default_persona,
         macros: existing.macros,
+        theme: existing.theme,
+        theme_colors: existing.theme_colors,
     };
 
     crate::config::save(&cfg)
@@ -454,6 +456,7 @@ pub(super) fn apply_config(app: &mut App) {
         let _ = tx.send(super::BackgroundEvent::ModelFetched(result)).await;
     });
 
+    app.theme = super::theme::resolve_theme(&cfg);
     app.config = cfg;
     app.invalidate_worldbook_cache();
     app.invalidate_chat_cache();

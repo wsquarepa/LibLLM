@@ -52,6 +52,10 @@ impl Database {
         sessions::insert_session(&self.conn, id, session)
     }
 
+    pub fn save_session(&self, id: &str, session: &Session) -> Result<()> {
+        sessions::save_session(&self.conn, id, session)
+    }
+
     pub fn load_session(&self, id: &str) -> Result<Session> {
         sessions::load_session(&self.conn, id)
     }
@@ -163,6 +167,18 @@ impl Database {
 
     pub fn delete_persona(&self, slug: &str) -> Result<()> {
         personas::delete_persona(&self.conn, slug)
+    }
+
+    pub fn rekey(&self, new_key: &DerivedKey) -> Result<()> {
+        let hex_key = new_key.hex();
+        self.conn
+            .execute_batch(&format!("PRAGMA rekey = \"x'{}'\";", hex_key))
+            .context("failed to rekey database")?;
+        Ok(())
+    }
+
+    pub fn session_exists(&self, id: &str) -> Result<bool> {
+        sessions::session_exists(&self.conn, id)
     }
 }
 

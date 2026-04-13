@@ -1,4 +1,5 @@
-use libllm_core::session::{self, Message, Role, SaveMode, Session, SessionEntry};
+use libllm_core::db::Database;
+use libllm_core::session::{Message, Role, SaveMode, Session, SessionEntry};
 use libllm_core::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
 use super::App;
@@ -17,7 +18,7 @@ pub use libllm_core::template::apply_template_vars;
 
 pub fn build_effective_system_prompt(
     session: &Session,
-    key: Option<&libllm_core::crypto::DerivedKey>,
+    db: Option<&Database>,
 ) -> Option<String> {
     let is_character = session.character.is_some();
 
@@ -28,11 +29,9 @@ pub fn build_effective_system_prompt(
     } else {
         libllm_core::system_prompt::BUILTIN_ASSISTANT
     };
-    let resolved_default = libllm_core::system_prompt::load_prompt_content(
-        &libllm_core::config::system_prompts_dir(),
-        builtin_name,
-        key,
-    );
+    let resolved_default = db.and_then(|db| {
+        db.load_prompt(builtin_name).ok().map(|p| p.content)
+    });
     let config_default = resolved_default.as_deref().unwrap_or("");
 
     let base = if session_prompt.is_empty() {
@@ -42,7 +41,7 @@ pub fn build_effective_system_prompt(
     };
 
     let persona = session.persona.as_ref().and_then(|name| {
-        libllm_core::persona::load_persona_by_name(&libllm_core::config::personas_dir(), name, key)
+        db.and_then(|db| db.load_persona(name).ok())
     });
 
     let has_persona = is_character && persona.is_some();
@@ -100,9 +99,8 @@ pub fn enabled_worldbook_names(session: &Session, cfg: &libllm_core::config::Con
 
 pub fn load_runtime_worldbooks(
     enabled: &[String],
-    key: Option<&libllm_core::crypto::DerivedKey>,
+    db: Option<&Database>,
 ) -> Vec<RuntimeWorldBook> {
-    let wi_dir = libllm_core::config::worldinfo_dir();
     libllm_core::debug_log::timed_kv(
         "worldbook.runtime",
         &[
@@ -110,11 +108,11 @@ pub fn load_runtime_worldbooks(
             libllm_core::debug_log::field("enabled_count", enabled.len()),
         ],
         || {
+            let Some(db) = db else { return Vec::new() };
             enabled
                 .iter()
                 .filter_map(|wb_name| {
-                    let wb_path = libllm_core::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
-                    libllm_core::worldinfo::load_worldbook(&wb_path, key)
+                    db.load_worldbook(wb_name)
                         .ok()
                         .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
                 })
@@ -438,10 +436,8 @@ pub(super) fn apply_config(app: &mut App) {
 
 pub(super) fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona {
-        if let Some(path) =
-            libllm_core::persona::resolve_persona_path(&libllm_core::config::personas_dir(), name)
-        {
-            if let Ok(pf) = libllm_core::persona::load_persona(&path, app.save_mode.key()) {
+        if let Some(ref db) = app.db {
+            if let Ok(pf) = db.load_persona(name) {
                 app.active_persona_name = Some(pf.name);
                 app.active_persona_desc = Some(pf.persona);
                 return;
@@ -454,8 +450,7 @@ pub(super) fn load_active_persona(app: &mut App) {
 
 pub fn new_chat_entry() -> SessionEntry {
     SessionEntry {
-        path: std::path::PathBuf::new(),
-        filename: "+ New Chat".to_owned(),
+        id: String::new(),
         display_name: "+ New Chat".to_owned(),
         message_count: None,
         last_assistant_preview: None,
@@ -507,31 +502,12 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
 }
 
 pub(super) fn refresh_sidebar(app: &mut App) {
-    let mut sessions = discover_sidebar_sessions(&app.save_mode);
+    let mut sessions = discover_sidebar_sessions(&app.save_mode, app.db.as_ref());
 
-    for entry in &mut sessions {
-        if entry.is_new_chat {
-            continue;
-        }
-        if let Some(cached) = app.sidebar_sessions.iter().find(|e| e.path == entry.path) {
-            if cached.display_name != "Assistant" {
-                entry.display_name.clone_from(&cached.display_name);
-            }
-            if cached.message_count.is_some() {
-                entry.message_count = cached.message_count;
-            }
-            if cached.last_assistant_preview.is_some() {
-                entry
-                    .last_assistant_preview
-                    .clone_from(&cached.last_assistant_preview);
-            }
-        }
-    }
+    let current_id = app.save_mode.id().map(str::to_owned);
 
-    let current_path = app.save_mode.path().map(|p| p.to_path_buf());
-
-    if let Some(ref cp) = current_path {
-        if let Some(current_entry) = sessions.iter_mut().find(|e| e.path == *cp) {
+    if let Some(ref cid) = current_id {
+        if let Some(current_entry) = sessions.iter_mut().find(|e| e.id == *cid) {
             if let Some(ref character) = app.session.character {
                 current_entry.display_name.clone_from(character);
             }
@@ -546,23 +522,20 @@ pub(super) fn refresh_sidebar(app: &mut App) {
         }
     }
 
-    let selected = current_path
-        .and_then(|cp| sessions.iter().position(|s| s.path == cp))
+    let selected = current_id
+        .and_then(|cid| sessions.iter().position(|s| s.id == cid))
         .unwrap_or(0);
     prepare_sidebar_entries(&mut sessions);
     app.sidebar_sessions = sessions;
     app.sidebar_state.select(Some(selected));
     app.sidebar_cache = None;
-
-    super::commands::spawn_metadata_loading(app);
 }
 
-pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
+pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) -> Vec<SessionEntry> {
     let mode = match save_mode {
-        SaveMode::Encrypted { .. } => "encrypted",
-        SaveMode::Plaintext(_) => "plaintext",
+        SaveMode::Database { .. } => "database",
         SaveMode::None => "none",
-        SaveMode::PendingPasskey(_) => "pending_passkey",
+        SaveMode::PendingPasskey { .. } => "pending_passkey",
     };
     let mut sessions = libllm_core::debug_log::timed_kv(
         "startup.phase",
@@ -571,93 +544,31 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
             libllm_core::debug_log::field("mode", mode),
         ],
         || match save_mode {
-            SaveMode::Encrypted { key, .. } => {
-                match session::list_session_paths(&libllm_core::config::sessions_dir(), Some(key)) {
-                    Ok(sessions) => sessions,
+            SaveMode::Database { .. } => {
+                let Some(db) = db else { return Vec::new() };
+                match db.list_sessions() {
+                    Ok(entries) => entries
+                        .into_iter()
+                        .map(|e| SessionEntry {
+                            id: e.id,
+                            display_name: e.display_name,
+                            message_count: Some(e.message_count),
+                            last_assistant_preview: e.last_assistant_preview,
+                            sidebar_label: String::new(),
+                            sidebar_preview: None,
+                            is_new_chat: false,
+                        })
+                        .collect(),
                     Err(e) => {
                         eprintln!("Warning: {e}");
                         Vec::new()
                     }
                 }
             }
-            SaveMode::Plaintext(path) => list_plaintext_sessions(path),
-            SaveMode::None | SaveMode::PendingPasskey(_) => Vec::new(),
+            SaveMode::None | SaveMode::PendingPasskey { .. } => Vec::new(),
         },
     );
     sessions.insert(0, new_chat_entry());
     prepare_sidebar_entries(&mut sessions);
     sessions
-}
-
-fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
-    let dir = match path.parent() {
-        Some(d) => d,
-        None => return Vec::new(),
-    };
-    let index = libllm_core::index::load_index(None);
-    let mut hit_count = 0usize;
-    let mut miss_count = 0usize;
-    let mut entries: Vec<SessionEntry> = Vec::new();
-
-    for entry_path in std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|entry_path| entry_path.extension().is_some_and(|ext| ext == "json"))
-    {
-        let filename = entry_path
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let mut entry = SessionEntry {
-            path: entry_path,
-            filename,
-            display_name: "Assistant".to_owned(),
-            message_count: None,
-            last_assistant_preview: None,
-            sidebar_label: String::new(),
-            sidebar_preview: None,
-            is_new_chat: false,
-        };
-
-        match session::apply_indexed_session_metadata(&mut entry, &index) {
-            Ok(true) => hit_count += 1,
-            Ok(false) => miss_count += 1,
-            Err(err) => {
-                miss_count += 1;
-                libllm_core::debug_log::log_kv(
-                    "index.sessions",
-                    &[
-                        libllm_core::debug_log::field("phase", "lookup"),
-                        libllm_core::debug_log::field("result", "error"),
-                        libllm_core::debug_log::field("path", entry.path.display()),
-                        libllm_core::debug_log::field("error", err),
-                    ],
-                );
-            }
-        }
-
-        entries.push(entry);
-    }
-
-    libllm_core::debug_log::log_kv(
-        "index.sessions",
-        &[
-            libllm_core::debug_log::field("mode", "plaintext"),
-            libllm_core::debug_log::field("hits", hit_count),
-            libllm_core::debug_log::field("misses", miss_count),
-            libllm_core::debug_log::field("count", entries.len()),
-        ],
-    );
-
-    entries.sort_by(|a, b| {
-        let mtime = |p: &std::path::Path| {
-            p.metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-        };
-        mtime(&b.path).cmp(&mtime(&a.path))
-    });
-    entries
 }

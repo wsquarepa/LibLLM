@@ -3,7 +3,7 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
 use tui_textarea::TextArea;
 
-use libllm_core::session::{self, Role, SaveMode, Session};
+use libllm_core::session::{self, Role, Session};
 
 use super::{Action, App, StatusLevel};
 
@@ -328,7 +328,7 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             if entry.is_new_chat {
                 return None;
             }
-            app.delete_confirm_filename = entry.filename.clone();
+            app.delete_confirm_filename = entry.id.clone();
             app.delete_confirm_selected = 0;
             app.delete_context = super::DeleteContext::Session;
             app.focus = super::Focus::DeleteConfirmDialog;
@@ -346,13 +346,9 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         return;
     }
     app.nav_cursor = None;
-    let (is_new_chat, path, filename) = {
+    let (is_new_chat, session_id) = {
         let entry = &app.sidebar_sessions[selected];
-        (
-            entry.is_new_chat,
-            entry.path.clone(),
-            entry.filename.clone(),
-        )
+        (entry.is_new_chat, entry.id.clone())
     };
     if is_new_chat {
         app.discard_pending_session_save();
@@ -364,13 +360,12 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
         app.auto_scroll = true;
-        let new_path = libllm_core::config::sessions_dir().join(session::generate_session_name());
-        app.save_mode.set_path(new_path);
+        let new_id = session::generate_session_id();
+        app.save_mode.set_id(new_id);
     } else {
-        let load_result = match &app.save_mode {
-            SaveMode::Encrypted { key, .. } => session::load_encrypted(&path, key),
-            _ => session::load(&path),
-        };
+        let load_result = app.db.as_ref()
+            .map(|db| db.load_session(&session_id))
+            .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
         match load_result {
             Ok(loaded) => {
                 app.discard_pending_session_save();
@@ -378,8 +373,8 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
                 super::business::load_active_persona(app);
                 app.invalidate_chat_cache();
                 app.invalidate_worldbook_cache();
-                app.set_status(format!("Loaded: {filename}"), super::StatusLevel::Info);
-                app.save_mode.set_path(path);
+                app.set_status(format!("Loaded: {session_id}"), super::StatusLevel::Info);
+                app.save_mode.set_id(session_id);
                 app.chat_scroll = 0;
                 app.auto_scroll = true;
             }
@@ -390,42 +385,10 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
     }
 }
 
-pub fn handle_sidebar_paste(path: &std::path::Path, ext: &str, app: &mut App) -> bool {
-    if ext != "json" {
-        app.set_status(
-            "Session import supports .json files only.".to_owned(),
-            StatusLevel::Warning,
-        );
-        return true;
-    }
-
-    match session::load(path) {
-        Ok(loaded) => {
-            let new_name = session::generate_session_name();
-            let new_path = libllm_core::config::sessions_dir().join(&new_name);
-
-            let save_result = match &app.save_mode {
-                SaveMode::Encrypted { key, .. } => session::save_encrypted(&new_path, &loaded, key),
-                _ => session::save(&new_path, &loaded),
-            };
-
-            match save_result {
-                Ok(()) => {
-                    let count = loaded.tree.current_branch_ids().len();
-                    super::business::refresh_sidebar(app);
-                    app.set_status(
-                        format!("Imported session ({count} messages)."),
-                        StatusLevel::Info,
-                    );
-                }
-                Err(e) => {
-                    app.set_status(format!("Save error: {e}"), StatusLevel::Error);
-                }
-            }
-        }
-        Err(e) => {
-            app.set_status(format!("Import error: {e}"), StatusLevel::Error);
-        }
-    }
+pub fn handle_sidebar_paste(_path: &std::path::Path, _ext: &str, app: &mut App) -> bool {
+    app.set_status(
+        "Session import from files is not supported with database storage.".to_owned(),
+        StatusLevel::Warning,
+    );
     true
 }

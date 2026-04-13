@@ -79,8 +79,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
         }
         KeyCode::Enter => {
             let file_name = app.persona_list[app.persona_selected].clone();
-            let dir = libllm_core::config::personas_dir();
-            match libllm_core::persona::load_persona_by_name(&dir, &file_name, app.save_mode.key()) {
+            match app.db.as_ref().and_then(|db| db.load_persona(&file_name).ok()) {
                 Some(pf) => {
                     app.active_persona_name = Some(pf.name);
                     app.active_persona_desc = Some(pf.persona);
@@ -138,8 +137,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
 }
 
 fn open_persona_editor(app: &mut App, file_name: &str) {
-    let dir = libllm_core::config::personas_dir();
-    let pf = libllm_core::persona::load_persona_by_name(&dir, file_name, app.save_mode.key());
+    let pf = app.db.as_ref().and_then(|db| db.load_persona(file_name).ok());
     let values = match pf {
         Some(pf) => vec![pf.name, pf.persona],
         None => vec![file_name.to_owned(), String::new()],
@@ -151,14 +149,14 @@ fn open_persona_editor(app: &mut App, file_name: &str) {
 }
 
 fn create_and_edit_persona(app: &mut App) {
-    let dir = libllm_core::config::personas_dir();
     let existing: std::collections::HashSet<String> = app.persona_list.iter().cloned().collect();
     let new_name = super::generate_unique_name("persona", &existing);
     let persona = libllm_core::persona::PersonaFile {
         name: new_name.clone(),
         persona: String::new(),
     };
-    if let Err(e) = libllm_core::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+    let slug = libllm_core::character::slugify(&new_name);
+    if let Err(e) = app.db.as_ref().map(|db| db.insert_persona(&slug, &persona)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
         app.set_status(
             format!("Failed to create persona: {e}"),
             super::super::StatusLevel::Error,
@@ -235,11 +233,11 @@ pub(in crate::tui) fn handle_persona_paste(
         name: name.clone(),
         persona: content,
     };
-    let dir = libllm_core::config::personas_dir();
-    match libllm_core::persona::save_persona(&persona, &dir, app.save_mode.key()) {
-        Ok(_) => {
-            let personas = libllm_core::persona::list_personas(&dir, app.save_mode.key());
-            app.persona_list = personas.into_iter().map(|p| p.name).collect();
+    let slug = libllm_core::character::slugify(&name);
+    match app.db.as_ref().map(|db| db.insert_persona(&slug, &persona)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+        Ok(()) => {
+            let personas = app.db.as_ref().and_then(|db| db.list_personas().ok()).unwrap_or_default();
+            app.persona_list = personas.into_iter().map(|(_, n)| n).collect();
             app.persona_selected = 0;
             app.set_status(
                 format!("Imported persona: {name}"),

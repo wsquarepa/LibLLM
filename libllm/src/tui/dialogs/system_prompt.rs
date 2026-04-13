@@ -71,9 +71,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
         }
         KeyCode::Enter => {
             let name = app.system_prompt_list[app.system_prompt_selected].clone();
-            let dir = libllm_core::config::system_prompts_dir();
-            let content =
-                libllm_core::system_prompt::load_prompt_content(&dir, &name, app.save_mode.key());
+            let content = app.db.as_ref().and_then(|db| db.load_prompt(&name).ok()).map(|p| p.content);
 
             app.session.system_prompt = content;
             app.invalidate_chat_cache();
@@ -89,7 +87,6 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             open_prompt_editor(app, &name);
         }
         KeyCode::Char('a') => {
-            let dir = libllm_core::config::system_prompts_dir();
             let existing: std::collections::HashSet<String> =
                 app.system_prompt_list.iter().cloned().collect();
             let new_name = super::generate_unique_name("custom", &existing);
@@ -97,7 +94,8 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
                 name: new_name.clone(),
                 content: String::new(),
             };
-            if let Err(e) = libllm_core::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
+            let slug = libllm_core::character::slugify(&new_name);
+            if let Err(e) = app.db.as_ref().map(|db| db.insert_prompt(&slug, &prompt, false)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
                 app.set_status(
                     format!("Failed to create prompt: {e}"),
                     super::super::StatusLevel::Error,
@@ -133,8 +131,9 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
 }
 
 fn open_prompt_editor(app: &mut App, name: &str) {
-    let dir = libllm_core::config::system_prompts_dir();
-    let content = libllm_core::system_prompt::load_prompt_content(&dir, name, app.save_mode.key())
+    let content = app.db.as_ref()
+        .and_then(|db| db.load_prompt(name).ok())
+        .map(|p| p.content)
         .unwrap_or_default();
 
     let values = vec![name.to_owned(), content];
@@ -218,11 +217,11 @@ pub(in crate::tui) fn handle_system_prompt_paste(
         name: name.clone(),
         content,
     };
-    let dir = libllm_core::config::system_prompts_dir();
-    match libllm_core::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key()) {
-        Ok(_) => {
-            let prompts = libllm_core::system_prompt::list_prompts(&dir, app.save_mode.key());
-            app.system_prompt_list = prompts.into_iter().map(|p| p.name).collect();
+    let slug = libllm_core::character::slugify(&name);
+    match app.db.as_ref().map(|db| db.insert_prompt(&slug, &prompt, false)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+        Ok(()) => {
+            let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
+            app.system_prompt_list = prompts.into_iter().map(|(_, n, _)| n).collect();
             app.system_prompt_selected = 0;
             app.set_status(
                 format!("Imported system prompt: {name}"),

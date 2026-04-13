@@ -37,6 +37,39 @@ pub struct Config {
     pub default_persona: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub macros: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub theme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub theme_colors: Option<ThemeColorOverrides>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ThemeColorOverrides {
+    pub user_message: Option<String>,
+    pub assistant_message_fg: Option<String>,
+    pub assistant_message_bg: Option<String>,
+    pub system_message: Option<String>,
+    pub border_focused: Option<String>,
+    pub border_unfocused: Option<String>,
+    pub status_bar_fg: Option<String>,
+    pub status_bar_bg: Option<String>,
+    pub status_error_fg: Option<String>,
+    pub status_error_bg: Option<String>,
+    pub status_info_fg: Option<String>,
+    pub status_info_bg: Option<String>,
+    pub status_warning_fg: Option<String>,
+    pub status_warning_bg: Option<String>,
+    pub dialogue: Option<String>,
+    pub nav_cursor_fg: Option<String>,
+    pub nav_cursor_bg: Option<String>,
+    pub hover_bg: Option<String>,
+    pub dimmed: Option<String>,
+    pub sidebar_highlight_fg: Option<String>,
+    pub sidebar_highlight_bg: Option<String>,
+    pub command_picker_fg: Option<String>,
+    pub command_picker_bg: Option<String>,
+    pub streaming_indicator: Option<String>,
+    pub api_unavailable: Option<String>,
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

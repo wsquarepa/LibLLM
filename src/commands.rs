@@ -67,6 +67,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Open configuration dialog",
     },
     CommandInfo {
+        name: "/theme",
+        aliases: &[],
+        args: "[name]",
+        description: "Switch color theme (dark, light)",
+    },
+    CommandInfo {
         name: "/export",
         aliases: &[],
         args: "[md|html|jsonl]",

@@ -5,6 +5,7 @@ mod dialogs;
 mod input;
 mod maintenance;
 mod render;
+pub mod theme;
 
 use anyhow::Result;
 use crossterm::event::{
@@ -289,6 +290,7 @@ struct App<'a> {
     persona_selected: usize,
     persona_editor_file_name: String,
     config: crate::config::Config,
+    theme: theme::Theme,
     cli_overrides: CliOverrides,
     worldbook_cache: Option<WorldbookCache>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
@@ -673,6 +675,7 @@ pub async fn run(
         persona_list: Vec::new(),
         persona_selected: 0,
         persona_editor_file_name: String::new(),
+        theme: theme::resolve_theme(&config),
         config,
         cli_overrides,
         worldbook_cache: None,
@@ -846,7 +849,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     );
 
     let input_focused = app.focus == Focus::Input;
-    let border = render::border_style(input_focused);
+    let border = render::border_style(input_focused, &app.theme);
     let mut input_block = Block::default()
         .borders(Borders::ALL)
         .title(" Input ")

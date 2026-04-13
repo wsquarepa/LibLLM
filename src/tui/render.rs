@@ -7,9 +7,7 @@ use crate::session::{NodeId, Role};
 
 use super::App;
 
-const DIALOGUE_COLOR: Color = Color::LightBlue;
-const NAV_CURSOR_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Yellow);
-const HOVER_BG: Color = Color::Indexed(236);
+use super::theme::Theme;
 
 pub struct SidebarCache {
     selected_idx: Option<usize>,
@@ -32,11 +30,11 @@ pub struct ChatContentCache {
     entries: Vec<CachedMessageLines>,
 }
 
-pub fn border_style(focused: bool) -> Style {
+pub fn border_style(focused: bool, theme: &Theme) -> Style {
     if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(theme.border_focused)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(theme.border_unfocused)
     }
 }
 
@@ -120,16 +118,18 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     }
 
     let highlight_style = if app.focus == super::Focus::Sidebar {
-        Style::default().fg(Color::Black).bg(Color::Cyan)
+        Style::default()
+            .fg(app.theme.sidebar_highlight_fg)
+            .bg(app.theme.sidebar_highlight_bg)
     } else {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(app.theme.sidebar_highlight_bg)
     };
 
     let sidebar_focused = app.focus == super::Focus::Sidebar;
     let mut sidebar_block = Block::default()
         .borders(Borders::ALL)
         .title(" Sessions ")
-        .border_style(border_style(sidebar_focused));
+        .border_style(border_style(sidebar_focused, &app.theme));
     if sidebar_focused {
         sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete ").centered());
     }
@@ -142,7 +142,7 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, area, &mut app.sidebar_state);
 }
 
-fn parse_styled_line(text: &str) -> Line<'static> {
+fn parse_styled_line(text: &str, dialogue_color: Color) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut chars = text.char_indices().peekable();
     let mut plain_start = 0;
@@ -204,7 +204,7 @@ fn parse_styled_line(text: &str) -> Line<'static> {
                     let abs_end = content_start + rel_end;
                     spans.push(Span::styled(
                         text[quote_start..abs_end + 1].to_owned(),
-                        Style::default().fg(DIALOGUE_COLOR),
+                        Style::default().fg(dialogue_color),
                     ));
                     let skip_to = abs_end + 1;
                     while chars.peek().is_some_and(|&(idx, _)| idx < skip_to) {
@@ -298,20 +298,20 @@ pub fn render_chat(
                     Role::User => (
                         user_label.clone(),
                         Style::default()
-                            .fg(Color::Green)
+                            .fg(app.theme.user_message)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Role::Assistant => (
                         assistant_label.clone(),
                         Style::default()
-                            .fg(Color::White)
-                            .bg(Color::Blue)
+                            .fg(app.theme.assistant_message_fg)
+                            .bg(app.theme.assistant_message_bg)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Role::System => (
                         "System".to_owned(),
                         Style::default()
-                            .fg(Color::DarkGray)
+                            .fg(app.theme.system_message)
                             .add_modifier(Modifier::BOLD),
                     ),
                 };
@@ -324,10 +324,11 @@ pub fn render_chat(
                 };
 
                 let content = replace_vars(&msg.content);
+                let dialogue_color = app.theme.dialogue;
                 let content_lines: Vec<Line<'static>> = content
                     .lines()
                     .map(|line| {
-                        let styled = parse_styled_line(line);
+                        let styled = parse_styled_line(line, dialogue_color);
                         let mut indented = vec![Span::raw("  ")];
                         indented.extend(styled.spans);
                         Line::from(indented)
@@ -394,7 +395,10 @@ pub fn render_chat(
 
         let nav_marker = if is_nav_selected { ">> " } else { "" };
         let role_style = if is_nav_selected {
-            NAV_CURSOR_STYLE.add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(app.theme.nav_cursor_fg)
+                .bg(app.theme.nav_cursor_bg)
+                .add_modifier(Modifier::BOLD)
         } else {
             entry.base_role_style
         };
@@ -429,14 +433,14 @@ pub fn render_chat(
             lines.push(Line::from(vec![Span::styled(
                 format!("{assistant_label}: "),
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Blue)
+                    .fg(app.theme.assistant_message_fg)
+                    .bg(app.theme.assistant_message_bg)
                     .add_modifier(Modifier::BOLD),
             )]));
         }
         let buffer = replace_vars(&app.streaming_buffer);
         for content_line in buffer.lines() {
-            let styled = parse_styled_line(content_line);
+            let styled = parse_styled_line(content_line, app.theme.dialogue);
             let mut indented = vec![Span::raw("  ")];
             indented.extend(styled.spans);
             lines.push(Line::from(indented));
@@ -505,13 +509,13 @@ pub fn render_chat(
     let mut chat_block = Block::default()
         .borders(Borders::ALL)
         .title(" Chat ")
-        .border_style(border_style(chat_focused));
+        .border_style(border_style(chat_focused, &app.theme));
     if app.is_streaming {
         chat_block = chat_block.title_bottom(
             Line::from(Span::styled(
                 " Generating... Esc to cancel ",
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(app.theme.streaming_indicator)
                     .add_modifier(Modifier::BOLD),
             ))
             .centered(),
@@ -545,7 +549,7 @@ pub fn render_chat(
                 for col in 0..inner_w {
                     let x = inner_x + col;
                     let cell = &mut buf[(x, y)];
-                    cell.set_style(cell.style().bg(HOVER_BG));
+                    cell.set_style(cell.style().bg(app.theme.hover_bg));
                 }
             }
         }
@@ -563,9 +567,13 @@ fn queue_user_label(app: &App) -> String {
     }
 }
 
-fn build_queue_lines(queue: &[String], user_label: &str) -> Vec<Line<'static>> {
+fn build_queue_lines(
+    queue: &[String],
+    user_label: &str,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let dim_style = Style::default()
-        .fg(Color::DarkGray)
+        .fg(theme.dimmed)
         .add_modifier(Modifier::ITALIC);
     let mut lines: Vec<Line<'static>> = Vec::new();
     for (idx, msg) in queue.iter().enumerate() {
@@ -575,12 +583,12 @@ fn build_queue_lines(queue: &[String], user_label: &str) -> Vec<Line<'static>> {
         lines.push(Line::from(vec![Span::styled(
             format!("{user_label}:"),
             Style::default()
-                .fg(Color::Green)
+                .fg(theme.user_message)
                 .add_modifier(Modifier::BOLD)
                 .add_modifier(Modifier::DIM),
         )]));
         for content_line in msg.lines() {
-            let styled = parse_styled_line(content_line);
+            let styled = parse_styled_line(content_line, theme.dialogue);
             let mut indented: Vec<Span<'static>> = vec![Span::raw("  ")];
             for span in styled.spans {
                 let merged = span.style.patch(dim_style);
@@ -598,7 +606,7 @@ pub fn split_chat_area_for_queue(chat_area: Rect, app: &App) -> (Rect, Option<Re
     }
 
     let user_label = queue_user_label(app);
-    let queue_lines = build_queue_lines(&app.message_queue, &user_label);
+    let queue_lines = build_queue_lines(&app.message_queue, &user_label, &app.theme);
     let content_rows = measure_wrapped_height(&queue_lines, chat_area);
     let desired = content_rows.saturating_add(2);
 
@@ -627,12 +635,12 @@ pub fn split_chat_area_for_queue(chat_area: Rect, app: &App) -> (Rect, Option<Re
 
 pub fn render_message_queue(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let user_label = queue_user_label(app);
-    let lines = build_queue_lines(&app.message_queue, &user_label);
+    let lines = build_queue_lines(&app.message_queue, &user_label, &app.theme);
     let title = format!(" Queued ({}) ", app.message_queue.len());
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(app.theme.border_unfocused));
     let paragraph = Paragraph::new(Text::from(lines))
         .block(block)
         .wrap(Wrap { trim: false });
@@ -680,8 +688,12 @@ pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, ch
     state.select(Some(selected));
 
     let list = List::new(items)
-        .block(dialog_block(" Commands ", Color::Yellow))
-        .highlight_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+        .block(dialog_block(" Commands ", app.theme.command_picker_bg))
+        .highlight_style(
+            Style::default()
+                .fg(app.theme.command_picker_fg)
+                .bg(app.theme.command_picker_bg),
+        );
 
     f.render_widget(ratatui::widgets::Clear, picker_area);
     f.render_stateful_widget(list, picker_area, &mut state);
@@ -694,11 +706,15 @@ pub fn render_status_bar(
     branch_info: Option<(usize, usize)>,
     token_count: usize,
 ) {
-    let bg_style = Style::default().fg(Color::White).bg(Color::DarkGray);
+    let bg_style = Style::default()
+        .fg(app.theme.status_bar_fg)
+        .bg(app.theme.status_bar_bg);
 
     if let Some(msg) = &app.status_message {
         if matches!(msg.level, super::StatusLevel::Error) {
-            let style = Style::default().fg(Color::White).bg(Color::Red);
+            let style = Style::default()
+                .fg(app.theme.status_error_fg)
+                .bg(app.theme.status_error_bg);
             let paragraph = Paragraph::new(format!(" {} ", msg.text))
                 .style(style)
                 .alignment(Alignment::Center);
@@ -731,7 +747,9 @@ pub fn render_status_bar(
     );
 
     let left_style = if !app.api_available {
-        Style::default().fg(Color::Red).bg(Color::DarkGray)
+        Style::default()
+            .fg(app.theme.api_unavailable)
+            .bg(app.theme.status_bar_bg)
     } else {
         bg_style
     };
@@ -760,15 +778,17 @@ pub fn render_status_bar(
         };
 
         let (fg, bg) = match msg.level {
-            super::StatusLevel::Info => (Color::White, Color::Blue),
-            super::StatusLevel::Warning => (Color::Black, Color::Yellow),
+            super::StatusLevel::Info => (app.theme.status_info_fg, app.theme.status_info_bg),
+            super::StatusLevel::Warning => {
+                (app.theme.status_warning_fg, app.theme.status_warning_bg)
+            }
             super::StatusLevel::Error => unreachable!(),
         };
 
         (msg.text.as_str(), fg, bg, progress)
     });
 
-    let right_spans = build_right_spans(hints_text, notification, total_width);
+    let right_spans = build_right_spans(hints_text, notification, total_width, bg_style);
     let right_width: usize = right_spans.iter().map(|s| s.content.len()).sum();
 
     let left_max = total_width.saturating_sub(right_width).saturating_sub(1);
@@ -794,12 +814,10 @@ fn build_right_spans<'a>(
     hints: &'a str,
     notification: Option<(&'a str, Color, Color, f64)>,
     max_width: usize,
+    bar_style: Style,
 ) -> Vec<Span<'a>> {
     let Some((text, fg, bg, progress)) = notification else {
-        return vec![Span::styled(
-            hints,
-            Style::default().fg(Color::White).bg(Color::DarkGray),
-        )];
+        return vec![Span::styled(hints, bar_style)];
     };
 
     let padded = format!(" {} ", text);
@@ -807,10 +825,7 @@ fn build_right_spans<'a>(
     let visible_width = ((progress * notif_full_width as f64).round() as usize).min(max_width);
 
     if visible_width == 0 {
-        return vec![Span::styled(
-            hints,
-            Style::default().fg(Color::White).bg(Color::DarkGray),
-        )];
+        return vec![Span::styled(hints, bar_style)];
     }
 
     let hints_width = max_width.saturating_sub(visible_width);
@@ -826,10 +841,7 @@ fn build_right_spans<'a>(
     let mut spans = Vec::new();
 
     if !visible_hints.is_empty() {
-        spans.push(Span::styled(
-            visible_hints,
-            Style::default().fg(Color::White).bg(Color::DarkGray),
-        ));
+        spans.push(Span::styled(visible_hints, bar_style));
     }
 
     spans.push(Span::styled(visible_text, notif_style));

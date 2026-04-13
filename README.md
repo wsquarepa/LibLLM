@@ -44,23 +44,23 @@ Built for power users who run local models and want a fast, private chat interfa
 curl -fsSL https://raw.githubusercontent.com/wsquarepa/LibLLM/master/install.sh | sh
 ```
 
-This downloads the latest preview binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
+This downloads the latest stable binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
 
 ### Update
 
 ```sh
-libllm update
+libllm update                    # update stable (or switch to stable)
+libllm update feature/branch     # switch to a branch build
+libllm update --list             # browse available branch builds
 ```
 
-Use `--nightly` to switch to the nightly build channel for cutting-edge features.
+Switching between channels shows a confirmation prompt since branch builds may introduce data format changes. Use `--yes` / `-y` to skip the prompt.
 
 Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
 
-### From preview release (recommended)
+### From release
 
-Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [preview release](../../releases/tag/preview).
-
-There are no stable releases yet. Preview is the recommended install method.
+Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are available as [releases](../../releases). The [stable release](../../releases/tag/stable) is updated on every push to `master`. Branch builds are published as pre-releases when changes are pushed to any other branch.
 
 ### From source
 
@@ -237,11 +237,14 @@ libllm -d ./data --passkey mypasskey
 ### Subcommands
 
 ```sh
-# Update to the latest preview build
+# Update to the latest stable build
 libllm update
 
-# Update to the nightly build channel
-libllm update --nightly
+# Switch to a branch build
+libllm update feature/branch
+
+# List available branch builds
+libllm update --list
 
 # Edit a character card or worldbook in $EDITOR
 libllm edit character <name>

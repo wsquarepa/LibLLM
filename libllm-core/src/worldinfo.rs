@@ -1,31 +1,7 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-
-use crate::crypto::DerivedKey;
-
-const EXT_ENCRYPTED: &str = "worldbook";
-const EXT_PLAINTEXT: &str = "json";
-
-fn sanitize_display(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_control() && c != '\n' {
-                '\u{FFFD}'
-            } else {
-                c
-            }
-        })
-        .collect()
-}
-
-pub fn resolve_worldbook_path(dir: &Path, name: &str) -> std::path::PathBuf {
-    let safe_name = name.replace(['/', '\\'], "_");
-    let safe_name = safe_name.trim_matches('.');
-    crate::crypto::resolve_encrypted_path(dir, safe_name, EXT_ENCRYPTED)
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldBook {
@@ -44,15 +20,6 @@ pub struct Entry {
     pub order: i64,
     pub depth: usize,
     pub case_sensitive: bool,
-}
-
-pub struct WorldBookEntry {
-    pub name: String,
-}
-
-pub struct WorldbookNormalizationReport {
-    pub rewritten_count: usize,
-    pub warnings: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -94,50 +61,17 @@ struct RawEntry {
 
 const DEFAULT_SCAN_DEPTH: usize = 4;
 
-pub fn save_worldbook_to(
-    worldbook: &WorldBook,
-    path: &Path,
-    key: Option<&DerivedKey>,
-) -> Result<()> {
-    let json = serde_json::to_string_pretty(worldbook).context("failed to serialize worldbook")?;
-    crate::crypto::encrypt_and_write(path, json.as_bytes(), key)
-}
-
-pub fn save_worldbook(
-    worldbook: &WorldBook,
-    dir: &Path,
-    key: Option<&DerivedKey>,
-) -> Result<std::path::PathBuf> {
-    let ext = crate::crypto::encrypted_extension(key, EXT_ENCRYPTED);
-    let safe_name: String = worldbook.name.replace(['/', '\\'], "_");
-    let safe_name = safe_name.trim_matches('.');
-    anyhow::ensure!(
-        !safe_name.is_empty(),
-        "worldbook name is empty after sanitization"
-    );
-    let path = dir.join(format!("{safe_name}.{ext}"));
-    anyhow::ensure!(
-        path.starts_with(dir),
-        "worldbook path escapes target directory"
-    );
-    save_worldbook_to(worldbook, &path, key)?;
-    Ok(path)
-}
-
-pub fn load_worldbook(path: &Path, key: Option<&DerivedKey>) -> Result<WorldBook> {
-    let contents = crate::crypto::read_and_decrypt(path, key)?;
-
-    if let Ok(normalized) = serde_json::from_str::<WorldBook>(&contents) {
+pub fn parse_worldbook_json(contents: &str, fallback_name: &str) -> Result<WorldBook> {
+    if let Ok(normalized) = serde_json::from_str::<WorldBook>(contents) {
         return Ok(normalized);
     }
 
     let raw: RawWorldBook =
-        serde_json::from_str(&contents).context("failed to parse worldbook JSON")?;
+        serde_json::from_str(contents).context("failed to parse worldbook JSON")?;
 
     let name = raw
         .name
-        .or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| fallback_name.to_owned());
 
     let scan_depth = raw.scan_depth.unwrap_or(DEFAULT_SCAN_DEPTH);
 
@@ -312,142 +246,3 @@ fn build_window(messages: &[&str], depth: usize) -> String {
     combined
 }
 
-pub fn normalize_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> WorldbookNormalizationReport {
-    let mut warnings: Vec<String> = Vec::new();
-    let mut rewritten_count = 0;
-
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) => {
-            warnings.push(format!("failed to read worldinfo dir: {e}"));
-            return WorldbookNormalizationReport {
-                rewritten_count,
-                warnings,
-            };
-        }
-    };
-
-    let file_paths: Vec<std::path::PathBuf> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .is_some_and(|ext| ext == EXT_PLAINTEXT || ext == EXT_ENCRYPTED)
-        })
-        .collect();
-
-    for path in file_paths {
-        if key.is_none() && path.extension().is_some_and(|ext| ext == EXT_ENCRYPTED) {
-            continue;
-        }
-        let display = sanitize_display(&path.display().to_string());
-        let contents = match crate::crypto::read_and_decrypt(&path, key) {
-            Ok(c) => c,
-            Err(e) => {
-                warnings.push(format!("skipped {display}: {e}"));
-                continue;
-            }
-        };
-
-        let needs_normalize = serde_json::from_str::<WorldBook>(&contents).is_err();
-        let is_json_ext = path.extension().is_some_and(|ext| ext == EXT_PLAINTEXT);
-        let needs_migrate = is_json_ext && key.is_some();
-
-        if !needs_normalize && !needs_migrate {
-            continue;
-        }
-
-        let wb = if needs_normalize {
-            match load_worldbook(&path, key) {
-                Ok(w) => w,
-                Err(e) => {
-                    warnings.push(format!("skipped {display}: {e}"));
-                    continue;
-                }
-            }
-        } else {
-            serde_json::from_str::<WorldBook>(&contents).unwrap()
-        };
-
-        match save_worldbook(&wb, dir, key) {
-            Ok(_) => {
-                rewritten_count += 1;
-                if needs_migrate {
-                    if let Err(err) = std::fs::remove_file(&path) {
-                        warnings.push(format!(
-                            "failed to remove migrated worldbook {}: {err}",
-                            sanitize_display(&path.display().to_string())
-                        ));
-                    }
-                }
-            }
-            Err(e) => {
-                warnings.push(format!("failed to write {display}: {e}"));
-            }
-        }
-    }
-
-    WorldbookNormalizationReport {
-        rewritten_count,
-        warnings,
-    }
-}
-
-pub fn list_worldbooks(dir: &Path, key: Option<&DerivedKey>) -> Vec<WorldBookEntry> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut books: Vec<WorldBookEntry> = Vec::new();
-
-    for path in entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|ext| ext == EXT_ENCRYPTED || ext == EXT_PLAINTEXT)
-        })
-    {
-        let fallback_name = match path.file_stem() {
-            Some(stem) => stem.to_string_lossy().to_string(),
-            None => continue,
-        };
-        match load_worldbook(&path, key) {
-            Ok(worldbook) => {
-                books.push(WorldBookEntry {
-                    name: worldbook.name,
-                });
-            }
-            Err(err) => {
-                crate::debug_log::log_kv(
-                    "worldbooks.list",
-                    &[
-                        crate::debug_log::field("result", "error"),
-                        crate::debug_log::field("path", path.display()),
-                        crate::debug_log::field("error", err),
-                    ],
-                );
-                books.push(WorldBookEntry {
-                    name: fallback_name,
-                });
-            }
-        }
-    }
-
-    books.sort_by(|a, b| a.name.cmp(&b.name));
-    books
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_worldbook_path_sanitizes_traversal_components() {
-        let dir = Path::new("/tmp/worldbooks");
-        let path = resolve_worldbook_path(dir, "../outside/victim");
-
-        assert_eq!(path, dir.join("_outside_victim.json"));
-    }
-}

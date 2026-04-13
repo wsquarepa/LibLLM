@@ -522,20 +522,8 @@ pub async fn run(
     let config = libllm_core::config::load();
 
     let key_check_exists = libllm_core::config::key_check_path().exists();
-    let has_encrypted_sessions = !key_check_exists
-        && std::fs::read_dir(libllm_core::config::sessions_dir())
-            .ok()
-            .map(|entries| {
-                entries.flatten().any(|e| {
-                    e.path().extension().and_then(|ext| ext.to_str()) == Some("session")
-                        && std::fs::read(e.path())
-                            .ok()
-                            .is_some_and(|data| libllm_core::crypto::is_encrypted(&data))
-                })
-            })
-            .unwrap_or(false);
     let initial_passkey_setup =
-        save_mode.needs_passkey() && !key_check_exists && !has_encrypted_sessions;
+        save_mode.needs_passkey() && !key_check_exists;
 
     let mut app = App {
         client,

@@ -3,7 +3,6 @@
 mod common;
 
 use libllm_core::config::{self, Config};
-use libllm_core::crypto;
 use libllm_core::migration;
 
 fn setup_data_dir() -> tempfile::TempDir {
@@ -146,15 +145,11 @@ fn config_partial_toml() {
 }
 
 #[test]
-fn config_ensure_dirs_creates_subdirectories() {
+fn config_ensure_dirs_creates_data_directory() {
     let dir = setup_data_dir();
     let root = dir.path();
 
-    assert!(root.join("sessions").is_dir());
-    assert!(root.join("characters").is_dir());
-    assert!(root.join("worldinfo").is_dir());
-    assert!(root.join("system").is_dir());
-    assert!(root.join("personas").is_dir());
+    assert!(root.is_dir());
 }
 
 // ---------------------------------------------------------------------------
@@ -167,85 +162,6 @@ fn migrate_config_path_is_callable() {
     migration::migrate_config_path();
 }
 
-#[test]
-fn migrate_worldbook_normalization() {
-    let dir = setup_data_dir();
-    let root = dir.path();
-    let key = common::test_key(root);
-
-    let legacy_json = serde_json::json!({
-        "entries": {
-            "0": {
-                "key": ["dragon", "wyrm"],
-                "keysecondary": ["fire"],
-                "content": "Dragons breathe fire.",
-                "disable": false,
-                "order": 5,
-                "depth": 4
-            }
-        }
-    });
-
-    let json_path = config::worldinfo_dir().join("legacy-wb.json");
-    let encrypted_path = config::worldinfo_dir().join("legacy-wb.worldbook");
-    let _ = std::fs::remove_file(&encrypted_path);
-    std::fs::write(&json_path, legacy_json.to_string()).unwrap();
-
-    let result = migration::migrate_worldbook_normalization(Some(&key));
-    assert!(
-        result.changed_count >= 1,
-        "expected at least 1 rewrite, got {}",
-        result.changed_count
-    );
-
-    common::assert_file_missing(&json_path);
-    common::assert_file_exists(&encrypted_path);
-
-    let raw = std::fs::read(&encrypted_path).unwrap();
-    assert!(crypto::is_encrypted(&raw));
-
-    let decrypted = crypto::read_and_decrypt(&encrypted_path, Some(&key)).unwrap();
-    let wb: libllm_core::worldinfo::WorldBook = serde_json::from_str(&decrypted).unwrap();
-    assert!(!wb.entries.is_empty());
-    let entry = &wb.entries[0];
-    assert_eq!(entry.keys, vec!["dragon", "wyrm"]);
-    assert_eq!(entry.secondary_keys, vec!["fire"]);
-    assert_eq!(entry.content, "Dragons breathe fire.");
-    assert!(entry.enabled);
-}
-
-// ---------------------------------------------------------------------------
-// Config + Migration interaction tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn migrate_personas_from_config() {
-    let dir = setup_data_dir();
-    let root = dir.path();
-    let key = common::test_key(root);
-
-    let toml_content = r#"
-user_name = "ConfigUser"
-user_persona = "A user migrated from config"
-"#;
-    std::fs::write(config::config_path(), toml_content).unwrap();
-
-    let result = migration::migrate_personas_from_config(Some(&key));
-    assert_eq!(result.changed_count, 1);
-    assert!(
-        result.warnings.is_empty(),
-        "unexpected warnings: {:?}",
-        result.warnings
-    );
-
-    let persona_path = config::personas_dir().join("ConfigUser.persona");
-    common::assert_file_exists(&persona_path);
-
-    let decrypted = crypto::read_and_decrypt(&persona_path, Some(&key)).unwrap();
-    let persona: libllm_core::persona::PersonaFile = serde_json::from_str(&decrypted).unwrap();
-    assert_eq!(persona.name, "ConfigUser");
-    assert_eq!(persona.persona, "A user migrated from config");
-}
 
 #[test]
 fn config_survives_migration() {

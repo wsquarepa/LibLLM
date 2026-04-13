@@ -173,7 +173,10 @@ pub fn read_worldbooks(
             Ok(json) => match serde_json::from_str::<WorldBook>(&json) {
                 Ok(wb) => results.push((slug, wb)),
                 Err(_) => {
-                    match libllm_core::worldinfo::load_worldbook(&path, None) {
+                    let fallback = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                    match std::fs::read_to_string(&path)
+                        .map_err(|e| anyhow::anyhow!(e))
+                        .and_then(|s| libllm_core::worldinfo::parse_worldbook_json(&s, &fallback)) {
                         Ok(wb) => results.push((slug, wb)),
                         Err(e) => eprintln!(
                             "warning: failed to parse worldbook {}: {e}",

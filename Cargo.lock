@@ -1470,7 +1470,6 @@ dependencies = [
 name = "libllm-core"
 version = "1.0.0"
 dependencies = [
- "aes-gcm",
  "anyhow",
  "argon2",
  "base64",

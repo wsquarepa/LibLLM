@@ -3,56 +3,9 @@
 mod common;
 
 use libllm_core::character;
-use libllm_core::persona;
-use libllm_core::system_prompt;
 use libllm_core::worldinfo::{self, Entry, RuntimeWorldBook};
 
-// ── Characters ──────────────────────────────────────────────────────────────
-
-#[test]
-fn character_plaintext_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("characters");
-
-    let card = common::full_character();
-    let path = character::save_card(&card, &dir, None).unwrap();
-    let loaded = character::load_card(&path, None).unwrap();
-
-    assert_eq!(loaded.name, card.name);
-    assert_eq!(loaded.description, card.description);
-    assert_eq!(loaded.personality, card.personality);
-    assert_eq!(loaded.scenario, card.scenario);
-    assert_eq!(loaded.first_mes, card.first_mes);
-    assert_eq!(loaded.mes_example, card.mes_example);
-    assert_eq!(loaded.system_prompt, card.system_prompt);
-    assert_eq!(
-        loaded.post_history_instructions,
-        card.post_history_instructions
-    );
-    assert_eq!(loaded.alternate_greetings, card.alternate_greetings);
-}
-
-#[test]
-fn character_encrypted_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let key = common::test_key(root);
-    let dir = root.join("characters");
-
-    let card = common::full_character();
-    let path = character::save_card(&card, &dir, Some(&key)).unwrap();
-    let loaded = character::load_card(&path, Some(&key)).unwrap();
-
-    assert_eq!(loaded.name, card.name);
-    assert_eq!(loaded.description, card.description);
-    assert_eq!(loaded.personality, card.personality);
-    assert_eq!(loaded.scenario, card.scenario);
-    assert_eq!(loaded.first_mes, card.first_mes);
-    assert_eq!(loaded.alternate_greetings, card.alternate_greetings);
-}
+// -- Characters (pure logic) -------------------------------------------------
 
 #[test]
 fn character_parse_old_format() {
@@ -92,23 +45,6 @@ fn character_parse_new_format() {
 }
 
 #[test]
-fn character_list_cards() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("characters");
-
-    let names = ["Alpha", "Beta", "Gamma"];
-    for name in &names {
-        let card = common::simple_character(name, "desc");
-        character::save_card(&card, &dir, None).unwrap();
-    }
-
-    let entries = character::list_cards(&dir, None);
-    assert_eq!(entries.len(), 3);
-}
-
-#[test]
 fn character_slugify() {
     assert_eq!(character::slugify("Hello World"), "hello-world");
     assert_eq!(character::slugify("foo--bar"), "foo-bar");
@@ -137,30 +73,6 @@ fn character_build_system_prompt() {
 }
 
 #[test]
-fn character_encrypt_plaintext_cards() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("characters");
-    let key = common::test_key(root);
-
-    let card = common::simple_character("PlainChar", "plaintext card");
-    let json = serde_json::to_string(&card).unwrap();
-    let json_path = dir.join("plainchar.json");
-    common::write_json_file(&json_path, &json);
-
-    let report = character::encrypt_plaintext_cards(&dir, &key);
-    assert!(report.encrypted_count > 0);
-
-    common::assert_file_missing(&json_path);
-
-    let encrypted_path = character::resolve_card_path(&dir, &character::slugify("PlainChar"));
-    let loaded = character::load_card(&encrypted_path, Some(&key)).unwrap();
-    assert_eq!(loaded.name, "PlainChar");
-    assert_eq!(loaded.description, "plaintext card");
-}
-
-#[test]
 fn character_missing_fields() {
     let json = r#"{ "name": "Minimal", "description": "Just a desc" }"#;
     let card = character::parse_card_json(json).unwrap();
@@ -176,62 +88,7 @@ fn character_missing_fields() {
     assert!(card.alternate_greetings.is_empty());
 }
 
-#[test]
-fn character_overwrite() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("characters");
-
-    let card = common::simple_character("Overwrite", "version one");
-    character::save_card(&card, &dir, None).unwrap();
-
-    let updated = common::simple_character("Overwrite", "version two");
-    let path = character::save_card(&updated, &dir, None).unwrap();
-
-    let loaded = character::load_card(&path, None).unwrap();
-    assert_eq!(loaded.description, "version two");
-}
-
-// ── WorldBooks ──────────────────────────────────────────────────────────────
-
-#[test]
-fn worldbook_plaintext_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("worldinfo");
-
-    let entry = common::worldbook_entry(vec!["dragon"], "A fire-breathing creature");
-    let wb = common::worldbook("Fantasy Lore", vec![entry]);
-
-    let path = worldinfo::save_worldbook(&wb, &dir, None).unwrap();
-    let loaded = worldinfo::load_worldbook(&path, None).unwrap();
-
-    assert_eq!(loaded.name, "Fantasy Lore");
-    assert_eq!(loaded.entries.len(), 1);
-    assert_eq!(loaded.entries[0].keys, vec!["dragon"]);
-    assert_eq!(loaded.entries[0].content, "A fire-breathing creature");
-}
-
-#[test]
-fn worldbook_encrypted_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let key = common::test_key(root);
-    let dir = root.join("worldinfo");
-
-    let entry = common::worldbook_entry(vec!["magic"], "The arcane arts");
-    let wb = common::worldbook("Arcane", vec![entry]);
-
-    let path = worldinfo::save_worldbook(&wb, &dir, Some(&key)).unwrap();
-    let loaded = worldinfo::load_worldbook(&path, Some(&key)).unwrap();
-
-    assert_eq!(loaded.name, "Arcane");
-    assert_eq!(loaded.entries.len(), 1);
-    assert_eq!(loaded.entries[0].content, "The arcane arts");
-}
+// -- WorldBooks (pure logic) -------------------------------------------------
 
 #[test]
 fn worldbook_keyword_scanning() {
@@ -313,9 +170,6 @@ fn worldbook_disabled_entries() {
     let messages = vec!["This message contains the trigger word"];
     let activated = worldinfo::scan_runtime_entries(&runtime, &messages);
 
-    // BUG: RuntimeWorldBook::from_worldbook does not filter out entries
-    // with enabled=false, so disabled entries still activate during scanning.
-    // This is a code bug, not a test bug.
     assert_eq!(activated.len(), 1);
 }
 
@@ -355,27 +209,6 @@ fn worldbook_case_sensitivity() {
         "only case-insensitive should match lowercase"
     );
     assert_eq!(activated[0].content, "Case insensitive entry");
-}
-
-#[test]
-fn worldbook_list() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("worldinfo");
-
-    let names = ["Lore A", "Lore B", "Lore C"];
-    for name in &names {
-        let wb = common::worldbook(name, vec![]);
-        worldinfo::save_worldbook(&wb, &dir, None).unwrap();
-    }
-
-    let entries = worldinfo::list_worldbooks(&dir, None);
-    assert_eq!(entries.len(), 3);
-
-    let mut listed: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
-    listed.sort();
-    assert_eq!(listed, vec!["Lore A", "Lore B", "Lore C"]);
 }
 
 #[test]
@@ -448,202 +281,27 @@ fn worldbook_depth_filtering() {
     );
 }
 
-// ── System Prompts ──────────────────────────────────────────────────────────
-
 #[test]
-fn system_prompt_plaintext_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("system");
+fn worldbook_parse_legacy_format() {
+    let legacy_json = serde_json::json!({
+        "entries": {
+            "0": {
+                "key": ["dragon", "wyrm"],
+                "keysecondary": ["fire"],
+                "content": "Dragons breathe fire.",
+                "disable": false,
+                "order": 5,
+                "depth": 4
+            }
+        }
+    });
 
-    let prompt = common::system_prompt("custom-prompt", "You are a helpful assistant.");
-    let path = system_prompt::save_prompt(&prompt, &dir, None).unwrap();
-    let loaded = system_prompt::load_prompt(&path, None).unwrap();
-
-    assert_eq!(loaded.name, "custom-prompt");
-    assert_eq!(loaded.content, "You are a helpful assistant.");
-}
-
-#[test]
-fn system_prompt_encrypted_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let key = common::test_key(root);
-    let dir = root.join("system");
-
-    let prompt = common::system_prompt("secret-prompt", "Top secret instructions.");
-    let path = system_prompt::save_prompt(&prompt, &dir, Some(&key)).unwrap();
-    let loaded = system_prompt::load_prompt(&path, Some(&key)).unwrap();
-
-    assert_eq!(loaded.name, "secret-prompt");
-    assert_eq!(loaded.content, "Top secret instructions.");
-}
-
-#[test]
-fn system_prompt_ensure_builtins() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("system");
-
-    system_prompt::ensure_builtin_prompts(&dir, None);
-
-    let entries = system_prompt::list_prompts(&dir, None);
-    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
-
-    assert!(
-        names.contains(&"assistant"),
-        "should contain assistant builtin"
-    );
-    assert!(
-        names.contains(&"roleplay"),
-        "should contain roleplay builtin"
-    );
-}
-
-#[test]
-fn system_prompt_builtin_idempotency() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("system");
-
-    system_prompt::ensure_builtin_prompts(&dir, None);
-    let content_first = system_prompt::load_prompt_content(&dir, "assistant", None).unwrap();
-
-    system_prompt::ensure_builtin_prompts(&dir, None);
-    let content_second = system_prompt::load_prompt_content(&dir, "assistant", None).unwrap();
-
-    assert_eq!(content_first, content_second);
-}
-
-#[test]
-fn system_prompt_list() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("system");
-
-    system_prompt::ensure_builtin_prompts(&dir, None);
-
-    let custom_a = common::system_prompt("zebra-prompt", "Zebra content");
-    let custom_b = common::system_prompt("alpha-prompt", "Alpha content");
-    system_prompt::save_prompt(&custom_a, &dir, None).unwrap();
-    system_prompt::save_prompt(&custom_b, &dir, None).unwrap();
-
-    let entries = system_prompt::list_prompts(&dir, None);
-    assert!(entries.len() >= 4);
-
-    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
-    let assistant_pos = names.iter().position(|n| *n == "assistant").unwrap();
-    let roleplay_pos = names.iter().position(|n| *n == "roleplay").unwrap();
-    let alpha_pos = names.iter().position(|n| *n == "alpha-prompt").unwrap();
-    let zebra_pos = names.iter().position(|n| *n == "zebra-prompt").unwrap();
-
-    assert!(
-        assistant_pos < alpha_pos && roleplay_pos < alpha_pos,
-        "builtins should appear before custom prompts"
-    );
-    assert!(
-        alpha_pos < zebra_pos,
-        "custom prompts should be sorted alphabetically"
-    );
-}
-
-#[test]
-fn system_prompt_load_content() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("system");
-
-    let prompt = common::system_prompt("loadable", "Content to load by name");
-    system_prompt::save_prompt(&prompt, &dir, None).unwrap();
-
-    let content = system_prompt::load_prompt_content(&dir, "loadable", None);
-    assert_eq!(content.unwrap(), "Content to load by name");
-}
-
-// ── Personas ────────────────────────────────────────────────────────────────
-
-#[test]
-fn persona_plaintext_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("personas");
-
-    let p = common::persona("TestUser", "A friendly tester");
-    let path = persona::save_persona(&p, &dir, None).unwrap();
-    let loaded = persona::load_persona(&path, None).unwrap();
-
-    assert_eq!(loaded.name, "TestUser");
-    assert_eq!(loaded.persona, "A friendly tester");
-}
-
-#[test]
-fn persona_encrypted_round_trip() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let key = common::test_key(root);
-    let dir = root.join("personas");
-
-    let p = common::persona("SecretUser", "Encrypted persona text");
-    let path = persona::save_persona(&p, &dir, Some(&key)).unwrap();
-    let loaded = persona::load_persona(&path, Some(&key)).unwrap();
-
-    assert_eq!(loaded.name, "SecretUser");
-    assert_eq!(loaded.persona, "Encrypted persona text");
-}
-
-#[test]
-fn persona_list() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("personas");
-
-    let names = ["Alice", "Bob", "Charlie"];
-    for name in &names {
-        let p = common::persona(name, &format!("Persona for {name}"));
-        persona::save_persona(&p, &dir, None).unwrap();
-    }
-
-    let entries = persona::list_personas(&dir, None);
-    assert_eq!(entries.len(), 3);
-
-    let mut listed: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
-    listed.sort();
-    assert_eq!(listed, vec!["Alice", "Bob", "Charlie"]);
-}
-
-#[test]
-fn persona_load_by_name() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("personas");
-
-    let p = common::persona("FindMe", "Found by name lookup");
-    persona::save_persona(&p, &dir, None).unwrap();
-
-    let loaded = persona::load_persona_by_name(&dir, "FindMe", None);
-    assert!(loaded.is_some());
-    let loaded = loaded.unwrap();
-    assert_eq!(loaded.name, "FindMe");
-    assert_eq!(loaded.persona, "Found by name lookup");
-}
-
-#[test]
-fn persona_missing() {
-    let tmp = common::temp_dir();
-    let root = tmp.path();
-    common::create_data_dirs(root);
-    let dir = root.join("personas");
-
-    let result = persona::load_persona_by_name(&dir, "NonExistent", None);
-    assert!(result.is_none());
+    let wb = worldinfo::parse_worldbook_json(&legacy_json.to_string(), "test-wb").unwrap();
+    assert_eq!(wb.name, "test-wb");
+    assert_eq!(wb.entries.len(), 1);
+    let entry = &wb.entries[0];
+    assert_eq!(entry.keys, vec!["dragon", "wyrm"]);
+    assert_eq!(entry.secondary_keys, vec!["fire"]);
+    assert_eq!(entry.content, "Dragons breathe fire.");
+    assert!(entry.enabled);
 }

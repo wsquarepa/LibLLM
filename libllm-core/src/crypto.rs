@@ -1,20 +1,12 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use anyhow::{Context, Result, bail};
 use argon2::Argon2;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-const EXT_PLAINTEXT: &str = "json";
-
-const MAGIC: &[u8; 4] = b"LLMS";
-const VERSION: u8 = 0x01;
-const HEADER_LEN: usize = 4 + 1 + 12;
 const SALT_LEN: usize = 16;
-const NONCE_LEN: usize = 12;
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct DerivedKey {
@@ -72,52 +64,6 @@ pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
     Ok(DerivedKey { bytes: key_bytes })
 }
 
-pub fn encrypt(plaintext: &[u8], key: &DerivedKey) -> Result<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key.as_bytes())
-        .map_err(|e| anyhow::anyhow!("cipher init failed: {e}"))?;
-
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let ciphertext = cipher
-        .encrypt(&nonce, plaintext)
-        .map_err(|e| anyhow::anyhow!("encryption failed: {e}"))?;
-
-    let mut blob = Vec::with_capacity(HEADER_LEN + ciphertext.len());
-    blob.extend_from_slice(MAGIC);
-    blob.push(VERSION);
-    blob.extend_from_slice(&nonce);
-    blob.extend_from_slice(&ciphertext);
-    Ok(blob)
-}
-
-pub fn decrypt(blob: &[u8], key: &DerivedKey) -> Result<Vec<u8>> {
-    if blob.len() < HEADER_LEN {
-        bail!("encrypted file too short");
-    }
-    if &blob[0..4] != MAGIC {
-        bail!("not an encrypted session file (invalid magic)");
-    }
-    if blob[4] != VERSION {
-        bail!("unsupported encryption format version: {}", blob[4]);
-    }
-
-    let nonce_bytes: &[u8; NONCE_LEN] = blob[5..5 + NONCE_LEN]
-        .try_into()
-        .context("invalid nonce length")?;
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let ciphertext = &blob[HEADER_LEN..];
-
-    let cipher = Aes256Gcm::new_from_slice(key.as_bytes())
-        .map_err(|e| anyhow::anyhow!("cipher init failed: {e}"))?;
-
-    cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| anyhow::anyhow!("decryption failed -- wrong passkey?"))
-}
-
-pub fn is_encrypted(data: &[u8]) -> bool {
-    data.len() >= HEADER_LEN && data[0..4] == *MAGIC
-}
-
 const KEY_CHECK_LEN: usize = 32;
 
 fn key_fingerprint(key: &DerivedKey) -> [u8; KEY_CHECK_LEN] {
@@ -128,38 +74,6 @@ fn key_fingerprint(key: &DerivedKey) -> [u8; KEY_CHECK_LEN] {
     let mut out = [0u8; KEY_CHECK_LEN];
     out.copy_from_slice(&result);
     out
-}
-
-pub fn resolve_encrypted_path(dir: &Path, slug: &str, encrypted_ext: &str) -> PathBuf {
-    let encrypted = dir.join(format!("{slug}.{encrypted_ext}"));
-    if encrypted.exists() {
-        return encrypted;
-    }
-    dir.join(format!("{slug}.{EXT_PLAINTEXT}"))
-}
-
-pub fn encrypted_extension<'a>(key: Option<&DerivedKey>, encrypted_ext: &'a str) -> &'a str {
-    if key.is_some() {
-        encrypted_ext
-    } else {
-        EXT_PLAINTEXT
-    }
-}
-
-pub fn read_and_decrypt(path: &Path, key: Option<&DerivedKey>) -> Result<String> {
-    let raw = std::fs::read(path).context(format!("failed to read file: {}", path.display()))?;
-    if is_encrypted(&raw) {
-        let key = key.ok_or_else(|| {
-            anyhow::anyhow!(
-                "file is encrypted but no passkey available: {}",
-                path.display()
-            )
-        })?;
-        let decrypted = decrypt(&raw, key)?;
-        String::from_utf8(decrypted).context("decrypted content is not valid UTF-8")
-    } else {
-        String::from_utf8(raw).context("file content is not valid UTF-8")
-    }
 }
 
 fn temp_write_path(path: &Path) -> Result<PathBuf> {
@@ -212,14 +126,6 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     write_result
 }
 
-pub fn encrypt_and_write(path: &Path, plaintext: &[u8], key: Option<&DerivedKey>) -> Result<()> {
-    let data = match key {
-        Some(k) => encrypt(plaintext, k)?,
-        None => plaintext.to_vec(),
-    };
-    write_atomic(path, &data).context(format!("failed to write file: {}", path.display()))
-}
-
 pub fn verify_or_set_key(check_path: &Path, key: &DerivedKey) -> Result<bool> {
     let fingerprint = key_fingerprint(key);
 
@@ -257,4 +163,3 @@ pub fn set_key_fingerprint(check_path: &Path, key: &DerivedKey) -> Result<()> {
     }
     std::fs::write(check_path, fingerprint).context("failed to write key check file")
 }
-

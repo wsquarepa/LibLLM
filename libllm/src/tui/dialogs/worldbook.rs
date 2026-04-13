@@ -562,7 +562,10 @@ pub(in crate::tui) fn handle_worldbook_paste(
         return true;
     }
 
-    match libllm_core::worldinfo::load_worldbook(path, None) {
+    let fallback_name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    match std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!(e))
+        .and_then(|s| libllm_core::worldinfo::parse_worldbook_json(&s, &fallback_name)) {
         Ok(wb) => {
             if wb.name.chars().count() > super::MAX_NAME_LENGTH {
                 app.set_status(

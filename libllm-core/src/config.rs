@@ -122,32 +122,8 @@ pub fn data_dir() -> PathBuf {
     })
 }
 
-pub fn sessions_dir() -> PathBuf {
-    data_dir().join("sessions")
-}
-
-pub fn characters_dir() -> PathBuf {
-    data_dir().join("characters")
-}
-
-pub fn worldinfo_dir() -> PathBuf {
-    data_dir().join("worldinfo")
-}
-
-pub fn system_prompts_dir() -> PathBuf {
-    data_dir().join("system")
-}
-
-pub fn personas_dir() -> PathBuf {
-    data_dir().join("personas")
-}
-
 pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
-}
-
-pub fn index_path() -> PathBuf {
-    data_dir().join("index.meta")
 }
 
 pub fn key_check_path() -> PathBuf {
@@ -155,12 +131,7 @@ pub fn key_check_path() -> PathBuf {
 }
 
 pub fn ensure_dirs() -> Result<()> {
-    std::fs::create_dir_all(sessions_dir()).context("failed to create sessions directory")?;
-    std::fs::create_dir_all(characters_dir()).context("failed to create characters directory")?;
-    std::fs::create_dir_all(worldinfo_dir()).context("failed to create worldinfo directory")?;
-    std::fs::create_dir_all(system_prompts_dir())
-        .context("failed to create system prompts directory")?;
-    std::fs::create_dir_all(personas_dir()).context("failed to create personas directory")?;
+    std::fs::create_dir_all(data_dir()).context("failed to create data directory")?;
     crate::preset::ensure_default_presets();
     std::fs::create_dir_all(crate::preset::template_presets_dir())
         .context("failed to create template presets directory")

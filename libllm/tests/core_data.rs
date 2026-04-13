@@ -189,30 +189,6 @@ fn session_set_message_content() {
 // ===========================================================================
 
 #[test]
-fn crypto_encrypt_decrypt_round_trip() {
-    let dir = common::temp_dir();
-    let key = common::test_key(dir.path());
-    let plaintext = b"the quick brown fox jumps over the lazy dog";
-
-    let blob = crypto::encrypt(plaintext, &key).expect("encrypt");
-    let decrypted = crypto::decrypt(&blob, &key).expect("decrypt");
-    assert_eq!(decrypted, plaintext);
-}
-
-#[test]
-fn crypto_is_encrypted_detection() {
-    let dir = common::temp_dir();
-    let key = common::test_key(dir.path());
-
-    let blob = crypto::encrypt(b"data", &key).expect("encrypt");
-    assert!(crypto::is_encrypted(&blob));
-
-    assert!(!crypto::is_encrypted(b"just plain text"));
-    assert!(!crypto::is_encrypted(b"LLM")); // too short for magic
-    assert!(!crypto::is_encrypted(b""));
-}
-
-#[test]
 fn crypto_salt_persistence() {
     let dir = common::temp_dir();
     let salt_path = dir.path().join(".salt");
@@ -231,9 +207,7 @@ fn crypto_key_determinism() {
     let key1 = crypto::derive_key("same-passkey", &salt).expect("key1");
     let key2 = crypto::derive_key("same-passkey", &salt).expect("key2");
 
-    let blob = crypto::encrypt(b"test", &key1).expect("encrypt");
-    let decrypted = crypto::decrypt(&blob, &key2).expect("decrypt with key2");
-    assert_eq!(decrypted, b"test");
+    assert_eq!(key1.as_bytes(), key2.as_bytes());
 }
 
 #[test]
@@ -245,7 +219,5 @@ fn crypto_different_passkeys_differ() {
     let key_a = crypto::derive_key("passkey-a", &salt).expect("key_a");
     let key_b = crypto::derive_key("passkey-b", &salt).expect("key_b");
 
-    let blob = crypto::encrypt(b"secret", &key_a).expect("encrypt");
-    let result = crypto::decrypt(&blob, &key_b);
-    assert!(result.is_err(), "wrong key should fail decryption");
+    assert_ne!(key_a.as_bytes(), key_b.as_bytes());
 }

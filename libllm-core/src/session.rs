@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

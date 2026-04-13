@@ -1,4 +1,5 @@
 pub mod character;
+pub mod db;
 pub mod client;
 pub mod commands;
 pub mod config;

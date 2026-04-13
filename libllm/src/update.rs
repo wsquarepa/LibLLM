@@ -3,10 +3,10 @@ use std::io::{self, IsTerminal, Write};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-const REPO: &str = "wsquarepa/LibLLM";
-const CHANNEL: &str = env!("LIBLLM_CHANNEL");
+pub const REPO: &str = "wsquarepa/LibLLM";
+pub const CHANNEL: &str = env!("LIBLLM_CHANNEL");
 
-const TARGET: &str = const {
+pub const TARGET: &str = const {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         "x86_64-unknown-linux-gnu"
@@ -34,18 +34,18 @@ const TARGET: &str = const {
 };
 
 #[derive(Deserialize)]
-struct Release {
-    tag_name: String,
-    body: Option<String>,
-    assets: Vec<Asset>,
+pub struct Release {
+    pub tag_name: String,
+    pub body: Option<String>,
+    pub assets: Vec<Asset>,
     #[serde(default)]
-    prerelease: bool,
+    pub prerelease: bool,
 }
 
 #[derive(Deserialize)]
-struct Asset {
-    name: String,
-    url: String,
+pub struct Asset {
+    pub name: String,
+    pub url: String,
 }
 
 fn github_token() -> Option<String> {
@@ -55,7 +55,7 @@ fn github_token() -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-fn build_client() -> Result<reqwest::Client> {
+pub fn build_client() -> Result<reqwest::Client> {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT,
@@ -90,7 +90,7 @@ fn current_exe_path() -> Result<std::path::PathBuf> {
     std::env::current_exe().context("failed to determine current executable path")
 }
 
-async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
+pub async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
     let resp = client
         .get(url)
         .send()

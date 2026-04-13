@@ -3,9 +3,21 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+use crate::character::CharacterCard;
 use crate::crypto::DerivedKey;
+use crate::persona::PersonaFile;
+use crate::session::{Node, NodeId, Session};
+use crate::system_prompt::SystemPromptFile;
+use crate::worldinfo::WorldBook;
 
+mod characters;
+mod personas;
+mod prompts;
 mod schema;
+mod sessions;
+mod worldbooks;
+
+pub use sessions::SessionListEntry;
 
 pub struct Database {
     conn: Connection,
@@ -34,6 +46,123 @@ impl Database {
 
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    pub fn insert_session(&self, id: &str, session: &Session) -> Result<()> {
+        sessions::insert_session(&self.conn, id, session)
+    }
+
+    pub fn load_session(&self, id: &str) -> Result<Session> {
+        sessions::load_session(&self.conn, id)
+    }
+
+    pub fn list_sessions(&self) -> Result<Vec<SessionListEntry>> {
+        sessions::list_sessions(&self.conn)
+    }
+
+    pub fn delete_session(&self, id: &str) -> Result<()> {
+        sessions::delete_session(&self.conn, id)
+    }
+
+    pub fn upsert_message(&self, session_id: &str, node: &Node) -> Result<()> {
+        sessions::upsert_message(&self.conn, session_id, node)
+    }
+
+    pub fn update_head(&self, session_id: &str, head_id: Option<NodeId>) -> Result<()> {
+        sessions::update_head(&self.conn, session_id, head_id)
+    }
+
+    pub fn update_preferred_child(
+        &self,
+        session_id: &str,
+        parent_id: NodeId,
+        child_id: NodeId,
+    ) -> Result<()> {
+        sessions::update_preferred_child(&self.conn, session_id, parent_id, child_id)
+    }
+
+    pub fn insert_character(&self, slug: &str, card: &CharacterCard) -> Result<()> {
+        characters::insert_character(&self.conn, slug, card)
+    }
+
+    pub fn load_character(&self, slug: &str) -> Result<CharacterCard> {
+        characters::load_character(&self.conn, slug)
+    }
+
+    pub fn list_characters(&self) -> Result<Vec<(String, String)>> {
+        characters::list_characters(&self.conn)
+    }
+
+    pub fn update_character(&self, slug: &str, card: &CharacterCard) -> Result<()> {
+        characters::update_character(&self.conn, slug, card)
+    }
+
+    pub fn delete_character(&self, slug: &str) -> Result<()> {
+        characters::delete_character(&self.conn, slug)
+    }
+
+    pub fn insert_worldbook(&self, slug: &str, book: &WorldBook) -> Result<()> {
+        worldbooks::insert_worldbook(&self.conn, slug, book)
+    }
+
+    pub fn load_worldbook(&self, slug: &str) -> Result<WorldBook> {
+        worldbooks::load_worldbook(&self.conn, slug)
+    }
+
+    pub fn list_worldbooks(&self) -> Result<Vec<(String, String)>> {
+        worldbooks::list_worldbooks(&self.conn)
+    }
+
+    pub fn update_worldbook(&self, slug: &str, book: &WorldBook) -> Result<()> {
+        worldbooks::update_worldbook(&self.conn, slug, book)
+    }
+
+    pub fn delete_worldbook(&self, slug: &str) -> Result<()> {
+        worldbooks::delete_worldbook(&self.conn, slug)
+    }
+
+    pub fn insert_prompt(&self, slug: &str, prompt: &SystemPromptFile, builtin: bool) -> Result<()> {
+        prompts::insert_prompt(&self.conn, slug, prompt, builtin)
+    }
+
+    pub fn load_prompt(&self, slug: &str) -> Result<SystemPromptFile> {
+        prompts::load_prompt(&self.conn, slug)
+    }
+
+    pub fn list_prompts(&self) -> Result<Vec<(String, String, bool)>> {
+        prompts::list_prompts(&self.conn)
+    }
+
+    pub fn update_prompt(&self, slug: &str, prompt: &SystemPromptFile) -> Result<()> {
+        prompts::update_prompt(&self.conn, slug, prompt)
+    }
+
+    pub fn delete_prompt(&self, slug: &str) -> Result<()> {
+        prompts::delete_prompt(&self.conn, slug)
+    }
+
+    pub fn ensure_builtin_prompts(&self) -> Result<()> {
+        prompts::ensure_builtins(&self.conn)
+    }
+
+    pub fn insert_persona(&self, slug: &str, persona: &PersonaFile) -> Result<()> {
+        personas::insert_persona(&self.conn, slug, persona)
+    }
+
+    pub fn load_persona(&self, slug: &str) -> Result<PersonaFile> {
+        personas::load_persona(&self.conn, slug)
+    }
+
+    pub fn list_personas(&self) -> Result<Vec<(String, String)>> {
+        personas::list_personas(&self.conn)
+    }
+
+    pub fn update_persona(&self, slug: &str, persona: &PersonaFile) -> Result<()> {
+        personas::update_persona(&self.conn, slug, persona)
+    }
+
+    pub fn delete_persona(&self, slug: &str) -> Result<()> {
+        personas::delete_persona(&self.conn, slug)
     }
 }
 

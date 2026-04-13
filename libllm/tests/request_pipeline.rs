@@ -2,9 +2,9 @@
 #[allow(dead_code)]
 mod common;
 
-use libllm::context::ContextManager;
-use libllm::preset::{self, ContextVars, InstructPreset};
-use libllm::sampling::{SamplingOverrides, SamplingParams};
+use libllm_core::context::ContextManager;
+use libllm_core::preset::{self, ContextVars, InstructPreset};
+use libllm_core::sampling::{SamplingOverrides, SamplingParams};
 
 // ---------------------------------------------------------------------------
 // 1. Preset Rendering
@@ -132,7 +132,7 @@ fn all_instruct_presets_load() {
 #[test]
 fn empty_message_list() {
     let preset = preset::resolve_instruct_preset("ChatML");
-    let refs: Vec<&libllm::session::Message> = Vec::new();
+    let refs: Vec<&libllm_core::session::Message> = Vec::new();
     let output = preset.render(&refs, None);
     // Should not panic; output may be empty
     let _ = output;
@@ -141,7 +141,7 @@ fn empty_message_list() {
 #[test]
 fn empty_message_list_with_system_prompt() {
     let preset = preset::resolve_instruct_preset("ChatML");
-    let refs: Vec<&libllm::session::Message> = Vec::new();
+    let refs: Vec<&libllm_core::session::Message> = Vec::new();
     let output = preset.render(&refs, Some("System"));
     assert!(
         output.contains("System"),

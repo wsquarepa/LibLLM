@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -31,7 +30,8 @@ fn default_data_dir() -> PathBuf {
 }
 
 fn prompt_passkey() -> Result<String> {
-    let passkey = rpassword::prompt_password("Enter passkey: ")
+    eprint!("Enter passkey: ");
+    let passkey = rpassword::read_password()
         .context("failed to read passkey")?;
     if passkey.is_empty() {
         bail!("passkey cannot be empty");

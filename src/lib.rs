@@ -4,6 +4,7 @@ pub mod client;
 pub mod commands;
 pub mod config;
 pub mod context;
+pub mod export;
 pub mod crypto;
 pub mod debug_log;
 pub mod index;

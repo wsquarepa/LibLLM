@@ -7,6 +7,8 @@ use libllm::commands::{self, COMMANDS};
 use libllm::config::Config;
 use libllm::sampling::SamplingOverrides;
 use libllm::tui::business;
+use libllm::export;
+use libllm::session::{Message, Role};
 use libllm::tui::commands::expand_macro;
 
 fn no_overrides() -> CliOverrides {
@@ -534,4 +536,141 @@ fn macro_range_covers_all_indices() {
 fn macro_greedy_covers_rest() {
     let result = expand_macro("first={{1}} rest={{2..}}", "a b c d").unwrap();
     assert_eq!(result, "first=a rest=b c d");
+}
+
+// ---------------------------------------------------------------------------
+// Export Rendering
+// ---------------------------------------------------------------------------
+
+fn test_messages() -> Vec<Message> {
+    vec![
+        Message {
+            role: Role::User,
+            content: "Hello {{char}}".to_owned(),
+            timestamp: "2026-01-15T10:00:00Z".to_owned(),
+        },
+        Message {
+            role: Role::Assistant,
+            content: "Hi {{user}}!".to_owned(),
+            timestamp: "2026-01-15T10:00:05Z".to_owned(),
+        },
+    ]
+}
+
+#[test]
+fn export_markdown_basic() {
+    let msgs = test_messages();
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_markdown(&refs, "Alice", "Bob");
+    assert!(result.contains("## Bob\n\nHello Alice"));
+    assert!(result.contains("## Alice\n\nHi Bob!"));
+}
+
+#[test]
+fn export_markdown_system_message() {
+    let msgs = vec![Message {
+        role: Role::System,
+        content: "You are helpful.".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_markdown(&refs, "Char", "User");
+    assert!(result.contains("## System\n\nYou are helpful."));
+}
+
+#[test]
+fn export_html_escapes_content() {
+    let msgs = vec![Message {
+        role: Role::User,
+        content: "<script>alert('xss')</script>".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Char", "User");
+    assert!(result.contains("&lt;script&gt;"));
+    assert!(!result.contains("<script>alert"));
+}
+
+#[test]
+fn export_html_has_structure() {
+    let msgs = test_messages();
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Alice", "Bob");
+    assert!(result.starts_with("<!DOCTYPE html>"));
+    assert!(result.contains("class=\"message user\""));
+    assert!(result.contains("class=\"message assistant\""));
+}
+
+#[test]
+fn export_html_applies_template_vars() {
+    let msgs = test_messages();
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Alice", "Bob");
+    assert!(result.contains("Hello Alice"));
+    assert!(result.contains("Hi Bob!"));
+}
+
+#[test]
+fn export_jsonl_has_header() {
+    let msgs = test_messages();
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_jsonl(&refs, "Alice", "Bob");
+    let first_line = result.lines().next().unwrap();
+    let header: serde_json::Value = serde_json::from_str(first_line).unwrap();
+    assert_eq!(header["user_name"], "Bob");
+    assert_eq!(header["character_name"], "Alice");
+    assert!(header["create_date"].is_string());
+}
+
+#[test]
+fn export_jsonl_message_fields() {
+    let msgs = test_messages();
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_jsonl(&refs, "Alice", "Bob");
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines.len(), 3);
+
+    let user_msg: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(user_msg["name"], "Bob");
+    assert_eq!(user_msg["is_user"], true);
+    assert_eq!(user_msg["mes"], "Hello Alice");
+    assert_eq!(user_msg["send_date"], "2026-01-15T10:00:00Z");
+
+    let asst_msg: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(asst_msg["name"], "Alice");
+    assert_eq!(asst_msg["is_user"], false);
+    assert_eq!(asst_msg["mes"], "Hi Bob!");
+}
+
+#[test]
+fn export_jsonl_system_message() {
+    let msgs = vec![Message {
+        role: Role::System,
+        content: "System prompt".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_jsonl(&refs, "Char", "User");
+    let lines: Vec<&str> = result.lines().collect();
+    let sys_msg: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(sys_msg["name"], "System");
+    assert_eq!(sys_msg["is_user"], false);
+    assert_eq!(sys_msg["is_system"], true);
+}
+
+#[test]
+fn export_markdown_empty() {
+    let refs: Vec<&Message> = vec![];
+    let result = export::render_markdown(&refs, "Char", "User");
+    assert!(result.is_empty());
+}
+
+#[test]
+fn export_jsonl_applies_template_vars() {
+    let msgs = test_messages();
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_jsonl(&refs, "Alice", "Bob");
+    let lines: Vec<&str> = result.lines().collect();
+    let user_msg: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(user_msg["mes"], "Hello Alice");
 }

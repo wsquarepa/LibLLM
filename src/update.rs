@@ -1,12 +1,10 @@
-use std::path::PathBuf;
+use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
 const REPO: &str = "wsquarepa/LibLLM";
-const PREVIEW_TAG: &str = "preview";
 const CHANNEL: &str = env!("LIBLLM_CHANNEL");
-const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const TARGET: &str = const {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -40,17 +38,14 @@ struct Release {
     tag_name: String,
     body: Option<String>,
     assets: Vec<Asset>,
+    #[serde(default)]
+    prerelease: bool,
 }
 
 #[derive(Deserialize)]
 struct Asset {
     name: String,
     url: String,
-}
-
-enum UpdateChannel {
-    Stable,
-    Preview,
 }
 
 fn github_token() -> Option<String> {
@@ -91,30 +86,8 @@ fn parse_release_hash(body: &str) -> Option<&str> {
     Some(&after_tick[..end])
 }
 
-fn current_exe_path() -> Result<PathBuf> {
+fn current_exe_path() -> Result<std::path::PathBuf> {
     std::env::current_exe().context("failed to determine current executable path")
-}
-
-fn resolve_target_channel(switch_to_nightly: bool) -> Result<UpdateChannel> {
-    match CHANNEL {
-        "unknown" => {
-            anyhow::bail!("This build was not installed from a release. Use install.sh to install.")
-        }
-        "preview" | "nightly" => {
-            if switch_to_nightly {
-                anyhow::bail!("Already on nightly.");
-            }
-            Ok(UpdateChannel::Preview)
-        }
-        "stable" => {
-            if switch_to_nightly {
-                Ok(UpdateChannel::Preview)
-            } else {
-                Ok(UpdateChannel::Stable)
-            }
-        }
-        other => anyhow::bail!("Unknown channel: {other}"),
-    }
 }
 
 async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
@@ -202,8 +175,8 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
     Ok(())
 }
 
-async fn update_preview(client: &reqwest::Client) -> Result<()> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{PREVIEW_TAG}");
+async fn update_stable(client: &reqwest::Client) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/stable");
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
@@ -226,38 +199,149 @@ async fn update_preview(client: &reqwest::Client) -> Result<()> {
         .as_deref()
         .and_then(parse_release_hash)
         .unwrap_or("unknown");
-    println!("Updated to nightly (commit {hash_display}).");
+    println!("Updated to stable (commit {hash_display}).");
     Ok(())
 }
 
-async fn update_stable(client: &reqwest::Client) -> Result<()> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let release = fetch_release(client, &url).await?;
+async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{branch}");
+    let release = fetch_release(client, &url)
+        .await
+        .with_context(|| format!("no release found for branch '{branch}'. Use --list to see available branches"))?;
     let asset = find_asset(&release)?;
 
-    let remote_version = release
-        .tag_name
-        .strip_prefix('v')
-        .unwrap_or(&release.tag_name);
-    if remote_version == CURRENT_VERSION {
-        println!("Already up to date (v{CURRENT_VERSION}).");
-        return Ok(());
+    if CHANNEL == branch {
+        if let Some(body) = &release.body {
+            if let Some(remote_hash) = parse_release_hash(body) {
+                let current_hash = env!("LIBLLM_COMMIT", "unknown");
+                if current_hash != "unknown" && current_hash == remote_hash {
+                    println!("Already up to date on '{branch}' (commit {current_hash}).");
+                    return Ok(());
+                }
+            }
+        }
     }
 
     let expected_name = &asset.name;
     println!("Downloading {expected_name}...");
     download_and_replace(client, asset).await?;
 
-    println!("Updated to stable (v{remote_version}).");
+    let hash_display = release
+        .body
+        .as_deref()
+        .and_then(parse_release_hash)
+        .unwrap_or("unknown");
+    println!("Switched to branch '{branch}' (commit {hash_display}).");
     Ok(())
 }
 
-pub async fn run(switch_to_nightly: bool) -> Result<()> {
-    let target = resolve_target_channel(switch_to_nightly)?;
+fn confirm_downgrade(yes: bool) -> Result<bool> {
+    if yes {
+        return Ok(true);
+    }
+
+    let stdin = io::stdin();
+    if !stdin.is_terminal() {
+        anyhow::bail!(
+            "Currently on branch '{CHANNEL}'. \
+             Switching to stable in a non-interactive terminal requires --yes."
+        );
+    }
+
+    eprintln!("WARNING: You are currently on branch '{CHANNEL}'.");
+    eprintln!(
+        "Switching to stable may cause issues if this branch introduced\n\
+         data format changes that stable does not yet support.\n\
+         Your data directory could become unreadable."
+    );
+    eprint!("\nContinue? [y/N] ");
+    io::stderr().flush()?;
+
+    let mut answer = String::new();
+    stdin.read_line(&mut answer)?;
+    Ok(answer.trim().eq_ignore_ascii_case("y"))
+}
+
+async fn list_branches(client: &reqwest::Client, _yes: bool) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .context("failed to fetch releases")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("GitHub API returned {status}: {body}");
+    }
+
+    let releases: Vec<Release> = resp.json().await.context("failed to parse releases")?;
+    let branches: Vec<&str> = releases
+        .iter()
+        .filter(|r| r.prerelease)
+        .map(|r| r.tag_name.as_str())
+        .collect();
+
+    if branches.is_empty() {
+        println!("No branch builds available.");
+        return Ok(());
+    }
+
+    let stdin = io::stdin();
+    if stdin.is_terminal() {
+        for (i, name) in branches.iter().enumerate() {
+            let marker = if *name == CHANNEL { " (current)" } else { "" };
+            println!("  {}) {name}{marker}", i + 1);
+        }
+        eprint!("\nSelect a branch (or press Enter to cancel): ");
+        io::stderr().flush()?;
+
+        let mut input = String::new();
+        stdin.read_line(&mut input)?;
+        let input = input.trim();
+        if input.is_empty() {
+            return Ok(());
+        }
+
+        let index: usize = input
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n >= 1 && n <= branches.len())
+            .context("invalid selection")?;
+
+        let selected = branches[index - 1];
+        let target_client = build_client()?;
+        update_branch(&target_client, selected).await
+    } else {
+        for name in &branches {
+            println!("{name}");
+        }
+        Ok(())
+    }
+}
+
+pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
+    if CHANNEL == "unknown" {
+        anyhow::bail!("This build was not installed from a release. Use install.sh to install.");
+    }
+
     let client = build_client()?;
 
-    match target {
-        UpdateChannel::Preview => update_preview(&client).await,
-        UpdateChannel::Stable => update_stable(&client).await,
+    if list {
+        return list_branches(&client, yes).await;
+    }
+
+    match branch {
+        Some(name) => update_branch(&client, &name).await,
+        None => {
+            if CHANNEL != "stable" {
+                if !confirm_downgrade(yes)? {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
+            update_stable(&client).await
+        }
     }
 }

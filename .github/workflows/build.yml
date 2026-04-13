@@ -119,7 +119,7 @@ jobs:
 
           if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
             echo "tag=stable" >> "$GITHUB_OUTPUT"
-            echo "title=Stable Build" >> "$GITHUB_OUTPUT"
+            echo "title=Stable" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"

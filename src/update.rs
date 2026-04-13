@@ -205,9 +205,7 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
 
 async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{branch}");
-    let release = fetch_release(client, &url)
-        .await
-        .with_context(|| format!("no release found for branch '{branch}'. Use --list to see available branches"))?;
+    let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
     if CHANNEL == branch {
@@ -262,7 +260,7 @@ fn confirm_downgrade(yes: bool) -> Result<bool> {
     Ok(answer.trim().eq_ignore_ascii_case("y"))
 }
 
-async fn list_branches(client: &reqwest::Client, _yes: bool) -> Result<()> {
+async fn list_branches(client: &reqwest::Client) -> Result<()> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let resp = client
         .get(&url)
@@ -311,8 +309,7 @@ async fn list_branches(client: &reqwest::Client, _yes: bool) -> Result<()> {
             .context("invalid selection")?;
 
         let selected = branches[index - 1];
-        let target_client = build_client()?;
-        update_branch(&target_client, selected).await
+        update_branch(client, selected).await
     } else {
         for name in &branches {
             println!("{name}");
@@ -329,7 +326,7 @@ pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
     let client = build_client()?;
 
     if list {
-        return list_branches(&client, yes).await;
+        return list_branches(&client).await;
     }
 
     match branch {

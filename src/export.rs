@@ -1,0 +1,241 @@
+use crate::session::{self, Message, Role};
+use crate::tui::business;
+
+pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) -> String {
+    let mut out = String::new();
+    for msg in messages {
+        let role_label = match msg.role {
+            Role::User => user_name,
+            Role::Assistant => char_name,
+            Role::System => "System",
+        };
+        let content = business::apply_template_vars(&msg.content, char_name, user_name);
+        out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
+    }
+    out
+}
+
+pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> String {
+    let mut body = String::new();
+    for msg in messages {
+        let role_label = match msg.role {
+            Role::User => user_name,
+            Role::Assistant => char_name,
+            Role::System => "System",
+        };
+        let content = business::apply_template_vars(&msg.content, char_name, user_name);
+        let escaped = html_escape(&content);
+        let class = match msg.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::System => "system",
+        };
+        let tag = match msg.role {
+            Role::System => "em",
+            _ => "span",
+        };
+        body.push_str(&format!(
+            "    <article class=\"message {class}\">\n\
+             \x20     <div class=\"role\">{}</div>\n\
+             \x20     <div class=\"content\"><{tag}>{escaped}</{tag}></div>\n\
+             \x20     <time>{}</time>\n\
+             \x20   </article>\n",
+            html_escape(role_label),
+            html_escape(&msg.timestamp),
+        ));
+    }
+
+    let char_escaped = html_escape(char_name);
+    let user_escaped = html_escape(user_name);
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat: {user_escaped} &amp; {char_escaped}</title>
+  <style>
+    :root {{
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface-alt: #0f3460;
+      --text: #e0e0e0;
+      --text-dim: #8a8a9a;
+      --accent-user: #4fc3f7;
+      --accent-assistant: #ce93d8;
+      --accent-system: #ffb74d;
+      --user-bg: rgba(79, 195, 247, 0.08);
+      --user-border: rgba(79, 195, 247, 0.3);
+      --assistant-bg: rgba(206, 147, 216, 0.08);
+      --assistant-border: rgba(206, 147, 216, 0.3);
+      --system-bg: rgba(255, 183, 77, 0.06);
+      --system-border: rgba(255, 183, 77, 0.25);
+    }}
+
+    @media (prefers-color-scheme: light) {{
+      :root {{
+        --bg: #f5f5f5;
+        --surface: #ffffff;
+        --surface-alt: #e8eaf6;
+        --text: #212121;
+        --text-dim: #757575;
+        --accent-user: #1565c0;
+        --accent-assistant: #7b1fa2;
+        --accent-system: #e65100;
+        --user-bg: rgba(21, 101, 192, 0.06);
+        --user-border: rgba(21, 101, 192, 0.25);
+        --assistant-bg: rgba(123, 31, 162, 0.06);
+        --assistant-border: rgba(123, 31, 162, 0.25);
+        --system-bg: rgba(230, 81, 0, 0.05);
+        --system-border: rgba(230, 81, 0, 0.2);
+      }}
+    }}
+
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0;
+    }}
+
+    header {{
+      background: var(--surface);
+      border-bottom: 1px solid var(--user-border);
+      padding: 1.5rem 2rem;
+      text-align: center;
+    }}
+
+    header h1 {{
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }}
+
+    header p {{
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }}
+
+    main {{
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 1.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }}
+
+    .message {{
+      padding: 1rem 1.25rem;
+      border-radius: 12px;
+      border-left: 3px solid transparent;
+    }}
+
+    .message.user {{
+      background: var(--user-bg);
+      border-left-color: var(--accent-user);
+    }}
+
+    .message.assistant {{
+      background: var(--assistant-bg);
+      border-left-color: var(--accent-assistant);
+    }}
+
+    .message.system {{
+      background: var(--system-bg);
+      border-left-color: var(--accent-system);
+      font-size: 0.9rem;
+    }}
+
+    .role {{
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }}
+
+    .user .role {{ color: var(--accent-user); }}
+    .assistant .role {{ color: var(--accent-assistant); }}
+    .system .role {{ color: var(--accent-system); }}
+
+    .content {{
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 0.95rem;
+    }}
+
+    .system .content em {{
+      font-style: italic;
+    }}
+
+    time {{
+      display: block;
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      text-align: right;
+    }}
+
+    @media (max-width: 600px) {{
+      main {{ padding: 1rem 0.5rem; }}
+      .message {{ padding: 0.75rem 1rem; }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{user_escaped} &amp; {char_escaped}</h1>
+    <p>Exported from LibLLM</p>
+  </header>
+  <main>
+{body}  </main>
+</body>
+</html>
+"#
+    )
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> String {
+    let mut lines = Vec::new();
+
+    let header = serde_json::json!({
+        "user_name": user_name,
+        "character_name": char_name,
+        "create_date": session::now_compact(),
+    });
+    lines.push(serde_json::to_string(&header).unwrap_or_default());
+
+    for msg in messages {
+        let content = business::apply_template_vars(&msg.content, char_name, user_name);
+        let name = match msg.role {
+            Role::User => user_name,
+            Role::Assistant => char_name,
+            Role::System => "System",
+        };
+        let entry = serde_json::json!({
+            "name": name,
+            "is_user": msg.role == Role::User,
+            "is_system": msg.role == Role::System,
+            "mes": content,
+            "send_date": msg.timestamp,
+        });
+        lines.push(serde_json::to_string(&entry).unwrap_or_default());
+    }
+
+    let mut result = lines.join("\n");
+    result.push('\n');
+    result
+}

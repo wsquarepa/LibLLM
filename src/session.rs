@@ -1128,6 +1128,20 @@ fn session_modified_at(path: &Path) -> std::time::SystemTime {
         .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
 }
 
+pub fn now_compact() -> String {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+    let time_secs = secs % 86400;
+    let hours = time_secs / 3600;
+    let minutes = (time_secs % 3600) / 60;
+    let seconds = time_secs % 60;
+
+    let (year, month, day) = days_to_ymd(secs / 86400);
+    format!("{year:04}{month:02}{day:02}-{hours:02}{minutes:02}{seconds:02}")
+}
+
 fn now_iso8601() -> String {
     let duration = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

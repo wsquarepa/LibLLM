@@ -67,6 +67,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Open configuration dialog",
     },
     CommandInfo {
+        name: "/export",
+        aliases: &[],
+        args: "[md|html|jsonl]",
+        description: "Export current branch to file",
+    },
+    CommandInfo {
         name: "/macro",
         aliases: &[],
         args: "<name> <args...>",

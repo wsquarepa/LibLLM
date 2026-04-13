@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -34,6 +35,8 @@ pub struct Config {
     pub debug_log: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub default_persona: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub macros: HashMap<String, String>,
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

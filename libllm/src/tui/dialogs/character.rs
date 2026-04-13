@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
-use crate::session::{self, Message, Role};
+use libllm_core::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, DeleteContext, Focus};
 
@@ -77,17 +77,17 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
             }
             let slug = app.character_slugs[app.character_selected].clone();
             let card_path =
-                crate::character::resolve_card_path(&crate::config::characters_dir(), &slug);
-            match crate::character::load_card(&card_path, app.save_mode.key()) {
+                libllm_core::character::resolve_card_path(&libllm_core::config::characters_dir(), &slug);
+            match libllm_core::character::load_card(&card_path, app.save_mode.key()) {
                 Ok(card) => {
                     app.discard_pending_session_save();
                     app.session.tree.clear();
                     app.session.worldbooks.clear();
-                    let cfg = crate::config::load();
+                    let cfg = libllm_core::config::load();
                     let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
-                    let tpl = crate::preset::resolve_template_preset(tpl_name);
+                    let tpl = libllm_core::preset::resolve_template_preset(tpl_name);
                     app.session.system_prompt =
-                        Some(crate::character::build_system_prompt(&card, Some(&tpl)));
+                        Some(libllm_core::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
                     app.invalidate_chat_cache();
                     app.invalidate_worldbook_cache();
@@ -99,7 +99,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.chat_scroll = 0;
                     app.auto_scroll = true;
                     let new_path =
-                        crate::config::sessions_dir().join(session::generate_session_name());
+                        libllm_core::config::sessions_dir().join(session::generate_session_name());
                     app.save_mode.set_path(new_path);
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
                     app.set_status(
@@ -118,8 +118,8 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         KeyCode::Right => {
             let slug = app.character_slugs[app.character_selected].clone();
             let card_path =
-                crate::character::resolve_card_path(&crate::config::characters_dir(), &slug);
-            match crate::character::load_card(&card_path, app.save_mode.key()) {
+                libllm_core::character::resolve_card_path(&libllm_core::config::characters_dir(), &slug);
+            match libllm_core::character::load_card(&card_path, app.save_mode.key()) {
                 Ok(card) => {
                     let values = vec![
                         card.name,
@@ -160,10 +160,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
 }
 
 fn create_and_edit_character(app: &mut App) {
-    let dir = crate::config::characters_dir();
+    let dir = libllm_core::config::characters_dir();
     let existing: std::collections::HashSet<String> = app.character_names.iter().cloned().collect();
     let new_name = super::generate_unique_name("character", &existing);
-    let card = crate::character::CharacterCard {
+    let card = libllm_core::character::CharacterCard {
         name: new_name.clone(),
         description: String::new(),
         personality: String::new(),
@@ -174,14 +174,14 @@ fn create_and_edit_character(app: &mut App) {
         post_history_instructions: String::new(),
         alternate_greetings: Vec::new(),
     };
-    if let Err(e) = crate::character::save_card(&card, &dir, app.save_mode.key()) {
+    if let Err(e) = libllm_core::character::save_card(&card, &dir, app.save_mode.key()) {
         app.set_status(
             format!("Failed to create character: {e}"),
             super::super::StatusLevel::Error,
         );
         return;
     }
-    let slug = crate::character::slugify(&new_name);
+    let slug = libllm_core::character::slugify(&new_name);
     app.character_names.push(new_name);
     app.character_slugs.push(slug.clone());
     app.character_selected = app.character_names.len() - 1;
@@ -214,7 +214,7 @@ pub(in crate::tui) fn handle_character_paste(
         return true;
     }
 
-    match crate::character::import_card(path) {
+    match libllm_core::character::import_card(path) {
         Ok(card) => {
             if card.name.chars().count() > super::MAX_NAME_LENGTH {
                 app.set_status(
@@ -228,14 +228,14 @@ pub(in crate::tui) fn handle_character_paste(
                 return true;
             }
             let name = card.name.clone();
-            match crate::character::save_card(
+            match libllm_core::character::save_card(
                 &card,
-                &crate::config::characters_dir(),
+                &libllm_core::config::characters_dir(),
                 app.save_mode.key(),
             ) {
                 Ok(_) => {
-                    let cards = crate::character::list_cards(
-                        &crate::config::characters_dir(),
+                    let cards = libllm_core::character::list_cards(
+                        &libllm_core::config::characters_dir(),
                         app.save_mode.key(),
                     );
                     app.character_names = cards.iter().map(|c| c.name.clone()).collect();

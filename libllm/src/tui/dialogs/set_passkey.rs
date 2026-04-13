@@ -169,7 +169,7 @@ pub(in crate::tui) fn handle_set_passkey_key(
                         if is_initial {
                             let fingerprint_start = std::time::Instant::now();
                             let fingerprint_result =
-                                crate::crypto::set_key_fingerprint(check_path, &derived_key);
+                                libllm_core::crypto::set_key_fingerprint(check_path, &derived_key);
                             let fingerprint_status = if fingerprint_result.is_ok() {
                                 "ok"
                             } else {

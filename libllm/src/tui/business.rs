@@ -1,5 +1,5 @@
-use crate::session::{self, Message, Role, SaveMode, Session, SessionEntry};
-use crate::worldinfo::{ActivatedEntry, RuntimeWorldBook};
+use libllm_core::session::{self, Message, Role, SaveMode, Session, SessionEntry};
+use libllm_core::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
 use super::App;
 
@@ -13,23 +13,23 @@ pub fn non_empty(s: &str) -> Option<String> {
     }
 }
 
-pub use crate::template::apply_template_vars;
+pub use libllm_core::template::apply_template_vars;
 
 pub fn build_effective_system_prompt(
     session: &Session,
-    key: Option<&crate::crypto::DerivedKey>,
+    key: Option<&libllm_core::crypto::DerivedKey>,
 ) -> Option<String> {
     let is_character = session.character.is_some();
 
     let session_prompt = session.system_prompt.as_deref().unwrap_or("");
 
     let builtin_name = if is_character {
-        crate::system_prompt::BUILTIN_ROLEPLAY
+        libllm_core::system_prompt::BUILTIN_ROLEPLAY
     } else {
-        crate::system_prompt::BUILTIN_ASSISTANT
+        libllm_core::system_prompt::BUILTIN_ASSISTANT
     };
-    let resolved_default = crate::system_prompt::load_prompt_content(
-        &crate::config::system_prompts_dir(),
+    let resolved_default = libllm_core::system_prompt::load_prompt_content(
+        &libllm_core::config::system_prompts_dir(),
         builtin_name,
         key,
     );
@@ -42,7 +42,7 @@ pub fn build_effective_system_prompt(
     };
 
     let persona = session.persona.as_ref().and_then(|name| {
-        crate::persona::load_persona_by_name(&crate::config::personas_dir(), name, key)
+        libllm_core::persona::load_persona_by_name(&libllm_core::config::personas_dir(), name, key)
     });
 
     let has_persona = is_character && persona.is_some();
@@ -88,7 +88,7 @@ pub fn build_effective_system_prompt(
     Some(result)
 }
 
-pub fn enabled_worldbook_names(session: &Session, cfg: &crate::config::Config) -> Vec<String> {
+pub fn enabled_worldbook_names(session: &Session, cfg: &libllm_core::config::Config) -> Vec<String> {
     let mut enabled = cfg.worldbooks.clone();
     for name in &session.worldbooks {
         if !enabled.iter().any(|existing| existing == name) {
@@ -100,21 +100,21 @@ pub fn enabled_worldbook_names(session: &Session, cfg: &crate::config::Config) -
 
 pub fn load_runtime_worldbooks(
     enabled: &[String],
-    key: Option<&crate::crypto::DerivedKey>,
+    key: Option<&libllm_core::crypto::DerivedKey>,
 ) -> Vec<RuntimeWorldBook> {
-    let wi_dir = crate::config::worldinfo_dir();
-    crate::debug_log::timed_kv(
+    let wi_dir = libllm_core::config::worldinfo_dir();
+    libllm_core::debug_log::timed_kv(
         "worldbook.runtime",
         &[
-            crate::debug_log::field("phase", "hydrate"),
-            crate::debug_log::field("enabled_count", enabled.len()),
+            libllm_core::debug_log::field("phase", "hydrate"),
+            libllm_core::debug_log::field("enabled_count", enabled.len()),
         ],
         || {
             enabled
                 .iter()
                 .filter_map(|wb_name| {
-                    let wb_path = crate::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
-                    crate::worldinfo::load_worldbook(&wb_path, key)
+                    let wb_path = libllm_core::worldinfo::resolve_worldbook_path(&wi_dir, wb_name);
+                    libllm_core::worldinfo::load_worldbook(&wb_path, key)
                         .ok()
                         .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
                 })
@@ -138,7 +138,7 @@ pub fn inject_loaded_worldbook_entries(
 
     let mut all_activated: Vec<ActivatedEntry> = worldbooks
         .iter()
-        .flat_map(|wb| crate::worldinfo::scan_runtime_entries(wb, &msg_texts))
+        .flat_map(|wb| libllm_core::worldinfo::scan_runtime_entries(wb, &msg_texts))
         .collect();
 
     if all_activated.is_empty() {
@@ -194,17 +194,17 @@ pub fn replace_template_vars(
 }
 
 pub fn load_config_fields(
-    cfg: &crate::config::Config,
+    cfg: &libllm_core::config::Config,
     overrides: &crate::cli::CliOverrides,
 ) -> Vec<String> {
-    let defaults = crate::sampling::SamplingParams::default();
+    let defaults = libllm_core::sampling::SamplingParams::default();
     vec![
         // [0] API URL
         overrides
             .api_url
             .as_deref()
             .or(cfg.api_url.as_deref())
-            .unwrap_or(crate::config::Config::default().api_url())
+            .unwrap_or(libllm_core::config::Config::default().api_url())
             .to_owned(),
         // [1] Spacer
         String::new(),
@@ -329,7 +329,7 @@ fn parse_i64_clamped(s: &str, min: i64, max: i64) -> Option<i64> {
 }
 
 pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::Result<()> {
-    let existing = crate::config::load();
+    let existing = libllm_core::config::load();
     let max_tokens: Option<i64> = if locked.contains(&12) {
         existing.sampling.max_tokens
     } else {
@@ -337,7 +337,7 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
     };
     let repeat_last_n_max = max_tokens.unwrap_or(32767);
     let reasoning_value = non_empty(&fields[4]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
-    let cfg = crate::config::Config {
+    let cfg = libllm_core::config::Config {
         api_url: if locked.contains(&0) {
             existing.api_url
         } else {
@@ -354,7 +354,7 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
         user_name: None,
         user_persona: None,
         worldbooks: existing.worldbooks,
-        sampling: crate::sampling::SamplingOverrides {
+        sampling: libllm_core::sampling::SamplingOverrides {
             temperature: if locked.contains(&6) {
                 existing.sampling.temperature
             } else {
@@ -399,11 +399,11 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
         theme_colors: existing.theme_colors,
     };
 
-    crate::config::save(&cfg)
+    libllm_core::config::save(&cfg)
 }
 
 pub(super) fn apply_config(app: &mut App) {
-    let cfg = crate::config::load();
+    let cfg = libllm_core::config::load();
     let preset_name = app
         .cli_overrides
         .template
@@ -411,15 +411,15 @@ pub(super) fn apply_config(app: &mut App) {
         .or(cfg.instruct_preset.as_deref())
         .or(cfg.template.as_deref())
         .unwrap_or("Mistral V3-Tekken");
-    app.instruct_preset = crate::preset::resolve_instruct_preset(preset_name);
+    app.instruct_preset = libllm_core::preset::resolve_instruct_preset(preset_name);
     app.stop_tokens = app.instruct_preset.stop_tokens();
-    app.sampling = crate::sampling::SamplingParams::default()
+    app.sampling = libllm_core::sampling::SamplingParams::default()
         .with_overrides(&cfg.sampling)
         .with_overrides(&app.cli_overrides.sampling);
 
     let new_url = app.cli_overrides.api_url.as_deref().unwrap_or(cfg.api_url());
     let new_tls_skip = app.cli_overrides.tls_skip_verify || cfg.tls_skip_verify;
-    app.client = crate::client::ApiClient::new(new_url, new_tls_skip);
+    app.client = libllm_core::client::ApiClient::new(new_url, new_tls_skip);
     app.model_name = None;
     app.api_available = true;
     app.api_error.clear();
@@ -439,9 +439,9 @@ pub(super) fn apply_config(app: &mut App) {
 pub(super) fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona {
         if let Some(path) =
-            crate::persona::resolve_persona_path(&crate::config::personas_dir(), name)
+            libllm_core::persona::resolve_persona_path(&libllm_core::config::personas_dir(), name)
         {
-            if let Ok(pf) = crate::persona::load_persona(&path, app.save_mode.key()) {
+            if let Ok(pf) = libllm_core::persona::load_persona(&path, app.save_mode.key()) {
                 app.active_persona_name = Some(pf.name);
                 app.active_persona_desc = Some(pf.persona);
                 return;
@@ -564,15 +564,15 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode) -> Vec<SessionEntry> {
         SaveMode::None => "none",
         SaveMode::PendingPasskey(_) => "pending_passkey",
     };
-    let mut sessions = crate::debug_log::timed_kv(
+    let mut sessions = libllm_core::debug_log::timed_kv(
         "startup.phase",
         &[
-            crate::debug_log::field("phase", "sidebar_population"),
-            crate::debug_log::field("mode", mode),
+            libllm_core::debug_log::field("phase", "sidebar_population"),
+            libllm_core::debug_log::field("mode", mode),
         ],
         || match save_mode {
             SaveMode::Encrypted { key, .. } => {
-                match session::list_session_paths(&crate::config::sessions_dir(), Some(key)) {
+                match session::list_session_paths(&libllm_core::config::sessions_dir(), Some(key)) {
                     Ok(sessions) => sessions,
                     Err(e) => {
                         eprintln!("Warning: {e}");
@@ -594,7 +594,7 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
         Some(d) => d,
         None => return Vec::new(),
     };
-    let index = crate::index::load_index(None);
+    let index = libllm_core::index::load_index(None);
     let mut hit_count = 0usize;
     let mut miss_count = 0usize;
     let mut entries: Vec<SessionEntry> = Vec::new();
@@ -626,13 +626,13 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
             Ok(false) => miss_count += 1,
             Err(err) => {
                 miss_count += 1;
-                crate::debug_log::log_kv(
+                libllm_core::debug_log::log_kv(
                     "index.sessions",
                     &[
-                        crate::debug_log::field("phase", "lookup"),
-                        crate::debug_log::field("result", "error"),
-                        crate::debug_log::field("path", entry.path.display()),
-                        crate::debug_log::field("error", err),
+                        libllm_core::debug_log::field("phase", "lookup"),
+                        libllm_core::debug_log::field("result", "error"),
+                        libllm_core::debug_log::field("path", entry.path.display()),
+                        libllm_core::debug_log::field("error", err),
                     ],
                 );
             }
@@ -641,13 +641,13 @@ fn list_plaintext_sessions(path: &std::path::Path) -> Vec<SessionEntry> {
         entries.push(entry);
     }
 
-    crate::debug_log::log_kv(
+    libllm_core::debug_log::log_kv(
         "index.sessions",
         &[
-            crate::debug_log::field("mode", "plaintext"),
-            crate::debug_log::field("hits", hit_count),
-            crate::debug_log::field("misses", miss_count),
-            crate::debug_log::field("count", entries.len()),
+            libllm_core::debug_log::field("mode", "plaintext"),
+            libllm_core::debug_log::field("hits", hit_count),
+            libllm_core::debug_log::field("misses", miss_count),
+            libllm_core::debug_log::field("count", entries.len()),
         ],
     );
 

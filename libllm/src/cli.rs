@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::sampling::SamplingOverrides;
+use libllm_core::sampling::SamplingOverrides;
 
 #[derive(Subcommand)]
 pub enum Command {

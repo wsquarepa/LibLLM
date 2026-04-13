@@ -1360,31 +1360,54 @@ checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 name = "libllm"
 version = "1.0.0"
 dependencies = [
- "aes-gcm",
  "anyhow",
  "arboard",
- "argon2",
- "base64",
  "clap",
  "crossterm",
- "dirs",
  "futures-util",
- "libllm",
- "rand 0.8.5",
+ "libllm-core",
  "ratatui",
  "reqwest",
  "rpassword",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "sysinfo",
  "tempfile",
  "time",
  "tokio",
- "toml",
  "tui-textarea-2",
  "uuid",
+]
+
+[[package]]
+name = "libllm-core"
+version = "1.0.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "base64",
+ "dirs",
+ "futures-util",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sysinfo",
+ "time",
+ "tokio",
+ "toml",
+ "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "libllm-migrate"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libllm-core",
 ]
 
 [[package]]

@@ -1,18 +1,19 @@
-use libllm::character;
+use libllm_core::character;
+use libllm_core::client;
+use libllm_core::config;
+use libllm_core::crypto;
+use libllm_core::debug_log;
+use libllm_core::index;
+use libllm_core::migration;
+use libllm_core::preset;
+use libllm_core::sampling;
+use libllm_core::session;
+use libllm_core::system_prompt;
+use libllm_core::worldinfo;
+
 use libllm::cli;
-use libllm::client;
-use libllm::config;
-use libllm::crypto;
-use libllm::debug_log;
-use libllm::index;
-use libllm::migration;
-use libllm::preset;
-use libllm::sampling;
-use libllm::session;
-use libllm::system_prompt;
 use libllm::tui;
 use libllm::update;
-use libllm::worldinfo;
 
 use std::io::{self, Read, Write};
 use std::sync::Arc;
@@ -134,9 +135,9 @@ async fn main() -> Result<()> {
         None
     };
 
-    crate::debug_log::timed_result(
+    debug_log::timed_result(
         "startup.phase",
-        &[crate::debug_log::field("phase", "ensure_dirs")],
+        &[debug_log::field("phase", "ensure_dirs")],
         config::ensure_dirs,
     )?;
 
@@ -150,9 +151,9 @@ async fn main() -> Result<()> {
         return update::run(branch.clone(), *list, *yes).await;
     }
 
-    let cfg = crate::debug_log::timed_kv(
+    let cfg = debug_log::timed_kv(
         "startup.phase",
-        &[crate::debug_log::field("phase", "config_load")],
+        &[debug_log::field("phase", "config_load")],
         config::load,
     );
 
@@ -184,9 +185,9 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode) = crate::debug_log::timed_result(
+    let (mut session, mut save_mode) = debug_log::timed_result(
         "startup.phase",
-        &[crate::debug_log::field("phase", "resolve_session")],
+        &[debug_log::field("phase", "resolve_session")],
         || resolve_session(&args),
     )?;
 
@@ -212,11 +213,11 @@ async fn main() -> Result<()> {
         }
 
         if let Some(ref char_arg) = args.character {
-            let card = crate::debug_log::timed_result(
+            let card = debug_log::timed_result(
                 "startup.phase",
                 &[
-                    crate::debug_log::field("phase", "resolve_character"),
-                    crate::debug_log::field("character", char_arg),
+                    debug_log::field("phase", "resolve_character"),
+                    debug_log::field("character", char_arg),
                 ],
                 || resolve_character(char_arg, content_key),
             )?;
@@ -278,11 +279,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    crate::debug_log::log_kv(
+    debug_log::log_kv(
         "startup.phase",
         &[
-            crate::debug_log::field("phase", "tui_handoff"),
-            crate::debug_log::field("mode", "interactive"),
+            debug_log::field("phase", "tui_handoff"),
+            debug_log::field("mode", "interactive"),
         ],
     );
     let cli_overrides = args.cli_overrides();
@@ -312,21 +313,21 @@ fn infer_run_mode(args: &Args) -> &'static str {
     }
 }
 
-fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
+fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
     let mut fields = vec![
-        crate::debug_log::field("has_message", args.message.is_some()),
-        crate::debug_log::field("message_from_stdin", args.message.as_deref() == Some("-")),
-        crate::debug_log::field("has_data_dir", args.data.is_some()),
-        crate::debug_log::field("has_continue", args.continue_session.is_some()),
-        crate::debug_log::field("no_encrypt", args.no_encrypt),
-        crate::debug_log::field("has_passkey_arg", args.passkey.is_some()),
-        crate::debug_log::field("has_system_prompt_arg", args.system_prompt.is_some()),
-        crate::debug_log::field("has_character_arg", args.character.is_some()),
-        crate::debug_log::field("has_persona_arg", args.persona.is_some()),
-        crate::debug_log::field("has_api_url_arg", args.api_url.is_some()),
-        crate::debug_log::field("has_template_arg", args.template.is_some()),
-        crate::debug_log::field("timings_enabled", args.timings.is_some()),
-        crate::debug_log::field("tls_skip_verify", args.tls_skip_verify),
+        debug_log::field("has_message", args.message.is_some()),
+        debug_log::field("message_from_stdin", args.message.as_deref() == Some("-")),
+        debug_log::field("has_data_dir", args.data.is_some()),
+        debug_log::field("has_continue", args.continue_session.is_some()),
+        debug_log::field("no_encrypt", args.no_encrypt),
+        debug_log::field("has_passkey_arg", args.passkey.is_some()),
+        debug_log::field("has_system_prompt_arg", args.system_prompt.is_some()),
+        debug_log::field("has_character_arg", args.character.is_some()),
+        debug_log::field("has_persona_arg", args.persona.is_some()),
+        debug_log::field("has_api_url_arg", args.api_url.is_some()),
+        debug_log::field("has_template_arg", args.template.is_some()),
+        debug_log::field("timings_enabled", args.timings.is_some()),
+        debug_log::field("tls_skip_verify", args.tls_skip_verify),
     ];
 
     if let Some(command) = &args.command {
@@ -334,10 +335,10 @@ fn build_run_fields(args: &Args) -> Vec<crate::debug_log::Field<'static>> {
             cli::Command::Edit { .. } => "edit",
             cli::Command::Update { .. } => "update",
         };
-        fields.push(crate::debug_log::field("command", command_name));
+        fields.push(debug_log::field("command", command_name));
         if let cli::Command::Edit { kind, name } = command {
-            fields.push(crate::debug_log::field("edit_kind", kind));
-            fields.push(crate::debug_log::field("edit_name", name));
+            fields.push(debug_log::field("edit_kind", kind));
+            fields.push(debug_log::field("edit_name", name));
         }
     }
 
@@ -488,7 +489,7 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
         _ => anyhow::bail!("Unknown content type: {kind}. Use 'character' or 'worldbook'."),
     };
 
-    let temp_dir = crate::config::data_dir();
+    let temp_dir = config::data_dir();
     let temp_path = temp_dir.join(format!(".edit-{name}.json"));
 
     let mut opts = std::fs::OpenOptions::new();

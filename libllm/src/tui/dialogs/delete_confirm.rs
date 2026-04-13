@@ -162,20 +162,20 @@ fn delete_selected_session(app: &mut App) {
         );
         return;
     }
-    crate::index::warn_if_save_fails(
-        crate::index::remove_session(&path, app.save_mode.key()),
+    libllm_core::index::warn_if_save_fails(
+        libllm_core::index::remove_session(&path, app.save_mode.key()),
         "failed to remove session index entry",
     );
 
     if is_current {
         app.discard_pending_session_save();
-        let mut new_session = crate::session::Session::default();
+        let mut new_session = libllm_core::session::Session::default();
         new_session.persona = app.config.default_persona.clone();
         *app.session = new_session;
         business::load_active_persona(app);
         app.chat_scroll = 0;
         app.auto_scroll = true;
-        let new_path = crate::config::sessions_dir().join(crate::session::generate_session_name());
+        let new_path = libllm_core::config::sessions_dir().join(libllm_core::session::generate_session_name());
         app.save_mode.set_path(new_path);
     }
 
@@ -187,7 +187,7 @@ fn delete_selected_session(app: &mut App) {
 }
 
 fn delete_character(app: &mut App, slug: &str) {
-    let path = crate::character::resolve_card_path(&crate::config::characters_dir(), slug);
+    let path = libllm_core::character::resolve_card_path(&libllm_core::config::characters_dir(), slug);
 
     if let Err(e) = std::fs::remove_file(&path) {
         app.set_status(
@@ -196,8 +196,8 @@ fn delete_character(app: &mut App, slug: &str) {
         );
         return;
     }
-    crate::index::warn_if_save_fails(
-        crate::index::remove_character(&path, app.save_mode.key()),
+    libllm_core::index::warn_if_save_fails(
+        libllm_core::index::remove_character(&path, app.save_mode.key()),
         "failed to remove character index entry",
     );
 
@@ -209,7 +209,7 @@ fn delete_character(app: &mut App, slug: &str) {
 }
 
 fn delete_persona(app: &mut App, name: &str) {
-    let Some(path) = crate::persona::resolve_persona_path(&crate::config::personas_dir(), name)
+    let Some(path) = libllm_core::persona::resolve_persona_path(&libllm_core::config::personas_dir(), name)
     else {
         app.set_status(
             "Error deleting persona: invalid persona name.".to_owned(),
@@ -242,7 +242,7 @@ fn delete_persona(app: &mut App, name: &str) {
 
 fn delete_system_prompt(app: &mut App, name: &str) {
     let path =
-        crate::system_prompt::resolve_prompt_path(&crate::config::system_prompts_dir(), name);
+        libllm_core::system_prompt::resolve_prompt_path(&libllm_core::config::system_prompts_dir(), name);
 
     if let Err(e) = std::fs::remove_file(&path) {
         app.set_status(
@@ -260,7 +260,7 @@ fn delete_system_prompt(app: &mut App, name: &str) {
 }
 
 fn delete_worldbook(app: &mut App, name: &str) {
-    let path = crate::worldinfo::resolve_worldbook_path(&crate::config::worldinfo_dir(), name);
+    let path = libllm_core::worldinfo::resolve_worldbook_path(&libllm_core::config::worldinfo_dir(), name);
 
     if let Err(e) = std::fs::remove_file(&path) {
         app.set_status(
@@ -269,14 +269,14 @@ fn delete_worldbook(app: &mut App, name: &str) {
         );
         return;
     }
-    crate::index::warn_if_save_fails(
-        crate::index::remove_worldbook(&path, app.save_mode.key()),
+    libllm_core::index::warn_if_save_fails(
+        libllm_core::index::remove_worldbook(&path, app.save_mode.key()),
         "failed to remove worldbook index entry",
     );
 
     app.config.worldbooks.retain(|n| n != name);
     app.session.worldbooks.retain(|n| n != name);
-    if let Err(e) = crate::config::save(&app.config) {
+    if let Err(e) = libllm_core::config::save(&app.config) {
         app.set_status(
             format!("Failed to save config: {e}"),
             super::super::StatusLevel::Error,

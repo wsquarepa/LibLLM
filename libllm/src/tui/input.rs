@@ -3,7 +3,7 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
 use tui_textarea::TextArea;
 
-use crate::session::{self, Role, SaveMode, Session};
+use libllm_core::session::{self, Role, SaveMode, Session};
 
 use super::{Action, App, StatusLevel};
 
@@ -16,12 +16,12 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let prefix = app.textarea.lines()[0].as_str();
-        let hidden: &[&str] = if crate::config::load().debug_log {
+        let hidden: &[&str] = if libllm_core::config::load().debug_log {
             &[]
         } else {
             &["/report"]
         };
-        let matches = crate::commands::matching_commands(
+        let matches = libllm_core::commands::matching_commands(
             prefix.split_whitespace().next().unwrap_or("/"),
             hidden,
         );
@@ -364,7 +364,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
         app.auto_scroll = true;
-        let new_path = crate::config::sessions_dir().join(session::generate_session_name());
+        let new_path = libllm_core::config::sessions_dir().join(session::generate_session_name());
         app.save_mode.set_path(new_path);
     } else {
         let load_result = match &app.save_mode {
@@ -402,7 +402,7 @@ pub fn handle_sidebar_paste(path: &std::path::Path, ext: &str, app: &mut App) ->
     match session::load(path) {
         Ok(loaded) => {
             let new_name = session::generate_session_name();
-            let new_path = crate::config::sessions_dir().join(&new_name);
+            let new_path = libllm_core::config::sessions_dir().join(&new_name);
 
             let save_result = match &app.save_mode {
                 SaveMode::Encrypted { key, .. } => session::save_encrypted(&new_path, &loaded, key),

@@ -106,7 +106,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.config.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
-                    if let Err(e) = crate::config::save(&app.config) {
+                    if let Err(e) = libllm_core::config::save(&app.config) {
                         app.set_status(
                             format!("Failed to save config: {e}"),
                             super::super::StatusLevel::Error,
@@ -116,7 +116,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 WorldbookState::Global => {
                     app.config.worldbooks.retain(|n| n != &name);
                     app.invalidate_worldbook_cache();
-                    if let Err(e) = crate::config::save(&app.config) {
+                    if let Err(e) = libllm_core::config::save(&app.config) {
                         app.set_status(
                             format!("Failed to save config: {e}"),
                             super::super::StatusLevel::Error,
@@ -128,8 +128,8 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         KeyCode::Right => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
             let wb_path =
-                crate::worldinfo::resolve_worldbook_path(&crate::config::worldinfo_dir(), &name);
-            match crate::worldinfo::load_worldbook(&wb_path, app.save_mode.key()) {
+                libllm_core::worldinfo::resolve_worldbook_path(&libllm_core::config::worldinfo_dir(), &name);
+            match libllm_core::worldinfo::load_worldbook(&wb_path, app.save_mode.key()) {
                 Ok(wb) => {
                     app.worldbook_editor_original_name = wb.name.clone();
                     app.worldbook_editor_original_entries = wb.entries.clone();
@@ -358,12 +358,12 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
 fn create_and_edit_worldbook(app: &mut App) {
     let existing: std::collections::HashSet<String> = app.worldbook_list.iter().cloned().collect();
     let new_name = super::generate_unique_name("worldbook", &existing);
-    let wb = crate::worldinfo::WorldBook {
+    let wb = libllm_core::worldinfo::WorldBook {
         name: new_name.clone(),
         entries: Vec::new(),
     };
     if let Err(e) =
-        crate::worldinfo::save_worldbook(&wb, &crate::config::worldinfo_dir(), app.save_mode.key())
+        libllm_core::worldinfo::save_worldbook(&wb, &libllm_core::config::worldinfo_dir(), app.save_mode.key())
     {
         app.set_status(
             format!("Failed to create worldbook: {e}"),
@@ -383,7 +383,7 @@ fn create_and_edit_worldbook(app: &mut App) {
 }
 
 fn add_new_entry(app: &mut App) {
-    let new_entry = crate::worldinfo::Entry {
+    let new_entry = libllm_core::worldinfo::Entry {
         keys: Vec::new(),
         secondary_keys: Vec::new(),
         selective: false,
@@ -411,7 +411,7 @@ fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: 
     app.focus = Focus::WorldbookEntryEditorDialog;
 }
 
-fn entry_to_values(entry: &crate::worldinfo::Entry) -> Vec<String> {
+fn entry_to_values(entry: &libllm_core::worldinfo::Entry) -> Vec<String> {
     vec![
         entry.keys.join(", "),
         entry.content.clone(),
@@ -427,15 +427,15 @@ fn entry_to_values(entry: &crate::worldinfo::Entry) -> Vec<String> {
 
 pub fn values_to_entry(
     values: &[String],
-    existing: &crate::worldinfo::Entry,
-) -> crate::worldinfo::Entry {
+    existing: &libllm_core::worldinfo::Entry,
+) -> libllm_core::worldinfo::Entry {
     let parse_keys = |s: &str| -> Vec<String> {
         s.split(',')
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
             .collect()
     };
-    crate::worldinfo::Entry {
+    libllm_core::worldinfo::Entry {
         keys: parse_keys(&values[0]),
         content: values[1].clone(),
         selective: values[2].eq_ignore_ascii_case("true"),
@@ -498,19 +498,19 @@ fn save_worldbook_editor(app: &mut App) {
         return;
     }
 
-    let wb = crate::worldinfo::WorldBook {
+    let wb = libllm_core::worldinfo::WorldBook {
         name: new_name.clone(),
         entries: app.worldbook_editor_entries.clone(),
     };
-    match crate::worldinfo::save_worldbook(
+    match libllm_core::worldinfo::save_worldbook(
         &wb,
-        &crate::config::worldinfo_dir(),
+        &libllm_core::config::worldinfo_dir(),
         app.save_mode.key(),
     ) {
         Ok(_) => {
             if !original.is_empty() && original != new_name {
-                let old_path = crate::worldinfo::resolve_worldbook_path(
-                    &crate::config::worldinfo_dir(),
+                let old_path = libllm_core::worldinfo::resolve_worldbook_path(
+                    &libllm_core::config::worldinfo_dir(),
                     &original,
                 );
                 if old_path.exists() {
@@ -522,12 +522,12 @@ fn save_worldbook_editor(app: &mut App) {
                 }
                 if let Some(pos) = app.config.worldbooks.iter().position(|n| n == &original) {
                     app.config.worldbooks[pos] = new_name.clone();
-                    let _ = crate::config::save(&app.config);
+                    let _ = libllm_core::config::save(&app.config);
                 }
             }
             app.invalidate_worldbook_cache();
-            let books = crate::worldinfo::list_worldbooks(
-                &crate::config::worldinfo_dir(),
+            let books = libllm_core::worldinfo::list_worldbooks(
+                &libllm_core::config::worldinfo_dir(),
                 app.save_mode.key(),
             );
             app.worldbook_list = books.into_iter().map(|b| b.name).collect();
@@ -561,7 +561,7 @@ pub(in crate::tui) fn handle_worldbook_paste(
         return true;
     }
 
-    match crate::worldinfo::load_worldbook(path, None) {
+    match libllm_core::worldinfo::load_worldbook(path, None) {
         Ok(wb) => {
             if wb.name.chars().count() > super::MAX_NAME_LENGTH {
                 app.set_status(
@@ -575,14 +575,14 @@ pub(in crate::tui) fn handle_worldbook_paste(
                 return true;
             }
             let name = wb.name.clone();
-            match crate::worldinfo::save_worldbook(
+            match libllm_core::worldinfo::save_worldbook(
                 &wb,
-                &crate::config::worldinfo_dir(),
+                &libllm_core::config::worldinfo_dir(),
                 app.save_mode.key(),
             ) {
                 Ok(_) => {
-                    let books = crate::worldinfo::list_worldbooks(
-                        &crate::config::worldinfo_dir(),
+                    let books = libllm_core::worldinfo::list_worldbooks(
+                        &libllm_core::config::worldinfo_dir(),
                         app.save_mode.key(),
                     );
                     app.worldbook_list = books.into_iter().map(|b| b.name).collect();

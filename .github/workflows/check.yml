@@ -4,8 +4,9 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - 'src/**'
-      - 'tests/**'
+      - 'libllm-core/**'
+      - 'libllm/**'
+      - 'libllm-migrate/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/**'
@@ -22,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test
+        run: cargo test --workspace
 
   check:
     needs: test
@@ -66,4 +67,4 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Check
-        run: cargo check --target ${{ matrix.target }}
+        run: cargo check --workspace --target ${{ matrix.target }}

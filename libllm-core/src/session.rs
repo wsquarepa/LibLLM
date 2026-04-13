@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::time::Instant;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -678,7 +677,6 @@ fn is_leap(year: u64) -> bool {
 mod tests {
     use super::*;
     use crate::crypto::derive_key;
-    use serde_json::json;
 
     struct BranchingIds {
         branch_parent: NodeId,

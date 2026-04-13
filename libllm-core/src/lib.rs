@@ -7,7 +7,6 @@ pub mod context;
 pub mod crypto;
 pub mod debug_log;
 pub mod export;
-pub mod index;
 pub mod migration;
 pub mod persona;
 pub mod preset;

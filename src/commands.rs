@@ -67,6 +67,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Open configuration dialog",
     },
     CommandInfo {
+        name: "/macro",
+        aliases: &[],
+        args: "<name> <args...>",
+        description: "Run a user-defined macro",
+    },
+    CommandInfo {
         name: "/report",
         aliases: &[],
         args: "",

@@ -420,6 +420,7 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
         },
         debug_log: fields[14].parse().unwrap_or(existing.debug_log),
         default_persona: existing.default_persona,
+        macros: existing.macros,
     };
 
     crate::config::save(&cfg)

@@ -1,181 +1,49 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::DerivedKey;
-use crate::index::{self, MetadataIndex, SessionStorageMode};
+use crate::db::Database;
 
 #[derive(Clone)]
 pub enum SaveMode {
     None,
-    Plaintext(PathBuf),
-    Encrypted { path: PathBuf, key: Arc<DerivedKey> },
-    PendingPasskey(PathBuf),
+    Database { id: String },
+    PendingPasskey { id: String },
 }
 
 impl SaveMode {
-    pub fn path(&self) -> Option<&Path> {
+    pub fn id(&self) -> Option<&str> {
         match self {
             Self::None => None,
-            Self::Plaintext(p) => Some(p),
-            Self::Encrypted { path, .. } => Some(path),
-            Self::PendingPasskey(p) => Some(p),
+            Self::Database { id } => Some(id),
+            Self::PendingPasskey { id } => Some(id),
         }
     }
 
-    pub fn set_path(&mut self, new_path: PathBuf) {
+    pub fn set_id(&mut self, new_id: String) {
         match self {
             Self::None => {}
-            Self::Plaintext(p) => *p = new_path,
-            Self::Encrypted { path, .. } => *path = new_path,
-            Self::PendingPasskey(p) => *p = new_path,
+            Self::Database { id } => *id = new_id,
+            Self::PendingPasskey { id } => *id = new_id,
         }
     }
 
     pub fn needs_passkey(&self) -> bool {
-        matches!(self, Self::PendingPasskey(_))
-    }
-
-    pub fn key(&self) -> Option<&DerivedKey> {
-        match self {
-            Self::Encrypted { key, .. } => Some(key),
-            _ => None,
-        }
+        matches!(self, Self::PendingPasskey { .. })
     }
 }
 
 pub struct SessionEntry {
-    pub path: PathBuf,
-    pub filename: String,
+    pub id: String,
     pub display_name: String,
     pub message_count: Option<usize>,
     pub last_assistant_preview: Option<String>,
     pub sidebar_label: String,
     pub sidebar_preview: Option<String>,
     pub is_new_chat: bool,
-}
-
-pub struct SessionMetadata {
-    pub character: Option<String>,
-    pub message_count: usize,
-    pub last_assistant_preview: Option<String>,
-}
-
-impl SessionMetadata {
-    fn from_session(session: &Session) -> Self {
-        Self {
-            character: session.character.clone(),
-            message_count: session.tree.node_count(),
-            last_assistant_preview: session
-                .tree
-                .current_last_assistant_preview()
-                .map(str::to_owned),
-        }
-    }
-}
-
-fn session_display_name(character: Option<&str>) -> String {
-    character.unwrap_or("Assistant").to_owned()
-}
-
-fn placeholder_session_entry(path: PathBuf) -> SessionEntry {
-    let filename = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    SessionEntry {
-        path,
-        filename,
-        display_name: "Assistant".to_owned(),
-        message_count: None,
-        last_assistant_preview: None,
-        sidebar_label: String::new(),
-        sidebar_preview: None,
-        is_new_chat: false,
-    }
-}
-
-pub fn apply_indexed_session_metadata(
-    entry: &mut SessionEntry,
-    index: &MetadataIndex,
-) -> Result<bool> {
-    let stamp = index::file_stamp(&entry.path)?;
-    let Some(relative_path) = index::relative_data_path(&entry.path) else {
-        return Ok(false);
-    };
-    let Some(indexed) = index.sessions.get(&relative_path) else {
-        return Ok(false);
-    };
-    if indexed.stamp != stamp {
-        return Ok(false);
-    }
-
-    entry.display_name.clone_from(&indexed.display_name);
-    entry.message_count = Some(indexed.message_count);
-    entry
-        .last_assistant_preview
-        .clone_from(&indexed.last_assistant_preview);
-    Ok(true)
-}
-
-fn persist_session_index(
-    path: &Path,
-    metadata: &SessionMetadata,
-    storage_mode: SessionStorageMode,
-    key: Option<&DerivedKey>,
-) {
-    let stamp = match index::file_stamp(path) {
-        Ok(stamp) => stamp,
-        Err(err) => {
-            crate::debug_log::log_kv(
-                "index.sessions",
-                &[
-                    crate::debug_log::field("phase", "stamp"),
-                    crate::debug_log::field("result", "error"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field("error", err),
-                ],
-            );
-            return;
-        }
-    };
-
-    index::warn_if_save_fails(
-        index::upsert_session(
-            path,
-            stamp,
-            session_display_name(metadata.character.as_deref()),
-            metadata.message_count,
-            metadata.last_assistant_preview.clone(),
-            storage_mode,
-            key,
-        ),
-        "failed to update session index",
-    );
-}
-
-pub fn persist_saved_session_index(
-    path: &Path,
-    session: &Session,
-    storage_mode: SessionStorageMode,
-    key: Option<&DerivedKey>,
-) {
-    let metadata = SessionMetadata::from_session(session);
-    persist_session_index(path, &metadata, storage_mode, key);
-}
-
-pub fn persist_loaded_metadata_index(
-    path: &Path,
-    metadata: &SessionMetadata,
-    storage_mode: SessionStorageMode,
-    key: Option<&DerivedKey>,
-) {
-    persist_session_index(path, metadata, storage_mode, key);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +60,19 @@ impl fmt::Display for Role {
             Self::User => f.write_str("user"),
             Self::Assistant => f.write_str("assistant"),
             Self::System => f.write_str("system"),
+        }
+    }
+}
+
+impl std::str::FromStr for Role {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "user" => Ok(Self::User),
+            "assistant" => Ok(Self::Assistant),
+            "system" => Ok(Self::System),
+            _ => anyhow::bail!("unknown role: {s}"),
         }
     }
 }
@@ -263,6 +144,29 @@ impl MessageTree {
             preferred_child: HashMap::new(),
             runtime: TreeRuntimeCache::default(),
         }
+    }
+
+    pub fn from_parts(
+        nodes: Vec<Node>,
+        head: Option<NodeId>,
+        preferred_child: HashMap<NodeId, NodeId>,
+    ) -> Self {
+        let mut tree = Self {
+            nodes,
+            head,
+            preferred_child,
+            runtime: TreeRuntimeCache::default(),
+        };
+        tree.rehydrate_runtime_state();
+        tree
+    }
+
+    pub fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+
+    pub fn preferred_child_map(&self) -> &HashMap<NodeId, NodeId> {
+        &self.preferred_child
     }
 
     #[cfg(debug_assertions)]
@@ -696,436 +600,20 @@ impl Session {
         }
     }
 
-    pub fn maybe_save(&self, mode: &SaveMode) -> Result<()> {
+    pub fn maybe_save(&self, mode: &SaveMode, db: Option<&Database>) -> Result<()> {
         match mode {
-            SaveMode::None | SaveMode::PendingPasskey(_) => Ok(()),
-            SaveMode::Plaintext(path) => save(path, self),
-            SaveMode::Encrypted { path, key } => save_encrypted(path, self, key),
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct FlatSession {
-    messages: Vec<Message>,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    template: Option<String>,
-    #[serde(default)]
-    system_prompt: Option<String>,
-    #[serde(default)]
-    character: Option<String>,
-    #[serde(default)]
-    worldbooks: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct LegacySession {
-    prompt_history: String,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    template: Option<String>,
-}
-
-pub fn load(path: &Path) -> Result<Session> {
-    let read_start = Instant::now();
-    let contents = match std::fs::read_to_string(path) {
-        Ok(contents) => {
-            crate::debug_log::log_kv(
-                "session.io",
-                &[
-                    crate::debug_log::field("phase", "read_plaintext"),
-                    crate::debug_log::field("result", "ok"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field("bytes", contents.len()),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                ],
-            );
-            contents
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            crate::debug_log::log_kv(
-                "session.io",
-                &[
-                    crate::debug_log::field("phase", "read_plaintext"),
-                    crate::debug_log::field("result", "missing"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                ],
-            );
-            return Ok(Session::default());
-        }
-        Err(e) => {
-            crate::debug_log::log_kv(
-                "session.io",
-                &[
-                    crate::debug_log::field("phase", "read_plaintext"),
-                    crate::debug_log::field("result", "error"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                    crate::debug_log::field("error", &e),
-                ],
-            );
-            return Err(e).context(format!("failed to read session file: {}", path.display()));
-        }
-    };
-
-    let parse_start = Instant::now();
-    let session = load_from_str(&contents)?;
-    crate::debug_log::log_kv(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "parse_plaintext"),
-            crate::debug_log::field("result", "ok"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("node_count", session.tree.node_count()),
-            crate::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
-            ),
-        ],
-    );
-    Ok(session)
-}
-
-pub fn save(path: &Path, session: &Session) -> Result<()> {
-    let serialize_start = Instant::now();
-    let json = serde_json::to_string_pretty(session).context("failed to serialize session")?;
-    crate::debug_log::log_kv(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "serialize_plaintext"),
-            crate::debug_log::field("result", "ok"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", json.len()),
-            crate::debug_log::field("node_count", session.tree.node_count()),
-            crate::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", serialize_start.elapsed().as_secs_f64() * 1000.0),
-            ),
-        ],
-    );
-    crate::debug_log::timed_result(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "write_plaintext"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", json.len()),
-        ],
-        || {
-            crate::crypto::write_atomic(path, json.as_bytes())
-                .context(format!("failed to write session file: {}", path.display()))
-        },
-    )?;
-    persist_saved_session_index(path, session, SessionStorageMode::Plaintext, None);
-    Ok(())
-}
-
-pub fn save_encrypted(path: &Path, session: &Session, key: &DerivedKey) -> Result<()> {
-    let serialize_start = Instant::now();
-    let json = serde_json::to_string(session).context("failed to serialize session")?;
-    crate::debug_log::log_kv(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "serialize_encrypted"),
-            crate::debug_log::field("result", "ok"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", json.len()),
-            crate::debug_log::field("node_count", session.tree.node_count()),
-            crate::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", serialize_start.elapsed().as_secs_f64() * 1000.0),
-            ),
-        ],
-    );
-    let encrypt_start = Instant::now();
-    let blob = crate::crypto::encrypt(json.as_bytes(), key)?;
-    crate::debug_log::log_kv(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "encrypt"),
-            crate::debug_log::field("result", "ok"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", blob.len()),
-            crate::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", encrypt_start.elapsed().as_secs_f64() * 1000.0),
-            ),
-        ],
-    );
-    crate::debug_log::timed_result(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "write_encrypted"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", blob.len()),
-        ],
-        || {
-            crate::crypto::write_atomic(path, &blob).context(format!(
-                "failed to write encrypted session: {}",
-                path.display()
-            ))
-        },
-    )?;
-    persist_saved_session_index(path, session, SessionStorageMode::Encrypted, Some(key));
-    Ok(())
-}
-
-pub fn load_encrypted(path: &Path, key: &DerivedKey) -> Result<Session> {
-    let read_start = Instant::now();
-    let data = match std::fs::read(path) {
-        Ok(data) => {
-            crate::debug_log::log_kv(
-                "session.io",
-                &[
-                    crate::debug_log::field("phase", "read_encrypted"),
-                    crate::debug_log::field("result", "ok"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field("bytes", data.len()),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                ],
-            );
-            data
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            crate::debug_log::log_kv(
-                "session.io",
-                &[
-                    crate::debug_log::field("phase", "read_encrypted"),
-                    crate::debug_log::field("result", "missing"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                ],
-            );
-            return Ok(Session::default());
-        }
-        Err(e) => {
-            crate::debug_log::log_kv(
-                "session.io",
-                &[
-                    crate::debug_log::field("phase", "read_encrypted"),
-                    crate::debug_log::field("result", "error"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", read_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                    crate::debug_log::field("error", &e),
-                ],
-            );
-            return Err(e).context(format!("failed to read session: {}", path.display()));
-        }
-    };
-
-    if crate::crypto::is_encrypted(&data) {
-        let decrypt_start = Instant::now();
-        let plaintext = crate::crypto::decrypt(&data, key)?;
-        crate::debug_log::log_kv(
-            "session.io",
-            &[
-                crate::debug_log::field("phase", "decrypt"),
-                crate::debug_log::field("result", "ok"),
-                crate::debug_log::field("path", path.display()),
-                crate::debug_log::field("bytes", plaintext.len()),
-                crate::debug_log::field(
-                    "elapsed_ms",
-                    format!("{:.3}", decrypt_start.elapsed().as_secs_f64() * 1000.0),
-                ),
-            ],
-        );
-        let json = String::from_utf8(plaintext).context("decrypted session is not valid UTF-8")?;
-        let parse_start = Instant::now();
-        let session = load_from_str(&json)?;
-        crate::debug_log::log_kv(
-            "session.io",
-            &[
-                crate::debug_log::field("phase", "parse_encrypted"),
-                crate::debug_log::field("result", "ok"),
-                crate::debug_log::field("path", path.display()),
-                crate::debug_log::field("node_count", session.tree.node_count()),
-                crate::debug_log::field(
-                    "elapsed_ms",
-                    format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
-                ),
-            ],
-        );
-        Ok(session)
-    } else {
-        let contents = String::from_utf8_lossy(&data);
-        let parse_start = Instant::now();
-        let session = load_from_str(&contents)?;
-        crate::debug_log::log_kv(
-            "session.io",
-            &[
-                crate::debug_log::field("phase", "parse_plaintext_fallback"),
-                crate::debug_log::field("result", "ok"),
-                crate::debug_log::field("path", path.display()),
-                crate::debug_log::field("node_count", session.tree.node_count()),
-                crate::debug_log::field(
-                    "elapsed_ms",
-                    format!("{:.3}", parse_start.elapsed().as_secs_f64() * 1000.0),
-                ),
-            ],
-        );
-        Ok(session)
-    }
-}
-
-pub fn generate_session_name() -> String {
-    let id = uuid::Uuid::new_v4();
-    format!("{id}.session")
-}
-
-pub fn list_session_paths(dir: &Path, key: Option<&DerivedKey>) -> Result<Vec<SessionEntry>> {
-    let scan_start = Instant::now();
-    let entries = std::fs::read_dir(dir).context(format!(
-        "failed to read sessions directory: {}",
-        dir.display()
-    ))?;
-
-    let index = index::load_index(key);
-    let mut hit_count = 0usize;
-    let mut miss_count = 0usize;
-    let mut sessions: Vec<SessionEntry> = Vec::new();
-
-    for path in entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "session"))
-    {
-        let mut entry = placeholder_session_entry(path);
-        match apply_indexed_session_metadata(&mut entry, &index) {
-            Ok(true) => hit_count += 1,
-            Ok(false) => miss_count += 1,
-            Err(err) => {
-                miss_count += 1;
-                crate::debug_log::log_kv(
-                    "index.sessions",
-                    &[
-                        crate::debug_log::field("phase", "lookup"),
-                        crate::debug_log::field("result", "error"),
-                        crate::debug_log::field("path", entry.path.display()),
-                        crate::debug_log::field("error", err),
-                    ],
-                );
+            SaveMode::None | SaveMode::PendingPasskey { .. } => Ok(()),
+            SaveMode::Database { id } => {
+                let db = db.ok_or_else(|| anyhow::anyhow!("database not available for save"))?;
+                db.save_session(id, self)
             }
         }
-        sessions.push(entry);
     }
-
-    crate::debug_log::log_kv(
-        "index.sessions",
-        &[
-            crate::debug_log::field("mode", "encrypted"),
-            crate::debug_log::field("hits", hit_count),
-            crate::debug_log::field("misses", miss_count),
-            crate::debug_log::field("count", sessions.len()),
-            crate::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", scan_start.elapsed().as_secs_f64() * 1000.0),
-            ),
-        ],
-    );
-
-    sessions.sort_by(|a, b| session_modified_at(&b.path).cmp(&session_modified_at(&a.path)));
-    Ok(sessions)
 }
 
-pub fn load_metadata(path: &Path, key: &DerivedKey) -> Result<SessionMetadata> {
-    let session = load_encrypted(path, key)
-        .with_context(|| format!("failed to load session metadata from {}", path.display()))?;
-    Ok(SessionMetadata::from_session(&session))
-}
 
-fn load_from_str(contents: &str) -> Result<Session> {
-    if let Ok(mut session) = serde_json::from_str::<Session>(contents) {
-        session.tree.rehydrate_runtime_state();
-        crate::debug_log::log_kv(
-            "session.io",
-            &[
-                crate::debug_log::field("phase", "parse_variant"),
-                crate::debug_log::field("variant", "session"),
-                crate::debug_log::field("result", "ok"),
-            ],
-        );
-        return Ok(session);
-    }
-
-    if let Ok(flat) = serde_json::from_str::<FlatSession>(contents) {
-        crate::debug_log::log_kv(
-            "session.io",
-            &[
-                crate::debug_log::field("phase", "parse_variant"),
-                crate::debug_log::field("variant", "flat_session"),
-                crate::debug_log::field("result", "ok"),
-            ],
-        );
-        return Ok(Session {
-            tree: MessageTree::from_messages(flat.messages),
-            model: flat.model,
-            template: flat.template,
-            system_prompt: flat.system_prompt,
-            character: flat.character,
-            worldbooks: flat.worldbooks,
-            persona: None,
-        });
-    }
-
-    if let Ok(legacy) = serde_json::from_str::<LegacySession>(contents) {
-        crate::debug_log::log_kv(
-            "session.io",
-            &[
-                crate::debug_log::field("phase", "parse_variant"),
-                crate::debug_log::field("variant", "legacy_session"),
-                crate::debug_log::field("result", "ok"),
-            ],
-        );
-        return Ok(Session {
-            tree: MessageTree::from_messages(vec![Message::new(Role::User, legacy.prompt_history)]),
-            model: legacy.model,
-            template: legacy.template,
-            system_prompt: None,
-            character: None,
-            worldbooks: Vec::new(),
-            persona: None,
-        });
-    }
-
-    crate::debug_log::log_kv(
-        "session.io",
-        &[
-            crate::debug_log::field("phase", "parse_variant"),
-            crate::debug_log::field("variant", "raw_text_fallback"),
-            crate::debug_log::field("result", "ok"),
-        ],
-    );
-    Ok(Session {
-        tree: MessageTree::from_messages(vec![Message::new(Role::User, contents.to_owned())]),
-        ..Session::default()
-    })
-}
-
-fn session_modified_at(path: &Path) -> std::time::SystemTime {
-    path.metadata()
-        .and_then(|metadata| metadata.modified())
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+pub fn generate_session_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 pub fn now_compact() -> String {
@@ -1142,7 +630,7 @@ pub fn now_compact() -> String {
     format!("{year:04}{month:02}{day:02}-{hours:02}{minutes:02}{seconds:02}")
 }
 
-fn now_iso8601() -> String {
+pub fn now_iso8601() -> String {
     let duration = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -1240,52 +728,16 @@ mod tests {
     }
 
     #[test]
-    fn persists_preferred_branch_choices_across_reload() {
+    fn persists_preferred_branch_choices_via_database() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = crate::db::Database::open(&db_path, None).unwrap();
+
         let (session, ids) = build_branching_session();
-
-        let json = serde_json::to_string(&session).expect("session should serialize");
-        assert!(json.contains("preferred_child"));
-
-        let mut loaded = load_from_str(&json).expect("session should deserialize");
-        loaded.tree.switch_to(ids.branch_parent);
-
-        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
-    }
-
-    #[test]
-    fn seeds_preferred_branch_choices_for_old_sessions() {
-        let (session, ids) = build_branching_session();
-
-        let mut value = serde_json::to_value(&session).expect("session should serialize");
-        value["tree"]
-            .as_object_mut()
-            .expect("tree should be an object")
-            .remove("preferred_child");
-
-        let mut loaded = load_from_str(&value.to_string()).expect("session should deserialize");
-        assert!(!loaded.tree.preferred_child.is_empty());
+        db.insert_session("branch-test", &session).unwrap();
+        let mut loaded = db.load_session("branch-test").unwrap();
 
         loaded.tree.switch_to(ids.branch_parent);
-
-        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
-    }
-
-    #[test]
-    fn repairs_invalid_preferred_branch_choices_on_load() {
-        let (session, ids) = build_branching_session();
-
-        let mut value = serde_json::to_value(&session).expect("session should serialize");
-        value["tree"]["preferred_child"] = json!({"999": 1000, "2": 999});
-
-        let mut loaded = load_from_str(&value.to_string()).expect("session should deserialize");
-        assert!(loaded.tree.preferred_child.iter().all(|(&parent, &child)| {
-            parent < loaded.tree.nodes.len()
-                && child < loaded.tree.nodes.len()
-                && loaded.tree.nodes[parent].children.contains(&child)
-        }));
-
-        loaded.tree.switch_to(ids.branch_parent);
-
         assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
     }
 
@@ -1324,18 +776,21 @@ mod tests {
     }
 
     #[test]
-    fn encrypted_load_rehydrates_preferred_branch_choices() {
-        let (session, ids) = build_branching_session();
-        let path = std::env::temp_dir().join(format!("{}.session", uuid::Uuid::new_v4()));
+    fn encrypted_db_load_rehydrates_preferred_branch_choices() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("encrypted.db");
         let salt = [7u8; 16];
         let key = derive_key("passkey", &salt).expect("key derivation should succeed");
 
-        save_encrypted(&path, &session, &key).expect("session should save");
-        let mut loaded = load_encrypted(&path, &key).expect("session should load");
-        std::fs::remove_file(&path).expect("temp file should be removed");
+        let (session, ids) = build_branching_session();
+        let db = crate::db::Database::open(&db_path, Some(&key)).unwrap();
+        db.insert_session("enc-branch-test", &session).unwrap();
+        drop(db);
+
+        let db = crate::db::Database::open(&db_path, Some(&key)).unwrap();
+        let mut loaded = db.load_session("enc-branch-test").unwrap();
 
         loaded.tree.switch_to(ids.branch_parent);
-
         assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
     }
 }

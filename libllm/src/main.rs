@@ -2,21 +2,18 @@ use libllm_core::character;
 use libllm_core::client;
 use libllm_core::config;
 use libllm_core::crypto;
+use libllm_core::db::Database;
 use libllm_core::debug_log;
-use libllm_core::index;
 use libllm_core::migration;
 use libllm_core::preset;
 use libllm_core::sampling;
 use libllm_core::session;
-use libllm_core::system_prompt;
-use libllm_core::worldinfo;
 
 use libllm::cli;
 use libllm::tui;
 use libllm::update;
 
 use std::io::{self, Read, Write};
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -185,7 +182,7 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode) = debug_log::timed_result(
+    let (mut session, mut save_mode, db) = debug_log::timed_result(
         "startup.phase",
         &[debug_log::field("phase", "resolve_session")],
         || resolve_session(&args),
@@ -194,8 +191,6 @@ async fn main() -> Result<()> {
     session.template = Some(instruct_preset.name.clone());
 
     {
-        let content_key = save_mode.key();
-
         if let Some(ref persona_name) = args.persona {
             session.persona = Some(persona_name.clone());
         } else if session.persona.is_none() && session.tree.head().is_none() {
@@ -205,11 +200,12 @@ async fn main() -> Result<()> {
         if let Some(ref sp) = args.system_prompt {
             session.system_prompt = Some(sp.clone());
         } else if session.system_prompt.is_none() {
-            session.system_prompt = system_prompt::load_prompt_content(
-                &config::system_prompts_dir(),
-                system_prompt::BUILTIN_ASSISTANT,
-                content_key,
-            );
+            if let Some(ref db) = db {
+                session.system_prompt = db
+                    .load_prompt(libllm_core::system_prompt::BUILTIN_ASSISTANT)
+                    .ok()
+                    .map(|p| p.content);
+            }
         }
 
         if let Some(ref char_arg) = args.character {
@@ -219,7 +215,7 @@ async fn main() -> Result<()> {
                     debug_log::field("phase", "resolve_character"),
                     debug_log::field("character", char_arg),
                 ],
-                || resolve_character(char_arg, content_key),
+                || resolve_character(char_arg, db.as_ref()),
             )?;
             session.system_prompt = Some(character::build_system_prompt(
                 &card,
@@ -235,8 +231,8 @@ async fn main() -> Result<()> {
     }
 
     if args.character.is_some() {
-        let char_path = config::sessions_dir().join(session::generate_session_name());
-        save_mode.set_path(char_path);
+        let new_id = session::generate_session_id();
+        save_mode.set_id(new_id);
     }
 
     if let Some(ref message) = args.message {
@@ -249,7 +245,7 @@ async fn main() -> Result<()> {
         };
 
         let effective_prompt =
-            tui::build_effective_system_prompt_standalone(&session, save_mode.key());
+            tui::build_effective_system_prompt_standalone(&session, db.as_ref());
 
         let parent = session.tree.head();
         let user_node = session.tree.push(parent, Message::new(Role::User, text));
@@ -268,12 +264,10 @@ async fn main() -> Result<()> {
             .tree
             .push(Some(user_node), Message::new(Role::Assistant, response));
 
-        session.maybe_save(&save_mode)?;
+        session.maybe_save(&save_mode, db.as_ref())?;
 
-        if let Some(path) = save_mode.path()
-            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-        {
-            eprintln!("Session: {stem}");
+        if let Some(id) = save_mode.id() {
+            eprintln!("Session: {id}");
         }
 
         return Ok(());
@@ -291,6 +285,7 @@ async fn main() -> Result<()> {
         client,
         &mut session,
         save_mode,
+        db,
         instruct_preset,
         sampling,
         cli_overrides,
@@ -345,18 +340,22 @@ fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
     fields
 }
 
-fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
+fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Database>)> {
     if args.message.is_some() && args.data.is_none() {
-        return Ok((session::Session::default(), SaveMode::None));
+        return Ok((session::Session::default(), SaveMode::None, None));
     }
 
-    if args.message.is_some() && args.data.is_some() {
-        return resolve_persistent_single_shot(args);
-    }
+    let db_path = config::data_dir().join("data.db");
 
     if args.no_encrypt {
-        let path = config::sessions_dir().join(session::generate_session_name());
-        return Ok((session::Session::default(), SaveMode::Plaintext(path)));
+        let db = Database::open(&db_path, None)?;
+        db.ensure_builtin_prompts()?;
+        let id = session::generate_session_id();
+        if let Some(ref uuid) = args.continue_session {
+            let session = db.load_session(uuid)?;
+            return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
+        }
+        return Ok((session::Session::default(), SaveMode::Database { id }, Some(db)));
     }
 
     if let Some(ref passkey) = args.passkey {
@@ -366,84 +365,49 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode)> {
         if !valid {
             anyhow::bail!("Wrong passkey.");
         }
-        let key = Arc::new(key);
-        let path = config::sessions_dir().join(session::generate_session_name());
-        return Ok((
-            session::Session::default(),
-            SaveMode::Encrypted { path, key },
-        ));
+        let db = Database::open(&db_path, Some(&key))?;
+        db.ensure_builtin_prompts()?;
+        let id = session::generate_session_id();
+        if let Some(ref uuid) = args.continue_session {
+            let session = db.load_session(uuid)?;
+            return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
+        }
+        return Ok((session::Session::default(), SaveMode::Database { id }, Some(db)));
     }
 
-    let path = config::sessions_dir().join(session::generate_session_name());
-    Ok((session::Session::default(), SaveMode::PendingPasskey(path)))
-}
-
-fn resolve_persistent_single_shot(args: &Args) -> Result<(session::Session, SaveMode)> {
-    let encrypted_key = if let Some(ref passkey) = args.passkey {
-        let salt = crypto::load_or_create_salt(&config::salt_path())?;
-        let key = crypto::derive_key(passkey, &salt)?;
-        let valid = crypto::verify_or_set_key(&config::key_check_path(), &key)?;
-        if !valid {
-            anyhow::bail!("Wrong passkey.");
-        }
-        Some(Arc::new(key))
-    } else {
-        None
-    };
-
-    if let Some(ref uuid) = args.continue_session {
-        let filename = format!("{uuid}.session");
-        let path = config::sessions_dir().join(&filename);
-        if !path.exists() {
-            anyhow::bail!("Session not found: {uuid}");
-        }
-        let session = if let Some(ref key) = encrypted_key {
-            session::load_encrypted(&path, key)?
-        } else {
-            session::load(&path)?
-        };
-        let save_mode = if let Some(key) = encrypted_key {
-            SaveMode::Encrypted { path, key }
-        } else {
-            SaveMode::Plaintext(path)
-        };
-        return Ok((session, save_mode));
-    }
-
-    let path = config::sessions_dir().join(session::generate_session_name());
-    let save_mode = if let Some(key) = encrypted_key {
-        SaveMode::Encrypted { path, key }
-    } else {
-        SaveMode::Plaintext(path)
-    };
-    Ok((session::Session::default(), save_mode))
+    let id = session::generate_session_id();
+    Ok((session::Session::default(), SaveMode::PendingPasskey { id }, None))
 }
 
 fn resolve_character(
     char_arg: &str,
-    key: Option<&crypto::DerivedKey>,
+    db: Option<&Database>,
 ) -> Result<character::CharacterCard> {
     let path = std::path::Path::new(char_arg);
     if path.exists() {
         let card = character::import_card(path)?;
-        character::save_card(&card, &config::characters_dir(), key)?;
+        if let Some(db) = db {
+            let slug = character::slugify(&card.name);
+            db.insert_character(&slug, &card)?;
+        }
         return Ok(card);
     }
 
-    let card_path = character::resolve_card_path(&config::characters_dir(), char_arg);
-    if !card_path.exists() {
-        let report = character::auto_import_png_cards(&config::characters_dir(), key);
-        for warning in report.warnings {
-            eprintln!("{warning}");
+    let slug = character::slugify(char_arg);
+    if let Some(db) = db {
+        if let Ok(card) = db.load_character(&slug) {
+            return Ok(card);
         }
     }
-    let card_path = character::resolve_card_path(&config::characters_dir(), char_arg);
-    character::load_card(&card_path, key)
+
+    anyhow::bail!("Character not found: {char_arg}");
 }
 
-fn resolve_edit_key(args: &Args) -> Result<Option<Arc<crypto::DerivedKey>>> {
+fn resolve_edit_db(args: &Args) -> Result<Database> {
+    let db_path = config::data_dir().join("data.db");
+
     if args.no_encrypt {
-        return Ok(None);
+        return Database::open(&db_path, None);
     }
 
     let passkey = match args.passkey.clone() {
@@ -466,25 +430,21 @@ fn resolve_edit_key(args: &Args) -> Result<Option<Arc<crypto::DerivedKey>>> {
     if !valid {
         anyhow::bail!("Wrong passkey.");
     }
-    Ok(Some(Arc::new(key)))
+    Database::open(&db_path, Some(&key))
 }
 
 fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
-    let key = resolve_edit_key(args)?;
-    let key_ref = key.as_deref();
+    let db = resolve_edit_db(args)?;
 
-    let (json_content, file_path) = match kind {
+    let slug = character::slugify(name);
+    let json_content = match kind {
         "character" | "char" => {
-            let card_path = character::resolve_card_path(&config::characters_dir(), name);
-            let card = character::load_card(&card_path, key_ref)?;
-            let json = serde_json::to_string_pretty(&card)?;
-            (json, card_path)
+            let card = db.load_character(&slug)?;
+            serde_json::to_string_pretty(&card)?
         }
         "worldbook" | "book" | "wb" => {
-            let wb_path = worldinfo::resolve_worldbook_path(&config::worldinfo_dir(), name);
-            let wb = worldinfo::load_worldbook(&wb_path, key_ref)?;
-            let json = serde_json::to_string_pretty(&wb)?;
-            (json, wb_path)
+            let wb = db.load_worldbook(&slug)?;
+            serde_json::to_string_pretty(&wb)?
         }
         _ => anyhow::bail!("Unknown content type: {kind}. Use 'character' or 'worldbook'."),
     };
@@ -520,38 +480,28 @@ fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {
         "character" | "char" => {
             let card: character::CharacterCard = serde_json::from_str(&edited)
                 .map_err(|e| anyhow::anyhow!("Invalid character JSON: {e}"))?;
-            let old_path = file_path;
-            let new_path = character::save_card(&card, &config::characters_dir(), key_ref)?;
-            if new_path != old_path {
-                if old_path.exists() {
-                    std::fs::remove_file(&old_path).context(format!(
-                        "failed to remove old character file: {}",
-                        old_path.display()
-                    ))?;
-                }
-                index::warn_if_save_fails(
-                    index::remove_character(&old_path, key_ref),
-                    "failed to remove character index entry",
-                );
+            let new_slug = character::slugify(&card.name);
+            if new_slug != slug {
+                let _ = db.delete_character(&slug);
+            }
+            if db.load_character(&new_slug).is_ok() {
+                db.update_character(&new_slug, &card)?;
+            } else {
+                db.insert_character(&new_slug, &card)?;
             }
             eprintln!("Saved character: {}", card.name);
         }
         "worldbook" | "book" | "wb" => {
-            let wb: worldinfo::WorldBook = serde_json::from_str(&edited)
+            let wb: libllm_core::worldinfo::WorldBook = serde_json::from_str(&edited)
                 .map_err(|e| anyhow::anyhow!("Invalid worldbook JSON: {e}"))?;
-            let old_path = file_path;
-            let new_path = worldinfo::save_worldbook(&wb, &config::worldinfo_dir(), key_ref)?;
-            if new_path != old_path {
-                if old_path.exists() {
-                    std::fs::remove_file(&old_path).context(format!(
-                        "failed to remove old worldbook file: {}",
-                        old_path.display()
-                    ))?;
-                }
-                index::warn_if_save_fails(
-                    index::remove_worldbook(&old_path, key_ref),
-                    "failed to remove worldbook index entry",
-                );
+            let new_slug = character::slugify(&wb.name);
+            if new_slug != slug {
+                let _ = db.delete_worldbook(&slug);
+            }
+            if db.load_worldbook(&new_slug).is_ok() {
+                db.update_worldbook(&new_slug, &wb)?;
+            } else {
+                db.insert_worldbook(&new_slug, &wb)?;
             }
             eprintln!("Saved worldbook: {}", wb.name);
         }

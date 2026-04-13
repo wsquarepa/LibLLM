@@ -28,7 +28,7 @@ use libllm_core::client::{ApiClient, StreamToken};
 use libllm_core::context::ContextManager;
 use libllm_core::preset::InstructPreset;
 use libllm_core::sampling::SamplingParams;
-use libllm_core::session::{self, Message, NodeId, Role, SaveMode, Session, SessionEntry};
+use libllm_core::session::{Message, NodeId, Role, SaveMode, Session, SessionEntry};
 use libllm_core::worldinfo::RuntimeWorldBook;
 
 use dialogs::FieldDialog;
@@ -102,7 +102,6 @@ struct WorldbookCache {
 #[derive(Clone, Copy)]
 enum SaveTrigger {
     Debounced,
-    Explicit,
     StreamDone,
     Exit,
     Transition,
@@ -114,7 +113,6 @@ impl SaveTrigger {
     fn as_str(self) -> &'static str {
         match self {
             Self::Debounced => "debounced",
-            Self::Explicit => "explicit",
             Self::StreamDone => "stream_done",
             Self::Exit => "exit",
             Self::Transition => "transition",
@@ -135,17 +133,6 @@ struct UnlockDebugState {
     started_at: std::time::Instant,
 }
 
-struct HydrationDebugState {
-    generation: u64,
-    started_at: std::time::Instant,
-    scheduled: usize,
-    completed: usize,
-    failed: usize,
-    stale_dropped: usize,
-    missing_dropped: usize,
-    batch_total: usize,
-    batch_finished: usize,
-}
 
 enum BackgroundEvent {
     KeyDerived(
@@ -155,18 +142,6 @@ enum BackgroundEvent {
     KeyDeriveFailed(String),
     PasskeySet(std::sync::Arc<libllm_core::crypto::DerivedKey>),
     PasskeySetFailed(String),
-    ReEncryptionComplete(Vec<String>),
-    MetadataLoaded {
-        generation: u64,
-        path: std::path::PathBuf,
-        metadata: session::SessionMetadata,
-    },
-    MetadataBatchFinished {
-        generation: u64,
-        loaded_count: usize,
-        failed_count: usize,
-    },
-    MaintenanceFinished(maintenance::MaintenanceUpdate),
     ModelFetched(std::result::Result<String, String>),
 }
 
@@ -193,6 +168,7 @@ struct App<'a> {
     client: ApiClient,
     session: &'a mut Session,
     save_mode: SaveMode,
+    db: Option<libllm_core::db::Database>,
     session_dirty: bool,
     pending_save_deadline: Option<std::time::Instant>,
     pending_save_trigger: Option<SaveTrigger>,
@@ -208,7 +184,6 @@ struct App<'a> {
     auto_scroll: bool,
     last_scroll_state: ScrollState,
     sidebar_sessions: Vec<SessionEntry>,
-    sidebar_hydration_generation: u64,
     sidebar_state: ratatui::widgets::ListState,
     streaming_buffer: String,
     is_streaming: bool,
@@ -221,7 +196,6 @@ struct App<'a> {
     status_message: Option<StatusMessage>,
     should_quit: bool,
     passkey_changed: bool,
-    re_encrypt_old_key: Option<std::sync::Arc<libllm_core::crypto::DerivedKey>>,
     command_picker_selected: usize,
 
     passkey_input: String,
@@ -298,7 +272,6 @@ struct App<'a> {
     hover_node: Option<NodeId>,
     autosave_debug: AutosaveDebugState,
     unlock_debug: Option<UnlockDebugState>,
-    hydration_debug: Option<HydrationDebugState>,
     input_reject_flash: Option<std::time::Instant>,
 }
 
@@ -310,10 +283,7 @@ const AUTOSAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs
 
 impl App<'_> {
     fn can_persist_session(&self) -> bool {
-        matches!(
-            self.save_mode,
-            SaveMode::Plaintext(_) | SaveMode::Encrypted { .. }
-        )
+        matches!(self.save_mode, SaveMode::Database { .. }) && self.db.is_some()
     }
 
     fn tick_reject_flashes(&mut self) -> bool {
@@ -375,10 +345,6 @@ impl App<'_> {
         self.cached_token_count = None;
     }
 
-    fn invalidate_sidebar_cache(&mut self) {
-        self.sidebar_cache = None;
-    }
-
     fn invalidate_worldbook_cache(&mut self) {
         self.worldbook_cache = None;
     }
@@ -435,9 +401,9 @@ impl App<'_> {
             .dirty_since
             .map(|started| started.elapsed().as_secs_f64() * 1000.0);
 
-        let path = self.save_mode.path().map(|path| path.display().to_string());
+        let session_id = self.save_mode.id().map(str::to_owned);
         let start = std::time::Instant::now();
-        let result = self.session.maybe_save(&self.save_mode);
+        let result = self.session.maybe_save(&self.save_mode, self.db.as_ref());
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         match result {
@@ -449,8 +415,8 @@ impl App<'_> {
                     libllm_core::debug_log::field("result", "ok"),
                     libllm_core::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
                 ];
-                if let Some(path) = path.as_deref() {
-                    fields.push(libllm_core::debug_log::field("path", path));
+                if let Some(ref sid) = session_id {
+                    fields.push(libllm_core::debug_log::field("session_id", sid));
                 }
                 if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
                     fields.push(libllm_core::debug_log::field(
@@ -478,8 +444,8 @@ impl App<'_> {
                     libllm_core::debug_log::field("retry_delay_ms", AUTOSAVE_RETRY_DELAY.as_millis()),
                     libllm_core::debug_log::field("error", &err),
                 ];
-                if let Some(path) = path.as_deref() {
-                    fields.push(libllm_core::debug_log::field("path", path));
+                if let Some(ref sid) = session_id {
+                    fields.push(libllm_core::debug_log::field("session_id", sid));
                 }
                 if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
                     fields.push(libllm_core::debug_log::field(
@@ -510,15 +476,16 @@ impl App<'_> {
 
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
-    key: Option<&libllm_core::crypto::DerivedKey>,
+    db: Option<&libllm_core::db::Database>,
 ) -> Option<String> {
-    business::build_effective_system_prompt(session, key)
+    business::build_effective_system_prompt(session, db)
 }
 
 pub async fn run(
     client: ApiClient,
     session: &mut Session,
     save_mode: SaveMode,
+    db: Option<libllm_core::db::Database>,
     instruct_preset: InstructPreset,
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
@@ -526,7 +493,7 @@ pub async fn run(
     let sidebar_sessions = libllm_core::debug_log::timed_kv(
         "startup.phase",
         &[libllm_core::debug_log::field("phase", "sidebar_discovery")],
-        || business::discover_sidebar_sessions(&save_mode),
+        || business::discover_sidebar_sessions(&save_mode, db.as_ref()),
     );
 
     let mut textarea = TextArea::default();
@@ -573,6 +540,7 @@ pub async fn run(
     let mut app = App {
         client,
         session,
+        db,
         focus: if save_mode.needs_passkey() {
             if initial_passkey_setup {
                 Focus::SetPasskeyDialog
@@ -603,7 +571,6 @@ pub async fn run(
             height: 0,
         },
         sidebar_sessions,
-        sidebar_hydration_generation: 0,
         sidebar_state,
         streaming_buffer: String::new(),
         is_streaming: false,
@@ -616,7 +583,6 @@ pub async fn run(
         status_message: None,
         should_quit: false,
         passkey_changed: false,
-        re_encrypt_old_key: None,
         command_picker_selected: 0,
         passkey_input: String::new(),
         passkey_error: String::new(),
@@ -688,7 +654,6 @@ pub async fn run(
             retry_count: 0,
         },
         unlock_debug: None,
-        hydration_debug: None,
         input_reject_flash: None,
     };
 
@@ -706,11 +671,6 @@ pub async fn run(
 
     let mut event_stream = EventStream::new();
 
-    libllm_core::debug_log::timed_kv(
-        "startup.phase",
-        &[libllm_core::debug_log::field("phase", "metadata_schedule")],
-        || commands::spawn_metadata_loading(&mut app),
-    );
 
     let mut frame_tick = tokio::time::interval(STREAM_REDRAW_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -724,7 +684,7 @@ pub async fn run(
     libllm_core::debug_log::timed_kv(
         "startup.phase",
         &[libllm_core::debug_log::field("phase", "maintenance_schedule")],
-        || maintenance::spawn_startup_maintenance(&app.save_mode, &bg_tx),
+        || maintenance::spawn_startup_maintenance(&app.save_mode, &app),
     );
 
     loop {
@@ -1732,15 +1692,20 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                             return None;
                         }
 
-                        let dir = libllm_core::config::personas_dir();
+                        let new_slug = libllm_core::character::slugify(&persona.name);
                         if !file_name.is_empty() && file_name != persona.name {
-                            if let Some(old_path) =
-                                libllm_core::persona::resolve_persona_path(&dir, &file_name)
-                            {
-                                let _ = std::fs::remove_file(&old_path);
+                            let old_slug = libllm_core::character::slugify(&file_name);
+                            if let Some(ref db) = app.db {
+                                let _ = db.delete_persona(&old_slug);
                             }
                         }
-                        match libllm_core::persona::save_persona(&persona, &dir, app.save_mode.key()) {
+                        match app.db.as_ref().map(|db| {
+                            if db.load_persona(&new_slug).is_ok() {
+                                db.update_persona(&new_slug, &persona)
+                            } else {
+                                db.insert_persona(&new_slug, &persona)
+                            }
+                        }).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
                             Ok(_) => {
                                 app.invalidate_chat_cache();
                                 if app.session.persona.as_deref() == Some(&file_name)
@@ -1808,28 +1773,27 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                     app.mark_session_dirty(SaveTrigger::Debounced, false);
 
                     if !original_name.is_empty() {
-                        let dir = libllm_core::config::system_prompts_dir();
-
                         let prompt = libllm_core::system_prompt::SystemPromptFile {
                             name: new_name.clone(),
                             content,
                         };
-                        match libllm_core::system_prompt::save_prompt(&prompt, &dir, app.save_mode.key())
-                        {
-                            Ok(_) => {
-                                if original_name != new_name {
-                                    let old_path = libllm_core::system_prompt::resolve_prompt_path(
-                                        &dir,
-                                        &original_name,
-                                    );
-                                    if old_path.exists() {
-                                        let _ = std::fs::remove_file(&old_path);
-                                    }
-                                }
-                                let prompts =
-                                    libllm_core::system_prompt::list_prompts(&dir, app.save_mode.key());
+                        let new_slug = libllm_core::character::slugify(&new_name);
+                        let save_result = app.db.as_ref().map(|db| {
+                            if original_name != new_name {
+                                let old_slug = libllm_core::character::slugify(&original_name);
+                                let _ = db.delete_prompt(&old_slug);
+                            }
+                            if db.load_prompt(&new_slug).is_ok() {
+                                db.update_prompt(&new_slug, &prompt)
+                            } else {
+                                db.insert_prompt(&new_slug, &prompt, false)
+                            }
+                        }).unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
+                        match save_result {
+                            Ok(()) => {
+                                let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
                                 app.system_prompt_list =
-                                    prompts.into_iter().map(|p| p.name).collect();
+                                    prompts.into_iter().map(|(_, n, _)| n).collect();
                                 app.set_status(
                                     format!("System prompt '{}' saved.", new_name),
                                     StatusLevel::Info,
@@ -1879,72 +1843,35 @@ fn handle_field_dialog_key(key: KeyEvent, app: &mut App, kind: DialogKind) -> Op
                         post_history_instructions: values[7].clone(),
                         alternate_greetings: Vec::new(),
                     };
-                    let old_path = libllm_core::character::resolve_card_path(
-                        &libllm_core::config::characters_dir(),
-                        &app.character_editor_slug,
-                    );
-                    match libllm_core::character::save_card(
-                        &card,
-                        &libllm_core::config::characters_dir(),
-                        app.save_mode.key(),
-                    ) {
-                        Ok(new_path) => {
-                            let mut saved_with_warning = false;
-                            if new_path != old_path {
-                                if old_path.exists() {
-                                    if let Err(err) = std::fs::remove_file(&old_path) {
-                                        saved_with_warning = true;
-                                        app.set_status(
-                                            format!(
-                                                "Saved character but failed to remove old file: {err}"
-                                            ),
-                                            StatusLevel::Warning,
-                                        );
-                                    } else {
-                                        libllm_core::index::warn_if_save_fails(
-                                            libllm_core::index::remove_character(
-                                                &old_path,
-                                                app.save_mode.key(),
-                                            ),
-                                            "failed to remove character index entry",
-                                        );
-                                    }
-                                } else {
-                                    libllm_core::index::warn_if_save_fails(
-                                        libllm_core::index::remove_character(
-                                            &old_path,
-                                            app.save_mode.key(),
-                                        ),
-                                        "failed to remove character index entry",
-                                    );
-                                }
-                            }
-
-                            let cards = libllm_core::character::list_cards(
-                                &libllm_core::config::characters_dir(),
-                                app.save_mode.key(),
-                            );
+                    let old_slug = app.character_editor_slug.clone();
+                    let save_result = app.db.as_ref().map(|db| {
+                        if new_slug != old_slug {
+                            let _ = db.delete_character(&old_slug);
+                        }
+                        if db.load_character(&new_slug).is_ok() {
+                            db.update_character(&new_slug, &card)
+                        } else {
+                            db.insert_character(&new_slug, &card)
+                        }
+                    }).unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
+                    match save_result {
+                        Ok(()) => {
+                            let chars = app.db.as_ref().and_then(|db| db.list_characters().ok()).unwrap_or_default();
                             app.character_names =
-                                cards.iter().map(|entry| entry.name.clone()).collect();
+                                chars.iter().map(|(_, name)| name.clone()).collect();
                             app.character_slugs =
-                                cards.into_iter().map(|entry| entry.slug).collect();
-                            let new_slug = new_path
-                                .file_stem()
-                                .map(|stem| stem.to_string_lossy().to_string())
-                                .unwrap_or_default();
+                                chars.into_iter().map(|(slug, _)| slug).collect();
                             app.character_selected = app
                                 .character_slugs
                                 .iter()
                                 .position(|existing| existing == &new_slug)
                                 .unwrap_or(0)
                                 .min(app.character_slugs.len().saturating_sub(1));
-                            app.character_editor_slug = new_slug;
-                            if !saved_with_warning {
-                                app.set_status(
-                                    format!("Saved character: {}", card.name),
-                                    StatusLevel::Info,
-                                );
-                            }
+                            app.character_editor_slug = new_slug.clone();
+                            app.set_status(
+                                format!("Saved character: {}", card.name),
+                                StatusLevel::Info,
+                            );
                             let is_active =
                                 app.session.character.as_deref().is_some_and(|name| {
                                     libllm_core::character::slugify(name)

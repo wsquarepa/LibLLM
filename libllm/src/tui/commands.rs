@@ -1,6 +1,3 @@
-use std::path::PathBuf;
-use std::time::Instant;
-
 use anyhow::Result;
 use tokio::sync::mpsc;
 
@@ -8,9 +5,7 @@ use libllm_core::client::StreamToken;
 use libllm_core::session::{self, Message, Role, SaveMode};
 
 use super::business::{self, load_config_fields, refresh_sidebar};
-use super::{App, Focus, dialogs, maintenance};
-
-const SIDEBAR_METADATA_WORKERS: usize = 4;
+use super::{App, Focus, dialogs};
 
 fn post_passkey_focus(app: &App) -> Focus {
     if app.model_name.is_none() {
@@ -37,7 +32,7 @@ fn loaded_worldbooks(app: &mut App) -> Vec<libllm_core::worldinfo::RuntimeWorldB
                 libllm_core::debug_log::field("cache", "miss"),
                 libllm_core::debug_log::field("enabled_count", enabled_names.len()),
             ],
-            || super::business::load_runtime_worldbooks(&enabled_names, app.save_mode.key()),
+            || super::business::load_runtime_worldbooks(&enabled_names, app.db.as_ref()),
         );
         app.worldbook_cache = Some(super::WorldbookCache {
             enabled_names,
@@ -56,166 +51,6 @@ fn loaded_worldbooks(app: &mut App) -> Vec<libllm_core::worldinfo::RuntimeWorldB
     }
 
     app.worldbook_cache.as_ref().unwrap().books.clone()
-}
-
-pub(super) fn spawn_metadata_loading(app: &mut App) {
-    let key = match &app.save_mode {
-        SaveMode::Encrypted { key, .. } => key.clone(),
-        _ => return,
-    };
-
-    app.sidebar_hydration_generation = app.sidebar_hydration_generation.wrapping_add(1);
-    let generation = app.sidebar_hydration_generation;
-    let candidate_paths = collect_metadata_loading_paths(&app.sidebar_sessions);
-
-    if candidate_paths.is_empty() {
-        libllm_core::debug_log::log_kv(
-            "sidebar.hydration",
-            &[
-                libllm_core::debug_log::field("phase", "schedule"),
-                libllm_core::debug_log::field("generation", generation),
-                libllm_core::debug_log::field("scheduled", 0),
-                libllm_core::debug_log::field("workers", 0),
-                libllm_core::debug_log::field("result", "skipped"),
-            ],
-        );
-        app.hydration_debug = None;
-        return;
-    }
-
-    let worker_count = candidate_paths.len().min(SIDEBAR_METADATA_WORKERS);
-    let batches = split_metadata_loading_batches(candidate_paths, worker_count);
-    libllm_core::debug_log::log_kv(
-        "sidebar.hydration",
-        &[
-            libllm_core::debug_log::field("phase", "schedule"),
-            libllm_core::debug_log::field("generation", generation),
-            libllm_core::debug_log::field("scheduled", batches.iter().map(Vec::len).sum::<usize>()),
-            libllm_core::debug_log::field("workers", worker_count),
-            libllm_core::debug_log::field("batch_count", batches.len()),
-            libllm_core::debug_log::field("result", "scheduled"),
-        ],
-    );
-    app.hydration_debug = Some(super::HydrationDebugState {
-        generation,
-        started_at: Instant::now(),
-        scheduled: batches.iter().map(Vec::len).sum(),
-        completed: 0,
-        failed: 0,
-        stale_dropped: 0,
-        missing_dropped: 0,
-        batch_total: batches.len(),
-        batch_finished: 0,
-    });
-
-    for (batch_index, batch) in batches.into_iter().enumerate() {
-        let key = key.clone();
-        let tx = app.bg_tx.clone();
-        libllm_core::debug_log::log_kv(
-            "sidebar.hydration",
-            &[
-                libllm_core::debug_log::field("phase", "batch_schedule"),
-                libllm_core::debug_log::field("generation", generation),
-                libllm_core::debug_log::field("batch", batch_index),
-                libllm_core::debug_log::field("batch_size", batch.len()),
-            ],
-        );
-        tokio::spawn(async move {
-            let batch_start = Instant::now();
-            let mut loaded_count = 0usize;
-            let mut failed_count = 0usize;
-            for entry_path in batch {
-                let path_for_event = entry_path.clone();
-                let key = key.clone();
-                let result =
-                    tokio::task::spawn_blocking(move || session::load_metadata(&entry_path, &key))
-                        .await;
-
-                match result {
-                    Ok(Ok(metadata)) => {
-                        loaded_count += 1;
-                        if tx
-                            .send(super::BackgroundEvent::MetadataLoaded {
-                                generation,
-                                path: path_for_event,
-                                metadata,
-                            })
-                            .await
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
-                    Ok(Err(err)) => {
-                        failed_count += 1;
-                        libllm_core::debug_log::log_kv(
-                            "sidebar.hydration",
-                            &[
-                                libllm_core::debug_log::field("phase", "load"),
-                                libllm_core::debug_log::field("generation", generation),
-                                libllm_core::debug_log::field("result", "error"),
-                                libllm_core::debug_log::field("path", path_for_event.display()),
-                                libllm_core::debug_log::field("error", err),
-                            ],
-                        );
-                    }
-                    Err(err) => {
-                        failed_count += 1;
-                        libllm_core::debug_log::log_kv(
-                            "sidebar.hydration",
-                            &[
-                                libllm_core::debug_log::field("phase", "task"),
-                                libllm_core::debug_log::field("generation", generation),
-                                libllm_core::debug_log::field("result", "error"),
-                                libllm_core::debug_log::field("path", path_for_event.display()),
-                                libllm_core::debug_log::field("error", err),
-                            ],
-                        );
-                    }
-                }
-            }
-            libllm_core::debug_log::log_kv(
-                "sidebar.hydration",
-                &[
-                    libllm_core::debug_log::field("phase", "batch_complete"),
-                    libllm_core::debug_log::field("generation", generation),
-                    libllm_core::debug_log::field("batch", batch_index),
-                    libllm_core::debug_log::field("loaded", loaded_count),
-                    libllm_core::debug_log::field("failed", failed_count),
-                    libllm_core::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", batch_start.elapsed().as_secs_f64() * 1000.0),
-                    ),
-                ],
-            );
-            let _ = tx
-                .send(super::BackgroundEvent::MetadataBatchFinished {
-                    generation,
-                    loaded_count,
-                    failed_count,
-                })
-                .await;
-        });
-    }
-}
-
-fn collect_metadata_loading_paths(sessions: &[super::SessionEntry]) -> Vec<PathBuf> {
-    sessions
-        .iter()
-        .filter(|entry| !entry.is_new_chat && entry.message_count.is_none())
-        .map(|entry| entry.path.clone())
-        .collect()
-}
-
-fn split_metadata_loading_batches(paths: Vec<PathBuf>, worker_count: usize) -> Vec<Vec<PathBuf>> {
-    let mut batches = vec![Vec::new(); worker_count];
-    for (index, path) in paths.into_iter().enumerate() {
-        batches[index % worker_count].push(path);
-    }
-    batches
-        .into_iter()
-        .filter(|batch| !batch.is_empty())
-        .collect()
 }
 
 pub(super) fn handle_slash_command(
@@ -270,9 +105,8 @@ fn cmd_clear(app: &mut App) {
     app.invalidate_worldbook_cache();
     app.chat_scroll = 0;
     app.auto_scroll = true;
-    let new_name = session::generate_session_name();
-    let new_path = libllm_core::config::sessions_dir().join(&new_name);
-    app.save_mode.set_path(new_path);
+    let new_id = session::generate_session_id();
+    app.save_mode.set_id(new_id);
     refresh_sidebar(app);
 }
 
@@ -348,7 +182,7 @@ fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
     let effective_prompt =
-        super::business::build_effective_system_prompt(app.session, app.save_mode.key());
+        super::business::build_effective_system_prompt(app.session, app.db.as_ref());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = super::business::inject_loaded_worldbook_entries(
         app.session,
@@ -392,15 +226,14 @@ fn cmd_system(app: &mut App) {
         return;
     }
 
-    let dir = libllm_core::config::system_prompts_dir();
-    let prompts = libllm_core::system_prompt::list_prompts(&dir, app.save_mode.key());
+    let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
     if prompts.is_empty() {
         app.set_status(
             "No system prompts found.".to_owned(),
             super::StatusLevel::Warning,
         );
     } else {
-        app.system_prompt_list = prompts.into_iter().map(|p| p.name).collect();
+        app.system_prompt_list = prompts.into_iter().map(|(_, name, _)| name).collect();
         app.system_prompt_selected = 0;
         app.focus = Focus::SystemPromptDialog;
     }
@@ -472,8 +305,7 @@ fn cmd_branch(app: &mut App) {
 
 fn cmd_persona(app: &mut App) {
     if let Some(ref persona_name) = app.cli_overrides.persona {
-        let dir = libllm_core::config::personas_dir();
-        let pf = libllm_core::persona::load_persona_by_name(&dir, persona_name, app.save_mode.key());
+        let pf = app.db.as_ref().and_then(|db| db.load_persona(persona_name).ok());
         let values = match pf {
             Some(pf) => vec![pf.name, pf.persona],
             None => vec![persona_name.clone(), String::new()],
@@ -486,47 +318,52 @@ fn cmd_persona(app: &mut App) {
         return;
     }
 
-    let personas =
-        libllm_core::persona::list_personas(&libllm_core::config::personas_dir(), app.save_mode.key());
-    app.persona_list = personas.into_iter().map(|p| p.name).collect();
+    let personas = app.db.as_ref().and_then(|db| db.list_personas().ok()).unwrap_or_default();
+    app.persona_list = personas.into_iter().map(|(_, name)| name).collect();
     app.persona_selected = 0;
     app.focus = Focus::PersonaDialog;
 }
 
 fn cmd_worldbook(app: &mut App) {
-    let books =
-        libllm_core::worldinfo::list_worldbooks(&libllm_core::config::worldinfo_dir(), app.save_mode.key());
-    app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+    let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
+    app.worldbook_list = books.into_iter().map(|(_, name)| name).collect();
     app.worldbook_selected = 0;
     app.focus = Focus::WorldbookDialog;
 }
 
 fn cmd_character(app: &mut App) {
-    let cards = libllm_core::character::list_cards(&libllm_core::config::characters_dir(), app.save_mode.key());
-    app.character_names = cards.iter().map(|c| c.name.clone()).collect();
-    app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+    let chars = app.db.as_ref().and_then(|db| db.list_characters().ok()).unwrap_or_default();
+    app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
+    app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
     app.character_selected = 0;
     app.focus = Focus::CharacterDialog;
 }
 
 fn cmd_passkey(app: &mut App) {
     match &app.save_mode {
-        SaveMode::Encrypted { .. } => {
-            app.set_passkey_input.clear();
-            app.set_passkey_confirm.clear();
-            app.set_passkey_active_field = 0;
-            app.set_passkey_error.clear();
-            app.set_passkey_deriving = false;
-            app.set_passkey_is_initial = false;
-            app.focus = Focus::SetPasskeyDialog;
+        SaveMode::Database { .. } => {
+            if app.db.is_some() {
+                app.set_passkey_input.clear();
+                app.set_passkey_confirm.clear();
+                app.set_passkey_active_field = 0;
+                app.set_passkey_error.clear();
+                app.set_passkey_deriving = false;
+                app.set_passkey_is_initial = false;
+                app.focus = Focus::SetPasskeyDialog;
+            } else {
+                app.set_status(
+                    "Database not available.".to_owned(),
+                    super::StatusLevel::Error,
+                );
+            }
         }
-        SaveMode::Plaintext(_) | SaveMode::None => {
+        SaveMode::None => {
             app.set_status(
                 "Encryption is disabled for this session.".to_owned(),
                 super::StatusLevel::Warning,
             );
         }
-        SaveMode::PendingPasskey(_) => {
+        SaveMode::PendingPasskey { .. } => {
             app.set_status(
                 "Please unlock sessions first.".to_owned(),
                 super::StatusLevel::Warning,
@@ -1008,7 +845,7 @@ pub(super) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
     let effective_prompt =
-        super::business::build_effective_system_prompt(app.session, app.save_mode.key());
+        super::business::build_effective_system_prompt(app.session, app.db.as_ref());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = super::business::inject_loaded_worldbook_entries(
         app.session,
@@ -1087,7 +924,7 @@ pub(super) fn handle_stream_token(
 
 pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
     match event {
-        super::BackgroundEvent::KeyDerived(key, path) => {
+        super::BackgroundEvent::KeyDerived(key, db_path) => {
             if let Some(debug) = app.unlock_debug.take() {
                 libllm_core::debug_log::log_kv(
                     "unlock.phase",
@@ -1102,18 +939,30 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
                     ],
                 );
             }
-            app.save_mode = SaveMode::Encrypted {
-                path,
-                key: key.clone(),
-            };
-            if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
-                app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
+            match libllm_core::db::Database::open(&db_path, Some(&key)) {
+                Ok(db) => {
+                    if let Err(e) = db.ensure_builtin_prompts() {
+                        app.set_status(format!("Warning: {e}"), super::StatusLevel::Warning);
+                    }
+                    let id = match &app.save_mode {
+                        SaveMode::PendingPasskey { id } => id.clone(),
+                        _ => session::generate_session_id(),
+                    };
+                    app.db = Some(db);
+                    app.save_mode = SaveMode::Database { id };
+                    if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
+                        app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
+                    }
+                    app.invalidate_worldbook_cache();
+                    app.passkey_deriving = false;
+                    app.focus = post_passkey_focus(app);
+                    refresh_sidebar(app);
+                }
+                Err(err) => {
+                    app.passkey_deriving = false;
+                    app.passkey_error = format!("Failed to open database: {err}");
+                }
             }
-            app.invalidate_worldbook_cache();
-            app.passkey_deriving = false;
-            app.focus = post_passkey_focus(app);
-            refresh_sidebar(app);
-            maintenance::spawn_unlocked_maintenance(key, &app.bg_tx);
         }
         super::BackgroundEvent::KeyDeriveFailed(err) => {
             if let Some(debug) = app.unlock_debug.take() {
@@ -1152,110 +1001,57 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
             app.set_passkey_deriving = false;
             app.invalidate_worldbook_cache();
             if app.set_passkey_is_initial {
-                let path = match &app.save_mode {
-                    SaveMode::PendingPasskey(p) => p.clone(),
-                    _ => libllm_core::config::sessions_dir().join(session::generate_session_name()),
-                };
-                app.save_mode = SaveMode::Encrypted {
-                    path,
-                    key: new_key.clone(),
-                };
-                if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
-                    app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
-                }
-                app.focus = post_passkey_focus(app);
-                refresh_sidebar(app);
-                maintenance::spawn_unlocked_maintenance(new_key, &app.bg_tx);
-            } else {
-                let old_key = match &app.save_mode {
-                    SaveMode::Encrypted { key, .. } => key.clone(),
-                    _ => {
-                        app.set_status(
-                            "No existing key to re-encrypt from.".to_owned(),
-                            super::StatusLevel::Error,
-                        );
-                        return;
-                    }
-                };
-                app.re_encrypt_old_key = Some(old_key.clone());
-                app.save_mode = match &app.save_mode {
-                    SaveMode::Encrypted { path, .. } => SaveMode::Encrypted {
-                        path: path.clone(),
-                        key: new_key.clone(),
-                    },
-                    _ => return,
-                };
-                app.mark_session_dirty(super::SaveTrigger::Explicit, true);
-                match app.flush_session_save(super::SaveTrigger::Explicit) {
-                    Ok(()) => app.discard_pending_session_save(),
-                    Err(err) => {
-                        app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
-                        return;
-                    }
-                }
-                let current_session_path = match &app.save_mode {
-                    SaveMode::Encrypted { path, .. } => Some(path.clone()),
-                    _ => None,
-                };
-                app.focus = Focus::Input;
-                app.set_status(
-                    "Re-encrypting files...".to_owned(),
-                    super::StatusLevel::Info,
-                );
-
-                let bg_tx = app.bg_tx.clone();
-                tokio::spawn(async move {
-                    let warnings = match tokio::task::spawn_blocking(move || {
-                        let mut warnings = Vec::new();
-                        warnings.extend(libllm_core::crypto::re_encrypt_directory_excluding(
-                            &libllm_core::config::sessions_dir(),
-                            &["session"],
-                            &old_key,
-                            &new_key,
-                            current_session_path.as_deref(),
-                        ));
-                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
-                            &libllm_core::config::characters_dir(),
-                            &["character"],
-                            &old_key,
-                            &new_key,
-                        ));
-                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
-                            &libllm_core::config::worldinfo_dir(),
-                            &["worldbook"],
-                            &old_key,
-                            &new_key,
-                        ));
-                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
-                            &libllm_core::config::system_prompts_dir(),
-                            &["prompt"],
-                            &old_key,
-                            &new_key,
-                        ));
-                        warnings.extend(libllm_core::crypto::re_encrypt_directory(
-                            &libllm_core::config::personas_dir(),
-                            &["persona"],
-                            &old_key,
-                            &new_key,
-                        ));
-                        if let Err(e) = libllm_core::crypto::re_encrypt_file(
-                            &libllm_core::config::index_path(),
-                            &old_key,
-                            &new_key,
-                        ) {
-                            warnings.push(format!("index.meta: {e}"));
+                let db_path = libllm_core::config::data_dir().join("data.db");
+                match libllm_core::db::Database::open(&db_path, Some(&new_key)) {
+                    Ok(db) => {
+                        if let Err(e) = db.ensure_builtin_prompts() {
+                            app.set_status(format!("Warning: {e}"), super::StatusLevel::Warning);
                         }
-                        warnings
-                    })
-                    .await
-                    {
-                        Ok(warnings) => warnings,
-                        Err(err) => vec![format!("re-encryption task failed: {err}")],
-                    };
-                    let _ = bg_tx
-                        .send(super::BackgroundEvent::ReEncryptionComplete(warnings))
-                        .await;
-                });
+                        let id = match &app.save_mode {
+                            SaveMode::PendingPasskey { id } => id.clone(),
+                            _ => session::generate_session_id(),
+                        };
+                        app.db = Some(db);
+                        app.save_mode = SaveMode::Database { id };
+                        if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
+                            app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
+                        }
+                        app.focus = post_passkey_focus(app);
+                        refresh_sidebar(app);
+                    }
+                    Err(err) => {
+                        app.set_status(format!("Failed to create database: {err}"), super::StatusLevel::Error);
+                    }
+                }
+            } else {
+                if let Some(ref db) = app.db {
+                    match db.rekey(&new_key) {
+                        Ok(()) => {
+                            let check_path = libllm_core::config::key_check_path();
+                            if let Err(err) = libllm_core::crypto::set_key_fingerprint(&check_path, &new_key) {
+                                app.set_status(
+                                    format!("Failed to update key fingerprint: {err}"),
+                                    super::StatusLevel::Error,
+                                );
+                                return;
+                            }
+                            app.passkey_changed = true;
+                            app.should_quit = true;
+                        }
+                        Err(err) => {
+                            app.set_status(
+                                format!("Failed to change passkey: {err}"),
+                                super::StatusLevel::Error,
+                            );
+                        }
+                    }
+                } else {
+                    app.set_status(
+                        "No database available for rekey.".to_owned(),
+                        super::StatusLevel::Error,
+                    );
+                }
+                app.focus = Focus::Input;
             }
         }
         super::BackgroundEvent::PasskeySetFailed(err) => {
@@ -1276,141 +1072,6 @@ pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut A
             }
             app.set_passkey_deriving = false;
             app.set_passkey_error = format!("Failed: {err}");
-        }
-        super::BackgroundEvent::ReEncryptionComplete(warnings) => {
-            if warnings.is_empty() {
-                let check_path = libllm_core::config::key_check_path();
-                if let SaveMode::Encrypted { key, .. } = &app.save_mode {
-                    if let Err(err) = libllm_core::crypto::set_key_fingerprint(&check_path, key) {
-                        app.set_status(
-                            format!("Failed to update key fingerprint: {err}"),
-                            super::StatusLevel::Error,
-                        );
-                        return;
-                    }
-                }
-                app.re_encrypt_old_key = None;
-                app.passkey_changed = true;
-                app.should_quit = true;
-            } else {
-                if let Some(old_key) = app.re_encrypt_old_key.take() {
-                    app.save_mode = match &app.save_mode {
-                        SaveMode::Encrypted { path, .. } => SaveMode::Encrypted {
-                            path: path.clone(),
-                            key: old_key,
-                        },
-                        other => other.clone(),
-                    };
-                }
-                for warning in &warnings {
-                    app.set_status(warning.clone(), super::StatusLevel::Error);
-                }
-                app.set_status(
-                    format!(
-                        "Re-encryption failed for {} file(s). Passkey NOT changed.",
-                        warnings.len()
-                    ),
-                    super::StatusLevel::Error,
-                );
-            }
-        }
-        super::BackgroundEvent::MetadataLoaded {
-            generation,
-            path,
-            metadata,
-        } => {
-            if generation != app.sidebar_hydration_generation {
-                if let Some(debug) = app.hydration_debug.as_mut() {
-                    if debug.generation == generation {
-                        debug.stale_dropped += 1;
-                    }
-                }
-                libllm_core::debug_log::log_kv(
-                    "sidebar.hydration",
-                    &[
-                        libllm_core::debug_log::field("phase", "apply"),
-                        libllm_core::debug_log::field("result", "stale_drop"),
-                        libllm_core::debug_log::field("generation", generation),
-                        libllm_core::debug_log::field(
-                            "current_generation",
-                            app.sidebar_hydration_generation,
-                        ),
-                        libllm_core::debug_log::field("path", path.display()),
-                    ],
-                );
-                return;
-            }
-
-            let Some(entry) = app.sidebar_sessions.iter_mut().find(|e| e.path == path) else {
-                if let Some(debug) = app.hydration_debug.as_mut() {
-                    if debug.generation == generation {
-                        debug.missing_dropped += 1;
-                    }
-                }
-                libllm_core::debug_log::log_kv(
-                    "sidebar.hydration",
-                    &[
-                        libllm_core::debug_log::field("phase", "apply"),
-                        libllm_core::debug_log::field("result", "missing_drop"),
-                        libllm_core::debug_log::field("generation", generation),
-                        libllm_core::debug_log::field("path", path.display()),
-                    ],
-                );
-                return;
-            };
-
-            if let Some(character) = &metadata.character {
-                entry.display_name = character.clone();
-            }
-            entry.message_count = Some(metadata.message_count);
-            entry.last_assistant_preview = metadata.last_assistant_preview.clone();
-
-            session::persist_loaded_metadata_index(
-                &path,
-                &metadata,
-                libllm_core::index::SessionStorageMode::Encrypted,
-                app.save_mode.key(),
-            );
-            super::business::prepare_sidebar_entries(&mut app.sidebar_sessions);
-            app.invalidate_sidebar_cache();
-        }
-        super::BackgroundEvent::MetadataBatchFinished {
-            generation: _generation,
-            loaded_count: _loaded_count,
-            failed_count: _failed_count,
-        } => {
-            if let Some(debug) = app.hydration_debug.as_mut() {
-                if debug.generation == _generation {
-                    debug.completed += _loaded_count;
-                    debug.failed += _failed_count;
-                    debug.batch_finished += 1;
-                    if debug.batch_finished == debug.batch_total {
-                        libllm_core::debug_log::log_kv(
-                            "sidebar.hydration",
-                            &[
-                                libllm_core::debug_log::field("phase", "complete"),
-                                libllm_core::debug_log::field("generation", debug.generation),
-                                libllm_core::debug_log::field("scheduled", debug.scheduled),
-                                libllm_core::debug_log::field("loaded", debug.completed),
-                                libllm_core::debug_log::field("failed", debug.failed),
-                                libllm_core::debug_log::field("stale_dropped", debug.stale_dropped),
-                                libllm_core::debug_log::field("missing_dropped", debug.missing_dropped),
-                                libllm_core::debug_log::field(
-                                    "elapsed_ms",
-                                    format!(
-                                        "{:.3}",
-                                        debug.started_at.elapsed().as_secs_f64() * 1000.0
-                                    ),
-                                ),
-                            ],
-                        );
-                        app.hydration_debug = None;
-                    }
-                }
-            }
-        }
-        super::BackgroundEvent::MaintenanceFinished(update) => {
-            maintenance::handle_finished(update, app);
         }
         super::BackgroundEvent::ModelFetched(Ok(name)) => {
             app.model_name = Some(name);

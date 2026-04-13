@@ -76,10 +76,9 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 return None;
             }
             let slug = app.character_slugs[app.character_selected].clone();
-            let card_path =
-                libllm_core::character::resolve_card_path(&libllm_core::config::characters_dir(), &slug);
-            match libllm_core::character::load_card(&card_path, app.save_mode.key()) {
-                Ok(card) => {
+            let load_result = app.db.as_ref().and_then(|db| db.load_character(&slug).ok());
+            match load_result {
+                Some(card) => {
                     app.discard_pending_session_save();
                     app.session.tree.clear();
                     app.session.worldbooks.clear();
@@ -98,9 +97,8 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     }
                     app.chat_scroll = 0;
                     app.auto_scroll = true;
-                    let new_path =
-                        libllm_core::config::sessions_dir().join(session::generate_session_name());
-                    app.save_mode.set_path(new_path);
+                    let new_id = session::generate_session_id();
+                    app.save_mode.set_id(new_id);
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
                     app.set_status(
                         format!("Loaded character: {}", card.name),
@@ -109,18 +107,16 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.focus = Focus::Input;
                     refresh_sidebar(app);
                 }
-                Err(e) => {
-                    app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
+                None => {
+                    app.set_status("Character not found.".to_owned(), super::super::StatusLevel::Error);
                     app.focus = Focus::Input;
                 }
             }
         }
         KeyCode::Right => {
             let slug = app.character_slugs[app.character_selected].clone();
-            let card_path =
-                libllm_core::character::resolve_card_path(&libllm_core::config::characters_dir(), &slug);
-            match libllm_core::character::load_card(&card_path, app.save_mode.key()) {
-                Ok(card) => {
+            match app.db.as_ref().and_then(|db| db.load_character(&slug).ok()) {
+                Some(card) => {
                     let values = vec![
                         card.name,
                         card.description,
@@ -135,8 +131,8 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.character_editor_slug = slug;
                     app.focus = Focus::CharacterEditorDialog;
                 }
-                Err(e) => {
-                    app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
+                None => {
+                    app.set_status("Character not found.".to_owned(), super::super::StatusLevel::Error);
                 }
             }
         }
@@ -160,7 +156,6 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
 }
 
 fn create_and_edit_character(app: &mut App) {
-    let dir = libllm_core::config::characters_dir();
     let existing: std::collections::HashSet<String> = app.character_names.iter().cloned().collect();
     let new_name = super::generate_unique_name("character", &existing);
     let card = libllm_core::character::CharacterCard {
@@ -174,14 +169,14 @@ fn create_and_edit_character(app: &mut App) {
         post_history_instructions: String::new(),
         alternate_greetings: Vec::new(),
     };
-    if let Err(e) = libllm_core::character::save_card(&card, &dir, app.save_mode.key()) {
+    let slug = libllm_core::character::slugify(&new_name);
+    if let Err(e) = app.db.as_ref().map(|db| db.insert_character(&slug, &card)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
         app.set_status(
             format!("Failed to create character: {e}"),
             super::super::StatusLevel::Error,
         );
         return;
     }
-    let slug = libllm_core::character::slugify(&new_name);
     app.character_names.push(new_name);
     app.character_slugs.push(slug.clone());
     app.character_selected = app.character_names.len() - 1;
@@ -228,18 +223,12 @@ pub(in crate::tui) fn handle_character_paste(
                 return true;
             }
             let name = card.name.clone();
-            match libllm_core::character::save_card(
-                &card,
-                &libllm_core::config::characters_dir(),
-                app.save_mode.key(),
-            ) {
-                Ok(_) => {
-                    let cards = libllm_core::character::list_cards(
-                        &libllm_core::config::characters_dir(),
-                        app.save_mode.key(),
-                    );
-                    app.character_names = cards.iter().map(|c| c.name.clone()).collect();
-                    app.character_slugs = cards.into_iter().map(|c| c.slug).collect();
+            let slug = libllm_core::character::slugify(&name);
+            match app.db.as_ref().map(|db| db.insert_character(&slug, &card)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+                Ok(()) => {
+                    let chars = app.db.as_ref().and_then(|db| db.list_characters().ok()).unwrap_or_default();
+                    app.character_names = chars.iter().map(|(_, n)| n.clone()).collect();
+                    app.character_slugs = chars.into_iter().map(|(s, _)| s).collect();
                     app.character_selected = 0;
                     app.set_status(
                         format!("Imported character: {name}"),

@@ -127,10 +127,9 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         }
         KeyCode::Right => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
-            let wb_path =
-                libllm_core::worldinfo::resolve_worldbook_path(&libllm_core::config::worldinfo_dir(), &name);
-            match libllm_core::worldinfo::load_worldbook(&wb_path, app.save_mode.key()) {
-                Ok(wb) => {
+            let slug = libllm_core::character::slugify(&name);
+            match app.db.as_ref().and_then(|db| db.load_worldbook(&slug).ok()) {
+                Some(wb) => {
                     app.worldbook_editor_original_name = wb.name.clone();
                     app.worldbook_editor_original_entries = wb.entries.clone();
                     app.worldbook_editor_entries = wb.entries;
@@ -140,8 +139,8 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.worldbook_editor_selected = 0;
                     app.focus = Focus::WorldbookEditorDialog;
                 }
-                Err(e) => {
-                    app.set_status(format!("Error: {e}"), super::super::StatusLevel::Error);
+                None => {
+                    app.set_status("Worldbook not found.".to_owned(), super::super::StatusLevel::Error);
                 }
             }
         }
@@ -362,9 +361,8 @@ fn create_and_edit_worldbook(app: &mut App) {
         name: new_name.clone(),
         entries: Vec::new(),
     };
-    if let Err(e) =
-        libllm_core::worldinfo::save_worldbook(&wb, &libllm_core::config::worldinfo_dir(), app.save_mode.key())
-    {
+    let slug = libllm_core::character::slugify(&new_name);
+    if let Err(e) = app.db.as_ref().map(|db| db.insert_worldbook(&slug, &wb)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
         app.set_status(
             format!("Failed to create worldbook: {e}"),
             super::super::StatusLevel::Error,
@@ -502,21 +500,27 @@ fn save_worldbook_editor(app: &mut App) {
         name: new_name.clone(),
         entries: app.worldbook_editor_entries.clone(),
     };
-    match libllm_core::worldinfo::save_worldbook(
-        &wb,
-        &libllm_core::config::worldinfo_dir(),
-        app.save_mode.key(),
-    ) {
-        Ok(_) => {
+    let slug = libllm_core::character::slugify(&new_name);
+    let old_slug = libllm_core::character::slugify(&original);
+    let save_result = if !original.is_empty() && original != new_name {
+        let db = app.db.as_ref();
+        let r = db.map(|db| {
+            let _ = db.delete_worldbook(&old_slug);
+            db.insert_worldbook(&slug, &wb)
+        }).unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
+        r
+    } else {
+        app.db.as_ref().map(|db| {
+            if db.load_worldbook(&slug).is_ok() {
+                db.update_worldbook(&slug, &wb)
+            } else {
+                db.insert_worldbook(&slug, &wb)
+            }
+        }).unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+    };
+    match save_result {
+        Ok(()) => {
             if !original.is_empty() && original != new_name {
-                let old_path = libllm_core::worldinfo::resolve_worldbook_path(
-                    &libllm_core::config::worldinfo_dir(),
-                    &original,
-                );
-                if old_path.exists() {
-                    let _ = std::fs::remove_file(&old_path);
-                }
-
                 if let Some(pos) = app.session.worldbooks.iter().position(|n| n == &original) {
                     app.session.worldbooks[pos] = new_name.clone();
                 }
@@ -526,11 +530,8 @@ fn save_worldbook_editor(app: &mut App) {
                 }
             }
             app.invalidate_worldbook_cache();
-            let books = libllm_core::worldinfo::list_worldbooks(
-                &libllm_core::config::worldinfo_dir(),
-                app.save_mode.key(),
-            );
-            app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+            let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
+            app.worldbook_list = books.into_iter().map(|(_, n)| n).collect();
             app.worldbook_selected = app
                 .worldbook_list
                 .iter()
@@ -575,17 +576,11 @@ pub(in crate::tui) fn handle_worldbook_paste(
                 return true;
             }
             let name = wb.name.clone();
-            match libllm_core::worldinfo::save_worldbook(
-                &wb,
-                &libllm_core::config::worldinfo_dir(),
-                app.save_mode.key(),
-            ) {
-                Ok(_) => {
-                    let books = libllm_core::worldinfo::list_worldbooks(
-                        &libllm_core::config::worldinfo_dir(),
-                        app.save_mode.key(),
-                    );
-                    app.worldbook_list = books.into_iter().map(|b| b.name).collect();
+            let slug = libllm_core::character::slugify(&name);
+            match app.db.as_ref().map(|db| db.insert_worldbook(&slug, &wb)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+                Ok(()) => {
+                    let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
+                    app.worldbook_list = books.into_iter().map(|(_, n)| n).collect();
                     app.worldbook_selected = 0;
                     app.invalidate_worldbook_cache();
                     app.set_status(

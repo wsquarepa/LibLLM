@@ -151,21 +151,18 @@ fn delete_selected_session(app: &mut App) {
         return;
     }
 
-    let path = entry.path.clone();
-    let filename = entry.filename.clone();
-    let is_current = app.save_mode.path().is_some_and(|p| p == path);
+    let session_id = entry.id.clone();
+    let is_current = app.save_mode.id() == Some(session_id.as_str());
 
-    if let Err(e) = std::fs::remove_file(&path) {
-        app.set_status(
-            format!("Error deleting: {e}"),
-            super::super::StatusLevel::Error,
-        );
-        return;
+    if let Some(ref db) = app.db {
+        if let Err(e) = db.delete_session(&session_id) {
+            app.set_status(
+                format!("Error deleting: {e}"),
+                super::super::StatusLevel::Error,
+            );
+            return;
+        }
     }
-    libllm_core::index::warn_if_save_fails(
-        libllm_core::index::remove_session(&path, app.save_mode.key()),
-        "failed to remove session index entry",
-    );
 
     if is_current {
         app.discard_pending_session_save();
@@ -175,31 +172,27 @@ fn delete_selected_session(app: &mut App) {
         business::load_active_persona(app);
         app.chat_scroll = 0;
         app.auto_scroll = true;
-        let new_path = libllm_core::config::sessions_dir().join(libllm_core::session::generate_session_name());
-        app.save_mode.set_path(new_path);
+        let new_id = libllm_core::session::generate_session_id();
+        app.save_mode.set_id(new_id);
     }
 
     business::refresh_sidebar(app);
     app.set_status(
-        format!("Deleted: {filename}"),
+        format!("Deleted: {session_id}"),
         super::super::StatusLevel::Info,
     );
 }
 
 fn delete_character(app: &mut App, slug: &str) {
-    let path = libllm_core::character::resolve_card_path(&libllm_core::config::characters_dir(), slug);
-
-    if let Err(e) = std::fs::remove_file(&path) {
-        app.set_status(
-            format!("Error deleting character: {e}"),
-            super::super::StatusLevel::Error,
-        );
-        return;
+    if let Some(ref db) = app.db {
+        if let Err(e) = db.delete_character(slug) {
+            app.set_status(
+                format!("Error deleting character: {e}"),
+                super::super::StatusLevel::Error,
+            );
+            return;
+        }
     }
-    libllm_core::index::warn_if_save_fails(
-        libllm_core::index::remove_character(&path, app.save_mode.key()),
-        "failed to remove character index entry",
-    );
 
     maintenance::reload_character_picker(app);
     app.set_status(
@@ -209,21 +202,15 @@ fn delete_character(app: &mut App, slug: &str) {
 }
 
 fn delete_persona(app: &mut App, name: &str) {
-    let Some(path) = libllm_core::persona::resolve_persona_path(&libllm_core::config::personas_dir(), name)
-    else {
-        app.set_status(
-            "Error deleting persona: invalid persona name.".to_owned(),
-            super::super::StatusLevel::Error,
-        );
-        return;
-    };
-
-    if let Err(e) = std::fs::remove_file(&path) {
-        app.set_status(
-            format!("Error deleting persona: {e}"),
-            super::super::StatusLevel::Error,
-        );
-        return;
+    let slug = libllm_core::character::slugify(name);
+    if let Some(ref db) = app.db {
+        if let Err(e) = db.delete_persona(&slug) {
+            app.set_status(
+                format!("Error deleting persona: {e}"),
+                super::super::StatusLevel::Error,
+            );
+            return;
+        }
     }
 
     if app.session.persona.as_deref() == Some(name) {
@@ -241,15 +228,15 @@ fn delete_persona(app: &mut App, name: &str) {
 }
 
 fn delete_system_prompt(app: &mut App, name: &str) {
-    let path =
-        libllm_core::system_prompt::resolve_prompt_path(&libllm_core::config::system_prompts_dir(), name);
-
-    if let Err(e) = std::fs::remove_file(&path) {
-        app.set_status(
-            format!("Error deleting prompt: {e}"),
-            super::super::StatusLevel::Error,
-        );
-        return;
+    let slug = libllm_core::character::slugify(name);
+    if let Some(ref db) = app.db {
+        if let Err(e) = db.delete_prompt(&slug) {
+            app.set_status(
+                format!("Error deleting prompt: {e}"),
+                super::super::StatusLevel::Error,
+            );
+            return;
+        }
     }
 
     maintenance::reload_system_prompt_picker(app);
@@ -260,19 +247,16 @@ fn delete_system_prompt(app: &mut App, name: &str) {
 }
 
 fn delete_worldbook(app: &mut App, name: &str) {
-    let path = libllm_core::worldinfo::resolve_worldbook_path(&libllm_core::config::worldinfo_dir(), name);
-
-    if let Err(e) = std::fs::remove_file(&path) {
-        app.set_status(
-            format!("Error deleting worldbook: {e}"),
-            super::super::StatusLevel::Error,
-        );
-        return;
+    let slug = libllm_core::character::slugify(name);
+    if let Some(ref db) = app.db {
+        if let Err(e) = db.delete_worldbook(&slug) {
+            app.set_status(
+                format!("Error deleting worldbook: {e}"),
+                super::super::StatusLevel::Error,
+            );
+            return;
+        }
     }
-    libllm_core::index::warn_if_save_fails(
-        libllm_core::index::remove_worldbook(&path, app.save_mode.key()),
-        "failed to remove worldbook index entry",
-    );
 
     app.config.worldbooks.retain(|n| n != name);
     app.session.worldbooks.retain(|n| n != name);

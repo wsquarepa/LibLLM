@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
 
     {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
-        if !matches!(CHANNEL, "stable" | "preview" | "nightly") && args.data.is_none() {
+        if CHANNEL == "unknown" && args.data.is_none() {
             use crossterm::execute;
             use crossterm::style::{
                 Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor,
@@ -146,8 +146,8 @@ async fn main() -> Result<()> {
         return handle_edit_command(kind, name, &args);
     }
 
-    if let Some(cli::Command::Update { nightly }) = &args.command {
-        return update::run(*nightly).await;
+    if let Some(cli::Command::Update { branch, list, yes }) = &args.command {
+        return update::run(branch.clone(), *list, *yes).await;
     }
 
     let cfg = crate::debug_log::timed_kv(

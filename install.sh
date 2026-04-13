@@ -10,6 +10,7 @@ main() {
         exec "$BINARY_NAME" update
     fi
 
+    detect_fetcher
     select_channel
     detect_platform
     resolve_install_dir
@@ -21,16 +22,59 @@ main() {
 select_channel() {
     printf "Select release channel:\n"
     printf "  1) stable  - latest stable release\n"
-    printf "  2) nightly - latest development build\n"
+    printf "  2) branch  - pick a development branch\n"
 
     while true; do
         printf "Choice [1/2]: "
         read -r choice
         case "$choice" in
             1) CHANNEL="stable"; break ;;
-            2) CHANNEL="nightly"; break ;;
+            2) select_branch; break ;;
             *) printf "Invalid choice. Enter 1 or 2.\n" ;;
         esac
+    done
+}
+
+select_branch() {
+    AUTH=$(auth_header)
+
+    RELEASES_JSON=$(mktemp)
+    trap 'rm -f "$RELEASES_JSON"' EXIT
+
+    API_URL="https://api.github.com/repos/${REPO}/releases?per_page=100"
+    if [ "$FETCHER" = "curl" ]; then
+        curl -sL ${AUTH:+-H "$AUTH"} -o "$RELEASES_JSON" "$API_URL"
+    else
+        wget -q ${AUTH:+--header="$AUTH"} -O "$RELEASES_JSON" "$API_URL"
+    fi
+
+    BRANCHES=$(grep -o '"tag_name": *"[^"]*"' "$RELEASES_JSON" \
+        | sed 's/"tag_name": *"//;s/"//' \
+        | grep -v '^stable$')
+    rm -f "$RELEASES_JSON"
+
+    if [ -z "$BRANCHES" ]; then
+        printf "No branch builds available. Falling back to stable.\n"
+        CHANNEL="stable"
+        return
+    fi
+
+    printf "\nAvailable branches:\n"
+    i=1
+    for b in $BRANCHES; do
+        printf "  %d) %s\n" "$i" "$b"
+        i=$((i + 1))
+    done
+
+    while true; do
+        printf "Select branch number: "
+        read -r num
+        SELECTED=$(echo "$BRANCHES" | sed -n "${num}p")
+        if [ -n "$SELECTED" ]; then
+            CHANNEL="$SELECTED"
+            break
+        fi
+        printf "Invalid selection.\n"
     done
 }
 
@@ -73,13 +117,7 @@ auth_header() {
     fi
 }
 
-download_binary() {
-    if [ "$CHANNEL" = "stable" ]; then
-        API_URL="https://api.github.com/repos/${REPO}/releases/latest"
-    else
-        API_URL="https://api.github.com/repos/${REPO}/releases/tags/preview"
-    fi
-
+detect_fetcher() {
     if command -v curl >/dev/null 2>&1; then
         FETCHER="curl"
     elif command -v wget >/dev/null 2>&1; then
@@ -87,6 +125,14 @@ download_binary() {
     else
         echo "Error: curl or wget is required." >&2
         exit 1
+    fi
+}
+
+download_binary() {
+    if [ "$CHANNEL" = "stable" ]; then
+        API_URL="https://api.github.com/repos/${REPO}/releases/tags/stable"
+    else
+        API_URL="https://api.github.com/repos/${REPO}/releases/tags/${CHANNEL}"
     fi
 
     AUTH=$(auth_header)

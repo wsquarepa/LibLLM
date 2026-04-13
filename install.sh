@@ -26,7 +26,7 @@ select_channel() {
 
     while true; do
         printf "Choice [1/2]: "
-        read -r choice
+        read -r choice < /dev/tty
         case "$choice" in
             1) CHANNEL="stable"; break ;;
             2) select_branch; break ;;
@@ -68,7 +68,7 @@ select_branch() {
 
     while true; do
         printf "Select branch number: "
-        read -r num
+        read -r num < /dev/tty
         SELECTED=$(echo "$BRANCHES" | sed -n "${num}p")
         if [ -n "$SELECTED" ]; then
             CHANNEL="$SELECTED"

@@ -22,10 +22,10 @@ Built for power users who run local models and want a fast, private chat interfa
 
 ## Table of contents
 
+- [Installation](#installation)
 - [Quickstart](#quickstart)
 - [Concepts](#concepts)
 - [Common workflows](#common-workflows)
-- [Installation](#installation)
 - [CLI reference](#cli-reference)
 - [TUI keyboard shortcuts](#tui-keyboard-shortcuts)
 - [TUI commands](#tui-commands)
@@ -36,13 +36,35 @@ Built for power users who run local models and want a fast, private chat interfa
 - [Contributing](#contributing)
 - [License](#license)
 
-## Quickstart
+## Installation
 
-**Prerequisites:** a running llama.cpp-compatible API server. LibLLM expects an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
+### Quick install (Linux / macOS)
 
-**1. Install**
+```sh
+curl -fsSL https://raw.githubusercontent.com/wsquarepa/LibLLM/master/install.sh | sh
+```
 
-Download a pre-built binary from the [preview release](../../releases/tag/preview) (Linux, macOS, Windows). Or build from source:
+This downloads the latest preview binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
+
+### Update
+
+```sh
+libllm update
+```
+
+Use `--nightly` to switch to the nightly build channel for cutting-edge features.
+
+Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
+
+### From preview release (recommended)
+
+Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [preview release](../../releases/tag/preview).
+
+There are no stable releases yet. Preview is the recommended install method.
+
+### From source
+
+Requires [Rust](https://rustup.rs/) (stable toolchain).
 
 ```sh
 git clone https://github.com/wsquarepa/LibLLM.git
@@ -51,7 +73,11 @@ cargo build --release
 # binary is at target/release/libllm
 ```
 
-**2. Launch**
+## Quickstart
+
+**Prerequisites:** a running llama.cpp-compatible API server. LibLLM expects an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
+
+**1. Launch**
 
 ```sh
 libllm
@@ -59,7 +85,7 @@ libllm
 
 On first launch, LibLLM prompts you to set an encryption passkey. This passkey protects all your saved sessions, character cards, and worldbooks. You must set a passkey to continue (or use `--data -d <path> --no-encrypt` to opt out).
 
-**3. Chat**
+**2. Chat**
 
 Type a message and press Enter. The response streams in real-time. Your session is auto-saved after each exchange.
 
@@ -75,7 +101,7 @@ export LIBLLM_API_URL=http://localhost:8080/v1
 
 ### Conversation branching
 
-Messages in LibLLM form a tree, not a flat list. When you use `/retry` to regenerate a response or `/edit` to rewrite a message, the new version becomes a sibling branch of the original. You can navigate between branches with Alt+Left/Right, and branch indicators like `[1/3]` appear at fork points.
+Messages in LibLLM form a tree, not a flat list. When you use `/retry` to regenerate a response or navigate to a message and edit it, the new version becomes a sibling branch of the original. You can navigate between branches with Alt+Left/Right, and branch indicators like `[1/3]` appear at fork points.
 
 This means you never lose a previous response -- you can always switch back to an earlier branch.
 
@@ -161,7 +187,8 @@ The `-r` flag forcibly overrides the system prompt regardless of session or conf
 ### Switch branches during a conversation
 
 - `/retry` to regenerate the last response (creates a new branch)
-- `/edit` to rewrite a previous message (creates a new branch)
+- `/continue` to continue the last assistant response
+- Up arrow (with empty input) to navigate to a previous message, then Enter to edit it (creates a new branch)
 - Alt+Left / Alt+Right to switch between sibling branches
 - `/branch` to browse all branches at the current position
 
@@ -181,41 +208,6 @@ LIBLLM_PASSKEY=mypasskey libllm -d ./data
 libllm -d ./data --passkey mypasskey
 ```
 
-## Installation
-
-### Quick install (Linux / macOS)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/wsquarepa/LibLLM/master/install.sh | sh
-```
-
-This downloads the latest preview binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
-
-### Update
-
-```sh
-libllm update
-```
-
-Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
-
-### From preview release (recommended)
-
-Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are published on every push to `master` as a [preview release](../../releases/tag/preview).
-
-There are no stable releases yet. Preview is the recommended install method.
-
-### From source
-
-Requires [Rust](https://rustup.rs/) (stable toolchain).
-
-```sh
-git clone https://github.com/wsquarepa/LibLLM.git
-cd LibLLM
-cargo build --release
-# binary is at target/release/libllm
-```
-
 ## CLI reference
 
 | Flag | Description |
@@ -226,7 +218,7 @@ cargo build --release
 | `-r`, `--system-prompt` | Override the system prompt (forces read-only `/system` in TUI) |
 | `-p`, `--persona` | User persona to use (requires `-c`) |
 | `-c`, `--character` | Character card name or path to `.json`/`.png` file (requires `-p`) |
-| `-t`, `--template` | Prompt template: `llama2`, `chatml`, `mistral`, `phi`, `raw` |
+| `-t`, `--template` | Instruct preset: `Mistral V3-Tekken`, `Llama 3 Instruct`, `ChatML`, `Phi`, `Alpaca`, `Raw` |
 | `--api-url` | API base URL (env: `LIBLLM_API_URL`) |
 | `--no-encrypt` | Disable session encryption (requires `-d`) |
 | `--passkey` | Encryption passkey (env: `LIBLLM_PASSKEY`, requires `-d`) |
@@ -248,6 +240,9 @@ cargo build --release
 # Update to the latest preview build
 libllm update
 
+# Update to the nightly build channel
+libllm update --nightly
+
 # Edit a character card or worldbook in $EDITOR
 libllm edit character <name>
 libllm edit worldbook <name>
@@ -261,22 +256,28 @@ Flags that overlap with `/config` fields (`--api-url`, `--template`, `--temperat
 
 | Key | Context | Action |
 |---|---|---|
-| Enter | Input | Send message |
+| Enter | Input | Send message (queued if streaming) |
 | Alt+Enter | Input | Insert newline |
 | Up arrow | Input (empty) | Navigate to previous user message |
 | Enter | Input (navigating) | Edit selected message |
 | Tab | Global | Cycle focus: Input -> Chat -> Sidebar |
 | Esc | Global | Return to input, cancel navigation |
+| Esc | Streaming | Cancel generation (partial response is preserved) |
 | Alt+Left/Right | Global | Switch between conversation branches |
 | Up/Down | Chat | Navigate between messages |
 | Left/Right | Chat | Switch branch at current node |
 | Enter | Chat | Open edit dialog for selected message |
 | Up/Down | Sidebar | Browse sessions |
 | Delete | Sidebar | Delete selected session |
+| Ctrl+C | Input/Editor | Copy selection to system clipboard |
+| Ctrl+X | Input/Editor | Cut selection to system clipboard |
+| Ctrl+V | Input/Editor | Paste from system clipboard |
 | a | Character/Worldbook dialog | Create new item |
 | Right | Character/Worldbook/System dialog | Edit selected item or name |
 | Delete | Character/Worldbook dialog | Delete selected item |
-| Esc | Streaming | Cancel generation |
+| Left click | Chat/Sidebar/Input | Focus panel, select item |
+| Left drag | Input/Editor | Select text |
+| Scroll wheel | Chat/Sidebar | Scroll content |
 | Ctrl+C | Global | Quit |
 
 ## TUI commands
@@ -288,6 +289,7 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/clear` | `/new` | Clear conversation history |
 | `/system` | | Select or edit system prompt (read-only when `-r` is active) |
 | `/retry` | | Regenerate last response (new branch) |
+| `/continue` | `/cont` | Continue the last assistant response |
 | `/branch` | | Browse branches at current position |
 | `/character` | | Select a character |
 | `/persona` | `/self`, `/user`, `/me` | Manage user personas (read-only when `-p` is active) |
@@ -329,7 +331,9 @@ Configuration is stored at `<data_dir>/config.toml` (default `~/.local/share/lib
 
 ```toml
 api_url = "http://localhost:5001/v1"
-template = "chatml"
+instruct_preset = "ChatML"
+reasoning_preset = "OFF"
+template_preset = "Default"
 worldbooks = ["fantasy-lore", "tech-terms"]
 tls_skip_verify = false
 debug_log = false

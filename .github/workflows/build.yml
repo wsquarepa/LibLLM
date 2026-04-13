@@ -124,7 +124,7 @@ jobs:
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
             echo "tag=${BRANCH}" >> "$GITHUB_OUTPUT"
-            echo "title=Branch: ${BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "title=${BRANCH}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 

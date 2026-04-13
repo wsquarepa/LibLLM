@@ -184,7 +184,7 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode, db) = debug_log::timed_result(
+    let (mut session, mut save_mode, mut db) = debug_log::timed_result(
         "startup.phase",
         &[debug_log::field("phase", "resolve_session")],
         || resolve_session(&args),
@@ -266,7 +266,7 @@ async fn main() -> Result<()> {
             .tree
             .push(Some(user_node), Message::new(Role::Assistant, response));
 
-        session.maybe_save(&save_mode, db.as_ref())?;
+        session.maybe_save(&save_mode, db.as_mut())?;
 
         if let Some(id) = save_mode.id() {
             eprintln!("Session: {id}");
@@ -552,8 +552,8 @@ async fn check_and_run_migration(args: &Args) -> Result<()> {
         .map(|d| d.join(migrate_name))
         .filter(|p| p.exists());
 
-    let migrate_path = if let Some(path) = migrate_path {
-        path
+    let (migrate_path, was_downloaded) = if let Some(path) = migrate_path {
+        (path, false)
     } else {
         eprintln!("Migration utility not found.");
 
@@ -592,7 +592,7 @@ async fn check_and_run_migration(args: &Args) -> Result<()> {
             .unwrap_or_else(|| std::path::PathBuf::from(migrate_name));
 
         download_migrate_binary(&dest).await?;
-        dest
+        (dest, true)
     };
 
     eprintln!("Running migration...");
@@ -607,6 +607,11 @@ async fn check_and_run_migration(args: &Args) -> Result<()> {
     }
 
     let status = cmd.status().context("failed to run migration utility")?;
+
+    if was_downloaded {
+        let _ = std::fs::remove_file(&migrate_path);
+    }
+
     if !status.success() {
         anyhow::bail!(
             "Migration failed with exit code: {}",

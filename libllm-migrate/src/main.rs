@@ -95,7 +95,7 @@ fn main() -> Result<()> {
     eprintln!("  Backup saved to: {}", archive_path.display());
 
     eprintln!("Creating database...");
-    let db = Database::open(&db_path, derived_key.as_ref())?;
+    let mut db = Database::open(&db_path, derived_key.as_ref())?;
 
     let sessions_dir = data_dir.join("sessions");
     let characters_dir = data_dir.join("characters");
@@ -146,60 +146,56 @@ fn main() -> Result<()> {
     };
 
     eprintln!("Importing into database...");
-    db.in_transaction(|_conn| {
-        for (slug, session) in &sessions {
-            match db.insert_session(slug, session) {
-                Ok(()) => session_count += 1,
-                Err(e) => {
-                    eprintln!("  warning: failed to import session {slug}: {e}");
-                    error_count += 1;
-                }
+    for (slug, session) in &sessions {
+        match db.insert_session(slug, session) {
+            Ok(()) => session_count += 1,
+            Err(e) => {
+                eprintln!("  warning: failed to import session {slug}: {e}");
+                error_count += 1;
             }
         }
+    }
 
-        for (slug, card) in &characters {
-            match db.insert_character(slug, card) {
-                Ok(()) => character_count += 1,
-                Err(e) => {
-                    eprintln!("  warning: failed to import character {slug}: {e}");
-                    error_count += 1;
-                }
+    for (slug, card) in &characters {
+        match db.insert_character(slug, card) {
+            Ok(()) => character_count += 1,
+            Err(e) => {
+                eprintln!("  warning: failed to import character {slug}: {e}");
+                error_count += 1;
             }
         }
+    }
 
-        for (slug, book) in &worldbooks {
-            match db.insert_worldbook(slug, book) {
-                Ok(()) => worldbook_count += 1,
-                Err(e) => {
-                    eprintln!("  warning: failed to import worldbook {slug}: {e}");
-                    error_count += 1;
-                }
+    for (slug, book) in &worldbooks {
+        match db.insert_worldbook(slug, book) {
+            Ok(()) => worldbook_count += 1,
+            Err(e) => {
+                eprintln!("  warning: failed to import worldbook {slug}: {e}");
+                error_count += 1;
             }
         }
+    }
 
-        for (slug, persona) in &personas {
-            match db.insert_persona(slug, persona) {
-                Ok(()) => persona_count += 1,
-                Err(e) => {
-                    eprintln!("  warning: failed to import persona {slug}: {e}");
-                    error_count += 1;
-                }
+    for (slug, persona) in &personas {
+        match db.insert_persona(slug, persona) {
+            Ok(()) => persona_count += 1,
+            Err(e) => {
+                eprintln!("  warning: failed to import persona {slug}: {e}");
+                error_count += 1;
             }
         }
+    }
 
-        for (slug, prompt) in &prompts {
-            let builtin = slug == BUILTIN_ASSISTANT || slug == BUILTIN_ROLEPLAY;
-            match db.insert_prompt(slug, prompt, builtin) {
-                Ok(()) => prompt_count += 1,
-                Err(e) => {
-                    eprintln!("  warning: failed to import system prompt {slug}: {e}");
-                    error_count += 1;
-                }
+    for (slug, prompt) in &prompts {
+        let builtin = slug == BUILTIN_ASSISTANT || slug == BUILTIN_ROLEPLAY;
+        match db.insert_prompt(slug, prompt, builtin) {
+            Ok(()) => prompt_count += 1,
+            Err(e) => {
+                eprintln!("  warning: failed to import system prompt {slug}: {e}");
+                error_count += 1;
             }
         }
-
-        Ok(())
-    })?;
+    }
 
     eprintln!("Ensuring builtin prompts...");
     db.ensure_builtin_prompts()?;

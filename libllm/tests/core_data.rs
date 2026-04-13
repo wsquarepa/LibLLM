@@ -14,7 +14,7 @@ use libllm_core::session::{MessageTree, Role, Session};
 fn session_database_round_trip() {
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
-    let db = Database::open(&db_path, None).expect("open db");
+    let mut db = Database::open(&db_path, None).expect("open db");
 
     let session = common::linear_session(vec![
         common::user_msg("hello"),
@@ -45,7 +45,7 @@ fn session_encrypted_database_round_trip() {
         common::assistant_msg("secret answer"),
     ]);
     {
-        let db = Database::open(&db_path, Some(&key)).expect("open encrypted db");
+        let mut db = Database::open(&db_path, Some(&key)).expect("open encrypted db");
         db.insert_session("enc-1", &session).expect("insert failed");
     }
     {
@@ -69,7 +69,7 @@ fn session_wrong_key_rejected() {
     let key_b = crypto::derive_key("different-passkey", &salt_b).expect("derive key_b");
 
     {
-        let db = Database::open(&db_path, Some(&key_a)).expect("open with key_a");
+        let mut db = Database::open(&db_path, Some(&key_a)).expect("open with key_a");
         let session = common::linear_session(vec![common::user_msg("private")]);
         db.insert_session("wrong-key-1", &session).expect("insert");
     }
@@ -105,7 +105,7 @@ fn session_branching() {
 fn session_empty_round_trip() {
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
-    let db = Database::open(&db_path, None).expect("open db");
+    let mut db = Database::open(&db_path, None).expect("open db");
 
     let session = common::linear_session(vec![]);
     db.insert_session("empty-1", &session).expect("insert empty");
@@ -119,7 +119,7 @@ fn session_empty_round_trip() {
 fn session_metadata_fields_survive_round_trip() {
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
-    let db = Database::open(&db_path, None).expect("open db");
+    let mut db = Database::open(&db_path, None).expect("open db");
 
     let session = Session {
         tree: MessageTree::new(),
@@ -164,7 +164,7 @@ fn session_duplicate_subtree() {
 fn session_set_message_content() {
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
-    let db = Database::open(&db_path, None).expect("open db");
+    let mut db = Database::open(&db_path, None).expect("open db");
 
     let mut session = common::linear_session(vec![
         common::user_msg("original"),

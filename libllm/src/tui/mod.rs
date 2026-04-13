@@ -403,7 +403,7 @@ impl App<'_> {
 
         let session_id = self.save_mode.id().map(str::to_owned);
         let start = std::time::Instant::now();
-        let result = self.session.maybe_save(&self.save_mode, self.db.as_ref());
+        let result = self.session.maybe_save(&self.save_mode, self.db.as_mut());
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         match result {

@@ -25,6 +25,10 @@ impl DerivedKey {
     fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
     }
+
+    pub fn hex(&self) -> String {
+        self.bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
 }
 
 pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {

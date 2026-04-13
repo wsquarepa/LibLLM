@@ -326,6 +326,16 @@ fn matching_commands_empty_prefix_returns_all() {
 }
 
 #[test]
+fn matching_commands_shorter_match_first() {
+    let matches = commands::matching_commands("/m", &[]);
+    assert!(matches.len() >= 2, "expected at least /macro and /persona(via /me)");
+    assert_eq!(
+        matches[0].name, "/macro",
+        "/macro (via /m alias) should rank before /persona (via /me)"
+    );
+}
+
+#[test]
 fn matching_commands_with_hidden() {
     let matches = commands::matching_commands("/", &["/quit"]);
     assert!(
@@ -609,6 +619,58 @@ fn export_html_applies_template_vars() {
     let result = export::render_html(&refs, "Alice", "Bob");
     assert!(result.contains("Hello Alice"));
     assert!(result.contains("Hi Bob!"));
+}
+
+#[test]
+fn export_html_formats_bold() {
+    let msgs = vec![Message {
+        role: Role::User,
+        content: "This is **bold** text".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Char", "User");
+    assert!(result.contains("<strong>bold</strong>"));
+    assert!(!result.contains("**bold**"));
+}
+
+#[test]
+fn export_html_formats_italic() {
+    let msgs = vec![Message {
+        role: Role::User,
+        content: "This is *italic* text".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Char", "User");
+    assert!(result.contains("<em>italic</em>"));
+    assert!(!result.contains("*italic*"));
+}
+
+#[test]
+fn export_html_formats_dialogue() {
+    let msgs = vec![Message {
+        role: Role::Assistant,
+        content: "She said \"hello there\" softly".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Char", "User");
+    assert!(result.contains("<q>hello there</q>"));
+}
+
+#[test]
+fn export_html_formats_mixed_markdown() {
+    let msgs = vec![Message {
+        role: Role::User,
+        content: "**bold** and *italic* and \"dialogue\"".to_owned(),
+        timestamp: "2026-01-15T10:00:00Z".to_owned(),
+    }];
+    let refs: Vec<&Message> = msgs.iter().collect();
+    let result = export::render_html(&refs, "Char", "User");
+    assert!(result.contains("<strong>bold</strong>"));
+    assert!(result.contains("<em>italic</em>"));
+    assert!(result.contains("<q>dialogue</q>"));
 }
 
 #[test]

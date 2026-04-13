@@ -298,7 +298,7 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/config` | | Open configuration dialog (CLI-overridden fields shown in red) |
 | `/theme` | | Switch color theme (`dark`, `light`) |
 | `/export` | | Export current branch to file (`html`, `md`, `jsonl`) |
-| `/macro` | | Run a user-defined macro (see [Macros](#macros)) |
+| `/macro` | `/m` | Run a user-defined macro (see [Macros](#macros)) |
 | `/report` | | Copy the active debug log to `./debug.log` (requires `debug_log = true`) |
 | `/quit` | `/exit` | Exit the chat |
 

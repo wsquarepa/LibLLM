@@ -61,19 +61,12 @@ impl Database {
         &self.conn
     }
 
-    pub fn in_transaction(&self, f: impl FnOnce(&Connection) -> Result<()>) -> Result<()> {
-        let tx = self.conn.unchecked_transaction().context("failed to begin transaction")?;
-        f(&tx)?;
-        tx.commit().context("failed to commit transaction")?;
-        Ok(())
+    pub fn insert_session(&mut self, id: &str, session: &Session) -> Result<()> {
+        sessions::insert_session(&mut self.conn, id, session)
     }
 
-    pub fn insert_session(&self, id: &str, session: &Session) -> Result<()> {
-        sessions::insert_session(&self.conn, id, session)
-    }
-
-    pub fn save_session(&self, id: &str, session: &Session) -> Result<()> {
-        sessions::save_session(&self.conn, id, session)
+    pub fn save_session(&mut self, id: &str, session: &Session) -> Result<()> {
+        sessions::save_session(&mut self.conn, id, session)
     }
 
     pub fn load_session(&self, id: &str) -> Result<Session> {

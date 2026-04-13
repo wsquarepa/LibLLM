@@ -601,7 +601,7 @@ impl Session {
         }
     }
 
-    pub fn maybe_save(&self, mode: &SaveMode, db: Option<&Database>) -> Result<()> {
+    pub fn maybe_save(&self, mode: &SaveMode, db: Option<&mut Database>) -> Result<()> {
         match mode {
             SaveMode::None | SaveMode::PendingPasskey { .. } => Ok(()),
             SaveMode::Database { id } => {
@@ -731,7 +731,7 @@ mod tests {
     fn persists_preferred_branch_choices_via_database() {
         let dir = tempfile::TempDir::new().unwrap();
         let db_path = dir.path().join("test.db");
-        let db = crate::db::Database::open(&db_path, None).unwrap();
+        let mut db = crate::db::Database::open(&db_path, None).unwrap();
 
         let (session, ids) = build_branching_session();
         db.insert_session("branch-test", &session).unwrap();
@@ -783,7 +783,7 @@ mod tests {
         let key = derive_key("passkey", &salt).expect("key derivation should succeed");
 
         let (session, ids) = build_branching_session();
-        let db = crate::db::Database::open(&db_path, Some(&key)).unwrap();
+        let mut db = crate::db::Database::open(&db_path, Some(&key)).unwrap();
         db.insert_session("enc-branch-test", &session).unwrap();
         drop(db);
 

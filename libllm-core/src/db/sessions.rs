@@ -73,24 +73,19 @@ fn write_session_rows(conn: &Connection, id: &str, session: &Session) -> Result<
     Ok(())
 }
 
-pub fn insert_session(conn: &Connection, id: &str, session: &Session) -> Result<()> {
-    let tx = conn.unchecked_transaction().context("failed to begin transaction")?;
-    write_session_rows(&tx, id, session)?;
-    tx.commit().context("failed to commit session insert")?;
+pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
+    let sp = conn.savepoint().context("failed to begin savepoint")?;
+    write_session_rows(&sp, id, session)?;
+    sp.commit().context("failed to commit session insert")?;
     Ok(())
 }
 
-pub fn save_session(conn: &Connection, id: &str, session: &Session) -> Result<()> {
-    let tx = conn
-        .unchecked_transaction()
-        .context("failed to begin transaction")?;
-
-    tx.execute("DELETE FROM sessions WHERE id = ?1", params![id])
+pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
+    let sp = conn.savepoint().context("failed to begin savepoint")?;
+    sp.execute("DELETE FROM sessions WHERE id = ?1", params![id])
         .context("failed to clear session")?;
-
-    write_session_rows(&tx, id, session)?;
-
-    tx.commit().context("failed to commit session save")?;
+    write_session_rows(&sp, id, session)?;
+    sp.commit().context("failed to commit session save")?;
     Ok(())
 }
 
@@ -353,10 +348,10 @@ mod tests {
 
     #[test]
     fn session_round_trip() {
-        let conn = setup_db();
+        let mut conn = setup_db();
         let session = make_session_with_messages();
 
-        insert_session(&conn, "sess-1", &session).unwrap();
+        insert_session(&mut conn, "sess-1", &session).unwrap();
         let loaded = load_session(&conn, "sess-1").unwrap();
 
         assert_eq!(loaded.model, session.model);
@@ -382,7 +377,7 @@ mod tests {
 
     #[test]
     fn branching_tree_round_trip() {
-        let conn = setup_db();
+        let mut conn = setup_db();
 
         let mut preferred_child = HashMap::new();
         preferred_child.insert(0usize, 2usize);
@@ -441,7 +436,7 @@ mod tests {
             persona: None,
         };
 
-        insert_session(&conn, "branching", &session).unwrap();
+        insert_session(&mut conn, "branching", &session).unwrap();
         let loaded = load_session(&conn, "branching").unwrap();
 
         assert_eq!(loaded.tree.head(), Some(3));
@@ -464,10 +459,10 @@ mod tests {
 
     #[test]
     fn list_sessions_ordering_and_fields() {
-        let conn = setup_db();
+        let mut conn = setup_db();
 
         let session1 = make_session_with_messages();
-        insert_session(&conn, "sess-1", &session1).unwrap();
+        insert_session(&mut conn, "sess-1", &session1).unwrap();
 
         let session2 = Session {
             tree: MessageTree::new(),
@@ -478,7 +473,7 @@ mod tests {
             worldbooks: vec![],
             persona: None,
         };
-        insert_session(&conn, "sess-2", &session2).unwrap();
+        insert_session(&mut conn, "sess-2", &session2).unwrap();
 
         conn.execute(
             "UPDATE sessions SET updated_at = ?1 WHERE id = 'sess-1'",
@@ -510,9 +505,9 @@ mod tests {
 
     #[test]
     fn delete_session_cascades() {
-        let conn = setup_db();
+        let mut conn = setup_db();
         let session = make_session_with_messages();
-        insert_session(&conn, "to-delete", &session).unwrap();
+        insert_session(&mut conn, "to-delete", &session).unwrap();
 
         delete_session(&conn, "to-delete").unwrap();
 
@@ -539,9 +534,9 @@ mod tests {
 
     #[test]
     fn upsert_message_and_update_head() {
-        let conn = setup_db();
+        let mut conn = setup_db();
         let session = make_session_with_messages();
-        insert_session(&conn, "sess-upsert", &session).unwrap();
+        insert_session(&mut conn, "sess-upsert", &session).unwrap();
 
         let new_node = Node {
             id: 2,

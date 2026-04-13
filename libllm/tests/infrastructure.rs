@@ -2,10 +2,10 @@
 #[allow(dead_code)]
 mod common;
 
-use libllm::config::{self, Config};
-use libllm::crypto;
-use libllm::index::{self, FileStamp, MetadataIndex, SessionStorageMode};
-use libllm::migration;
+use libllm_core::config::{self, Config};
+use libllm_core::crypto;
+use libllm_core::index::{self, FileStamp, MetadataIndex, SessionStorageMode};
+use libllm_core::migration;
 
 fn setup_data_dir() -> tempfile::TempDir {
     let dir = common::temp_dir();
@@ -367,7 +367,7 @@ fn migrate_worldbook_normalization() {
     assert!(crypto::is_encrypted(&raw));
 
     let decrypted = crypto::read_and_decrypt(&encrypted_path, Some(&key)).unwrap();
-    let wb: libllm::worldinfo::WorldBook = serde_json::from_str(&decrypted).unwrap();
+    let wb: libllm_core::worldinfo::WorldBook = serde_json::from_str(&decrypted).unwrap();
     assert!(!wb.entries.is_empty());
     let entry = &wb.entries[0];
     assert_eq!(entry.keys, vec!["dragon", "wyrm"]);
@@ -404,7 +404,7 @@ user_persona = "A user migrated from config"
     common::assert_file_exists(&persona_path);
 
     let decrypted = crypto::read_and_decrypt(&persona_path, Some(&key)).unwrap();
-    let persona: libllm::persona::PersonaFile = serde_json::from_str(&decrypted).unwrap();
+    let persona: libllm_core::persona::PersonaFile = serde_json::from_str(&decrypted).unwrap();
     assert_eq!(persona.name, "ConfigUser");
     assert_eq!(persona.persona, "A user migrated from config");
 }

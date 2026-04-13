@@ -3,14 +3,14 @@
 mod common;
 
 use libllm::cli::CliOverrides;
-use libllm::commands::{self, COMMANDS};
-use libllm::config::Config;
-use libllm::sampling::SamplingOverrides;
 use libllm::tui::business;
-use libllm::export;
-use libllm::session::{Message, Role};
 use libllm::tui::commands::expand_macro;
 use libllm::tui::theme;
+use libllm_core::commands::{self, COMMANDS};
+use libllm_core::config::Config;
+use libllm_core::export;
+use libllm_core::sampling::SamplingOverrides;
+use libllm_core::session::{Message, Role};
 
 fn no_overrides() -> CliOverrides {
     CliOverrides {
@@ -827,7 +827,7 @@ fn theme_resolve_light() {
 
 #[test]
 fn theme_resolve_with_overrides() {
-    use libllm::config::ThemeColorOverrides;
+    use libllm_core::config::ThemeColorOverrides;
     let mut config = Config::default();
     config.theme_colors = Some(ThemeColorOverrides {
         user_message: Some("red".to_owned()),
@@ -839,7 +839,7 @@ fn theme_resolve_with_overrides() {
 
 #[test]
 fn theme_resolve_invalid_override_ignored() {
-    use libllm::config::ThemeColorOverrides;
+    use libllm_core::config::ThemeColorOverrides;
     let mut config = Config::default();
     config.theme_colors = Some(ThemeColorOverrides {
         user_message: Some("notacolor".to_owned()),

@@ -2,10 +2,10 @@
 #[allow(dead_code)]
 mod common;
 
-use libllm::character;
-use libllm::persona;
-use libllm::system_prompt;
-use libllm::worldinfo::{self, Entry, RuntimeWorldBook};
+use libllm_core::character;
+use libllm_core::persona;
+use libllm_core::system_prompt;
+use libllm_core::worldinfo::{self, Entry, RuntimeWorldBook};
 
 // ── Characters ──────────────────────────────────────────────────────────────
 

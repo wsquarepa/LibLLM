@@ -2,8 +2,8 @@
 #[allow(dead_code)]
 mod common;
 
-use libllm::crypto;
-use libllm::session::{self, MessageTree, Role, Session};
+use libllm_core::crypto;
+use libllm_core::session::{self, MessageTree, Role, Session};
 
 // ===========================================================================
 // 1. Session & MessageTree

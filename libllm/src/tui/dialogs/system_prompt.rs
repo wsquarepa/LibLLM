@@ -221,7 +221,7 @@ pub(in crate::tui) fn handle_system_prompt_paste(
     match app.db.as_ref().map(|db| db.insert_prompt(&slug, &prompt, false)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
         Ok(()) => {
             let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
-            app.system_prompt_list = prompts.into_iter().map(|(_, n, _)| n).collect();
+            app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
             app.system_prompt_selected = 0;
             app.set_status(
                 format!("Imported system prompt: {name}"),

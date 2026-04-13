@@ -33,23 +33,11 @@ pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
 }
 
 pub fn list_worldbooks(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn
-        .prepare("SELECT slug, name FROM worldbooks ORDER BY name")
-        .context("failed to prepare list_worldbooks query")?;
-
-    let rows = stmt
-        .query_map([], |row| {
-            let slug: String = row.get(0)?;
-            let name: String = row.get(1)?;
-            Ok((slug, name))
-        })
-        .context("failed to query worldbooks")?;
-
-    let mut entries = Vec::new();
-    for row in rows {
-        entries.push(row.context("failed to read worldbook row")?);
-    }
-    Ok(entries)
+    super::query_slug_name_pairs(
+        conn,
+        "SELECT slug, name FROM worldbooks ORDER BY name",
+        "failed to list worldbooks",
+    )
 }
 
 pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {

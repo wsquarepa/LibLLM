@@ -8,6 +8,7 @@ use libllm_core::persona::PersonaFile;
 use libllm_core::session::Session;
 use libllm_core::system_prompt::SystemPromptFile;
 use libllm_core::worldinfo::WorldBook;
+use serde::de::DeserializeOwned;
 
 const MAGIC: &[u8; 4] = b"LLMS";
 const VERSION: u8 = 0x01;
@@ -93,23 +94,32 @@ fn slug_from_path(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+fn read_typed_files<T: DeserializeOwned>(
+    dir: &Path,
+    extensions: &[&str],
+    key_bytes: Option<&[u8; 32]>,
+    type_name: &str,
+) -> Vec<(String, T)> {
+    let files = collect_files_with_extensions(dir, extensions);
+    let mut results: Vec<(String, T)> = Vec::new();
+    for path in files {
+        let slug = slug_from_path(&path);
+        match read_and_decode(&path, key_bytes) {
+            Ok(json) => match serde_json::from_str::<T>(&json) {
+                Ok(value) => results.push((slug, value)),
+                Err(e) => eprintln!("warning: failed to parse {type_name} {}: {e}", path.display()),
+            },
+            Err(e) => eprintln!("warning: failed to read {type_name} {}: {e}", path.display()),
+        }
+    }
+    results
+}
+
 pub fn read_sessions(
     dir: &Path,
     key_bytes: Option<&[u8; 32]>,
 ) -> Result<Vec<(String, Session)>> {
-    let files = collect_files_with_extensions(dir, &["session"]);
-    let mut results: Vec<(String, Session)> = Vec::new();
-    for path in files {
-        let slug = slug_from_path(&path);
-        match read_and_decode(&path, key_bytes) {
-            Ok(json) => match serde_json::from_str::<Session>(&json) {
-                Ok(session) => results.push((slug, session)),
-                Err(e) => eprintln!("warning: failed to parse session {}: {e}", path.display()),
-            },
-            Err(e) => eprintln!("warning: failed to read session {}: {e}", path.display()),
-        }
-    }
-    Ok(results)
+    Ok(read_typed_files(dir, &["session"], key_bytes, "session"))
 }
 
 pub fn read_characters(
@@ -173,10 +183,8 @@ pub fn read_worldbooks(
             Ok(json) => match serde_json::from_str::<WorldBook>(&json) {
                 Ok(wb) => results.push((slug, wb)),
                 Err(_) => {
-                    let fallback = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                    match std::fs::read_to_string(&path)
-                        .map_err(|e| anyhow::anyhow!(e))
-                        .and_then(|s| libllm_core::worldinfo::parse_worldbook_json(&s, &fallback)) {
+                    let fallback_name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                    match libllm_core::worldinfo::parse_worldbook_json(&json, &fallback_name) {
                         Ok(wb) => results.push((slug, wb)),
                         Err(e) => eprintln!(
                             "warning: failed to parse worldbook {}: {e}",
@@ -195,46 +203,12 @@ pub fn read_personas(
     dir: &Path,
     key_bytes: Option<&[u8; 32]>,
 ) -> Result<Vec<(String, PersonaFile)>> {
-    let files = collect_files_with_extensions(dir, &["persona", "json"]);
-    let mut results: Vec<(String, PersonaFile)> = Vec::new();
-    for path in files {
-        let slug = slug_from_path(&path);
-        match read_and_decode(&path, key_bytes) {
-            Ok(json) => match serde_json::from_str::<PersonaFile>(&json) {
-                Ok(persona) => results.push((slug, persona)),
-                Err(e) => {
-                    eprintln!("warning: failed to parse persona {}: {e}", path.display())
-                }
-            },
-            Err(e) => eprintln!("warning: failed to read persona {}: {e}", path.display()),
-        }
-    }
-    Ok(results)
+    Ok(read_typed_files(dir, &["persona", "json"], key_bytes, "persona"))
 }
 
 pub fn read_prompts(
     dir: &Path,
     key_bytes: Option<&[u8; 32]>,
 ) -> Result<Vec<(String, SystemPromptFile)>> {
-    let files = collect_files_with_extensions(dir, &["prompt", "json"]);
-    let mut results: Vec<(String, SystemPromptFile)> = Vec::new();
-    for path in files {
-        let slug = slug_from_path(&path);
-        match read_and_decode(&path, key_bytes) {
-            Ok(json) => match serde_json::from_str::<SystemPromptFile>(&json) {
-                Ok(prompt) => results.push((slug, prompt)),
-                Err(e) => eprintln!(
-                    "warning: failed to parse system prompt {}: {e}",
-                    path.display()
-                ),
-            },
-            Err(e) => {
-                eprintln!(
-                    "warning: failed to read system prompt {}: {e}",
-                    path.display()
-                )
-            }
-        }
-    }
-    Ok(results)
+    Ok(read_typed_files(dir, &["prompt", "json"], key_bytes, "system prompt"))
 }

@@ -17,14 +17,12 @@ fn display_name_from_character(character: Option<&str>) -> String {
     character.unwrap_or("Assistant").to_owned()
 }
 
-pub fn insert_session(conn: &Connection, id: &str, session: &Session) -> Result<()> {
-    let tx = conn.unchecked_transaction().context("failed to begin transaction")?;
-
+fn write_session_rows(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
     let display_name = display_name_from_character(session.character.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
 
-    tx.execute(
+    conn.execute(
         "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
@@ -48,7 +46,7 @@ pub fn insert_session(conn: &Connection, id: &str, session: &Session) -> Result<
             .preferred_child_map()
             .get(&node.id)
             .map(|&c| c as i64);
-        tx.execute(
+        conn.execute(
             "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
@@ -65,13 +63,19 @@ pub fn insert_session(conn: &Connection, id: &str, session: &Session) -> Result<
     }
 
     for worldbook_slug in &session.worldbooks {
-        tx.execute(
+        conn.execute(
             "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES (?1, ?2)",
             params![id, worldbook_slug],
         )
         .context("failed to insert session_worldbooks row")?;
     }
 
+    Ok(())
+}
+
+pub fn insert_session(conn: &Connection, id: &str, session: &Session) -> Result<()> {
+    let tx = conn.unchecked_transaction().context("failed to begin transaction")?;
+    write_session_rows(&tx, id, session)?;
     tx.commit().context("failed to commit session insert")?;
     Ok(())
 }
@@ -81,70 +85,10 @@ pub fn save_session(conn: &Connection, id: &str, session: &Session) -> Result<()
         .unchecked_transaction()
         .context("failed to begin transaction")?;
 
-    tx.execute(
-        "DELETE FROM session_worldbooks WHERE session_id = ?1",
-        params![id],
-    )
-    .context("failed to clear session_worldbooks")?;
-    tx.execute(
-        "DELETE FROM messages WHERE session_id = ?1",
-        params![id],
-    )
-    .context("failed to clear messages")?;
     tx.execute("DELETE FROM sessions WHERE id = ?1", params![id])
         .context("failed to clear session")?;
 
-    let now = now_iso8601();
-    let display_name = display_name_from_character(session.character.as_deref());
-    let head_id = session.tree.head().map(|h| h as i64);
-
-    tx.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
-            id,
-            display_name,
-            session.model,
-            session.template,
-            session.system_prompt,
-            session.character,
-            session.persona,
-            head_id,
-            now,
-            now,
-        ],
-    )
-    .context("failed to insert session row")?;
-
-    for node in session.tree.nodes() {
-        let preferred_child_id = session
-            .tree
-            .preferred_child_map()
-            .get(&node.id)
-            .map(|&c| c as i64);
-        tx.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                node.id as i64,
-                id,
-                node.parent.map(|p| p as i64),
-                preferred_child_id,
-                node.message.role.to_string(),
-                node.message.content,
-                node.message.timestamp,
-            ],
-        )
-        .context("failed to insert message row")?;
-    }
-
-    for worldbook_slug in &session.worldbooks {
-        tx.execute(
-            "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES (?1, ?2)",
-            params![id, worldbook_slug],
-        )
-        .context("failed to insert session_worldbooks row")?;
-    }
+    write_session_rows(&tx, id, session)?;
 
     tx.commit().context("failed to commit session save")?;
     Ok(())
@@ -268,7 +212,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
 pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
     let mut stmt = conn
         .prepare(
-            "SELECT s.id, s.display_name, s.head_id, s.updated_at,
+            "SELECT s.id, s.display_name, s.updated_at,
                     COUNT(m.id) AS message_count,
                     (SELECT content FROM messages
                      WHERE session_id = s.id AND role = 'assistant'
@@ -284,10 +228,9 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
         .query_map([], |row| {
             let id: String = row.get(0)?;
             let display_name: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
-            let _head_id: Option<i64> = row.get(2)?;
-            let updated_at: String = row.get(3)?;
-            let message_count: i64 = row.get(4)?;
-            let last_assistant_preview: Option<String> = row.get(5)?;
+            let updated_at: String = row.get(2)?;
+            let message_count: i64 = row.get(3)?;
+            let last_assistant_preview: Option<String> = row.get(4)?;
             Ok(SessionListEntry {
                 id,
                 display_name,

@@ -115,9 +115,43 @@ fn main() -> Result<()> {
     let mut prompt_count = 0usize;
     let mut error_count = 0usize;
 
-    if sessions_dir.is_dir() {
-        eprintln!("Importing sessions...");
-        let sessions = legacy::read_sessions(&sessions_dir, key_bytes)?;
+    let sessions = if sessions_dir.is_dir() {
+        eprintln!("Reading sessions...");
+        legacy::read_sessions(&sessions_dir, key_bytes)?
+    } else {
+        Vec::new()
+    };
+
+    let characters = if characters_dir.is_dir() {
+        eprintln!("Reading characters...");
+        legacy::read_characters(&characters_dir, key_bytes)?
+    } else {
+        Vec::new()
+    };
+
+    let worldbooks = if worldinfo_dir.is_dir() {
+        eprintln!("Reading worldbooks...");
+        legacy::read_worldbooks(&worldinfo_dir, key_bytes)?
+    } else {
+        Vec::new()
+    };
+
+    let personas = if personas_dir.is_dir() {
+        eprintln!("Reading personas...");
+        legacy::read_personas(&personas_dir, key_bytes)?
+    } else {
+        Vec::new()
+    };
+
+    let prompts = if system_dir.is_dir() {
+        eprintln!("Reading system prompts...");
+        legacy::read_prompts(&system_dir, key_bytes)?
+    } else {
+        Vec::new()
+    };
+
+    eprintln!("Importing into database...");
+    db.in_transaction(|_conn| {
         for (slug, session) in &sessions {
             match db.insert_session(slug, session) {
                 Ok(()) => session_count += 1,
@@ -127,11 +161,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-    }
 
-    if characters_dir.is_dir() {
-        eprintln!("Importing characters...");
-        let characters = legacy::read_characters(&characters_dir, key_bytes)?;
         for (slug, card) in &characters {
             match db.insert_character(slug, card) {
                 Ok(()) => character_count += 1,
@@ -141,11 +171,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-    }
 
-    if worldinfo_dir.is_dir() {
-        eprintln!("Importing worldbooks...");
-        let worldbooks = legacy::read_worldbooks(&worldinfo_dir, key_bytes)?;
         for (slug, book) in &worldbooks {
             match db.insert_worldbook(slug, book) {
                 Ok(()) => worldbook_count += 1,
@@ -155,11 +181,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-    }
 
-    if personas_dir.is_dir() {
-        eprintln!("Importing personas...");
-        let personas = legacy::read_personas(&personas_dir, key_bytes)?;
         for (slug, persona) in &personas {
             match db.insert_persona(slug, persona) {
                 Ok(()) => persona_count += 1,
@@ -169,11 +191,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-    }
 
-    if system_dir.is_dir() {
-        eprintln!("Importing system prompts...");
-        let prompts = legacy::read_prompts(&system_dir, key_bytes)?;
         for (slug, prompt) in &prompts {
             let builtin = slug == BUILTIN_ASSISTANT || slug == BUILTIN_ROLEPLAY;
             match db.insert_prompt(slug, prompt, builtin) {
@@ -184,7 +202,9 @@ fn main() -> Result<()> {
                 }
             }
         }
-    }
+
+        Ok(())
+    })?;
 
     eprintln!("Ensuring builtin prompts...");
     db.ensure_builtin_prompts()?;

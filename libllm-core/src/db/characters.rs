@@ -89,23 +89,11 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
 }
 
 pub fn list_characters(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn
-        .prepare("SELECT slug, name FROM characters ORDER BY name")
-        .context("failed to prepare list_characters query")?;
-
-    let rows = stmt
-        .query_map([], |row| {
-            let slug: String = row.get(0)?;
-            let name: String = row.get(1)?;
-            Ok((slug, name))
-        })
-        .context("failed to query characters")?;
-
-    let mut entries = Vec::new();
-    for row in rows {
-        entries.push(row.context("failed to read character row")?);
-    }
-    Ok(entries)
+    super::query_slug_name_pairs(
+        conn,
+        "SELECT slug, name FROM characters ORDER BY name",
+        "failed to list characters",
+    )
 }
 
 pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> Result<()> {

@@ -233,7 +233,7 @@ fn cmd_system(app: &mut App) {
             super::StatusLevel::Warning,
         );
     } else {
-        app.system_prompt_list = prompts.into_iter().map(|(_, name, _)| name).collect();
+        app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
         app.system_prompt_selected = 0;
         app.focus = Focus::SystemPromptDialog;
     }

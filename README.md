@@ -14,7 +14,7 @@ Built for power users who run local models and want a fast, private chat interfa
 **Why LibLLM?**
 
 - **Branching conversations** -- retry or edit any message to fork the conversation, then navigate between branches like a tree
-- **Encrypted by default** -- sessions, characters, and worldbooks are encrypted at rest with AES-256-GCM
+- **Encrypted by default** -- all data stored in a single SQLite database encrypted with SQLCipher (AES-256)
 - **Character cards and worldbooks** -- load SillyTavern-compatible cards and keyword-activated lore entries
 - **Pipe-friendly CLI** -- send a single message with `libllm -m "prompt"` for scripting, or use `--data` and `--continue` for persistent multi-turn scripted conversations
 
@@ -69,8 +69,8 @@ Requires [Rust](https://rustup.rs/) (stable toolchain).
 ```sh
 git clone https://github.com/wsquarepa/LibLLM.git
 cd LibLLM
-cargo build --release
-# binary is at target/release/libllm
+cargo build --release --workspace
+# binaries at target/release/libllm and target/release/libllm-migrate
 ```
 
 ## Quickstart
@@ -83,7 +83,7 @@ cargo build --release
 libllm
 ```
 
-On first launch, LibLLM prompts you to set an encryption passkey. This passkey protects all your saved sessions, character cards, and worldbooks. You must set a passkey to continue (or use `--data -d <path> --no-encrypt` to opt out).
+On first launch, LibLLM prompts you to set an encryption passkey. This passkey protects the SQLite database where all your sessions, character cards, and worldbooks are stored. You must set a passkey to continue (or use `--data -d <path> --no-encrypt` to opt out).
 
 **2. Chat**
 
@@ -107,7 +107,7 @@ This means you never lose a previous response -- you can always switch back to a
 
 ### Character cards and roleplay mode
 
-Character cards define an AI persona with a name, description, personality, and scenario. LibLLM supports JSON and PNG formats (SillyTavern-compatible `tEXt` chunk extraction). Drop a `.json` or `.png` card into `~/.local/share/libllm/characters/` or use the `/character` command to import one. Template variables `{{char}}` and `{{user}}` are substituted automatically.
+Character cards define an AI persona with a name, description, personality, and scenario. LibLLM supports JSON and PNG formats (SillyTavern-compatible `tEXt` chunk extraction). Use the `/character` command in the TUI to create, import, or manage cards. Template variables `{{char}}` and `{{user}}` are substituted automatically.
 
 Roleplay mode is activated by passing both `-c` (character) and `-p` (persona) on the command line. Both flags are required together -- you cannot use one without the other. In roleplay mode, the `/system` and `/persona` TUI commands become read-only viewers.
 
@@ -117,11 +117,11 @@ Worldbooks (lorebooks) provide keyword-activated context injection. Each entry h
 
 ### Encryption
 
-By default, LibLLM encrypts all sessions, character cards, and worldbooks at rest using AES-256-GCM with an Argon2id-derived key. You set your passkey on first launch, and it is required each time you start the TUI.
+By default, LibLLM stores all data in a SQLite database encrypted with SQLCipher (AES-256). The encryption key is derived from your passkey using Argon2id. You set your passkey on first launch, and it is required each time you start the TUI.
 
-To skip encryption, use `--data -d <path> --no-encrypt` (sessions saved as plaintext JSON, no passkey prompt).
+To skip encryption, use `--data -d <path> --no-encrypt` (data stored in a plain unencrypted SQLite database, no passkey prompt).
 
-There is no passkey recovery mechanism. If you forget your passkey, encrypted data cannot be decrypted.
+There is no passkey recovery mechanism. If you forget your passkey, the encrypted database cannot be decrypted.
 
 ## Common workflows
 
@@ -162,7 +162,7 @@ Or use the `/character` and `/persona` commands inside the TUI to browse and man
 
 ### Toggle worldbooks
 
-Use the `/worldbook` command inside the TUI to enable or disable worldbooks for the current session. Worldbooks are loaded from `~/.local/share/libllm/worldinfo/`.
+Use the `/worldbook` command inside the TUI to enable or disable worldbooks for the current session.
 
 ### Use a custom data directory
 
@@ -174,7 +174,7 @@ libllm -d ./my-project --no-encrypt
 libllm -d ./my-project --passkey mypasskey
 ```
 
-The data directory is created automatically if it does not exist. An existing non-empty directory must already be a LibLLM data directory (contain `config.toml` or `sessions/`). Encryption mode must be consistent: `--passkey` is rejected on unencrypted directories, and `--no-encrypt` is rejected on encrypted ones.
+The data directory is created automatically if it does not exist. An existing non-empty directory must already be a LibLLM data directory (contain `config.toml` or `data.db`). Encryption mode must be consistent: `--passkey` is rejected on unencrypted directories, and `--no-encrypt` is rejected on encrypted ones.
 
 ### Override the system prompt
 
@@ -354,7 +354,7 @@ repeat_penalty = 1.0
 max_tokens = -1
 ```
 
-System prompts and user personas are managed as separate encrypted files via the `/system` and `/persona` TUI commands, not in `config.toml`.
+System prompts and user personas are stored in the database and managed via the `/system` and `/persona` TUI commands, not in `config.toml`.
 
 ### Macros
 
@@ -419,36 +419,27 @@ The default data directory is `~/.local/share/libllm/`. Use `--data/-d` to speci
 
 ```
 <data_dir>/
-  config.toml              # API URL, template, sampling defaults
+  config.toml              # API URL, template, sampling defaults (NOT encrypted)
+  data.db                  # SQLite database (SQLCipher-encrypted or plain)
   .salt                    # 16-byte random salt (generated on first run)
   .key_check               # Passkey verification fingerprint
-  index.meta               # Metadata cache for fast listing
-  sessions/
-    *.session              # AES-256-GCM encrypted session files
-  characters/
-    *.character            # Encrypted character cards
-    *.json                 # Plaintext character cards (auto-encrypted on next run)
-    *.png                  # PNG cards with embedded JSON (auto-imported on startup)
-  worldinfo/
-    *.worldbook            # Encrypted worldbook files
-    *.json                 # Plaintext worldbooks (auto-normalized on next run)
-  system/
-    assistant.prompt       # Builtin system prompt (encrypted)
-    roleplay.prompt        # Builtin system prompt (encrypted)
-    *.prompt / *.json      # Custom system prompts (JSON auto-encrypted)
-  personas/
-    *.persona / *.json     # User personas (JSON auto-encrypted)
+  presets/
+    instruct/              # Instruct presets (Mistral V3-Tekken, Llama 3, ChatML, Phi, Alpaca)
+    reasoning/             # Reasoning presets (DeepSeek)
+    template/              # Context template presets (Default)
 ```
+
+All sessions, characters, worldbooks, system prompts, and personas are stored in `data.db`. The database schema is versioned and auto-migrated on startup.
+
+**Migrating from legacy file-based storage:** If upgrading from an older version that stored data as individual files, run `libllm-migrate -d <data_dir>` to convert. See `libllm-migrate --help` for details.
 
 ## Encryption
 
-Sessions, character cards, and worldbooks are encrypted at rest using **AES-256-GCM**. The encryption key is derived from your passkey using **Argon2id** (64 MB memory, 3 iterations) with a per-installation random salt.
+All data is stored in a single SQLite database encrypted with **SQLCipher** (AES-256). The encryption key is derived from your passkey using **Argon2id** (64 MB memory, 3 iterations) with a per-installation random salt. The derived key is passed to SQLCipher via `PRAGMA key`, providing transparent page-level encryption.
 
-Encrypted file format: `LLMS` magic (4 bytes) + version (1 byte) + nonce (12 bytes) + ciphertext.
+The passkey can be changed at any time via `/passkey`, which uses SQLCipher's `PRAGMA rekey` to re-encrypt the database.
 
-Each file gets a unique random nonce. The passkey can be changed at any time via `/passkey`, which re-encrypts all stored files.
-
-To opt out of encryption, use `--data -d <path> --no-encrypt` for plaintext sessions. The `--no-encrypt` and `--passkey` flags require `--data/-d` to be specified. When using `--data` with an existing directory, the encryption mode must match: `--passkey` is rejected on unencrypted directories, and `--no-encrypt` is rejected on encrypted ones.
+To opt out of encryption, use `--data -d <path> --no-encrypt` for an unencrypted SQLite database. The `--no-encrypt` and `--passkey` flags require `--data/-d` to be specified. When using `--data` with an existing directory, the encryption mode must match: `--passkey` is rejected on unencrypted directories, and `--no-encrypt` is rejected on encrypted ones.
 
 ## Troubleshooting
 
@@ -462,16 +453,11 @@ LibLLM expects a running llama.cpp-compatible server at the configured URL (defa
 
 ### Forgot passkey
 
-There is no passkey recovery. If you forget your passkey, encrypted sessions, characters, and worldbooks cannot be decrypted. You can start fresh by deleting the data directory (`~/.local/share/libllm/`) or use `-d <new-path> --no-encrypt` to start without encryption.
+There is no passkey recovery. If you forget your passkey, the encrypted database cannot be decrypted. You can start fresh by deleting the data directory (`~/.local/share/libllm/`) or use `-d <new-path> --no-encrypt` to start without encryption.
 
 ### Sessions appear missing
 
-Sessions are tied to the encryption passkey. If you enter the wrong passkey, previously saved sessions will not appear in the sidebar. Re-launch with the correct passkey.
-
-### Character or worldbook not showing up
-
-- PNG cards are auto-imported on startup. If you added a PNG while the TUI was running, restart it.
-- JSON files are auto-encrypted on next launch. Ensure the file is valid JSON and placed in the correct directory (`characters/` or `worldinfo/`).
+Sessions are tied to the encryption passkey. If you enter the wrong passkey, the database cannot be opened and sessions will not appear. Re-launch with the correct passkey.
 
 ### TLS / self-signed certificate errors
 
@@ -484,11 +470,11 @@ Bug reports and feature requests: [GitHub Issues](../../issues)
 To build from source and run tests:
 
 ```sh
-cargo build
-cargo test
+cargo build --workspace
+cargo test --workspace
 ```
 
-Tests are organized into six integration test suites under `tests/`.
+The project is a Cargo workspace with three crates (`libllm-core`, `libllm`, `libllm-migrate`). Tests include unit tests in `libllm-core` and six integration test suites in `libllm/tests/`.
 
 ## License
 

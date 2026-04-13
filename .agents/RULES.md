@@ -3,59 +3,77 @@ This file contains details to **any programming agent** about what this reposito
 
 ## What This Is
 
-LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It supports single-message mode (`-m`) and a full terminal UI (default), with tree-structured conversation history, encrypted session persistence, branch navigation, character cards, and worldbook/lorebook support.
+LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It supports single-message mode (`-m`) and a full terminal UI (default), with tree-structured conversation history, encrypted session persistence (SQLite + SQLCipher), branch navigation, character cards, and worldbook/lorebook support.
+
+## Project Structure
+
+The project is a Cargo workspace with three crates:
+
+```
+LibLLM/
+  Cargo.toml                    # workspace root
+  libllm-core/                  # shared library (domain structs, database, config, crypto)
+  libllm/                       # main binary (TUI, CLI, self-update)
+  libllm-migrate/               # one-time migration binary (legacy file-based data -> SQLite)
+```
+
+- **`libllm-core`** -- shared library used by both binaries. Contains domain structs, SQLite database module, config, key derivation, presets, API client, export, and debug logging.
+- **`libllm`** -- main binary with TUI, CLI argument parsing, and self-update.
+- **`libllm-migrate`** -- one-time migration tool that converts legacy file-based data directories to the SQLite database format. Ships with its own AES-256-GCM decryption for reading old encrypted files.
 
 ## Build and Run
 
 ```sh
-cargo build
-cargo run -- --help
-cargo run -- -m "Hello"                         # single message, ephemeral
-cargo run                                       # TUI mode, prompts for passkey
-cargo run -- -d ./data --no-encrypt             # custom data dir, plaintext
-cargo run -- -d ./data --no-encrypt -m "Hello"  # persistent single-shot
-cargo run -- -d ./data --no-encrypt -m "Follow up" --continue <uuid>
-cargo run -- --template chatml                  # use ChatML instruct preset
-cargo run -- --temperature 0.5                  # override sampling params
-cargo run -- -c character_name -p persona_name  # roleplay mode (requires both)
-cargo run -- -r "You are a helpful assistant"   # override system prompt
-cargo run -- edit character my_char             # edit character in $EDITOR
-cargo run -- edit worldbook my_book             # edit worldbook in $EDITOR
-cargo run -- update                             # update to stable (or stay on current channel)
-cargo run -- update feature/branch              # switch to a branch build
-cargo run -- update --list                      # list available branch builds
-cargo run -- update --yes                       # skip channel-switch confirmation
-LIBLLM_PASSKEY=foo cargo run -- -d ./data       # passkey via env var
+cargo build --workspace
+cargo run -p libllm -- --help
+cargo run -p libllm -- -m "Hello"                         # single message, ephemeral
+cargo run -p libllm                                       # TUI mode, prompts for passkey
+cargo run -p libllm -- -d ./data --no-encrypt             # custom data dir, plaintext
+cargo run -p libllm -- -d ./data --no-encrypt -m "Hello"  # persistent single-shot
+cargo run -p libllm -- -d ./data --no-encrypt -m "Follow up" --continue <uuid>
+cargo run -p libllm -- --template chatml                  # use ChatML instruct preset
+cargo run -p libllm -- --temperature 0.5                  # override sampling params
+cargo run -p libllm -- -c character_name -p persona_name  # roleplay mode (requires both)
+cargo run -p libllm -- -r "You are a helpful assistant"   # override system prompt
+cargo run -p libllm -- edit character my_char             # edit character in $EDITOR
+cargo run -p libllm -- edit worldbook my_book             # edit worldbook in $EDITOR
+cargo run -p libllm -- update                             # update to stable (or stay on current channel)
+cargo run -p libllm -- update feature/branch              # switch to a branch build
+cargo run -p libllm -- update --list                      # list available branch builds
+cargo run -p libllm -- update --yes                       # skip channel-switch confirmation
+LIBLLM_PASSKEY=foo cargo run -p libllm -- -d ./data       # passkey via env var
 ```
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
 
-CI runs `cargo test` before building on push to any branch (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Pushing to master creates a `stable` release; pushing to other branches creates pre-releases tagged with the branch name. Run tests locally with `cargo test` before submitting changes.
+CI runs `cargo test --workspace` before building on push to any branch (`.github/workflows/build.yml`) and on PRs (`.github/workflows/check.yml`). Pushing to master creates a `stable` release; pushing to other branches creates pre-releases tagged with the branch name. Run tests locally with `cargo test --workspace` before submitting changes.
 
 ## Testing
 
-Integration tests live in `tests/` and are organized into six suites:
+Integration tests live in `libllm/tests/` and are organized into six suites:
 
 ```sh
-cargo test                          # run all tests
-cargo test --test core_data         # session, crypto, and tree tests
-cargo test --test content_management # characters, worldbooks, prompts, personas
-cargo test --test request_pipeline  # preset rendering, sampling, context truncation
-cargo test --test infrastructure    # config, migrations, metadata index
-cargo test --test tui_business      # template vars, command registry, business logic
-cargo test --test smoke             # end-to-end smoke tests
+cargo test --workspace                  # run all tests
+cargo test -p libllm --test core_data         # session and tree tests
+cargo test -p libllm --test content_management # characters, worldbooks, prompts, personas
+cargo test -p libllm --test request_pipeline  # preset rendering, sampling, context truncation
+cargo test -p libllm --test infrastructure    # config, migrations
+cargo test -p libllm --test tui_business      # template vars, command registry, business logic
+cargo test -p libllm --test smoke             # end-to-end smoke tests
 ```
 
-Shared test helpers are in `tests/common/mod.rs` (temp dirs, key derivation, fixture builders). The crate exposes modules for integration tests via `src/lib.rs`.
+Unit tests for the database module live in `libllm-core/src/db/` (each sub-module has `#[cfg(test)]` tests).
 
-`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
+Shared test helpers are in `libllm/tests/common/mod.rs` (temp dirs, key derivation, fixture builders).
+
+`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `libllm/tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
 
 ### Verifying test results
 
-`cargo test` runs multiple test binaries (unit tests, six integration suites, doctests). Some binaries may report `0 tests` if they have no matching tests. **Do not use `tail` to check results** -- it only shows the last binary's output, which may be an empty suite. Instead, grep for all result lines:
+`cargo test --workspace` runs multiple test binaries (unit tests, integration suites, doctests). Some binaries may report `0 tests` if they have no matching tests. **Do not use `tail` to check results** -- it only shows the last binary's output, which may be an empty suite. Instead, grep for all result lines:
 
 ```sh
-cargo test 2>&1 | grep -E "^test result:"
+cargo test --workspace 2>&1 | grep -E "^test result:"
 ```
 
 Every line must show `0 failed`. If any line shows failures, the full output is needed to diagnose which tests failed.
@@ -67,60 +85,75 @@ The default data directory is `~/.local/share/libllm/`. A custom path can be spe
 ```
 <data_dir>/
 ├── config.toml              # API URL, template, sampling defaults (NOT encrypted)
+├── data.db                  # SQLite database (SQLCipher-encrypted or plain)
 ├── .salt                    # 16-byte random salt (generated on first run)
 ├── .key_check               # Passkey verification fingerprint
-├── index.meta               # Encrypted metadata cache for fast session/character/worldbook listing
-├── sessions/
-│   └── *.session            # AES-256-GCM encrypted session files
-├── characters/
-│   └── *.character / *.json / *.png  # Character cards (PNG auto-imported, JSON auto-encrypted)
-├── worldinfo/
-│   └── *.worldbook / *.json # Worldbook files (JSON auto-encrypted)
-├── system/
-│   ├── assistant.prompt     # Builtin system prompt
-│   ├── roleplay.prompt      # Builtin system prompt
-│   └── *.prompt / *.json    # Custom system prompts (JSON auto-encrypted)
-├── personas/
-│   └── *.persona / *.json   # User personas (JSON auto-encrypted)
 └── presets/
     ├── instruct/            # Instruct presets (Mistral V3-Tekken, Llama 3, ChatML, Phi, Alpaca)
     ├── reasoning/           # Reasoning presets (DeepSeek)
     └── template/            # Context template presets (Default)
 ```
 
-Old config at `~/.config/libllm/config.toml` is auto-migrated on first run. System prompts and personas previously stored in `config.toml` are auto-migrated to their respective directories.
+All sessions, characters, worldbooks, system prompts, and personas are stored in `data.db`. The database schema is versioned and auto-migrated on startup.
+
+Old config at `~/.config/libllm/config.toml` is auto-migrated on first run.
+
+### Migrating from legacy file-based storage
+
+If upgrading from a version that used per-file storage (`sessions/`, `characters/`, etc.), run:
+
+```sh
+libllm-migrate -d <data_dir>
+# or for unencrypted directories:
+libllm-migrate -d <data_dir> --no-encrypt
+```
+
+This creates a `.7z` backup, imports all data into `data.db`, and removes the old directories.
 
 ## Architecture
 
-The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util).
+The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util). The project is a Cargo workspace with three crates.
+
+### libllm-core (shared library)
+
+- **`db`** -- SQLite database module (via `rusqlite` with SQLCipher). Contains `Database` struct with connection management, versioned schema migrations, and CRUD operations for all data types (sessions, messages, characters, worldbooks, system prompts, personas)
+- **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Database/PendingPasskey), `Session` struct with tree, model, template, and metadata
+- **`character`** -- `CharacterCard` struct and parsing from JSON and PNG (base64 text chunk extraction). Supports old (top-level) and new (nested `data` object) formats
+- **`worldinfo`** -- `WorldBook` with entry scanning by keyword match. `scan_entries()` activates entries whose keys appear in message text
+- **`system_prompt`** -- `SystemPromptFile` struct with builtin name constants (`BUILTIN_ASSISTANT`, `BUILTIN_ROLEPLAY`) and content
+- **`persona`** -- `PersonaFile` struct (`name` + `persona` text)
+- **`template`** -- `{{char}}`/`{{user}}` template variable substitution
+- **`config`** -- TOML config at `<data_dir>/config.toml`, data directory management. `data_dir()` supports a `OnceLock`-based override set via `set_data_dir()` for the `--data` flag
+- **`crypto`** -- Argon2id key derivation, salt management, passkey verification. `DerivedKey` struct provides the key for SQLCipher's `PRAGMA key`
+- **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
+- **`commands`** -- Shared command registry for `/help` and TUI command picker
+- **`preset`** -- Three preset types loaded from JSON files in `<data_dir>/presets/`: `InstructPreset` (prompt formatting), `ReasoningPreset` (thinking block support), `ContextPreset` (context template variables)
+- **`sampling`** -- `SamplingParams` and `SamplingOverrides` with `with_overrides` merge
+- **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
+- **`export`** -- Conversation branch export to HTML (styled, responsive dark/light), Markdown, or JSONL (SillyTavern-compatible format with metadata header)
+- **`migration`** -- Legacy config path migration (`~/.config/libllm/` to `~/.local/share/libllm/`)
+- **`debug_log`** -- Structured diagnostic logging and timing instrumentation
+
+### libllm (main binary)
 
 - **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `update` (self-update with optional branch target, `--list`, `--yes`)
-- **`client`** -- `ApiClient` with two streaming modes: `impl Write` (single-msg) and `mpsc::Sender<StreamToken>` (TUI)
-- **`commands`** -- Shared command registry for `/help` and TUI command picker; includes `resolve_alias()` and `matching_commands()`. Commands: `/clear` (`/new`), `/system`, `/retry`, `/continue` (`/cont`), `/branch`, `/character`, `/persona` (`/self`, `/user`, `/me`), `/worldbook` (`/lore`, `/world`, `/lorebook`), `/passkey` (`/password`, `/pass`, `/auth`), `/config`, `/theme`, `/export`, `/macro` (`/m`), `/report`, `/quit` (`/exit`)
-- **`export`** -- Conversation branch export to HTML (styled, responsive dark/light), Markdown, or JSONL (SillyTavern-compatible format with metadata header)
-- **`config`** -- TOML config at `<data_dir>/config.toml`, data/sessions/characters/worldinfo/system/personas/presets directory management, migration from old config path. `data_dir()` supports a `OnceLock`-based override set via `set_data_dir()` for the `--data` flag
-- **`context`** -- `ContextManager` for token estimation and pure `truncated_path`
-- **`crypto`** -- AES-256-GCM encryption/decryption, Argon2id key derivation, salt management. Encrypted file format: magic "LLMS" (4 bytes) + version (1 byte) + nonce (12 bytes) + ciphertext
-- **`character`** -- `CharacterCard` parsing from JSON and PNG (base64 text chunk extraction). Supports old (top-level) and new (nested `data` object) formats. Auto-imports PNG cards on startup
-- **`worldinfo`** -- `WorldBook` with entry scanning by keyword match. `scan_entries()` activates entries whose keys appear in message text. `normalize_worldbooks()` converts legacy field names
-- **`preset`** -- Three preset types loaded from JSON files in `<data_dir>/presets/`: `InstructPreset` (prompt formatting -- builtins: Mistral V3-Tekken, Llama 3 Instruct, ChatML, Phi, Alpaca; plus synthetic `Raw`), `ReasoningPreset` (thinking block support -- builtin: DeepSeek), `ContextPreset` (context template variables -- builtin: Default). The `--template`/`-t` CLI flag resolves to an instruct preset
-- **`sampling`** -- `SamplingParams` and `SamplingOverrides` with `with_overrides` merge
-- **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Plaintext/Encrypted/PendingPasskey), encrypted save/load, session listing with previews. Supports legacy flat session format migration
-- **`system_prompt`** -- File-based system prompt management. Two hardcoded builtins (`assistant`, `roleplay`) are auto-created if missing. Custom prompts stored as encrypted `.prompt` files. Handles migration from old `config.toml` fields
-- **`persona`** -- File-based user persona management (`name` + `persona` text). Stored as encrypted `.persona` files. Migrates from old `config.toml` `user_name`/`user_persona` fields
-- **`index`** -- `MetadataIndex` for fast session/character/worldbook listing. Caches display names, message counts, and previews in encrypted `index.meta` to avoid decrypting every file on startup
-- **`migration`** -- Centralized migration orchestration. Runs all migrations (config path, system prompts, personas, worldbook normalization, plaintext encryption) on startup with warning reporting
 - **`update`** -- Self-update via GitHub releases. Supports stable and branch channels with interactive branch selection, channel-switch confirmation, and cross-platform binary replacement
 - **`tui`** -- Full ratatui terminal UI:
-  - `mod.rs` -- App state, Focus enum with 24 variants (Input, Chat, Sidebar, plus 21 dialog-specific variants), async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields
-  - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `{{char}}`/`{{user}}` template variable substitution, `config_locked_fields()` for determining which `/config` fields are CLI-locked
+  - `mod.rs` -- App state (holds `Database`), Focus enum, async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields
+  - `business.rs` -- `build_effective_system_prompt()`, worldbook entry injection, `config_locked_fields()` for determining which `/config` fields are CLI-locked
   - `clipboard.rs` -- Clipboard integration for copy/paste
-  - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save. `/system` and `/persona` open in read-only mode when overridden by `-r` or `-p`. `/macro` expands user-defined templates with positional arg placeholders (`{{}}`, `{{N}}`, `{{N..M}}`, `{{N..}}`). `/export` delegates to `crate::export`. `/theme` switches color theme
+  - `commands.rs` -- Slash command dispatch, streaming via channel, session auto-save via database
   - `input.rs` -- Keyboard handling, tree navigation (`switch_sibling`, `navigate_up`, `navigate_down`), command picker with Tab
   - `render.rs` -- Styled text parsing (bold/italic markdown), chat rendering, status bar with branch indicators. All colors read from `app.theme` (no hardcoded color constants)
   - `theme.rs` -- `Theme` struct with 25 color fields, built-in presets (dark, light), `parse_color()` for named/hex/indexed colors, `resolve_theme()` merges preset + config overrides
-  - `maintenance.rs` -- Background maintenance tasks (PNG import, plaintext encryption, worldbook normalization, builtin prompt setup) spawned on startup and after passkey unlock
-  - `dialogs/` -- Modal dialogs organized by file: `passkey` (unlock), `set_passkey` (set/change passkey), `branch` (branch selector), `character` (picker + inline editor), `persona` (picker + inline editor), `system_prompt` (selector + inline editor), `edit` (message editor + confirm), `worldbook` (toggle list + entry editor + entry delete confirm), `preset` (instruct/reasoning/template picker + inline editor), `delete_confirm` (generic deletion), `api_error` (API error display). `FieldDialog` supports `locked_fields` (rendered in red, non-editable). Character and worldbook dialogs support inline creation via "a" key. System prompt and worldbook editor dialogs support name editing
+  - `maintenance.rs` -- Startup tasks (ensure builtin system prompts in database)
+  - `dialogs/` -- Modal dialogs: `passkey`, `set_passkey`, `branch`, `character`, `persona`, `system_prompt`, `edit`, `worldbook`, `preset`, `delete_confirm`, `api_error`. All dialogs use database CRUD directly
+
+### libllm-migrate (migration binary)
+
+- **`legacy`** -- Reads old AES-256-GCM encrypted files (sessions, characters, worldbooks, personas, system prompts) from legacy data directories
+- **`backup`** -- Creates `.7z` backup archive of legacy files before migration
+- **`main`** -- CLI entry point: parse args, derive key, create backup, import into SQLite, delete old files
 
 ### CLI Override System
 
@@ -133,9 +166,11 @@ The `-r` (system prompt) flag forces `/system` into a read-only viewer. The `-p`
 
 ### Encryption
 
-Sessions are encrypted with AES-256-GCM. A single salt (`.salt` file) is created on first run. The user's passkey + salt derive one key via Argon2id at startup. Each session file gets a unique random nonce.
+All data is stored in a single SQLite database (`data.db`) encrypted with **SQLCipher** (AES-256). The encryption key is derived from the user's passkey using **Argon2id** (64 MB memory, 3 iterations) with a per-installation random salt. The derived key is passed to SQLCipher via `PRAGMA key`.
 
 When using `--data/-d`, the encryption mode must be consistent with the directory: `--passkey` is rejected on unencrypted data directories, and `--no-encrypt` is rejected on encrypted ones. New directories allow either mode for first-time setup.
+
+The passkey can be changed at any time via `/passkey`, which uses SQLCipher's `PRAGMA rekey` to re-encrypt the database.
 
 ### Diagnostics
 
@@ -147,7 +182,7 @@ Debug logging is off by default. Enable it via `debug_log = true` in config or `
 
 The TUI `/report` command copies the currently active debug log to `./debug.log` and refuses to overwrite an existing file.
 
-When modifying instrumented paths such as startup, session I/O, metadata hydration, unlock flow, or rendering, maintain diagnostics coverage with `debug_log::log_kv()`, `debug_log::timed_kv()`, or `debug_log::timed_result()`. Immediate debug logs should describe subsystem behavior; timing data should feed the `--timings` report rather than writing inline elapsed lines to the debug log.
+When modifying instrumented paths such as startup, session I/O, or rendering, maintain diagnostics coverage with `debug_log::log_kv()`, `debug_log::timed_kv()`, or `debug_log::timed_result()`. Immediate debug logs should describe subsystem behavior; timing data should feed the `--timings` report rather than writing inline elapsed lines to the debug log.
 
 ### Statusbar
 

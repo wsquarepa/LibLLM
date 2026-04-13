@@ -233,7 +233,7 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
     Ok(())
 }
 
-fn confirm_downgrade(yes: bool) -> Result<bool> {
+fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     if yes {
         return Ok(true);
     }
@@ -241,15 +241,15 @@ fn confirm_downgrade(yes: bool) -> Result<bool> {
     let stdin = io::stdin();
     if !stdin.is_terminal() {
         anyhow::bail!(
-            "Currently on branch '{CHANNEL}'. \
-             Switching to stable in a non-interactive terminal requires --yes."
+            "Currently on '{CHANNEL}'. \
+             Switching channels in a non-interactive terminal requires --yes."
         );
     }
 
-    eprintln!("WARNING: You are currently on branch '{CHANNEL}'.");
+    eprintln!("WARNING: You are currently on '{CHANNEL}'.");
     eprintln!(
-        "Switching to stable may cause issues if this branch introduced\n\
-         data format changes that stable does not yet support.\n\
+        "Switching to '{target}' may cause issues if your current build introduced\n\
+         data format changes that '{target}' does not yet support.\n\
          Your data directory could become unreadable."
     );
     eprint!("\nContinue? [y/N] ");
@@ -329,16 +329,16 @@ pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
         return list_branches(&client).await;
     }
 
+    let target = branch.as_deref().unwrap_or("stable");
+    if CHANNEL != target {
+        if !confirm_channel_switch(target, yes)? {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
     match branch {
         Some(name) => update_branch(&client, &name).await,
-        None => {
-            if CHANNEL != "stable" {
-                if !confirm_downgrade(yes)? {
-                    println!("Cancelled.");
-                    return Ok(());
-                }
-            }
-            update_stable(&client).await
-        }
+        None => update_stable(&client).await,
     }
 }

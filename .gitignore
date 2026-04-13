@@ -22,3 +22,6 @@ target
 
 # Temporary files
 *.tmp.*
+
+# Git worktrees
+.worktrees/

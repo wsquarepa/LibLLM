@@ -24,7 +24,7 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
             Role::System => "System",
         };
         let content = business::apply_template_vars(&msg.content, char_name, user_name);
-        let escaped = html_escape(&content);
+        let formatted = html_format_content(&content);
         let class = match msg.role {
             Role::User => "user",
             Role::Assistant => "assistant",
@@ -37,7 +37,7 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
         body.push_str(&format!(
             "    <article class=\"message {class}\">\n\
              \x20     <div class=\"role\">{}</div>\n\
-             \x20     <div class=\"content\"><{tag}>{escaped}</{tag}></div>\n\
+             \x20     <div class=\"content\"><{tag}>{formatted}</{tag}></div>\n\
              \x20     <time>{}</time>\n\
              \x20   </article>\n",
             html_escape(role_label),
@@ -174,6 +174,11 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
       font-style: italic;
     }}
 
+    .content q {{
+      quotes: none;
+      color: var(--accent-assistant);
+    }}
+
     time {{
       display: block;
       color: var(--text-dim);
@@ -206,6 +211,70 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+fn html_format_line(line: &str) -> String {
+    let escaped = html_escape(line);
+    let mut out = String::with_capacity(escaped.len());
+    let bytes = escaped.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            if let Some(end) = find_delimiter(&escaped[i + 2..], "**") {
+                let inner = &escaped[i + 2..i + 2 + end];
+                out.push_str("<strong>");
+                out.push_str(inner);
+                out.push_str("</strong>");
+                i += 2 + end + 2;
+                continue;
+            }
+        }
+
+        if bytes[i] == b'*' {
+            if let Some(end) = find_delimiter(&escaped[i + 1..], "*") {
+                let inner = &escaped[i + 1..i + 1 + end];
+                out.push_str("<em>");
+                out.push_str(inner);
+                out.push_str("</em>");
+                i += 1 + end + 1;
+                continue;
+            }
+        }
+
+        if bytes[i] == b'&' && escaped[i..].starts_with("&quot;") {
+            let after = i + 6;
+            if let Some(end) = escaped[after..].find("&quot;") {
+                let inner = &escaped[after..after + end];
+                out.push_str("<q>");
+                out.push_str(inner);
+                out.push_str("</q>");
+                i = after + end + 6;
+                continue;
+            }
+        }
+
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+
+    out
+}
+
+fn find_delimiter(text: &str, delim: &str) -> Option<usize> {
+    if text.len() <= delim.len() {
+        return None;
+    }
+    let start = text.char_indices().nth(1).map(|(i, _)| i)?;
+    text[start..].find(delim).map(|pos| pos + start)
+}
+
+pub fn html_format_content(content: &str) -> String {
+    content
+        .lines()
+        .map(|line| html_format_line(line))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> String {

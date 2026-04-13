@@ -108,11 +108,21 @@ pub fn resolve_alias(input: &str) -> &str {
 }
 
 pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandInfo> {
-    COMMANDS
+    let mut matches: Vec<&'static CommandInfo> = COMMANDS
         .iter()
         .filter(|c| {
             !hidden.contains(&c.name)
                 && (c.name.starts_with(prefix) || c.aliases.iter().any(|a| a.starts_with(prefix)))
         })
-        .collect()
+        .collect();
+    matches.sort_by_key(|c| {
+        let best = std::iter::once(c.name)
+            .chain(c.aliases.iter().copied())
+            .filter(|n| n.starts_with(prefix))
+            .map(|n| n.len())
+            .min()
+            .unwrap_or(usize::MAX);
+        best
+    });
+    matches
 }

@@ -138,16 +138,16 @@ async fn main() -> Result<()> {
         config::ensure_dirs,
     )?;
 
+    if let Some(cli::Command::Update { branch, list, yes }) = &args.command {
+        return update::run(branch.clone(), *list, *yes).await;
+    }
+
     migration::migrate_config_path();
 
     check_and_run_migration(&args).await?;
 
     if let Some(cli::Command::Edit { kind, name }) = &args.command {
         return handle_edit_command(kind, name, &args);
-    }
-
-    if let Some(cli::Command::Update { branch, list, yes }) = &args.command {
-        return update::run(branch.clone(), *list, *yes).await;
     }
 
     let cfg = debug_log::timed_kv(

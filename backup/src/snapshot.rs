@@ -18,29 +18,21 @@ pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupCo
     let index_path = backups_dir.join("index.json");
     let mut index = load_index(&index_path)?;
 
-    let db_key = match passkey {
+    let (db_key, backup_key) = match passkey {
         Some(pk) => {
             let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            Some(libllm::crypto::derive_key(pk, &salt)?)
+            let dk = libllm::crypto::derive_key(pk, &salt)?;
+            let bk = crate::crypto::derive_backup_key(pk, &salt)?;
+            (Some(dk), Some(bk))
         }
-        None => None,
+        None => (None, None),
     };
 
     let plaintext = crate::export::export_plaintext_db(&db_path, db_key.as_ref())?;
     let plaintext_hash = crate::hash::hash_bytes(&plaintext);
 
-    let backup_key: Option<[u8; 32]> = match passkey {
-        Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            Some(crate::crypto::derive_backup_key(pk, &salt)?)
-        }
-        None => None,
-    };
-
-    let (backup_type, payload) =
-        decide_and_build_payload(&plaintext, &index, &backups_dir, &backup_key, config)?;
-
-    let compressed = crate::diff::compress(&payload)?;
+    let (backup_type, compressed) =
+        build_payload(&plaintext, &index, &backups_dir, &backup_key, config)?;
 
     let stored = match &backup_key {
         Some(key) => crate::crypto::encrypt_payload(&compressed, key)?,
@@ -54,7 +46,7 @@ pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupCo
     libllm::crypto::write_atomic(&file_path, &stored)
         .with_context(|| format!("failed to write backup file: {}", file_path.display()))?;
 
-    let file_hash = crate::hash::hash_file(&file_path)?;
+    let file_hash = crate::hash::hash_bytes(&stored);
 
     let base_id = match backup_type {
         BackupType::Base => None,
@@ -81,19 +73,23 @@ pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupCo
     Ok(())
 }
 
-fn decide_and_build_payload(
+/// Returns (BackupType, compressed_payload). The payload is already zstd-compressed.
+fn build_payload(
     plaintext: &[u8],
     index: &BackupIndex,
     backups_dir: &Path,
     backup_key: &Option<[u8; 32]>,
     config: &BackupConfig,
 ) -> Result<(BackupType, Vec<u8>)> {
+    let compress_as_base =
+        || crate::diff::compress(plaintext).context("failed to compress base payload");
+
     let Some(latest_base) = index.latest_base() else {
-        return Ok((BackupType::Base, plaintext.to_vec()));
+        return Ok((BackupType::Base, compress_as_base()?));
     };
 
     if index.diffs_since_last_base() >= config.rebase_hard_ceiling as usize {
-        return Ok((BackupType::Base, plaintext.to_vec()));
+        return Ok((BackupType::Base, compress_as_base()?));
     }
 
     let base_file_path = backups_dir.join(&latest_base.filename);
@@ -111,10 +107,10 @@ fn decide_and_build_payload(
 
     let threshold = (latest_base.plaintext_size * config.rebase_threshold_percent as u64) / 100;
     if compressed_patch.len() as u64 > threshold {
-        return Ok((BackupType::Base, plaintext.to_vec()));
+        return Ok((BackupType::Base, compress_as_base()?));
     }
 
-    Ok((BackupType::Diff, patch))
+    Ok((BackupType::Diff, compressed_patch))
 }
 
 #[cfg(test)]

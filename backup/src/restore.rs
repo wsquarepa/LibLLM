@@ -2,7 +2,42 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use crate::index::load_index;
+use crate::index::{BackupEntry, load_index};
+
+/// Replays a backup chain (base + diffs) and returns the resulting plaintext bytes.
+///
+/// `chain` must be ordered base-first (as returned by `BackupIndex::chain_to`).
+/// Each file is read from `backups_dir`, optionally decrypted, decompressed,
+/// and diffs are applied sequentially over the base.
+pub(crate) fn replay_chain(
+    backups_dir: &Path,
+    chain: &[&BackupEntry],
+    backup_key: &Option<[u8; 32]>,
+) -> Result<Vec<u8>> {
+    let base_entry = chain[0];
+    let base_bytes = std::fs::read(backups_dir.join(&base_entry.filename))
+        .with_context(|| format!("failed to read base backup: {}", base_entry.filename))?;
+
+    let base_decrypted = match backup_key {
+        Some(key) => crate::crypto::decrypt_payload(&base_bytes, key)?,
+        None => base_bytes,
+    };
+    let mut plaintext = crate::diff::decompress(&base_decrypted)?;
+
+    for diff_entry in &chain[1..] {
+        let diff_bytes = std::fs::read(backups_dir.join(&diff_entry.filename))
+            .with_context(|| format!("failed to read diff backup: {}", diff_entry.filename))?;
+
+        let diff_decrypted = match backup_key {
+            Some(key) => crate::crypto::decrypt_payload(&diff_bytes, key)?,
+            None => diff_bytes,
+        };
+        let patch = crate::diff::decompress(&diff_decrypted)?;
+        plaintext = crate::diff::apply_patch(&plaintext, &patch)?;
+    }
+
+    Ok(plaintext)
+}
 
 /// Restores the database to the state captured at `target_id`.
 ///
@@ -31,35 +66,8 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
         None => None,
     };
 
-    let base_entry = chain[0];
-    let base_file = backups_dir.join(&base_entry.filename);
-    let base_file_bytes = std::fs::read(&base_file)
-        .with_context(|| format!("failed to read base backup: {}", base_file.display()))?;
-
-    let base_decrypted = match &backup_key {
-        Some(key) => crate::crypto::decrypt_payload(&base_file_bytes, key)
-            .context("failed to decrypt base backup")?,
-        None => base_file_bytes,
-    };
-    let mut plaintext = crate::diff::decompress(&base_decrypted)
-        .context("failed to decompress base backup")?;
-
-    for diff_entry in &chain[1..] {
-        let diff_file = backups_dir.join(&diff_entry.filename);
-        let diff_file_bytes = std::fs::read(&diff_file)
-            .with_context(|| format!("failed to read diff backup: {}", diff_file.display()))?;
-
-        let diff_decrypted = match &backup_key {
-            Some(key) => crate::crypto::decrypt_payload(&diff_file_bytes, key)
-                .context("failed to decrypt diff backup")?,
-            None => diff_file_bytes,
-        };
-        let patch = crate::diff::decompress(&diff_decrypted)
-            .context("failed to decompress diff backup")?;
-
-        plaintext = crate::diff::apply_patch(&plaintext, &patch)
-            .context("failed to apply diff patch")?;
-    }
+    let plaintext = replay_chain(&backups_dir, &chain, &backup_key)
+        .context("failed to replay backup chain")?;
 
     let target_entry = chain.last().expect("chain is non-empty");
     let actual_hash = crate::hash::hash_bytes(&plaintext);

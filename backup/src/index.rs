@@ -124,12 +124,14 @@ pub fn parse_backup_filename(filename: &str) -> Option<(String, BackupType)> {
 ///
 /// Returns an empty index with version=1 when the file does not exist.
 pub fn load_index(path: &Path) -> Result<BackupIndex> {
-    if !path.exists() {
-        return Ok(BackupIndex::new());
-    }
-
-    let data = std::fs::read(path)
-        .with_context(|| format!("failed to read index file: {}", path.display()))?;
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(BackupIndex::new()),
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("failed to read index file: {}", path.display()))
+        }
+    };
 
     serde_json::from_slice(&data)
         .with_context(|| format!("failed to parse index file: {}", path.display()))

@@ -88,6 +88,7 @@ pub(in crate::tui) fn handle_passkey_key(
                 return None;
             }
             let db_path = libllm::config::data_dir().join("data.db");
+            app.resolved_passkey = Some(passkey.clone());
             app.passkey_input.clear();
             app.passkey_error.clear();
             app.passkey_deriving = true;

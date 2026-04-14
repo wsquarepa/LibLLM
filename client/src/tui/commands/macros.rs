@@ -1,0 +1,236 @@
+#[derive(Debug, PartialEq)]
+pub(super) enum Placeholder {
+    All,
+    Single(usize),
+    Range(usize, usize),
+    Greedy(usize),
+}
+
+pub(super) fn parse_placeholder(content: &str) -> Result<Placeholder, String> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Ok(Placeholder::All);
+    }
+
+    if let Some(rest) = content.strip_suffix("...") {
+        if rest.is_empty() {
+            return Err("Invalid placeholder: {{...}}".to_owned());
+        }
+        let n: usize = rest
+            .parse()
+            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+        if n == 0 {
+            return Err("Placeholder indices start at 1".to_owned());
+        }
+        return Ok(Placeholder::Greedy(n));
+    }
+
+    if let Some(rest) = content.strip_suffix("..") {
+        if rest.is_empty() {
+            return Err("Invalid placeholder: {{..}}".to_owned());
+        }
+        let n: usize = rest
+            .parse()
+            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+        if n == 0 {
+            return Err("Placeholder indices start at 1".to_owned());
+        }
+        return Ok(Placeholder::Greedy(n));
+    }
+
+    if let Some(dot_pos) = content.find("...") {
+        let left = &content[..dot_pos];
+        let right = &content[dot_pos + 3..];
+        let a: usize = left
+            .parse()
+            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+        let b: usize = right
+            .parse()
+            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+        if a == 0 || b == 0 {
+            return Err("Placeholder indices start at 1".to_owned());
+        }
+        if a > b {
+            return Err(format!("Invalid range: {a}...{b} (start > end)"));
+        }
+        return Ok(Placeholder::Range(a, b));
+    }
+
+    if let Some(dot_pos) = content.find("..") {
+        let left = &content[..dot_pos];
+        let right = &content[dot_pos + 2..];
+        let a: usize = left
+            .parse()
+            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+        let b: usize = right
+            .parse()
+            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+        if a == 0 || b == 0 {
+            return Err("Placeholder indices start at 1".to_owned());
+        }
+        if a > b {
+            return Err(format!("Invalid range: {a}..{b} (start > end)"));
+        }
+        return Ok(Placeholder::Range(a, b));
+    }
+
+    let n: usize = content
+        .parse()
+        .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+    if n == 0 {
+        return Err("Placeholder indices start at 1".to_owned());
+    }
+    Ok(Placeholder::Single(n))
+}
+
+pub(super) enum ScanItem {
+    Escaped(usize, usize),
+    Placeholder(usize, usize, Placeholder),
+}
+
+pub(super) fn scan_template(template: &str) -> Result<Vec<ScanItem>, String> {
+    let mut result = Vec::new();
+    let bytes = template.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 2 < bytes.len() && bytes[i + 1] == b'{' && bytes[i + 2] == b'{' {
+            result.push(ScanItem::Escaped(i, i + 1));
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'{' && i > 0 && bytes[i - 1] == b'\\' {
+            i += 1;
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            let start = i;
+            let inner_start = i + 2;
+            let mut j = inner_start;
+            let mut found = false;
+            while j + 1 < bytes.len() {
+                if bytes[j] == b'}' && bytes[j + 1] == b'}' {
+                    let content = &template[inner_start..j];
+                    let placeholder = parse_placeholder(content)?;
+                    result.push(ScanItem::Placeholder(start, j + 2, placeholder));
+                    i = j + 2;
+                    found = true;
+                    break;
+                }
+                j += 1;
+            }
+            if !found {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    Ok(result)
+}
+
+pub(super) fn validate_placeholders(items: &[ScanItem]) -> Result<(), String> {
+    let mut covered_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut singles: Vec<usize> = Vec::new();
+    let mut has_all = false;
+
+    for item in items {
+        if let ScanItem::Placeholder(_, _, ph) = item {
+            match ph {
+                Placeholder::All => has_all = true,
+                Placeholder::Single(n) => singles.push(*n),
+                Placeholder::Range(a, b) => covered_ranges.push((*a, *b)),
+                Placeholder::Greedy(a) => covered_ranges.push((*a, usize::MAX)),
+            }
+        }
+    }
+
+    if has_all {
+        return Ok(());
+    }
+
+    for &n in &singles {
+        for &(start, end) in &covered_ranges {
+            if n >= start && n <= end {
+                return Err(format!(
+                    "Placeholder {{{{{n}}}}} overlaps with range {{{{{start}..{end}}}}}"
+                ));
+            }
+        }
+    }
+
+    if singles.is_empty() && covered_ranges.is_empty() {
+        return Ok(());
+    }
+
+    let mut max_idx: usize = 0;
+    for &n in &singles {
+        max_idx = max_idx.max(n);
+    }
+    for &(start, end) in &covered_ranges {
+        max_idx = max_idx.max(start);
+        if end != usize::MAX {
+            max_idx = max_idx.max(end);
+        }
+    }
+
+    for idx in 1..=max_idx {
+        let in_single = singles.contains(&idx);
+        let in_range = covered_ranges.iter().any(|&(s, e)| idx >= s && idx <= e);
+        if !in_single && !in_range {
+            return Err(format!(
+                "Gap at index {idx}: all indices from 1 to {max_idx} must be covered"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn expand_macro(template: &str, raw_args: &str) -> Result<String, String> {
+    let items = scan_template(template)?;
+    validate_placeholders(&items)?;
+
+    let args: Vec<&str> = if raw_args.trim().is_empty() {
+        Vec::new()
+    } else {
+        raw_args.split_whitespace().collect()
+    };
+
+    let mut result = String::with_capacity(template.len());
+    let mut last_end = 0;
+
+    for item in &items {
+        match item {
+            ScanItem::Escaped(start, skip_to) => {
+                result.push_str(&template[last_end..*start]);
+                last_end = *skip_to;
+            }
+            ScanItem::Placeholder(start, end, ph) => {
+                result.push_str(&template[last_end..*start]);
+                match ph {
+                    Placeholder::All => result.push_str(raw_args),
+                    Placeholder::Single(n) => {
+                        if let Some(arg) = args.get(*n - 1) {
+                            result.push_str(arg);
+                        }
+                    }
+                    Placeholder::Range(a, b) => {
+                        let from = (*a - 1).min(args.len());
+                        let to = (*b).min(args.len());
+                        let slice = &args[from..to];
+                        result.push_str(&slice.join(" "));
+                    }
+                    Placeholder::Greedy(a) => {
+                        let from = (*a - 1).min(args.len());
+                        let slice = &args[from..];
+                        result.push_str(&slice.join(" "));
+                    }
+                }
+                last_end = *end;
+            }
+        }
+    }
+
+    result.push_str(&template[last_end..]);
+    Ok(result)
+}

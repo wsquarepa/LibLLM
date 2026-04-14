@@ -1,3 +1,5 @@
+//! Persona profile CRUD operations against the SQLite personas table.
+
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 

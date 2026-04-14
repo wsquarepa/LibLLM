@@ -1,3 +1,5 @@
+//! Legacy file-based storage detection and migration utility download.
+
 use anyhow::{Context, Result};
 use std::io::{self, IsTerminal, Write};
 use libllm::config;

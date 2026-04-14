@@ -1,3 +1,5 @@
+//! Plaintext database export for backup snapshots, handling optional SQLCipher decryption.
+
 use std::path::Path;
 use std::time::Duration;
 

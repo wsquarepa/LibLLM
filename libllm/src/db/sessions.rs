@@ -1,3 +1,5 @@
+//! Session persistence: insert, load, list, delete, and incremental message updates.
+
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};

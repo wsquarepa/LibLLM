@@ -1,3 +1,5 @@
+//! API connection error dialog with retry and URL editing options.
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};

@@ -1,3 +1,6 @@
+//! Database schema versioning and automatic migration on startup.
+
+/// Outcome of a migration attempt: how many changes were applied and any non-fatal warnings.
 pub struct MigrationResult {
     pub changed_count: usize,
     pub warnings: Vec<String>,

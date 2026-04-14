@@ -1,3 +1,5 @@
+//! Business logic helpers for system prompt assembly, worldbook injection, and config management.
+
 use libllm::db::Database;
 use libllm::session::{Message, Role, SaveMode, Session, SessionEntry};
 use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
@@ -16,6 +18,11 @@ pub fn non_empty(s: &str) -> Option<String> {
 
 pub use libllm::template::apply_template_vars;
 
+/// Assembles the final system prompt from session, builtin defaults, and persona.
+///
+/// Falls back to the builtin assistant or roleplay prompt when the session has no explicit
+/// system prompt. Appends persona description when a character session has a persona set.
+/// Returns `None` when neither a base prompt nor a persona is available.
 pub fn build_effective_system_prompt(
     session: &Session,
     db: Option<&Database>,
@@ -121,6 +128,8 @@ pub fn load_runtime_worldbooks(
     )
 }
 
+/// Scans all loaded worldbooks against recent messages and injects activated entries as system
+/// messages at the appropriate depth positions in the message list.
 pub fn inject_loaded_worldbook_entries(
     session: &Session,
     messages: &[&Message],
@@ -615,6 +624,7 @@ pub(super) fn refresh_sidebar(app: &mut App) {
     app.sidebar_cache = None;
 }
 
+/// Loads the sidebar session list from the database, prepending a "New Chat" entry.
 pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) -> Vec<SessionEntry> {
     let mode = match save_mode {
         SaveMode::Database { .. } => "database",

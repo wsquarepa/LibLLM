@@ -1,3 +1,5 @@
+//! System prompt CRUD operations with builtin prompt seeding.
+
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 

@@ -1,3 +1,5 @@
+//! Shared type definitions for TUI application state.
+
 use ratatui::layout::Rect;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;

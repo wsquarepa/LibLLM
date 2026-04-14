@@ -1,3 +1,5 @@
+//! Preset picker and editor dialogs for instruct, reasoning, and template presets.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

@@ -1,3 +1,5 @@
+//! Markdown-style inline formatting parser for bold, italic, and dialogue spans.
+
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 

@@ -1,3 +1,5 @@
+//! Top-level event dispatch for keyboard, mouse, and paste events.
+
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };

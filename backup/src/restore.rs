@@ -1,3 +1,5 @@
+//! Chain replay and database restoration from backup points.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};

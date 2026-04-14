@@ -1,3 +1,5 @@
+//! Character card picker and editor dialog with session greeting injection.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

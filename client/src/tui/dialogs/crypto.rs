@@ -1,3 +1,5 @@
+//! Background key derivation and database open/rekey for passkey dialogs.
+
 use libllm::crypto::DerivedKey;
 use crate::tui::BackgroundEvent;
 

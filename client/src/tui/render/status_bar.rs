@@ -1,3 +1,5 @@
+//! Status bar renderer showing model info, token count, and temporary notifications.
+
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};

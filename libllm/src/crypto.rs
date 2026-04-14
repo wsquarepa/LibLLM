@@ -1,3 +1,5 @@
+//! Database encryption via SQLCipher with Argon2id key derivation and atomic file writes.
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -25,6 +27,7 @@ fn write_restricted(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// A 32-byte encryption key derived from a passkey via Argon2id, automatically zeroed on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct DerivedKey {
     bytes: [u8; 32],
@@ -40,6 +43,9 @@ impl DerivedKey {
     }
 }
 
+/// Reads an existing 16-byte salt from `path`, or generates a cryptographically random one and writes it.
+///
+/// Returns an error if the file exists but has the wrong length, or if I/O fails.
 pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
     match std::fs::read(path) {
         Ok(data) => {
@@ -68,6 +74,9 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
     Ok(salt)
 }
 
+/// Derives a 32-byte database encryption key from a passkey and 16-byte salt using Argon2id.
+///
+/// Parameters: memory=65536, iterations=3, parallelism=1, output=32.
 pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
     let params = argon2::Params::new(65536, 3, 1, Some(32))
         .map_err(|e| anyhow::anyhow!("invalid argon2 params: {e}"))?;
@@ -93,6 +102,10 @@ fn temp_write_path(path: &Path) -> Result<PathBuf> {
     Ok(parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4())))
 }
 
+/// Writes data to a temporary file then atomically renames it to `path`.
+///
+/// The temporary file is created with mode 0600 on Unix. If the rename fails, the
+/// temporary file is cleaned up and the error is returned.
 pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     let temp_path = temp_write_path(path)?;
 

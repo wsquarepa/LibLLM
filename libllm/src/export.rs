@@ -1,3 +1,5 @@
+//! Session and character export to Markdown and JSON formats.
+
 use crate::session::{self, Message, Role};
 use crate::template;
 

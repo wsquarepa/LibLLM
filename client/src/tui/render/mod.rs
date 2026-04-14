@@ -1,3 +1,5 @@
+//! TUI rendering: chat messages, sidebar, dialogs, and status bar.
+
 mod measurement;
 mod status_bar;
 mod text;

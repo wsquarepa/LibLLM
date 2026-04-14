@@ -1,9 +1,12 @@
+//! Backup chain integrity verification via file hash checks and optional full replay.
+
 use std::path::Path;
 
 use anyhow::Result;
 
 use crate::index::load_index;
 
+/// Summary of a backup verification run: how many entries were checked and any errors found.
 pub struct VerifyResult {
     pub checked_count: usize,
     pub errors: Vec<String>,

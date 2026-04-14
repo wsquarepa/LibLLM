@@ -1,3 +1,5 @@
+//! Worldbook CRUD operations with JSON-serialized entry storage.
+
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 

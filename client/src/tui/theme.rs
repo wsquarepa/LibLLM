@@ -1,3 +1,5 @@
+//! Theme resolution and color palette definitions.
+
 use ratatui::style::Color;
 
 use libllm::config::{Config, ThemeColorOverrides};

@@ -1,3 +1,5 @@
+//! Character card CRUD operations against the SQLite characters table.
+
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 

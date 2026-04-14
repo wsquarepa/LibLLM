@@ -1,8 +1,11 @@
+//! World info / lorebook types with keyword-triggered entry activation.
+
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+/// A named collection of lorebook entries with keyword-activated content injection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldBook {
     pub name: String,
@@ -61,6 +64,10 @@ struct RawEntry {
 
 const DEFAULT_SCAN_DEPTH: usize = 4;
 
+/// Parses a worldbook from JSON, accepting both the normalized format and the SillyTavern legacy format.
+///
+/// Disabled and empty-content entries are filtered out. Uses `fallback_name` when the
+/// JSON does not include a `name` field.
 pub fn parse_worldbook_json(contents: &str, fallback_name: &str) -> Result<WorldBook> {
     if let Ok(normalized) = serde_json::from_str::<WorldBook>(contents) {
         return Ok(normalized);
@@ -107,12 +114,14 @@ pub fn parse_worldbook_json(contents: &str, fallback_name: &str) -> Result<World
     Ok(WorldBook { name, entries })
 }
 
+/// A worldbook entry whose keywords matched the recent message window.
 pub struct ActivatedEntry {
     pub content: String,
     pub depth: usize,
     pub order: i64,
 }
 
+/// Pre-processed worldbook with case-normalized keys for efficient repeated scanning.
 #[derive(Clone)]
 pub struct RuntimeWorldBook {
     entries: Vec<RuntimeEntry>,
@@ -163,6 +172,11 @@ impl RuntimeWorldBook {
     }
 }
 
+/// Scans recent messages against a runtime worldbook and returns all activated entries.
+///
+/// Constant entries are always included. Non-constant entries activate when at least one
+/// primary key matches within the entry's depth window. Selective entries additionally
+/// require all secondary keys to match.
 pub fn scan_runtime_entries(
     worldbook: &RuntimeWorldBook,
     messages: &[&str],

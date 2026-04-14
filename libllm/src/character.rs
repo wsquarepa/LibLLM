@@ -1,3 +1,5 @@
+//! Character card types and SillyTavern-compatible import/export.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -5,6 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 
+/// A character card following the SillyTavern V2 spec, with optional V1 fallback fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterCard {
     pub name: String,
@@ -45,6 +48,10 @@ struct RawCardData {
     alternate_greetings: Option<Vec<String>>,
 }
 
+/// Parses a character card from JSON, accepting both V1 (top-level fields) and V2 (`data` object) formats.
+///
+/// Fields in `data` take precedence over top-level fields. Returns an error if the
+/// card has no name or the JSON is malformed.
 pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
     let raw: RawCard =
         serde_json::from_str(json_str).context("failed to parse character card JSON")?;
@@ -101,6 +108,9 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
 
 const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
+/// Extracts a base64-encoded character card JSON from a PNG `tEXt` chunk with keyword "chara".
+///
+/// Returns the decoded JSON string, or an error if the PNG has no `chara` chunk.
 pub fn extract_png_card(png_bytes: &[u8]) -> Result<String> {
     if png_bytes.len() < 8 || png_bytes[..8] != PNG_SIGNATURE {
         bail!("not a valid PNG file");
@@ -149,6 +159,10 @@ pub fn extract_png_card(png_bytes: &[u8]) -> Result<String> {
 const MAX_JSON_CARD_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_PNG_CARD_BYTES: u64 = 50 * 1024 * 1024;
 
+/// Imports a character card from a `.json` or `.png` file on disk.
+///
+/// Enforces size limits (10 MB for JSON, 50 MB for PNG) and delegates to
+/// `parse_card_json` or `extract_png_card` accordingly.
 pub fn import_card(source: &Path) -> Result<CharacterCard> {
     let ext = source
         .extension()
@@ -194,6 +208,10 @@ pub fn import_card(source: &Path) -> Result<CharacterCard> {
     }
 }
 
+/// Assembles a system prompt from a character card's fields, optionally rendered through a context template.
+///
+/// Without a template, concatenates non-empty fields in a fixed order. With a template,
+/// renders the story string using `ContextVars` populated from the card.
 pub fn build_system_prompt(
     card: &CharacterCard,
     template: Option<&crate::preset::ContextPreset>,
@@ -243,6 +261,7 @@ pub fn build_system_prompt(
     parts.join("\n\n")
 }
 
+/// Converts a display name to a lowercase URL-safe slug (e.g. "Hello World" -> "hello-world").
 pub fn slugify(name: &str) -> String {
     name.to_lowercase()
         .chars()

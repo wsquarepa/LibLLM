@@ -1,3 +1,5 @@
+//! Snapshot creation pipeline with automatic base/diff decision logic.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -9,6 +11,10 @@ use crate::index::{
 };
 use crate::BackupConfig;
 
+/// Creates a new backup snapshot (base or diff) of the database at `data_dir/data.db`.
+///
+/// Automatically decides between a base and diff snapshot based on the rebase threshold
+/// and hard ceiling in `config`. Runs retention thinning after writing the snapshot.
 pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupConfig) -> Result<()> {
     let db_path = data_dir.join("data.db");
     let backups_dir = data_dir.join("backups");

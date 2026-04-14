@@ -1,3 +1,5 @@
+//! Command-line argument parsing and CLI override definitions.
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -60,6 +62,7 @@ pub enum Command {
     },
 }
 
+/// CLI flag values that override the corresponding config fields; overridden fields display in red in `/config`.
 pub struct CliOverrides {
     pub api_url: Option<String>,
     pub template: Option<String>,

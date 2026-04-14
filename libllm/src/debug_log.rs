@@ -1,3 +1,5 @@
+//! Structured diagnostic logging with timing aggregation for performance analysis.
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -14,6 +16,7 @@ use time::macros::format_description;
 const TEMP_LOG_PREFIX: &str = "libllm-debug-";
 const DEFAULT_TIMESTAMP: &str = "1970-01-01 00:00:00.000 +00:00";
 
+/// A key-value pair for structured log entries.
 pub struct Field<'a> {
     key: &'a str,
     value: String,
@@ -47,6 +50,7 @@ impl OwnedField {
     }
 }
 
+/// Constructs a `Field` from a key and any `Display` value.
 pub fn field<'a>(key: &'a str, value: impl fmt::Display) -> Field<'a> {
     Field::new(key, value)
 }
@@ -228,6 +232,11 @@ impl TimingCollector {
     }
 }
 
+/// Initializes the global diagnostics system: opens the debug log file and optionally
+/// sets up a timing collector for performance reporting.
+///
+/// Must be called exactly once per process. Returns a `DiagnosticsGuard` whose `Drop`
+/// impl flushes logs and writes the timing report.
 pub fn init(
     debug_override: Option<&Path>,
     timings_path: Option<&Path>,
@@ -387,6 +396,7 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Writes a structured log line and records timing data if an `elapsed_ms` field is present.
 pub fn log_kv(category: &str, fields: &[Field<'_>]) {
     let owned = own_fields(fields);
     if let Some(elapsed_ms) = primary_elapsed_ms(&owned) {
@@ -403,6 +413,7 @@ pub fn timed<T>(category: &str, label: &str, f: impl FnOnce() -> T) -> T {
     timed_kv(category, &[Field::new("label", label)], f)
 }
 
+/// Executes `f`, measures its wall-clock duration, and records a timing sample with the given fields.
 pub fn timed_kv<T>(category: &str, fields: &[Field<'_>], f: impl FnOnce() -> T) -> T {
     let start = Instant::now();
     let result = f();
@@ -415,6 +426,7 @@ pub fn timed_kv<T>(category: &str, fields: &[Field<'_>], f: impl FnOnce() -> T) 
     result
 }
 
+/// Like `timed_kv`, but also appends `result=ok` or `result=error` based on the `Result` outcome.
 pub fn timed_result<T, E>(
     category: &str,
     fields: &[Field<'_>],

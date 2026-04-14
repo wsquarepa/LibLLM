@@ -1,3 +1,5 @@
+//! Mouse hit-testing for dialog list items and field editor regions.
+
 use crossterm::event::MouseEvent;
 use ratatui::layout::{Position, Rect};
 

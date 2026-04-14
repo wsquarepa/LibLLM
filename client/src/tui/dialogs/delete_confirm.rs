@@ -1,3 +1,5 @@
+//! Confirmation dialog for destructive delete operations on sessions and content.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

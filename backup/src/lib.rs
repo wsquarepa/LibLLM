@@ -1,3 +1,5 @@
+//! Backup and recovery library for LibLLM database snapshots.
+
 pub mod index;
 pub mod hash;
 pub mod crypto;

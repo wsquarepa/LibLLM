@@ -1,3 +1,5 @@
+//! HTTP client for the llama.cpp completions API with streaming support.
+
 use std::io::Write;
 
 use anyhow::{Context, Result};
@@ -8,6 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::sampling::SamplingParams;
 
+/// HTTP client for the llama.cpp `/completions` and `/models` endpoints.
 #[derive(Clone)]
 pub struct ApiClient {
     client: reqwest::Client,
@@ -24,13 +27,20 @@ struct SseEvent {
     choices: Vec<SseChoice>,
 }
 
+/// A token event from a streaming completion response.
 pub enum StreamToken {
+    /// An incremental text fragment received during generation.
     Token(String),
+    /// Generation completed; contains the full concatenated response text.
     Done(String),
+    /// An error occurred during streaming; contains the error description.
     Error(String),
 }
 
 impl ApiClient {
+    /// Creates a new client targeting the given base URL (e.g. `http://localhost:5001/v1`).
+    ///
+    /// When `tls_skip_verify` is true, TLS certificate validation is disabled.
     pub fn new(base_url: &str, tls_skip_verify: bool) -> Self {
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(tls_skip_verify)
@@ -43,6 +53,7 @@ impl ApiClient {
         }
     }
 
+    /// Queries `GET /models` and returns the first model ID, or an error string on failure.
     pub async fn fetch_model_name(&self) -> std::result::Result<String, String> {
         let url = format!("{}/models", self.base_url);
         let result: Result<String> = async {
@@ -67,6 +78,9 @@ impl ApiClient {
         result.map_err(|e| e.to_string())
     }
 
+    /// Streams a completion request, writing each token to `writer` as it arrives.
+    ///
+    /// Returns the full concatenated response on success.
     pub async fn stream_completion(
         &self,
         prompt: &str,
@@ -86,6 +100,9 @@ impl ApiClient {
         Ok(full_response)
     }
 
+    /// Streams a completion request, sending each token as a `StreamToken` over `sender`.
+    ///
+    /// Sends `StreamToken::Done` on success or `StreamToken::Error` on failure.
     pub async fn stream_completion_to_channel(
         &self,
         prompt: &str,

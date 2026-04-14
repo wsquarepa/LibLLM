@@ -1,3 +1,6 @@
+//! Slash command parsing and dispatch for the TUI chat interface.
+
+/// Static metadata for a slash command: canonical name, aliases, argument pattern, and help text.
 pub struct CommandInfo {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
@@ -98,6 +101,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     },
 ];
 
+/// Maps an alias (e.g. "/new") to its canonical command name (e.g. "/clear"), or returns the input unchanged.
 pub fn resolve_alias(input: &str) -> &str {
     for cmd in COMMANDS {
         if cmd.aliases.contains(&input) {
@@ -107,6 +111,7 @@ pub fn resolve_alias(input: &str) -> &str {
     input
 }
 
+/// Returns all commands whose name or aliases start with `prefix`, excluding those in `hidden`, sorted by shortest match.
 pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandInfo> {
     let mut matches: Vec<&'static CommandInfo> = COMMANDS
         .iter()

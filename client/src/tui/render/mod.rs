@@ -235,7 +235,7 @@ pub fn render_chat(
                     Role::Summary => (
                         "Summary".to_owned(),
                         Style::default()
-                            .fg(app.theme.system_message)
+                            .fg(app.theme.summary_indicator)
                             .add_modifier(Modifier::BOLD),
                     ),
                 };

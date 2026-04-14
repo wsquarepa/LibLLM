@@ -161,6 +161,68 @@ impl ApiClient {
         Ok(full_response)
     }
 
+    /// Sends a non-streaming completion request and returns the full response content.
+    pub async fn complete(
+        &self,
+        prompt: &str,
+        stop_tokens: &[&str],
+        sampling: &SamplingParams,
+    ) -> Result<String> {
+        let url = format!("{}/completions", self.base_url);
+        let body = json!({
+            "prompt": prompt,
+            "stream": false,
+            "temperature": sampling.temperature,
+            "max_tokens": sampling.max_tokens,
+            "top_k": sampling.top_k,
+            "top_p": sampling.top_p,
+            "min_p": sampling.min_p,
+            "repeat_last_n": sampling.repeat_last_n,
+            "repeat_penalty": sampling.repeat_penalty,
+            "stop": stop_tokens,
+            "samplers": ["top_k", "top_p", "min_p", "temperature"],
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("POST /completions (non-streaming) failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("API returned {status}: {text}");
+        }
+
+        let json: serde_json::Value = resp.json().await.context("failed to parse response JSON")?;
+        let content = json["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        Ok(content)
+    }
+
+    /// Queries the llama.cpp server for its context size (`n_ctx`).
+    /// Returns `None` if the server doesn't support the endpoint or the field is missing.
+    pub async fn fetch_server_context_size(&self) -> Option<usize> {
+        let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
+        let resp = self.client.get(&url).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let json: serde_json::Value = resp.json().await.ok()?;
+        json["default_generation_settings"]["n_ctx"]
+            .as_u64()
+            .map(|n| n as usize)
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     async fn start_completion(
         &self,
         prompt: &str,

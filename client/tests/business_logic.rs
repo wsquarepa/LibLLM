@@ -16,6 +16,7 @@ fn no_overrides() -> CliOverrides {
         sampling: common::empty_overrides(),
         system_prompt: None,
         persona: None,
+        no_summarize: false,
     }
 }
 

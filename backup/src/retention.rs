@@ -23,9 +23,6 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
     let keep_daily_cutoff = now - Duration::days(config.keep_daily_days as i64);
     let keep_weekly_cutoff = now - Duration::days(config.keep_weekly_days as i64);
 
-    // Classify each entry into a tier.
-    // Tier::KeepAll: always kept.
-    // For other tiers, compute a period key and keep only the most recent per period.
     #[derive(PartialEq, Eq, Hash)]
     enum PeriodKey {
         Daily(i32, u32),          // (year, ordinal day)
@@ -33,14 +30,12 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
         Monthly(i32, u32),        // (year, month)
     }
 
-    // For each non-keep-all entry, group by period and pick a winner (most recent).
     let mut period_winners: HashMap<PeriodKey, &BackupEntry> = HashMap::new();
 
     for entry in &index.entries {
         let age_date = entry.created_at;
 
         if age_date >= keep_all_cutoff {
-            // Always kept; no period grouping needed.
             continue;
         }
 
@@ -65,7 +60,6 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
 
     let surviving_ids: HashSet<&str> = period_winners.values().map(|e| e.id.as_str()).collect();
 
-    // Identify all base entry IDs.
     let base_ids: Vec<&str> = index
         .entries
         .iter()
@@ -73,7 +67,6 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
         .map(|e| e.id.as_str())
         .collect();
 
-    // Build the initial prunable set: entries not in the keep-all tier and not period winners.
     let mut prunable: HashSet<&str> = index
         .entries
         .iter()
@@ -84,14 +77,11 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
         .map(|e| e.id.as_str())
         .collect();
 
-    // A base is never pruned if it is the only base.
     if base_ids.len() == 1 {
         let sole_base_id = base_ids[0];
         prunable.remove(sole_base_id);
     }
 
-    // When a base is pruned, also prune its dependent diffs.
-    // Conversely, a base referenced by a surviving diff must be preserved.
     let mut changed = true;
     while changed {
         changed = false;
@@ -106,13 +96,11 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
                 None => continue,
             };
 
-            // If the base is pruned, the diff must also be pruned.
             if prunable.contains(base_id) && !prunable.contains(entry.id.as_str()) {
                 prunable.insert(entry.id.as_str());
                 changed = true;
             }
 
-            // If this diff survives, its base must survive too.
             if !prunable.contains(entry.id.as_str()) && prunable.contains(base_id) {
                 prunable.remove(base_id);
                 changed = true;
@@ -132,8 +120,15 @@ pub fn apply_prune(index: &mut BackupIndex, prunable_ids: &[String], backups_dir
 
     for entry in index.entries.iter().filter(|e| id_set.contains(e.id.as_str())) {
         let file_path = backups_dir.join(&entry.filename);
-        if file_path.exists() {
-            let _ = std::fs::remove_file(&file_path);
+        match std::fs::remove_file(&file_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                eprintln!(
+                    "Warning: failed to remove pruned backup {}: {err}",
+                    entry.filename
+                );
+            }
         }
     }
 

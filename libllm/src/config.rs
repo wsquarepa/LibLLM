@@ -80,12 +80,12 @@ impl BackupConfig {
 impl Default for BackupConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            keep_all_days: 7,
-            keep_daily_days: 30,
-            keep_weekly_days: 90,
-            rebase_threshold_percent: 50,
-            rebase_hard_ceiling: 10,
+            enabled: Self::default_enabled(),
+            keep_all_days: Self::default_keep_all_days(),
+            keep_daily_days: Self::default_keep_daily_days(),
+            keep_weekly_days: Self::default_keep_weekly_days(),
+            rebase_threshold_percent: Self::default_rebase_threshold_percent(),
+            rebase_hard_ceiling: Self::default_rebase_hard_ceiling(),
         }
     }
 }

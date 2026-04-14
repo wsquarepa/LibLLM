@@ -90,7 +90,7 @@ pub fn verify_chain(
             continue;
         }
 
-        let replay_result = replay_chain(&backups_dir, &chain, &backup_key);
+        let replay_result = crate::restore::replay_chain(&backups_dir, &chain, &backup_key);
         match replay_result {
             Err(e) => {
                 result.errors.push(format!(
@@ -111,36 +111,6 @@ pub fn verify_chain(
     }
 
     Ok(result)
-}
-
-fn replay_chain(
-    backups_dir: &Path,
-    chain: &[&crate::index::BackupEntry],
-    backup_key: &Option<[u8; 32]>,
-) -> Result<Vec<u8>> {
-    let base_entry = chain[0];
-    let base_file = backups_dir.join(&base_entry.filename);
-    let base_bytes = std::fs::read(&base_file)?;
-
-    let base_decrypted = match backup_key {
-        Some(key) => crate::crypto::decrypt_payload(&base_bytes, key)?,
-        None => base_bytes,
-    };
-    let mut plaintext = crate::diff::decompress(&base_decrypted)?;
-
-    for diff_entry in &chain[1..] {
-        let diff_file = backups_dir.join(&diff_entry.filename);
-        let diff_bytes = std::fs::read(&diff_file)?;
-
-        let diff_decrypted = match backup_key {
-            Some(key) => crate::crypto::decrypt_payload(&diff_bytes, key)?,
-            None => diff_bytes,
-        };
-        let patch = crate::diff::decompress(&diff_decrypted)?;
-        plaintext = crate::diff::apply_patch(&plaintext, &patch)?;
-    }
-
-    Ok(plaintext)
 }
 
 #[cfg(test)]

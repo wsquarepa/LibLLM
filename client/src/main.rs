@@ -421,16 +421,7 @@ fn try_backup(
         return;
     }
 
-    let backup_config = backup::BackupConfig {
-        enabled: config.enabled,
-        keep_all_days: config.keep_all_days,
-        keep_daily_days: config.keep_daily_days,
-        keep_weekly_days: config.keep_weekly_days,
-        rebase_threshold_percent: config.rebase_threshold_percent,
-        rebase_hard_ceiling: config.rebase_hard_ceiling,
-    };
-
-    if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, &backup_config) {
+    if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, config) {
         eprintln!("Warning: backup failed: {err}");
     }
 }

@@ -1,5 +1,4 @@
 use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -55,11 +54,16 @@ pub fn create_backup(data_dir: &Path) -> Result<PathBuf> {
         anyhow::bail!("no files to back up");
     }
 
-    let dest = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let dest = options
         .open(&archive_path)
         .with_context(|| format!("failed to create archive: {}", archive_path.display()))?;
 

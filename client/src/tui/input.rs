@@ -46,7 +46,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     " "
                 };
                 app.textarea = TextArea::from(vec![format!("{cmd_name}{suffix}")]);
-                super::configure_textarea_at_end(&mut app.textarea);
+                super::dialog_handler::configure_textarea_at_end(&mut app.textarea);
                 app.command_picker_selected = 0;
                 return None;
             }
@@ -57,12 +57,12 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 let cmd = matches[selected];
                 if cmd.args.is_empty() {
                     app.textarea = TextArea::default();
-                    super::configure_textarea(&mut app.textarea);
+                    super::dialog_handler::configure_textarea(&mut app.textarea);
                     app.command_picker_selected = 0;
                     return Some(Action::SlashCommand(cmd.name.to_owned(), String::new()));
                 }
                 app.textarea = TextArea::from(vec![format!("{} ", cmd.name)]);
-                super::configure_textarea_at_end(&mut app.textarea);
+                super::dialog_handler::configure_textarea_at_end(&mut app.textarea);
                 app.command_picker_selected = 0;
                 return None;
             }
@@ -100,7 +100,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             }
 
             app.textarea = TextArea::default();
-            super::configure_textarea(&mut app.textarea);
+            super::dialog_handler::configure_textarea(&mut app.textarea);
             app.command_picker_selected = 0;
 
             if trimmed.starts_with('/') {
@@ -152,7 +152,7 @@ fn recall_last_message(app: &mut App) {
 
     let lines: Vec<String> = content.lines().map(String::from).collect();
     app.textarea = TextArea::from(lines);
-    super::configure_textarea_at_end(&mut app.textarea);
+    super::dialog_handler::configure_textarea_at_end(&mut app.textarea);
     app.auto_scroll = true;
 }
 
@@ -287,7 +287,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 if let Some(node) = app.session.tree.node(node_id) {
                     let content = node.message.content.clone();
                     app.raw_edit_node = Some(node_id);
-                    super::open_edit_dialog_with(app, &content);
+                    super::dialog_handler::open_edit_dialog_with(app, &content);
                     app.focus = super::Focus::EditDialog;
                 }
             }

@@ -477,7 +477,7 @@ impl<'a> FieldDialog<'a> {
         } else {
             lines
         });
-        super::configure_textarea_at_end(&mut editor);
+        super::dialog_handler::configure_textarea_at_end(&mut editor);
         self.editor = Some(editor);
     }
 
@@ -1067,7 +1067,7 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut sup
                     height: dialog.height.saturating_sub(2),
                 };
                 editor.cancel_selection();
-                super::move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+                super::events::move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
             }
         }
         _ => {}

@@ -13,13 +13,13 @@ toml = "1.1.0"
 uuid = { version = "1.23.0", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 argon2 = "0.5"
-rand = "0.8"
+rand = "0.9"
 zeroize = { version = "1.8.2", features = ["derive"] }
-reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls", "charset", "http2", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls", "charset", "http2", "system-proxy"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
-sysinfo = "0.37"
-rusqlite = { version = "0.35", features = ["bundled-sqlcipher-vendored-openssl"] }
+sysinfo = "0.38"
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [dev-dependencies]
 tempfile = "3"

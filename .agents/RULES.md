@@ -37,6 +37,11 @@ cargo run -p libllm -- -c character_name -p persona_name  # roleplay mode (requi
 cargo run -p libllm -- -r "You are a helpful assistant"   # override system prompt
 cargo run -p libllm -- edit character my_char             # edit character in $EDITOR
 cargo run -p libllm -- edit worldbook my_book             # edit worldbook in $EDITOR
+cargo run -p libllm -- import card.json                   # auto-detect and import (character or worldbook)
+cargo run -p libllm -- import card.png                    # import PNG character card
+cargo run -p libllm -- import --type persona note.txt     # import persona from .txt
+cargo run -p libllm -- import --type prompt sys.txt       # import system prompt from .txt
+cargo run -p libllm -- import a.json b.png c.json         # batch import multiple files
 cargo run -p libllm -- update                             # update to stable (or stay on current channel)
 cargo run -p libllm -- update feature/branch              # switch to a branch build
 cargo run -p libllm -- update --list                      # list available branch builds
@@ -136,7 +141,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 
 ### libllm (main binary)
 
-- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `update` (self-update with optional branch target, `--list`, `--yes`)
+- **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `import` (import characters/worldbooks/personas/system prompts from files with auto-detection), `update` (self-update with optional branch target, `--list`, `--yes`)
 - **`update`** -- Self-update via GitHub releases. Supports stable and branch channels with interactive branch selection, channel-switch confirmation, and cross-platform binary replacement
 - **`tui`** -- Full ratatui terminal UI:
   - `mod.rs` -- App state (holds `Database`), Focus enum, async event loop with 16ms tick, layout (sidebar 32 cols | chat + status). Stores `CliOverrides` for enforcing read-only UI on CLI-overridden fields

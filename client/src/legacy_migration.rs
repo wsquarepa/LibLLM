@@ -51,10 +51,9 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         if channel == "unknown" {
             anyhow::bail!(
                 "Legacy data directory needs migration but no '{}' binary found.\n\
-                 Build it with: cargo build -p migrate\n\
-                 Then run: migrate -d {}",
+                 Download it from: https://github.com/{}/releases/tag/legacy-migrate",
                 migrate_name,
-                data_dir.display()
+                update::REPO,
             );
         }
 
@@ -62,9 +61,8 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         if !stdin.is_terminal() {
             anyhow::bail!(
                 "Legacy data directory needs migration. Download the migration utility from\n\
-                 https://github.com/{}/releases/tag/{} or run in an interactive terminal.",
+                 https://github.com/{}/releases/tag/legacy-migrate or run in an interactive terminal.",
                 update::REPO,
-                channel
             );
         }
 
@@ -114,13 +112,11 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
 }
 
 async fn download_migrate_binary(dest: &std::path::Path) -> Result<()> {
-    let channel = update::CHANNEL;
     let client = update::build_client()?;
 
     let url = format!(
-        "https://api.github.com/repos/{}/releases/tags/{}",
+        "https://api.github.com/repos/{}/releases/tags/legacy-migrate",
         update::REPO,
-        channel
     );
     let release = update::fetch_release(&client, &url).await?;
 
@@ -135,9 +131,8 @@ async fn download_migrate_binary(dest: &std::path::Path) -> Result<()> {
         .iter()
         .find(|a| a.name == expected_name)
         .context(format!(
-            "no migration utility found for this platform ({}) in the {} release",
+            "no migration utility found for this platform ({}) in the legacy-migrate release",
             update::TARGET,
-            channel
         ))?;
 
     eprintln!("Downloading {}...", asset.name);

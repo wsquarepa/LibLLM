@@ -82,7 +82,8 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
 
     let worldbooks = loaded_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
-    let truncated = app.context_mgr.truncated_path(&branch_path);
+    let context_messages = app.context_mgr.summary_aware_path(&branch_path);
+    let truncated = app.context_mgr.truncated_path(&context_messages);
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = business::inject_loaded_worldbook_entries(

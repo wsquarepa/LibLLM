@@ -21,6 +21,11 @@ pub enum Command {
         #[arg(long, short = 't')]
         kind: Option<String>,
     },
+    /// Manage database backups (list, verify, restore, rebuild-index)
+    Recover {
+        /// Arguments forwarded to the recovery utility
+        args: Vec<String>,
+    },
     /// Update libllm to the latest build
     Update {
         /// Target branch name (omit for stable)

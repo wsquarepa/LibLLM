@@ -13,6 +13,7 @@ use client::cli;
 use client::edit;
 use client::import;
 use client::legacy_migration;
+use client::recover;
 use client::tui;
 use client::update;
 use client::validation;
@@ -101,6 +102,15 @@ async fn main() -> Result<()> {
 
     if let Some(cli::Command::Update { branch, list, yes }) = &args.command {
         return update::run(branch.clone(), *list, *yes).await;
+    }
+
+    if let Some(cli::Command::Recover { args: recover_args }) = &args.command {
+        let data_dir = args
+            .data
+            .as_deref()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(config::data_dir);
+        return recover::run(&data_dir, args.passkey.as_deref(), recover_args).await;
     }
 
     migration::migrate_config_path();
@@ -279,6 +289,7 @@ fn infer_run_mode(args: &Args) -> &'static str {
         match command {
             cli::Command::Edit { .. } => "edit_subcommand",
             cli::Command::Import { .. } => "import_subcommand",
+            cli::Command::Recover { .. } => "recover_subcommand",
             cli::Command::Update { .. } => "update_subcommand",
         }
     } else if args.message.is_some() {
@@ -309,6 +320,7 @@ fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
         let command_name = match command {
             cli::Command::Edit { .. } => "edit",
             cli::Command::Import { .. } => "import",
+            cli::Command::Recover { .. } => "recover",
             cli::Command::Update { .. } => "update",
         };
         fields.push(debug_log::field("command", command_name));

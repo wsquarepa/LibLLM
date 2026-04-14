@@ -163,3 +163,112 @@ pub fn set_key_fingerprint(check_path: &Path, key: &DerivedKey) -> Result<()> {
     }
     std::fs::write(check_path, fingerprint).context("failed to write key check file")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn salt_create_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let salt_path = dir.path().join(".salt");
+
+        let salt1 = load_or_create_salt(&salt_path).expect("first call");
+        let salt2 = load_or_create_salt(&salt_path).expect("second call");
+        assert_eq!(salt1, salt2);
+    }
+
+    #[test]
+    fn key_determinism() {
+        let dir = tempfile::tempdir().unwrap();
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+
+        let key1 = derive_key("same-passkey", &salt).expect("key1");
+        let key2 = derive_key("same-passkey", &salt).expect("key2");
+
+        assert_eq!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    fn different_passkeys_differ() {
+        let dir = tempfile::tempdir().unwrap();
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+
+        let key_a = derive_key("passkey-a", &salt).expect("key_a");
+        let key_b = derive_key("passkey-b", &salt).expect("key_b");
+
+        assert_ne!(key_a.as_bytes(), key_b.as_bytes());
+    }
+
+    #[test]
+    fn hex_returns_lowercase_hex_string() {
+        let dir = tempfile::tempdir().unwrap();
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+        let key = derive_key("test-passkey", &salt).expect("key");
+
+        let hex = key.hex();
+        assert_eq!(hex.len(), 64);
+        assert!(hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+    }
+
+    #[test]
+    fn verify_or_set_key_creates_new_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let check_path = dir.path().join(".key_check");
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+        let key = derive_key("passkey", &salt).expect("key");
+
+        let result = verify_or_set_key(&check_path, &key).expect("verify_or_set");
+        assert!(result);
+        assert!(check_path.exists());
+    }
+
+    #[test]
+    fn verify_or_set_key_accepts_matching_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let check_path = dir.path().join(".key_check");
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+        let key = derive_key("passkey", &salt).expect("key");
+
+        verify_or_set_key(&check_path, &key).expect("first call");
+        let result = verify_or_set_key(&check_path, &key).expect("second call");
+        assert!(result);
+    }
+
+    #[test]
+    fn verify_or_set_key_rejects_mismatched_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let check_path = dir.path().join(".key_check");
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+
+        let key_a = derive_key("passkey-a", &salt).expect("key_a");
+        let key_b = derive_key("passkey-b", &salt).expect("key_b");
+
+        verify_or_set_key(&check_path, &key_a).expect("set with key_a");
+        let result = verify_or_set_key(&check_path, &key_b).expect("check with key_b");
+        assert!(!result);
+    }
+
+    #[test]
+    fn set_key_fingerprint_overwrites_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let check_path = dir.path().join(".key_check");
+        let salt_path = dir.path().join(".salt");
+        let salt = load_or_create_salt(&salt_path).expect("salt");
+
+        let key_a = derive_key("passkey-a", &salt).expect("key_a");
+        let key_b = derive_key("passkey-b", &salt).expect("key_b");
+
+        set_key_fingerprint(&check_path, &key_a).expect("write key_a fingerprint");
+        set_key_fingerprint(&check_path, &key_b).expect("overwrite with key_b fingerprint");
+
+        let result = verify_or_set_key(&check_path, &key_b).expect("verify key_b");
+        assert!(result);
+    }
+}

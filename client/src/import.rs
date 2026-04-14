@@ -145,6 +145,45 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
     Some(trimmed.to_owned())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_import_kind_valid() {
+        assert!(matches!(parse_import_kind("character").unwrap(), ImportType::Character));
+        assert!(matches!(parse_import_kind("char").unwrap(), ImportType::Character));
+        assert!(matches!(parse_import_kind("worldbook").unwrap(), ImportType::Worldbook));
+        assert!(matches!(parse_import_kind("wb").unwrap(), ImportType::Worldbook));
+        assert!(matches!(parse_import_kind("book").unwrap(), ImportType::Worldbook));
+        assert!(matches!(parse_import_kind("persona").unwrap(), ImportType::Persona));
+        assert!(matches!(parse_import_kind("prompt").unwrap(), ImportType::SystemPrompt));
+        assert!(matches!(parse_import_kind("system-prompt").unwrap(), ImportType::SystemPrompt));
+    }
+
+    #[test]
+    fn parse_import_kind_invalid() {
+        assert!(parse_import_kind("invalid").is_err());
+        assert!(parse_import_kind("").is_err());
+    }
+
+    #[test]
+    fn sanitize_name_normal() {
+        assert_eq!(sanitize_name("hello-world_1"), Some("hello-world_1".to_string()));
+    }
+
+    #[test]
+    fn sanitize_name_empty_after_strip() {
+        assert!(sanitize_name("!@#$%").is_none());
+    }
+
+    #[test]
+    fn sanitize_name_trims_whitespace() {
+        let result = sanitize_name("  hello  ");
+        assert_eq!(result, Some("hello".to_string()));
+    }
+}
+
 pub fn handle_import_command(
     files: &[std::path::PathBuf],
     kind: Option<&str>,

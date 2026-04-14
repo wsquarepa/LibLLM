@@ -126,3 +126,74 @@ pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandI
     });
     matches
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_alias_maps_known() {
+        assert_eq!(resolve_alias("/new"), "/clear");
+    }
+
+    #[test]
+    fn resolve_alias_canonical_unchanged() {
+        assert_eq!(resolve_alias("/clear"), "/clear");
+    }
+
+    #[test]
+    fn resolve_alias_unknown_passthrough() {
+        assert_eq!(resolve_alias("/nonexistent"), "/nonexistent");
+    }
+
+    #[test]
+    fn matching_commands_prefix() {
+        let matches = matching_commands("/b", &[]);
+        assert!(
+            matches.iter().any(|c| c.name == "/branch"),
+            "expected /branch to match /b prefix"
+        );
+    }
+
+    #[test]
+    fn matching_commands_empty_returns_all() {
+        let all = matching_commands("/", &[]);
+        assert_eq!(all.len(), COMMANDS.len());
+    }
+
+    #[test]
+    fn matching_commands_shorter_first() {
+        let matches = matching_commands("/m", &[]);
+        assert!(matches.len() >= 2, "expected at least /macro and /persona (via /me)");
+        assert_eq!(
+            matches[0].name, "/macro",
+            "/macro (via /m alias) should rank before /persona (via /me)"
+        );
+    }
+
+    #[test]
+    fn matching_commands_excludes_hidden() {
+        let matches = matching_commands("/", &["/quit"]);
+        assert!(
+            !matches.iter().any(|c| c.name == "/quit"),
+            "/quit should be excluded"
+        );
+        assert!(matches.len() < COMMANDS.len());
+    }
+
+    #[test]
+    fn all_commands_have_slash_prefix() {
+        for cmd in COMMANDS {
+            assert!(
+                cmd.name.starts_with('/'),
+                "command name must start with /: {}",
+                cmd.name
+            );
+            assert!(
+                !cmd.description.is_empty(),
+                "command {} must have a description",
+                cmd.name
+            );
+        }
+    }
+}

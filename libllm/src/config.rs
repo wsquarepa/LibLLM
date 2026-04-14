@@ -279,6 +279,42 @@ pub fn load() -> Config {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn salt_path_under_data_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        set_data_dir(dir.path().to_path_buf()).ok();
+        let path = salt_path();
+        assert_eq!(path, dir.path().join(".salt"));
+    }
+
+    #[test]
+    fn key_check_path_under_data_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        set_data_dir(dir.path().to_path_buf()).ok();
+        let path = key_check_path();
+        assert_eq!(path, dir.path().join(".key_check"));
+    }
+
+    #[test]
+    fn api_url_defaults_when_empty() {
+        let cfg = Config::default();
+        assert_eq!(cfg.api_url(), "http://localhost:5001/v1");
+    }
+
+    #[test]
+    fn api_url_returns_custom_when_set() {
+        let cfg = Config {
+            api_url: Some("http://example.com/v1".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(cfg.api_url(), "http://example.com/v1");
+    }
+}
+
 pub fn save(cfg: &Config) -> Result<()> {
     let path = config_path();
     let serialize_start = Instant::now();

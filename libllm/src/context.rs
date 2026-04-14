@@ -1,8 +1,7 @@
 //! Context window management and token budget allocation.
 
-use crate::session::Message;
+use crate::session::{Message, Role};
 
-const DEFAULT_CONTEXT_LIMIT: usize = 4096;
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
 /// Estimates token counts and truncates message paths to fit within a configured token budget.
@@ -14,6 +13,18 @@ pub struct ContextManager {
 }
 
 impl ContextManager {
+    pub fn new(token_limit: usize) -> Self {
+        Self { token_limit }
+    }
+
+    pub fn token_limit(&self) -> usize {
+        self.token_limit
+    }
+
+    pub fn set_token_limit(&mut self, limit: usize) {
+        self.token_limit = limit;
+    }
+
     pub fn estimate_message_tokens(messages: &[&Message]) -> usize {
         Self::estimate_tokens_for_messages(messages.iter().copied())
     }
@@ -54,13 +65,28 @@ impl ContextManager {
 
         &messages[skip..]
     }
+
+    /// Returns the number of messages that would be dropped by truncation.
+    pub fn dropped_message_count(&self, messages: &[&Message]) -> usize {
+        messages.len() - self.truncated_path(messages).len()
+    }
+
+    /// Returns a vec starting from the last `Role::Summary` node (inclusive).
+    /// If no summary exists, returns the full slice unchanged.
+    /// The caller should then pass the result to `truncated_path()` for token-based truncation.
+    pub fn summary_aware_path<'a>(&self, messages: &'a [&'a Message]) -> Vec<&'a Message> {
+        let last_summary_idx = messages.iter().rposition(|m| m.role == Role::Summary);
+
+        match last_summary_idx {
+            Some(idx) => messages[idx..].to_vec(),
+            None => messages.to_vec(),
+        }
+    }
 }
 
 impl Default for ContextManager {
     fn default() -> Self {
-        Self {
-            token_limit: DEFAULT_CONTEXT_LIMIT,
-        }
+        Self { token_limit: 8192 }
     }
 }
 
@@ -101,7 +127,7 @@ mod tests {
 
     #[test]
     fn truncated_path_fits_within_limit() {
-        let ctx = ContextManager::default(); // 4096 token limit
+        let ctx = ContextManager::new(4096);
         // Each message: 4000 chars -> 4000/4 + 4 = 1004 tokens
         // 10 messages = 10040 tokens, well over 4096
         let big_content = "x".repeat(4000);
@@ -201,5 +227,60 @@ mod tests {
             2,
             "two messages should always be returned (len <= 2 guard)"
         );
+    }
+
+    #[test]
+    fn new_with_custom_limit() {
+        let ctx = ContextManager::new(16384);
+        let small_msgs: Vec<_> = (0..10)
+            .map(|i| user_msg(&format!("msg {i}")))
+            .collect();
+        let refs: Vec<&_> = small_msgs.iter().collect();
+        let truncated = ctx.truncated_path(&refs);
+        assert_eq!(truncated.len(), refs.len());
+    }
+
+    #[test]
+    fn dropped_message_count_no_overflow() {
+        let ctx = ContextManager::new(8192);
+        let msgs: Vec<_> = (0..5).map(|i| user_msg(&format!("short {i}"))).collect();
+        let refs: Vec<&_> = msgs.iter().collect();
+        assert_eq!(ctx.dropped_message_count(&refs), 0);
+    }
+
+    #[test]
+    fn dropped_message_count_with_overflow() {
+        let ctx = ContextManager::new(4096);
+        let big = "x".repeat(4000);
+        let msgs: Vec<_> = (0..10)
+            .map(|i| {
+                if i % 2 == 0 {
+                    user_msg(&big)
+                } else {
+                    assistant_msg(&big)
+                }
+            })
+            .collect();
+        let refs: Vec<&_> = msgs.iter().collect();
+        let dropped = ctx.dropped_message_count(&refs);
+        assert!(dropped > 0);
+        assert_eq!(dropped, refs.len() - ctx.truncated_path(&refs).len());
+    }
+
+    #[test]
+    fn summary_aware_truncation() {
+        let ctx = ContextManager::new(4096);
+        let big = "x".repeat(4000);
+        let summary = Message::new(Role::Summary, "Summary of earlier conversation".to_owned());
+        let mut msgs = vec![user_msg(&big), assistant_msg(&big), user_msg(&big)];
+        msgs.push(summary);
+        msgs.push(user_msg("after summary"));
+        msgs.push(assistant_msg("response"));
+
+        let refs: Vec<&_> = msgs.iter().collect();
+        let truncated = ctx.summary_aware_path(&refs);
+
+        assert!(truncated[0].role == Role::Summary);
+        assert_eq!(truncated.len(), 3);
     }
 }

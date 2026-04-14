@@ -105,7 +105,7 @@ pub async fn run(
         stop_tokens: instruct_preset.stop_tokens(),
         instruct_preset,
         sampling,
-        context_mgr: ContextManager::default(),
+        context_mgr: ContextManager::new(config.summarization.context_size),
         textarea,
         chat_scroll: 0,
         chat_max_scroll: 0,

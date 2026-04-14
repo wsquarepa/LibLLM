@@ -158,6 +158,8 @@ jobs:
           FLAGS=(--target "$GITHUB_SHA" --title "$TITLE" --notes-file notes.md)
           if [[ "$PRERELEASE" == "true" ]]; then
             FLAGS+=(--prerelease)
+          else
+            FLAGS+=(--latest)
           fi
 
           gh release create "$TAG" artifacts/* "${FLAGS[@]}"

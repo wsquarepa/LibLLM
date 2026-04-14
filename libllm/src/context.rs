@@ -283,4 +283,54 @@ mod tests {
         assert!(truncated[0].role == Role::Summary);
         assert_eq!(truncated.len(), 3);
     }
+
+    #[test]
+    fn multiple_summaries_uses_last_one() {
+        let ctx = ContextManager::new(8192);
+        let msgs = vec![
+            user_msg("ancient msg"),
+            Message::new(Role::Summary, "Old summary".to_owned()),
+            user_msg("mid msg"),
+            Message::new(Role::Summary, "Newer summary".to_owned()),
+            user_msg("recent msg"),
+        ];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let aware = ctx.summary_aware_path(&refs);
+
+        assert_eq!(aware.len(), 2);
+        assert_eq!(aware[0].role, Role::Summary);
+        assert_eq!(aware[0].content, "Newer summary");
+        assert_eq!(aware[1].content, "recent msg");
+    }
+
+    #[test]
+    fn no_summary_returns_full_path() {
+        let ctx = ContextManager::new(8192);
+        let msgs = vec![user_msg("msg 1"), assistant_msg("reply 1")];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let aware = ctx.summary_aware_path(&refs);
+        assert_eq!(aware.len(), 2);
+    }
+
+    #[test]
+    fn dropped_count_after_summary_boundary() {
+        let ctx = ContextManager::new(4096);
+        let big = "x".repeat(4000);
+        let msgs = vec![
+            user_msg(&big),
+            assistant_msg(&big),
+            Message::new(Role::Summary, "Summary".to_owned()),
+            user_msg(&big),
+            assistant_msg(&big),
+            user_msg(&big),
+            assistant_msg(&big),
+            user_msg(&big),
+        ];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let aware = ctx.summary_aware_path(&refs);
+        let dropped = ctx.dropped_message_count(&aware);
+        // After summary boundary, 6 messages (summary + 5 big ones).
+        // 5 big messages at 1004 tokens each = 5020 tokens, plus summary = 5025, over 4096.
+        assert!(dropped > 0);
+    }
 }

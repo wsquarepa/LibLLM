@@ -2,6 +2,28 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+#[derive(Subcommand)]
+pub enum RecoverCommand {
+    /// List all backup points
+    List,
+    /// Verify backup chain integrity
+    Verify {
+        /// Run full content verification (slower)
+        #[arg(long)]
+        full: bool,
+    },
+    /// Restore database to a specific backup point
+    Restore {
+        /// Backup ID to restore to
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Rebuild backup index from backup files on disk
+    RebuildIndex,
+}
+
 use libllm::sampling::SamplingOverrides;
 
 #[derive(Subcommand)]
@@ -23,8 +45,8 @@ pub enum Command {
     },
     /// Manage database backups (list, verify, restore, rebuild-index)
     Recover {
-        /// Arguments forwarded to the recovery utility
-        args: Vec<String>,
+        #[command(subcommand)]
+        command: RecoverCommand,
     },
     /// Update libllm to the latest build
     Update {

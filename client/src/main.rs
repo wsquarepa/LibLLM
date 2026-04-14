@@ -15,6 +15,7 @@ use client::import;
 use client::legacy_migration;
 use client::tui;
 use client::update;
+use client::validation;
 
 use std::io::{self, Read, Write};
 
@@ -78,36 +79,7 @@ async fn main() -> Result<()> {
     }
 
     if let Some(ref data_path) = args.data {
-        let is_existing_dir = if data_path.exists() {
-            if !data_path.is_dir() {
-                anyhow::bail!(
-                    "--data path exists but is not a directory: {}",
-                    data_path.display()
-                );
-            }
-            let is_empty = std::fs::read_dir(data_path)
-                .with_context(|| {
-                    format!("failed to read --data directory: {}", data_path.display())
-                })?
-                .next()
-                .is_none();
-            if !is_empty {
-                let has_config =
-                    data_path.join("config.toml").exists() || data_path.join("sessions").exists();
-                if !has_config {
-                    anyhow::bail!(
-                        "--data directory is not empty and does not appear to be a libllm data directory: {}",
-                        data_path.display()
-                    );
-                }
-            }
-            !is_empty
-        } else {
-            std::fs::create_dir_all(data_path).with_context(|| {
-                format!("failed to create --data directory: {}", data_path.display())
-            })?;
-            false
-        };
+        let is_existing_dir = validation::validate_data_dir(data_path)?;
         config::set_data_dir(data_path.clone())?;
 
         if is_existing_dir {

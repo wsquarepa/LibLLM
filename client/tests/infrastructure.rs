@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 mod common;
 
+use client::validation;
 use libllm::config::{self, Config};
 use libllm::migration;
 
@@ -180,4 +181,85 @@ fn config_survives_migration() {
     let loaded = config::load();
     assert_eq!(loaded.api_url.as_deref(), Some("http://survive.test/v1"));
     assert!(loaded.debug_log);
+}
+
+// ---------------------------------------------------------------------------
+// Data directory validation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn validate_data_dir_creates_missing_dir() {
+    let parent = common::temp_dir();
+    let new_path = parent.path().join("brand_new");
+    assert!(!new_path.exists());
+
+    let is_existing = validation::validate_data_dir(&new_path).unwrap();
+    assert!(!is_existing);
+    assert!(new_path.is_dir());
+}
+
+#[test]
+fn validate_data_dir_accepts_empty_dir() {
+    let dir = common::temp_dir();
+    let is_existing = validation::validate_data_dir(dir.path()).unwrap();
+    assert!(!is_existing);
+}
+
+#[test]
+fn validate_data_dir_rejects_non_libllm_dir() {
+    let dir = common::temp_dir();
+    std::fs::write(dir.path().join("random.txt"), "not libllm").unwrap();
+
+    let err = validation::validate_data_dir(dir.path()).unwrap_err();
+    assert!(
+        format!("{err}").contains("does not appear to be a libllm data directory"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn validate_data_dir_accepts_dir_with_config_toml() {
+    let dir = common::temp_dir();
+    std::fs::write(dir.path().join("config.toml"), "").unwrap();
+
+    let is_existing = validation::validate_data_dir(dir.path()).unwrap();
+    assert!(is_existing);
+}
+
+#[test]
+fn validate_data_dir_accepts_dir_with_data_db() {
+    let dir = common::temp_dir();
+    std::fs::write(dir.path().join("data.db"), "").unwrap();
+
+    let is_existing = validation::validate_data_dir(dir.path()).unwrap();
+    assert!(is_existing);
+}
+
+#[test]
+fn validate_data_dir_rejects_file_path() {
+    let dir = common::temp_dir();
+    let file_path = dir.path().join("not_a_dir");
+    std::fs::write(&file_path, "").unwrap();
+
+    let err = validation::validate_data_dir(&file_path).unwrap_err();
+    assert!(
+        format!("{err}").contains("is not a directory"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn is_libllm_data_dir_detects_markers() {
+    let dir = common::temp_dir();
+    assert!(!validation::is_libllm_data_dir(dir.path()));
+
+    std::fs::write(dir.path().join("data.db"), "").unwrap();
+    assert!(validation::is_libllm_data_dir(dir.path()));
+}
+
+#[test]
+fn is_libllm_data_dir_detects_config_toml() {
+    let dir = common::temp_dir();
+    std::fs::write(dir.path().join("config.toml"), "").unwrap();
+    assert!(validation::is_libllm_data_dir(dir.path()));
 }

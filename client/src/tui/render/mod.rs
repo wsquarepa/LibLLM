@@ -444,6 +444,16 @@ pub fn render_chat(
             ))
             .centered(),
         );
+    } else if app.is_summarizing {
+        chat_block = chat_block.title_bottom(
+            Line::from(Span::styled(
+                " Summarizing... ",
+                Style::default()
+                    .fg(app.theme.streaming_indicator)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .centered(),
+        );
     } else if chat_focused {
         chat_block = chat_block
             .title_bottom(Line::from(" Up/Down: navigate, Left/Right: branch ").centered());

@@ -104,13 +104,13 @@ async fn main() -> Result<()> {
         return update::run(branch.clone(), *list, *yes).await;
     }
 
-    if let Some(cli::Command::Recover { args: recover_args }) = &args.command {
+    if let Some(cli::Command::Recover { command }) = &args.command {
         let data_dir = args
             .data
             .as_deref()
             .map(std::path::Path::to_path_buf)
             .unwrap_or_else(config::data_dir);
-        return recover::run(&data_dir, args.passkey.as_deref(), recover_args).await;
+        return recover::run(&data_dir, args.passkey.as_deref(), command);
     }
 
     migration::migrate_config_path();

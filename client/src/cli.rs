@@ -57,15 +57,15 @@ pub struct Args {
     pub data: Option<PathBuf>,
 
     /// Continue a previous session by UUID (use with -m and -d)
-    #[arg(long = "continue")]
+    #[arg(long = "continue", requires = "data", requires = "message")]
     pub continue_session: Option<String>,
 
     /// Passkey for session encryption (or set LIBLLM_PASSKEY env var, requires -d)
-    #[arg(long, env = "LIBLLM_PASSKEY", hide_env_values = true)]
+    #[arg(long, env = "LIBLLM_PASSKEY", hide_env_values = true, requires = "data")]
     pub passkey: Option<String>,
 
     /// Disable session encryption (requires -d)
-    #[arg(long)]
+    #[arg(long, requires = "data")]
     pub no_encrypt: bool,
 
     /// Send a single message and exit (use "-" to read from stdin)
@@ -77,7 +77,7 @@ pub struct Args {
     pub system_prompt: Option<String>,
 
     /// User persona to use (requires -c)
-    #[arg(short = 'p', long)]
+    #[arg(short = 'p', long, requires = "character")]
     pub persona: Option<String>,
 
     /// API base URL (without /completions suffix)
@@ -117,7 +117,7 @@ pub struct Args {
     pub max_tokens: Option<i64>,
 
     /// Character card to use (name or path to .json/.png file, requires -p)
-    #[arg(short = 'c', long)]
+    #[arg(short = 'c', long, requires = "persona")]
     pub character: Option<String>,
 
     /// Skip TLS certificate verification for API connections

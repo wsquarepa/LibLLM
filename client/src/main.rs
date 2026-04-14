@@ -65,19 +65,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    if args.no_encrypt && args.data.is_none() {
-        anyhow::bail!("--no-encrypt requires --data/-d to specify a data directory.");
-    }
-    if args.passkey.is_some() && args.data.is_none() {
-        anyhow::bail!("--passkey requires --data/-d to specify a data directory.");
-    }
-    if args.continue_session.is_some() && args.data.is_none() {
-        anyhow::bail!("--continue requires --data/-d to specify a data directory.");
-    }
-    if args.continue_session.is_some() && args.message.is_none() {
-        anyhow::bail!("--continue can only be used with -m.");
-    }
-
     if let Some(ref data_path) = args.data {
         let is_existing_dir = validation::validate_data_dir(data_path)?;
         config::set_data_dir(data_path.clone())?;
@@ -135,12 +122,6 @@ async fn main() -> Result<()> {
         &[debug_log::field("phase", "config_load")],
         config::load,
     );
-
-    if args.character.is_some() != args.persona.is_some() {
-        anyhow::bail!(
-            "The -c (character) and -p (persona) flags must be used together for roleplay mode."
-        );
-    }
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
     let tls_skip_verify = if args.tls_skip_verify {

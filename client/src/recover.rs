@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -19,13 +20,6 @@ fn format_size(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / KB as f64)
     } else {
         format!("{bytes} B")
-    }
-}
-
-fn backup_type_label(entry_type: BackupType) -> &'static str {
-    match entry_type {
-        BackupType::Base => "base",
-        BackupType::Diff => "diff",
     }
 }
 
@@ -57,7 +51,7 @@ fn cmd_list(data_dir: &Path) -> Result<()> {
         println!(
             "{:<20} {:<6} {:<12} {:<12} {:<10} {}",
             entry.id,
-            backup_type_label(entry.entry_type),
+            entry.entry_type,
             format_size(entry.plaintext_size),
             format_size(entry.stored_size),
             if entry.encrypted { "yes" } else { "no" },
@@ -80,7 +74,7 @@ fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> 
         for error in &result.errors {
             eprintln!("error: {error}");
         }
-        std::process::exit(1);
+        bail!("verification failed with {} error(s)", result.errors.len());
     }
 }
 
@@ -94,7 +88,7 @@ fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> R
 
     println!("Restore target:");
     println!("  ID:          {}", entry.id);
-    println!("  Type:        {}", backup_type_label(entry.entry_type));
+    println!("  Type:        {}", entry.entry_type);
     println!("  Plain size:  {}", format_size(entry.plaintext_size));
     println!("  Created:     {}", entry.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
 
@@ -125,18 +119,13 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         bail!("backups directory does not exist: {}", backups_dir.display());
     }
 
-    let backup_key: Option<[u8; 32]> = match passkey {
-        Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            Some(backup::crypto::derive_backup_key(pk, &salt)?)
-        }
-        None => None,
-    };
+    let backup_key = backup::crypto::resolve_backup_key(data_dir, passkey)?;
 
     struct FileInfo {
         filename: String,
         id: String,
         entry_type: BackupType,
+        stored_size: u64,
         mtime: std::time::SystemTime,
     }
 
@@ -146,21 +135,23 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         .filter_map(|entry| {
             let filename = entry.file_name().to_string_lossy().to_string();
             let (id, entry_type) = parse_backup_filename(&filename)?;
-            let mtime = entry.metadata().ok()?.modified().ok()?;
-            Some(FileInfo { filename, id, entry_type, mtime })
+            let metadata = entry.metadata().ok()?;
+            let mtime = metadata.modified().ok()?;
+            let stored_size = metadata.len();
+            Some(FileInfo { filename, id, entry_type, stored_size, mtime })
         })
         .collect();
 
     files.sort_by_key(|f| f.mtime);
 
     let mut entries: Vec<BackupEntry> = Vec::new();
+    let mut last_base_id: Option<String> = None;
 
     for file in &files {
         let file_path = backups_dir.join(&file.filename);
         let stored_bytes = std::fs::read(&file_path)
             .with_context(|| format!("failed to read backup file: {}", file_path.display()))?;
 
-        let stored_size = stored_bytes.len() as u64;
         let file_hash = backup::hash::hash_bytes(&stored_bytes);
         let encrypted = backup_key.is_some();
 
@@ -168,10 +159,10 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
         let (plaintext_hash, plaintext_size) = match file.entry_type {
             BackupType::Base => {
-                let decrypted = match &backup_key {
-                    Some(key) => backup::crypto::decrypt_payload(&stored_bytes, key)
-                        .with_context(|| format!("failed to decrypt base file: {}", file.filename))?,
-                    None => stored_bytes.clone(),
+                let decrypted: Cow<[u8]> = match &backup_key {
+                    Some(key) => Cow::Owned(backup::crypto::decrypt_payload(&stored_bytes, key)
+                        .with_context(|| format!("failed to decrypt base file: {}", file.filename))?),
+                    None => Cow::Borrowed(&stored_bytes),
                 };
                 let decompressed = backup::diff::decompress(&decrypted)
                     .with_context(|| format!("failed to decompress base file: {}", file.filename))?;
@@ -183,12 +174,11 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         };
 
         let base_id: Option<String> = match file.entry_type {
-            BackupType::Base => None,
-            BackupType::Diff => entries
-                .iter()
-                .rev()
-                .find(|e| e.entry_type == BackupType::Base)
-                .map(|e| e.id.clone()),
+            BackupType::Base => {
+                last_base_id = Some(file.id.clone());
+                None
+            }
+            BackupType::Diff => last_base_id.clone(),
         };
 
         entries.push(BackupEntry {
@@ -199,7 +189,7 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             plaintext_hash,
             file_hash,
             plaintext_size,
-            stored_size,
+            stored_size: file.stored_size,
             encrypted,
             created_at,
         });

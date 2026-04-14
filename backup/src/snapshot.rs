@@ -18,14 +18,13 @@ pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupCo
     let index_path = backups_dir.join("index.json");
     let mut index = load_index(&index_path)?;
 
-    let (db_key, backup_key) = match passkey {
+    let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let db_key: Option<libllm::crypto::DerivedKey> = match passkey {
         Some(pk) => {
             let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            let dk = libllm::crypto::derive_key(pk, &salt)?;
-            let bk = crate::crypto::derive_backup_key(pk, &salt)?;
-            (Some(dk), Some(bk))
+            Some(libllm::crypto::derive_key(pk, &salt)?)
         }
-        None => (None, None),
+        None => None,
     };
 
     let plaintext = crate::export::export_plaintext_db(&db_path, db_key.as_ref())?;

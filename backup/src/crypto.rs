@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::{Result, bail};
 use argon2::Argon2;
 use chacha20poly1305::{
@@ -38,6 +40,20 @@ pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
         .map_err(|e| anyhow::anyhow!("key derivation failed: {e}"))?;
 
     Ok(key_bytes)
+}
+
+/// Resolves a backup encryption key from data_dir and an optional passkey.
+///
+/// Loads (or creates) the salt from `data_dir/.salt`, then derives the backup key via
+/// `derive_backup_key`. Returns `None` when `passkey` is `None`.
+pub fn resolve_backup_key(data_dir: &Path, passkey: Option<&str>) -> Result<Option<[u8; 32]>> {
+    match passkey {
+        Some(pk) => {
+            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
+            Ok(Some(derive_backup_key(pk, &salt)?))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Encrypts plaintext with XChaCha20-Poly1305.

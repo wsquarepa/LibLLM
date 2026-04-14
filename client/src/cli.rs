@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use libllm::sampling::SamplingOverrides;
 
 #[derive(Subcommand)]
 pub enum RecoverCommand {
@@ -23,8 +24,6 @@ pub enum RecoverCommand {
     /// Rebuild backup index from backup files on disk
     RebuildIndex,
 }
-
-use libllm::sampling::SamplingOverrides;
 
 #[derive(Subcommand)]
 pub enum Command {

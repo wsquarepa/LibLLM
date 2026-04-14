@@ -6,7 +6,7 @@ The canonical source for this file is `.agents/RULES.md`. Both `CLAUDE.md` and `
 
 Read `README.md` for a full project overview, CLI reference, data directory layout, encryption details, and configuration guide. This file covers only what an agent needs beyond that.
 
-LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a Cargo workspace with three crates: `libllm` (shared library), `client` (main binary with TUI/CLI), and `migrate` (legacy data migration tool).
+LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a Cargo workspace with three crates: `libllm` (shared library), `client` (main binary with TUI/CLI), and `backup` (backup and recovery library).
 
 ## Build and Test
 

@@ -130,6 +130,10 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
+            if [[ "$BRANCH" == "stable" ]]; then
+              echo "::error::Branch name 'stable' is reserved for the master release channel"
+              exit 1
+            fi
             echo "tag=${BRANCH}" >> "$GITHUB_OUTPUT"
             echo "title=${BRANCH}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"

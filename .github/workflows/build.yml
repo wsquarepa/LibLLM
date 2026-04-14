@@ -3,9 +3,9 @@ name: Build
 on:
   push:
     paths:
-      - 'libllm-core/**'
       - 'libllm/**'
-      - 'libllm-migrate/**'
+      - 'client/**'
+      - 'migrate/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/**'
@@ -81,7 +81,7 @@ jobs:
       - name: Rename binaries
         shell: bash
         run: |
-          for pair in "libllm:libllm" "libllm-migrate:migrate"; do
+          for pair in "client:libllm" "migrate:migrate"; do
             cargo_name="${pair%%:*}"
             release_name="${pair##*:}"
             src="target/${{ matrix.target }}/release/${cargo_name}"

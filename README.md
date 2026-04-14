@@ -70,7 +70,7 @@ Requires [Rust](https://rustup.rs/) (stable toolchain).
 git clone https://github.com/wsquarepa/LibLLM.git
 cd LibLLM
 cargo build --release --workspace
-# binaries at target/release/libllm and target/release/libllm-migrate
+# binaries at target/release/client and target/release/migrate
 ```
 
 ## Quickstart
@@ -438,7 +438,7 @@ The default data directory is `~/.local/share/libllm/`. Use `--data/-d` to speci
 
 All sessions, characters, worldbooks, system prompts, and personas are stored in `data.db`. The database schema is versioned and auto-migrated on startup.
 
-**Migrating from legacy file-based storage:** If upgrading from an older version that stored data as individual files, run `libllm-migrate -d <data_dir>` to convert. See `libllm-migrate --help` for details.
+**Migrating from legacy file-based storage:** If upgrading from an older version that stored data as individual files, run `migrate -d <data_dir>` to convert. See `migrate --help` for details.
 
 ## Encryption
 
@@ -481,7 +481,7 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-The project is a Cargo workspace with three crates (`libllm-core`, `libllm`, `libllm-migrate`). Tests include unit tests in `libllm-core` and six integration test suites in `libllm/tests/`.
+The project is a Cargo workspace with three crates (`libllm`, `client`, `migrate`). Tests include unit tests in `libllm` and six integration test suites in `client/tests/`.
 
 ## License
 

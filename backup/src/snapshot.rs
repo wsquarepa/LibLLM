@@ -75,6 +75,7 @@ pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupCo
     };
 
     index.entries.push(entry);
+    crate::retention::run_retention(&mut index, config, &backups_dir);
     save_index(&index_path, &index)?;
 
     Ok(())
@@ -243,5 +244,26 @@ mod tests {
 
         let idx = load_test_index(dir.path());
         assert_eq!(idx.entries.len(), 2);
+    }
+
+    #[test]
+    fn retention_runs_after_snapshot() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = setup_test_db(dir.path());
+        let config = BackupConfig {
+            keep_all_days: 0,
+            keep_daily_days: 0,
+            keep_weekly_days: 0,
+            rebase_hard_ceiling: 100,
+            ..BackupConfig::default()
+        };
+
+        create_snapshot(dir.path(), None, &config).unwrap();
+        modify_test_db(&db_path);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        create_snapshot(dir.path(), None, &config).unwrap();
+
+        let idx = load_test_index(dir.path());
+        assert!(idx.entries.len() <= 2);
     }
 }

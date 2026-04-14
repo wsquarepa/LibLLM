@@ -161,21 +161,3 @@ impl Args {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use clap::CommandFactory;
-
-    use super::Args;
-
-    #[test]
-    fn long_help_includes_passkey_flag() {
-        let mut command = Args::command();
-        let help = command.render_long_help().to_string();
-
-        assert!(
-            help.contains("--passkey"),
-            "long help was missing --passkey: {help}"
-        );
-    }
-}

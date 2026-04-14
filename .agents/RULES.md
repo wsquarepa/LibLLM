@@ -1,4 +1,7 @@
 # RULES.md
+
+The canonical source for this file is `.agents/RULES.md`. Both `CLAUDE.md` and `AGENTS.md` in the repo root are symlinks to it.
+
 This file contains details to **any programming agent** about what this repository is and what code style guidelines to follow.
 
 ## What This Is
@@ -12,41 +15,41 @@ The project is a Cargo workspace with three crates:
 ```
 LibLLM/
   Cargo.toml                    # workspace root
-  libllm-core/                  # shared library (domain structs, database, config, crypto)
-  libllm/                       # main binary (TUI, CLI, self-update)
-  libllm-migrate/               # one-time migration binary (legacy file-based data -> SQLite)
+  libllm/                       # shared library (domain structs, database, config, crypto)
+  client/                       # main binary (TUI, CLI, self-update)
+  migrate/                      # one-time migration binary (legacy file-based data -> SQLite)
 ```
 
-- **`libllm-core`** -- shared library used by both binaries. Contains domain structs, SQLite database module, config, key derivation, presets, API client, export, and debug logging.
-- **`libllm`** -- main binary with TUI, CLI argument parsing, and self-update.
-- **`libllm-migrate`** -- one-time migration tool that converts legacy file-based data directories to the SQLite database format. Ships with its own AES-256-GCM decryption for reading old encrypted files.
+- **`libllm`** -- shared library used by both binaries. Contains domain structs, SQLite database module, config, key derivation, presets, API client, export, and debug logging.
+- **`client`** -- main binary with TUI, CLI argument parsing, and self-update.
+- **`migrate`** -- one-time migration tool that converts legacy file-based data directories to the SQLite database format. Ships with its own AES-256-GCM decryption for reading old encrypted files.
 
 ## Build and Run
 
 ```sh
 cargo build --workspace
-cargo run -p libllm -- --help
-cargo run -p libllm -- -m "Hello"                         # single message, ephemeral
-cargo run -p libllm                                       # TUI mode, prompts for passkey
-cargo run -p libllm -- -d ./data --no-encrypt             # custom data dir, plaintext
-cargo run -p libllm -- -d ./data --no-encrypt -m "Hello"  # persistent single-shot
-cargo run -p libllm -- -d ./data --no-encrypt -m "Follow up" --continue <uuid>
-cargo run -p libllm -- --template chatml                  # use ChatML instruct preset
-cargo run -p libllm -- --temperature 0.5                  # override sampling params
-cargo run -p libllm -- -c character_name -p persona_name  # roleplay mode (requires both)
-cargo run -p libllm -- -r "You are a helpful assistant"   # override system prompt
-cargo run -p libllm -- edit character my_char             # edit character in $EDITOR
-cargo run -p libllm -- edit worldbook my_book             # edit worldbook in $EDITOR
-cargo run -p libllm -- import card.json                   # auto-detect and import (character or worldbook)
-cargo run -p libllm -- import card.png                    # import PNG character card
-cargo run -p libllm -- import --type persona note.txt     # import persona from .txt
-cargo run -p libllm -- import --type prompt sys.txt       # import system prompt from .txt
-cargo run -p libllm -- import a.json b.png c.json         # batch import multiple files
-cargo run -p libllm -- update                             # update to stable (or stay on current channel)
-cargo run -p libllm -- update feature/branch              # switch to a branch build
-cargo run -p libllm -- update --list                      # list available branch builds
-cargo run -p libllm -- update --yes                       # skip channel-switch confirmation
-LIBLLM_PASSKEY=foo cargo run -p libllm -- -d ./data       # passkey via env var
+cargo run -p client -- --help
+cargo run -p client -- -m "Hello"                         # single message, ephemeral
+cargo run -p client                                       # TUI mode, prompts for passkey
+cargo run -p client -- -d ./data --no-encrypt             # custom data dir, plaintext
+cargo run -p client -- -d ./data --no-encrypt -m "Hello"  # persistent single-shot
+cargo run -p client -- -d ./data --no-encrypt -m "Follow up" --continue <uuid>
+cargo run -p client -- --template chatml                  # use ChatML instruct preset
+cargo run -p client -- --temperature 0.5                  # override sampling params
+cargo run -p client -- -c character_name -p persona_name  # roleplay mode (requires both)
+cargo run -p client -- -r "You are a helpful assistant"   # override system prompt
+cargo run -p client -- edit character my_char             # edit character in $EDITOR
+cargo run -p client -- edit worldbook my_book             # edit worldbook in $EDITOR
+cargo run -p client -- import card.json                   # auto-detect and import (character or worldbook)
+cargo run -p client -- import card.png                    # import PNG character card
+cargo run -p client -- import --type persona note.txt     # import persona from .txt
+cargo run -p client -- import --type prompt sys.txt       # import system prompt from .txt
+cargo run -p client -- import a.json b.png c.json         # batch import multiple files
+cargo run -p client -- update                             # update to stable (or stay on current channel)
+cargo run -p client -- update feature/branch              # switch to a branch build
+cargo run -p client -- update --list                      # list available branch builds
+cargo run -p client -- update --yes                       # skip channel-switch confirmation
+LIBLLM_PASSKEY=foo cargo run -p client -- -d ./data       # passkey via env var
 ```
 
 The API URL defaults to `http://localhost:5001/v1` and can be overridden via `--api-url`, `LIBLLM_API_URL` env var, or config file.
@@ -55,23 +58,23 @@ CI runs `cargo test --workspace` before building on push to any branch (`.github
 
 ## Testing
 
-Integration tests live in `libllm/tests/` and are organized into six suites:
+Integration tests live in `client/tests/` and are organized into six suites:
 
 ```sh
 cargo test --workspace                  # run all tests
-cargo test -p libllm --test core_data         # session and tree tests
-cargo test -p libllm --test content_management # characters, worldbooks, prompts, personas
-cargo test -p libllm --test request_pipeline  # preset rendering, sampling, context truncation
-cargo test -p libllm --test infrastructure    # config, migrations
-cargo test -p libllm --test tui_business      # template vars, command registry, business logic
-cargo test -p libllm --test smoke             # end-to-end smoke tests
+cargo test -p client --test core_data         # session and tree tests
+cargo test -p client --test content_management # characters, worldbooks, prompts, personas
+cargo test -p client --test request_pipeline  # preset rendering, sampling, context truncation
+cargo test -p client --test infrastructure    # config, migrations
+cargo test -p client --test tui_business      # template vars, command registry, business logic
+cargo test -p client --test smoke             # end-to-end smoke tests
 ```
 
-Unit tests for the database module live in `libllm-core/src/db/` (each sub-module has `#[cfg(test)]` tests).
+Unit tests for the database module live in `libllm/src/db/` (each sub-module has `#[cfg(test)]` tests).
 
-Shared test helpers are in `libllm/tests/common/mod.rs` (temp dirs, key derivation, fixture builders).
+Shared test helpers are in `client/tests/common/mod.rs` (temp dirs, key derivation, fixture builders).
 
-`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `libllm/tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
+`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `client/tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
 
 ### Verifying test results
 
@@ -108,9 +111,9 @@ Old config at `~/.config/libllm/config.toml` is auto-migrated on first run.
 If upgrading from a version that used per-file storage (`sessions/`, `characters/`, etc.), run:
 
 ```sh
-libllm-migrate -d <data_dir>
+migrate -d <data_dir>
 # or for unencrypted directories:
-libllm-migrate -d <data_dir> --no-encrypt
+migrate -d <data_dir> --no-encrypt
 ```
 
 This creates a `.7z` backup, imports all data into `data.db`, and removes the old directories.
@@ -119,7 +122,7 @@ This creates a `.7z` backup, imports all data into `data.db`, and removes the ol
 
 The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwest + futures-util). The project is a Cargo workspace with three crates.
 
-### libllm-core (shared library)
+### libllm (shared library)
 
 - **`db`** -- SQLite database module (via `rusqlite` with SQLCipher). Contains `Database` struct with connection management, versioned schema migrations, and CRUD operations for all data types (sessions, messages, characters, worldbooks, system prompts, personas)
 - **`session`** -- `MessageTree` (arena-based branching with `Vec<Node>` + `NodeId`), `SaveMode` enum (None/Database/PendingPasskey), `Session` struct with tree, model, template, and metadata
@@ -139,7 +142,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
 - **`migration`** -- Legacy config path migration (`~/.config/libllm/` to `~/.local/share/libllm/`)
 - **`debug_log`** -- Structured diagnostic logging and timing instrumentation
 
-### libllm (main binary)
+### client (main binary)
 
 - **`cli`** -- Clap-derived argument parsing with `CliOverrides` struct for tracking which config fields are overridden by CLI flags. Flags `-c` and `-p` are mutually required (roleplay mode). `--no-encrypt` and `--passkey` require `--data/-d`. Subcommands: `edit` (open character/worldbook in `$EDITOR`), `import` (import characters/worldbooks/personas/system prompts from files with auto-detection), `update` (self-update with optional branch target, `--list`, `--yes`)
 - **`update`** -- Self-update via GitHub releases. Supports stable and branch channels with interactive branch selection, channel-switch confirmation, and cross-platform binary replacement
@@ -154,7 +157,7 @@ The codebase uses Rust 2024 edition with async (tokio) and streaming HTTP (reqwe
   - `maintenance.rs` -- Startup tasks (ensure builtin system prompts in database)
   - `dialogs/` -- Modal dialogs: `passkey`, `set_passkey`, `branch`, `character`, `persona`, `system_prompt`, `edit`, `worldbook`, `preset`, `delete_confirm`, `api_error`. All dialogs use database CRUD directly
 
-### libllm-migrate (migration binary)
+### migrate (migration binary)
 
 - **`legacy`** -- Reads old AES-256-GCM encrypted files (sessions, characters, worldbooks, personas, system prompts) from legacy data directories
 - **`backup`** -- Creates `.7z` backup archive of legacy files before migration

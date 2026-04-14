@@ -4,9 +4,9 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - 'libllm-core/**'
       - 'libllm/**'
-      - 'libllm-migrate/**'
+      - 'client/**'
+      - 'migrate/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/**'

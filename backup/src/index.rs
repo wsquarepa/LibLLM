@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -9,6 +10,15 @@ use serde::{Deserialize, Serialize};
 pub enum BackupType {
     Base,
     Diff,
+}
+
+impl fmt::Display for BackupType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BackupType::Base => f.write_str("base"),
+            BackupType::Diff => f.write_str("diff"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

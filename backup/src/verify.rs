@@ -26,13 +26,7 @@ pub fn verify_chain(
     let index_path = backups_dir.join("index.json");
     let index = load_index(&index_path)?;
 
-    let backup_key: Option<[u8; 32]> = match passkey {
-        Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            Some(crate::crypto::derive_backup_key(pk, &salt)?)
-        }
-        None => None,
-    };
+    let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
 
     let mut result = VerifyResult {
         checked_count: 0,

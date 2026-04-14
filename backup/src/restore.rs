@@ -58,13 +58,7 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
         .chain_to(target_id)
         .with_context(|| format!("backup id not found or chain is broken: {target_id}"))?;
 
-    let backup_key: Option<[u8; 32]> = match passkey {
-        Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            Some(crate::crypto::derive_backup_key(pk, &salt)?)
-        }
-        None => None,
-    };
+    let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
 
     let plaintext = replay_chain(&backups_dir, &chain, &backup_key)
         .context("failed to replay backup chain")?;

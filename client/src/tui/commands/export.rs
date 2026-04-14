@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 
 use anyhow::Result;
 
@@ -74,11 +73,16 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
     let filename = format!("export-{timestamp}.{}", format.extension());
     let output_path = current_dir.join(&filename);
 
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    match options
         .open(&output_path)
         .and_then(|mut f| f.write_all(content.as_bytes()))
     {

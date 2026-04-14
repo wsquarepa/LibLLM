@@ -64,7 +64,7 @@ pub fn resolve_backup_key(data_dir: &Path, passkey: Option<&str>) -> Result<Opti
 pub fn encrypt_payload(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
     let cipher = XChaCha20Poly1305::new(key.into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = chacha20poly1305::XNonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher

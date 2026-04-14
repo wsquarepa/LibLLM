@@ -20,6 +20,7 @@ rpassword = "5"
 arboard = "3"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 uuid = { version = "1.23.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 libllm = { path = "../libllm", features = ["test-support"] }

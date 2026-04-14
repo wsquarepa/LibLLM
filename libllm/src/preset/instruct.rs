@@ -165,7 +165,7 @@ impl InstructPreset {
                     }
                     is_first_assistant = false;
                 }
-                Role::System => {
+                Role::System | Role::Summary => {
                     let seq = self.effective_system_sequence();
                     let suffix = self.effective_system_suffix();
                     prompt.push_str(seq);
@@ -177,7 +177,7 @@ impl InstructPreset {
 
         if messages
             .last()
-            .is_some_and(|m| m.role == Role::User || m.role == Role::System)
+            .is_some_and(|m| m.role == Role::User || m.role == Role::System || m.role == Role::Summary)
         {
             let seq = self.select_output_sequence(is_first_assistant, false);
             prompt.push_str(seq);

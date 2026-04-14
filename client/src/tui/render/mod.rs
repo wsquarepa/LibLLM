@@ -232,6 +232,12 @@ pub fn render_chat(
                             .fg(app.theme.system_message)
                             .add_modifier(Modifier::BOLD),
                     ),
+                    Role::Summary => (
+                        "Summary".to_owned(),
+                        Style::default()
+                            .fg(app.theme.system_message)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 };
 
                 let (sib_idx, sib_total) = app.session.tree.sibling_info(node_id);

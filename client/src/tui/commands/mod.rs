@@ -1,60 +1,20 @@
 pub mod macros;
 pub use macros::expand_macro;
 
-use anyhow::Result;
+pub mod background;
+pub mod export;
+pub mod streaming;
+
+pub(super) use background::handle_background_event;
+pub(super) use streaming::{handle_stream_token, start_streaming};
+
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
 use libllm::session::{self, Message, Role, SaveMode};
 
 use super::business::{self, load_config_fields, refresh_sidebar};
-use super::{App, Focus, dialogs};
-
-fn post_passkey_focus(app: &App) -> Focus {
-    if app.model_name.is_none() {
-        Focus::LoadingDialog
-    } else if !app.api_available {
-        Focus::ApiErrorDialog
-    } else {
-        Focus::Input
-    }
-}
-
-fn loaded_worldbooks(app: &mut App) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
-    let enabled_names = super::business::enabled_worldbook_names(app.session, &app.config);
-    let cache_stale = app
-        .worldbook_cache
-        .as_ref()
-        .is_none_or(|cache| cache.enabled_names != enabled_names);
-
-    if cache_stale {
-        let books = libllm::debug_log::timed_kv(
-            "worldbook.runtime",
-            &[
-                libllm::debug_log::field("phase", "load"),
-                libllm::debug_log::field("cache", "miss"),
-                libllm::debug_log::field("enabled_count", enabled_names.len()),
-            ],
-            || super::business::load_runtime_worldbooks(&enabled_names, app.db.as_ref()),
-        );
-        app.worldbook_cache = Some(super::WorldbookCache {
-            enabled_names,
-            books,
-        });
-    } else if let Some(cache) = app.worldbook_cache.as_ref() {
-        libllm::debug_log::log_kv(
-            "worldbook.runtime",
-            &[
-                libllm::debug_log::field("phase", "load"),
-                libllm::debug_log::field("cache", "hit"),
-                libllm::debug_log::field("enabled_count", enabled_names.len()),
-                libllm::debug_log::field("book_count", cache.books.len()),
-            ],
-        );
-    }
-
-    app.worldbook_cache.as_ref().unwrap().books.clone()
-}
+use super::{App, Focus, StatusLevel, dialogs};
 
 pub(super) fn handle_slash_command(
     cmd: &str,
@@ -76,13 +36,13 @@ pub(super) fn handle_slash_command(
         "/character" => cmd_character(app),
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
-        "/export" => cmd_export(app, arg),
+        "/export" => export::cmd_export(app, arg),
         "/macro" => cmd_macro(app, arg, sender),
         "/report" => cmd_report(app),
         _ => {
             app.set_status(
                 format!("Unknown command: {cmd}"),
-                super::StatusLevel::Warning,
+                StatusLevel::Warning,
             );
         }
     }
@@ -128,12 +88,12 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     match last_user_content {
         Some(content) => {
             app.session.tree.retreat_head();
-            start_streaming(app, &content, sender);
+            streaming::start_streaming(app, &content, sender);
         }
         None => {
             app.set_status(
                 "No user message to retry.".to_owned(),
-                super::StatusLevel::Warning,
+                StatusLevel::Warning,
             );
         }
     }
@@ -152,7 +112,7 @@ fn cmd_continue(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     if !head_is_assistant {
         app.set_status(
             "Cannot continue: last message is not from assistant.".to_owned(),
-            super::StatusLevel::Warning,
+            StatusLevel::Warning,
         );
         return;
     }
@@ -164,14 +124,14 @@ fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     if app.model_name.is_none() {
         app.set_status(
             "Connecting to API server...".to_owned(),
-            super::StatusLevel::Warning,
+            StatusLevel::Warning,
         );
         return;
     }
     if !app.api_available {
         app.set_status(
             "Cannot send: API server is not available".to_owned(),
-            super::StatusLevel::Error,
+            StatusLevel::Error,
         );
         return;
     }
@@ -181,7 +141,7 @@ fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     app.streaming_buffer.clear();
     app.auto_scroll = true;
 
-    let worldbooks = loaded_worldbooks(app);
+    let worldbooks = streaming::loaded_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
     let truncated = app.context_mgr.truncated_path(&branch_path);
     let effective_prompt =
@@ -233,7 +193,7 @@ fn cmd_system(app: &mut App) {
     if prompts.is_empty() {
         app.set_status(
             "No system prompts found.".to_owned(),
-            super::StatusLevel::Warning,
+            StatusLevel::Warning,
         );
     } else {
         app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
@@ -266,7 +226,7 @@ fn cmd_branch(app: &mut App) {
     let Some(target_id) = target else {
         app.set_status(
             "No messages to branch.".to_owned(),
-            super::StatusLevel::Warning,
+            StatusLevel::Warning,
         );
         return;
     };
@@ -275,7 +235,7 @@ fn cmd_branch(app: &mut App) {
     if siblings.len() <= 1 {
         app.set_status(
             "No branches at this point.".to_owned(),
-            super::StatusLevel::Warning,
+            StatusLevel::Warning,
         );
         return;
     }
@@ -356,20 +316,20 @@ fn cmd_passkey(app: &mut App) {
             } else {
                 app.set_status(
                     "Database not available.".to_owned(),
-                    super::StatusLevel::Error,
+                    StatusLevel::Error,
                 );
             }
         }
         SaveMode::None => {
             app.set_status(
                 "Encryption is disabled for this session.".to_owned(),
-                super::StatusLevel::Warning,
+                StatusLevel::Warning,
             );
         }
         SaveMode::PendingPasskey { .. } => {
             app.set_status(
                 "Please unlock sessions first.".to_owned(),
-                super::StatusLevel::Warning,
+                StatusLevel::Warning,
             );
         }
     }
@@ -382,7 +342,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
         let available = super::theme::Theme::available_themes().join(", ");
         app.set_status(
             format!("Current theme: {current}. Available: {available}"),
-            super::StatusLevel::Info,
+            StatusLevel::Info,
         );
         return;
     }
@@ -391,7 +351,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
         let available = super::theme::Theme::available_themes().join(", ");
         app.set_status(
             format!("Unknown theme: {arg}. Available: {available}"),
-            super::StatusLevel::Error,
+            StatusLevel::Error,
         );
         return;
     }
@@ -403,95 +363,13 @@ fn cmd_theme(app: &mut App, arg: &str) {
     if let Err(err) = libllm::config::save(&app.config) {
         app.set_status(
             format!("Theme applied but failed to save config: {err}"),
-            super::StatusLevel::Warning,
+            StatusLevel::Warning,
         );
     } else {
         app.set_status(
             format!("Switched to {arg} theme"),
-            super::StatusLevel::Info,
+            StatusLevel::Info,
         );
-    }
-}
-
-enum ExportFormat {
-    Markdown,
-    Html,
-    Jsonl,
-}
-
-impl ExportFormat {
-    fn parse(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "" | "html" => Ok(Self::Html),
-            "md" | "markdown" => Ok(Self::Markdown),
-            "jsonl" | "json" => Ok(Self::Jsonl),
-            other => Err(format!("Unknown export format: {other}. Use md, html, or jsonl")),
-        }
-    }
-
-    fn extension(&self) -> &'static str {
-        match self {
-            Self::Markdown => "md",
-            Self::Html => "html",
-            Self::Jsonl => "jsonl",
-        }
-    }
-}
-
-fn cmd_export(app: &mut App, arg: &str) {
-    let format = match ExportFormat::parse(arg.trim()) {
-        Ok(f) => f,
-        Err(err) => {
-            app.set_status(err, super::StatusLevel::Error);
-            return;
-        }
-    };
-
-    let messages = app.session.tree.branch_path();
-    if messages.is_empty() {
-        app.set_status(
-            "Nothing to export (empty conversation)".to_owned(),
-            super::StatusLevel::Warning,
-        );
-        return;
-    }
-
-    let current_dir = match std::env::current_dir() {
-        Ok(path) => path,
-        Err(err) => {
-            app.set_status(
-                format!("Cannot resolve current directory: {err}"),
-                super::StatusLevel::Error,
-            );
-            return;
-        }
-    };
-
-    let char_name = app.session.character.as_deref().unwrap_or("Assistant");
-    let user_name = app
-        .active_persona_name
-        .as_deref()
-        .unwrap_or("User");
-
-    let content = match format {
-        ExportFormat::Markdown => libllm::export::render_markdown(&messages, char_name, user_name),
-        ExportFormat::Html => libllm::export::render_html(&messages, char_name, user_name),
-        ExportFormat::Jsonl => libllm::export::render_jsonl(&messages, char_name, user_name),
-    };
-
-    let timestamp = session::now_compact();
-    let filename = format!("export-{timestamp}.{}", format.extension());
-    let output_path = current_dir.join(&filename);
-
-    match std::fs::write(&output_path, content) {
-        Ok(()) => app.set_status(
-            format!("Exported to {}", output_path.display()),
-            super::StatusLevel::Info,
-        ),
-        Err(err) => app.set_status(
-            format!("Failed to write export: {err}"),
-            super::StatusLevel::Error,
-        ),
     }
 }
 
@@ -502,7 +380,7 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
         if names.is_empty() {
             app.set_status(
                 "No macros defined. Add [macros] to config.toml".to_owned(),
-                super::StatusLevel::Warning,
+                StatusLevel::Warning,
             );
         } else {
             let list = names
@@ -512,7 +390,7 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
                 .join(", ");
             app.set_status(
                 format!("Available macros: {list}"),
-                super::StatusLevel::Info,
+                StatusLevel::Info,
             );
         }
         return;
@@ -528,15 +406,15 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
         None => {
             app.set_status(
                 format!("Unknown macro: {name}"),
-                super::StatusLevel::Warning,
+                StatusLevel::Warning,
             );
             return;
         }
     };
 
     match macros::expand_macro(&template, macro_args) {
-        Ok(expanded) => start_streaming(app, &expanded, sender),
-        Err(err) => app.set_status(err, super::StatusLevel::Error),
+        Ok(expanded) => streaming::start_streaming(app, &expanded, sender),
+        Err(err) => app.set_status(err, StatusLevel::Error),
     }
 }
 
@@ -544,7 +422,7 @@ fn cmd_report(app: &mut App) {
     if !libllm::config::load().debug_log {
         app.set_status(
             "Debug logging is disabled in config".to_owned(),
-            super::StatusLevel::Error,
+            StatusLevel::Error,
         );
         return;
     }
@@ -553,7 +431,7 @@ fn cmd_report(app: &mut App) {
         Err(err) => {
             app.set_status(
                 format!("Cannot resolve current directory: {err}"),
-                super::StatusLevel::Error,
+                StatusLevel::Error,
             );
             return;
         }
@@ -562,7 +440,7 @@ fn cmd_report(app: &mut App) {
     if output_path.exists() {
         app.set_status(
             format!("Refusing to overwrite existing {}", output_path.display()),
-            super::StatusLevel::Error,
+            StatusLevel::Error,
         );
         return;
     }
@@ -570,291 +448,11 @@ fn cmd_report(app: &mut App) {
     match libllm::debug_log::copy_current_log_to(&output_path) {
         Ok(()) => app.set_status(
             format!("Debug log copied to {}", output_path.display()),
-            super::StatusLevel::Info,
+            StatusLevel::Info,
         ),
         Err(err) => app.set_status(
             format!("Failed to write debug report: {err}"),
-            super::StatusLevel::Error,
+            StatusLevel::Error,
         ),
-    }
-}
-
-pub(super) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
-    if app.model_name.is_none() {
-        app.set_status(
-            "Connecting to API server...".to_owned(),
-            super::StatusLevel::Warning,
-        );
-        return;
-    }
-    if !app.api_available {
-        app.set_status(
-            "Cannot send: API server is not available".to_owned(),
-            super::StatusLevel::Error,
-        );
-        return;
-    }
-    let parent = app.session.tree.head();
-    app.session
-        .tree
-        .push(parent, Message::new(Role::User, content.to_owned()));
-    app.mark_session_dirty(super::SaveTrigger::Debounced, false);
-    app.invalidate_chat_cache();
-    app.is_streaming = true;
-    app.focus = super::Focus::Input;
-    app.nav_cursor = None;
-    app.hover_node = None;
-    app.streaming_buffer.clear();
-    app.auto_scroll = true;
-
-    let worldbooks = loaded_worldbooks(app);
-    let branch_path = app.session.tree.branch_path();
-    let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt =
-        super::business::build_effective_system_prompt(app.session, app.db.as_ref());
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
-    let injected = super::business::inject_loaded_worldbook_entries(
-        app.session,
-        truncated,
-        user_name,
-        &worldbooks,
-    );
-    let injected = super::business::replace_template_vars(app.session, injected, user_name);
-    let injected_refs: Vec<&Message> = injected.iter().collect();
-    let prompt = app
-        .instruct_preset
-        .render(&injected_refs, effective_prompt.as_deref());
-    let stop_tokens = app.stop_tokens.clone();
-    let sampling = app.sampling.clone();
-
-    let client = app.client.clone();
-    let handle = tokio::spawn(async move {
-        let stop_refs: Vec<&str> = stop_tokens.iter().map(String::as_str).collect();
-        client
-            .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
-            .await;
-    });
-    app.streaming_task = Some(handle);
-}
-
-pub(super) fn handle_stream_token(
-    token: StreamToken,
-    app: &mut App,
-    sender: mpsc::Sender<StreamToken>,
-) -> Result<()> {
-    if !app.is_streaming {
-        return Ok(());
-    }
-    match token {
-        StreamToken::Token(text) => {
-            app.streaming_buffer.push_str(&text);
-            app.auto_scroll = true;
-        }
-        StreamToken::Done(full_response) => {
-            let head = app.session.tree.head().unwrap();
-            if app.is_continuation {
-                let existing = app.session.tree.node(head).unwrap().message.content.clone();
-                let combined = format!("{}{}", existing, full_response);
-                app.session.tree.set_message_content(head, combined);
-                app.is_continuation = false;
-            } else {
-                app.session
-                    .tree
-                    .push(Some(head), Message::new(Role::Assistant, full_response));
-            }
-            app.mark_session_dirty(super::SaveTrigger::StreamDone, true);
-            app.invalidate_chat_cache();
-            app.streaming_buffer.clear();
-            app.is_streaming = false;
-            app.auto_scroll = true;
-            app.flush_session_save(super::SaveTrigger::StreamDone)?;
-            refresh_sidebar(app);
-            if !app.message_queue.is_empty() {
-                let next = app.message_queue.remove(0);
-                start_streaming(app, &next, sender);
-                if !app.is_streaming {
-                    app.message_queue.clear();
-                }
-            }
-        }
-        StreamToken::Error(err) => {
-            app.streaming_buffer.clear();
-            app.is_streaming = false;
-            app.is_continuation = false;
-            app.message_queue.clear();
-            app.set_status(format!("Error: {err}"), super::StatusLevel::Error);
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn handle_background_event(event: super::BackgroundEvent, app: &mut App) {
-    match event {
-        super::BackgroundEvent::KeyDerived(key, db_path) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "ok"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                    ],
-                );
-            }
-            match libllm::db::Database::open(&db_path, Some(&key)) {
-                Ok(db) => {
-                    if let Err(e) = db.ensure_builtin_prompts() {
-                        app.set_status(format!("Warning: {e}"), super::StatusLevel::Warning);
-                    }
-                    let id = match &app.save_mode {
-                        SaveMode::PendingPasskey { id } => id.clone(),
-                        _ => session::generate_session_id(),
-                    };
-                    app.db = Some(db);
-                    app.save_mode = SaveMode::Database { id };
-                    if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
-                        app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
-                    }
-                    app.invalidate_worldbook_cache();
-                    app.passkey_deriving = false;
-                    app.focus = post_passkey_focus(app);
-                    refresh_sidebar(app);
-                }
-                Err(err) => {
-                    app.passkey_deriving = false;
-                    app.passkey_error = format!("Failed to open database: {err}");
-                }
-            }
-        }
-        super::BackgroundEvent::KeyDeriveFailed(err) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "error"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                        libllm::debug_log::field("error", &err),
-                    ],
-                );
-            }
-            app.passkey_deriving = false;
-            app.passkey_error = format!("Failed: {err}");
-        }
-        super::BackgroundEvent::PasskeySet(new_key) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "ok"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                    ],
-                );
-            }
-            app.set_passkey_deriving = false;
-            app.invalidate_worldbook_cache();
-            if app.set_passkey_is_initial {
-                let db_path = libllm::config::data_dir().join("data.db");
-                match libllm::db::Database::open(&db_path, Some(&new_key)) {
-                    Ok(db) => {
-                        if let Err(e) = db.ensure_builtin_prompts() {
-                            app.set_status(format!("Warning: {e}"), super::StatusLevel::Warning);
-                        }
-                        let id = match &app.save_mode {
-                            SaveMode::PendingPasskey { id } => id.clone(),
-                            _ => session::generate_session_id(),
-                        };
-                        app.db = Some(db);
-                        app.save_mode = SaveMode::Database { id };
-                        if let Err(err) = app.flush_session_save(super::SaveTrigger::Unlock) {
-                            app.set_status(format!("Save error: {err}"), super::StatusLevel::Error);
-                        }
-                        app.focus = post_passkey_focus(app);
-                        refresh_sidebar(app);
-                    }
-                    Err(err) => {
-                        app.set_status(format!("Failed to create database: {err}"), super::StatusLevel::Error);
-                    }
-                }
-            } else {
-                if let Some(ref db) = app.db {
-                    match db.rekey(&new_key) {
-                        Ok(()) => {
-                            let check_path = libllm::config::key_check_path();
-                            if let Err(err) = libllm::crypto::set_key_fingerprint(&check_path, &new_key) {
-                                app.set_status(
-                                    format!("Failed to update key fingerprint: {err}"),
-                                    super::StatusLevel::Error,
-                                );
-                                return;
-                            }
-                            app.passkey_changed = true;
-                            app.should_quit = true;
-                        }
-                        Err(err) => {
-                            app.set_status(
-                                format!("Failed to change passkey: {err}"),
-                                super::StatusLevel::Error,
-                            );
-                        }
-                    }
-                } else {
-                    app.set_status(
-                        "No database available for rekey.".to_owned(),
-                        super::StatusLevel::Error,
-                    );
-                }
-                app.focus = Focus::Input;
-            }
-        }
-        super::BackgroundEvent::PasskeySetFailed(err) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "error"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                        libllm::debug_log::field("error", &err),
-                    ],
-                );
-            }
-            app.set_passkey_deriving = false;
-            app.set_passkey_error = format!("Failed: {err}");
-        }
-        super::BackgroundEvent::ModelFetched(Ok(name)) => {
-            app.model_name = Some(name);
-            if app.focus == Focus::LoadingDialog {
-                app.focus = Focus::Input;
-            }
-        }
-        super::BackgroundEvent::ModelFetched(Err(err)) => {
-            app.model_name = Some("Backend connection failure".to_owned());
-            app.api_available = false;
-            app.api_error = err;
-            match app.focus {
-                Focus::PasskeyDialog | Focus::SetPasskeyDialog => {}
-                _ => {
-                    app.focus = Focus::ApiErrorDialog;
-                }
-            }
-        }
     }
 }

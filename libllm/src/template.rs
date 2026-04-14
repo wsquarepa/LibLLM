@@ -25,3 +25,50 @@ pub fn apply_template_vars(text: &str, char_name: &str, user_name: &str) -> Stri
     rendered.push_str(&text[cursor..]);
     rendered
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replaces_char_variable() {
+        let result = apply_template_vars("Hello {{char}}", "Alice", "Bob");
+        assert_eq!(result, "Hello Alice");
+    }
+
+    #[test]
+    fn replaces_both_variables() {
+        let result = apply_template_vars("{{user}} talks to {{char}}", "Alice", "Bob");
+        assert_eq!(result, "Bob talks to Alice");
+    }
+
+    #[test]
+    fn replaces_multiple_occurrences() {
+        let result = apply_template_vars("{{char}} meets {{char}}", "Alice", "Bob");
+        assert_eq!(result, "Alice meets Alice");
+    }
+
+    #[test]
+    fn no_variables_returns_unchanged() {
+        let result = apply_template_vars("plain text", "Alice", "Bob");
+        assert_eq!(result, "plain text");
+    }
+
+    #[test]
+    fn empty_names_produce_empty_substitutions() {
+        let result = apply_template_vars("Hi {{char}} and {{user}}", "", "");
+        assert_eq!(result, "Hi  and ");
+    }
+
+    #[test]
+    fn nested_braces_not_substituted() {
+        let result = apply_template_vars("{{{char}}}", "Alice", "Bob");
+        assert_eq!(result, "{{{char}}}");
+    }
+
+    #[test]
+    fn partial_brace_not_substituted() {
+        let result = apply_template_vars("{char}", "Alice", "Bob");
+        assert_eq!(result, "{char}");
+    }
+}

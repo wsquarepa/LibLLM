@@ -187,3 +187,116 @@ pub fn parse_color(s: &str) -> Option<Color> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libllm::config::{Config, ThemeColorOverrides};
+
+    #[test]
+    fn parse_color_named() {
+        assert_eq!(parse_color("red"), Some(Color::Red));
+        assert_eq!(parse_color("green"), Some(Color::Green));
+        assert_eq!(parse_color("dark_gray"), Some(Color::DarkGray));
+        assert_eq!(parse_color("darkgray"), Some(Color::DarkGray));
+        assert_eq!(parse_color("light_blue"), Some(Color::LightBlue));
+        assert_eq!(parse_color("lightblue"), Some(Color::LightBlue));
+        assert_eq!(parse_color("white"), Some(Color::White));
+        assert_eq!(parse_color("black"), Some(Color::Black));
+    }
+
+    #[test]
+    fn parse_color_hex() {
+        assert_eq!(parse_color("#ff0000"), Some(Color::Rgb(255, 0, 0)));
+        assert_eq!(parse_color("#00ff00"), Some(Color::Rgb(0, 255, 0)));
+        assert_eq!(parse_color("#1a2b3c"), Some(Color::Rgb(26, 43, 60)));
+    }
+
+    #[test]
+    fn parse_color_indexed() {
+        assert_eq!(parse_color("indexed(236)"), Some(Color::Indexed(236)));
+        assert_eq!(parse_color("indexed(0)"), Some(Color::Indexed(0)));
+    }
+
+    #[test]
+    fn parse_color_invalid() {
+        assert_eq!(parse_color("notacolor"), None);
+        assert_eq!(parse_color("#xyz"), None);
+        assert_eq!(parse_color("#12345"), None);
+        assert_eq!(parse_color("indexed(abc)"), None);
+        assert_eq!(parse_color(""), None);
+    }
+
+    #[test]
+    fn parse_color_case_insensitive() {
+        assert_eq!(parse_color("RED"), Some(Color::Red));
+        assert_eq!(parse_color("Dark_Gray"), Some(Color::DarkGray));
+        assert_eq!(parse_color("LightBlue"), Some(Color::LightBlue));
+    }
+
+    #[test]
+    fn parse_color_with_whitespace() {
+        assert_eq!(parse_color("  red  "), Some(Color::Red));
+        assert_eq!(parse_color(" #ff0000 "), Some(Color::Rgb(255, 0, 0)));
+    }
+
+    #[test]
+    fn from_name_dark() {
+        assert!(Theme::from_name("dark").is_some());
+    }
+
+    #[test]
+    fn from_name_light() {
+        assert!(Theme::from_name("light").is_some());
+    }
+
+    #[test]
+    fn from_name_unknown() {
+        assert!(Theme::from_name("solarized").is_none());
+        assert!(Theme::from_name("").is_none());
+    }
+
+    #[test]
+    fn resolve_default() {
+        let config = Config::default();
+        let t = resolve_theme(&config);
+        assert_eq!(t.user_message, Color::Green);
+    }
+
+    #[test]
+    fn resolve_light() {
+        let mut config = Config::default();
+        config.theme = Some("light".to_owned());
+        let t = resolve_theme(&config);
+        assert_eq!(t.user_message, Color::Blue);
+    }
+
+    #[test]
+    fn resolve_with_overrides() {
+        let mut config = Config::default();
+        config.theme_colors = Some(ThemeColorOverrides {
+            user_message: Some("red".to_owned()),
+            ..Default::default()
+        });
+        let t = resolve_theme(&config);
+        assert_eq!(t.user_message, Color::Red);
+    }
+
+    #[test]
+    fn resolve_invalid_override_ignored() {
+        let mut config = Config::default();
+        config.theme_colors = Some(ThemeColorOverrides {
+            user_message: Some("notacolor".to_owned()),
+            ..Default::default()
+        });
+        let t = resolve_theme(&config);
+        assert_eq!(t.user_message, Color::Green);
+    }
+
+    #[test]
+    fn available_themes_not_empty() {
+        let themes = Theme::available_themes();
+        assert!(themes.contains(&"dark"));
+        assert!(themes.contains(&"light"));
+    }
+}

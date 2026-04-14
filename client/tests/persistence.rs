@@ -6,10 +6,6 @@ use libllm::crypto;
 use libllm::db::Database;
 use libllm::session::{MessageTree, Role, Session};
 
-// ===========================================================================
-// 1. Session & MessageTree (Database-backed)
-// ===========================================================================
-
 #[test]
 fn session_database_round_trip() {
     let dir = common::temp_dir();
@@ -182,42 +178,4 @@ fn session_set_message_content() {
 
     let messages = loaded.tree.branch_path();
     assert_eq!(messages[1].content, "edited reply");
-}
-
-// ===========================================================================
-// 2. Crypto
-// ===========================================================================
-
-#[test]
-fn crypto_salt_persistence() {
-    let dir = common::temp_dir();
-    let salt_path = dir.path().join(".salt");
-
-    let salt1 = crypto::load_or_create_salt(&salt_path).expect("first call");
-    let salt2 = crypto::load_or_create_salt(&salt_path).expect("second call");
-    assert_eq!(salt1, salt2);
-}
-
-#[test]
-fn crypto_key_determinism() {
-    let dir = common::temp_dir();
-    let salt_path = dir.path().join(".salt");
-    let salt = crypto::load_or_create_salt(&salt_path).expect("salt");
-
-    let key1 = crypto::derive_key("same-passkey", &salt).expect("key1");
-    let key2 = crypto::derive_key("same-passkey", &salt).expect("key2");
-
-    assert_eq!(key1.as_bytes(), key2.as_bytes());
-}
-
-#[test]
-fn crypto_different_passkeys_differ() {
-    let dir = common::temp_dir();
-    let salt_path = dir.path().join(".salt");
-    let salt = crypto::load_or_create_salt(&salt_path).expect("salt");
-
-    let key_a = crypto::derive_key("passkey-a", &salt).expect("key_a");
-    let key_b = crypto::derive_key("passkey-b", &salt).expect("key_b");
-
-    assert_ne!(key_a.as_bytes(), key_b.as_bytes());
 }

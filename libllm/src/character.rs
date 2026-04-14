@@ -254,3 +254,139 @@ pub fn slugify(name: &str) -> String {
         .join("-")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn full_character() -> CharacterCard {
+        CharacterCard {
+            name: "TestChar".to_string(),
+            description: "A test character for integration tests.".to_string(),
+            personality: "Helpful and precise.".to_string(),
+            scenario: "In a testing environment.".to_string(),
+            first_mes: "Hello, I am TestChar.".to_string(),
+            mes_example: "<START>\n{{user}}: Hi\n{{char}}: Hello!".to_string(),
+            system_prompt: "You are TestChar.".to_string(),
+            post_history_instructions: "Stay in character.".to_string(),
+            alternate_greetings: vec!["Greetings!".to_string()],
+        }
+    }
+
+    #[test]
+    fn parse_old_format() {
+        let json = r#"{
+            "name": "Alice",
+            "description": "A curious adventurer",
+            "personality": "Bold and inquisitive",
+            "scenario": "Lost in a forest",
+            "first_mes": "Where am I?",
+            "mes_example": "<START>\n{{user}}: Hello\n{{char}}: Hi there!"
+        }"#;
+
+        let card = parse_card_json(json).unwrap();
+        assert_eq!(card.name, "Alice");
+        assert_eq!(card.description, "A curious adventurer");
+        assert_eq!(card.personality, "Bold and inquisitive");
+        assert_eq!(card.scenario, "Lost in a forest");
+        assert_eq!(card.first_mes, "Where am I?");
+    }
+
+    #[test]
+    fn parse_new_format() {
+        let json = r#"{
+            "data": {
+                "name": "Alice",
+                "description": "A curious adventurer",
+                "personality": "Bold and inquisitive",
+                "scenario": "Lost in a forest",
+                "first_mes": "Where am I?"
+            }
+        }"#;
+
+        let card = parse_card_json(json).unwrap();
+        assert_eq!(card.name, "Alice");
+        assert_eq!(card.description, "A curious adventurer");
+        assert_eq!(card.personality, "Bold and inquisitive");
+    }
+
+    #[test]
+    fn slugify_rules() {
+        assert_eq!(slugify("Hello World"), "hello-world");
+        assert_eq!(slugify("foo--bar"), "foo-bar");
+        assert_eq!(slugify("  spaces  "), "spaces");
+        assert_eq!(slugify("CamelCase"), "camelcase");
+        assert_eq!(slugify("special!@#chars"), "special-chars");
+    }
+
+    #[test]
+    fn build_system_prompt_without_template() {
+        let card = full_character();
+        let prompt = build_system_prompt(&card, None);
+
+        assert!(
+            prompt.contains(&card.description),
+            "prompt should contain description"
+        );
+        assert!(
+            prompt.contains(&card.personality),
+            "prompt should contain personality"
+        );
+        assert!(
+            prompt.contains(&card.scenario),
+            "prompt should contain scenario"
+        );
+    }
+
+    #[test]
+    fn missing_fields_default() {
+        let json = r#"{ "name": "Minimal", "description": "Just a desc" }"#;
+        let card = parse_card_json(json).unwrap();
+
+        assert_eq!(card.name, "Minimal");
+        assert_eq!(card.description, "Just a desc");
+        assert!(card.personality.is_empty());
+        assert!(card.scenario.is_empty());
+        assert!(card.first_mes.is_empty());
+        assert!(card.mes_example.is_empty());
+        assert!(card.system_prompt.is_empty());
+        assert!(card.post_history_instructions.is_empty());
+        assert!(card.alternate_greetings.is_empty());
+    }
+
+    #[test]
+    fn parse_empty_name_errors() {
+        let json = r#"{"name": "", "description": "x"}"#;
+        let result = parse_card_json(json);
+        assert!(result.is_err(), "empty name should return an error");
+    }
+
+    #[test]
+    fn build_system_prompt_with_template_preset() {
+        let card = full_character();
+        let preset = crate::preset::resolve_template_preset("Default");
+        let result = build_system_prompt(&card, Some(&preset));
+
+        assert!(!result.is_empty(), "rendered prompt should not be empty");
+        assert!(
+            result.contains(&card.name) || result.contains(&card.description),
+            "rendered prompt should contain character info"
+        );
+    }
+
+    #[test]
+    fn data_fields_override_top_level() {
+        let json = r#"{
+            "name": "TopLevel",
+            "description": "top desc",
+            "data": {
+                "name": "DataLevel",
+                "description": "data desc"
+            }
+        }"#;
+
+        let card = parse_card_json(json).unwrap();
+        assert_eq!(card.name, "DataLevel");
+        assert_eq!(card.description, "data desc");
+    }
+}
+

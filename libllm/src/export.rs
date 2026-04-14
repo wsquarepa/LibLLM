@@ -309,3 +309,178 @@ pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> 
     result.push('\n');
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{Message, Role};
+
+    fn user_msg(content: &str) -> Message {
+        Message::new(Role::User, content.to_string())
+    }
+
+    fn assistant_msg(content: &str) -> Message {
+        Message::new(Role::Assistant, content.to_string())
+    }
+
+    fn system_msg(content: &str) -> Message {
+        Message::new(Role::System, content.to_string())
+    }
+
+    fn test_messages() -> Vec<Message> {
+        vec![
+            Message {
+                role: Role::User,
+                content: "Hello {{char}}".to_owned(),
+                timestamp: "2026-01-15T10:00:00Z".to_owned(),
+            },
+            Message {
+                role: Role::Assistant,
+                content: "Hi {{user}}!".to_owned(),
+                timestamp: "2026-01-15T10:00:05Z".to_owned(),
+            },
+        ]
+    }
+
+    #[test]
+    fn markdown_basic() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Alice", "Bob");
+        assert!(result.contains("## Bob\n\nHello Alice"));
+        assert!(result.contains("## Alice\n\nHi Bob!"));
+    }
+
+    #[test]
+    fn markdown_system_message() {
+        let msgs = vec![system_msg("You are helpful.")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Char", "User");
+        assert!(result.contains("## System\n\nYou are helpful."));
+    }
+
+    #[test]
+    fn markdown_empty() {
+        let refs: Vec<&Message> = vec![];
+        let result = render_markdown(&refs, "Char", "User");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn html_escapes_content() {
+        let msgs = vec![user_msg("<script>alert('xss')</script>")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(result.contains("&lt;script&gt;"));
+        assert!(!result.contains("<script>alert"));
+    }
+
+    #[test]
+    fn html_has_structure() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Alice", "Bob");
+        assert!(result.starts_with("<!DOCTYPE html>"));
+        assert!(result.contains("class=\"message user\""));
+        assert!(result.contains("class=\"message assistant\""));
+    }
+
+    #[test]
+    fn html_applies_template_vars() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Alice", "Bob");
+        assert!(result.contains("Hello Alice"));
+        assert!(result.contains("Hi Bob!"));
+    }
+
+    #[test]
+    fn html_formats_bold() {
+        let msgs = vec![user_msg("This is **bold** text")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(result.contains("<strong>bold</strong>"));
+        assert!(!result.contains("**bold**"));
+    }
+
+    #[test]
+    fn html_formats_italic() {
+        let msgs = vec![user_msg("This is *italic* text")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(result.contains("<em>italic</em>"));
+        assert!(!result.contains("*italic*"));
+    }
+
+    #[test]
+    fn html_formats_dialogue() {
+        let msgs = vec![assistant_msg("She said \"hello there\" softly")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(result.contains("<q>hello there</q>"));
+    }
+
+    #[test]
+    fn html_formats_mixed_markdown() {
+        let msgs = vec![user_msg("**bold** and *italic* and \"dialogue\"")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(result.contains("<strong>bold</strong>"));
+        assert!(result.contains("<em>italic</em>"));
+        assert!(result.contains("<q>dialogue</q>"));
+    }
+
+    #[test]
+    fn jsonl_has_header() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_jsonl(&refs, "Alice", "Bob");
+        let first_line = result.lines().next().unwrap();
+        let header: serde_json::Value = serde_json::from_str(first_line).unwrap();
+        assert_eq!(header["user_name"], "Bob");
+        assert_eq!(header["character_name"], "Alice");
+        assert!(header["create_date"].is_string());
+    }
+
+    #[test]
+    fn jsonl_message_fields() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_jsonl(&refs, "Alice", "Bob");
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 3);
+
+        let user_entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(user_entry["name"], "Bob");
+        assert_eq!(user_entry["is_user"], true);
+        assert_eq!(user_entry["mes"], "Hello Alice");
+        assert_eq!(user_entry["send_date"], "2026-01-15T10:00:00Z");
+
+        let asst_entry: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(asst_entry["name"], "Alice");
+        assert_eq!(asst_entry["is_user"], false);
+        assert_eq!(asst_entry["mes"], "Hi Bob!");
+    }
+
+    #[test]
+    fn jsonl_system_message() {
+        let msgs = vec![system_msg("System prompt")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_jsonl(&refs, "Char", "User");
+        let lines: Vec<&str> = result.lines().collect();
+        let sys_entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(sys_entry["name"], "System");
+        assert_eq!(sys_entry["is_user"], false);
+        assert_eq!(sys_entry["is_system"], true);
+    }
+
+    #[test]
+    fn jsonl_applies_template_vars() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_jsonl(&refs, "Alice", "Bob");
+        let lines: Vec<&str> = result.lines().collect();
+        let user_entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(user_entry["mes"], "Hello Alice");
+    }
+}

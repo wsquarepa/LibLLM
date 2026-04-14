@@ -1,0 +1,110 @@
+use clap::Parser;
+use client::cli::{Args, Command};
+
+#[test]
+fn parse_message_flag() {
+    let args = Args::try_parse_from(["libllm", "-m", "hello"]).unwrap();
+    assert_eq!(args.message, Some("hello".to_string()));
+}
+
+#[test]
+fn parse_data_flag() {
+    let args = Args::try_parse_from(["libllm", "-d", "./foo"]).unwrap();
+    assert!(args.data.is_some());
+    assert_eq!(args.data.unwrap().to_str().unwrap(), "./foo");
+}
+
+#[test]
+fn parse_sampling_overrides() {
+    let args = Args::try_parse_from(["libllm", "--temperature", "0.5", "--top-k", "10"]).unwrap();
+    let overrides = args.sampling_overrides();
+    assert_eq!(overrides.temperature, Some(0.5));
+    assert_eq!(overrides.top_k, Some(10));
+}
+
+#[test]
+fn parse_cli_overrides_api_url() {
+    let args = Args::try_parse_from(["libllm", "--api-url", "http://example.com/v1"]).unwrap();
+    let overrides = args.cli_overrides();
+    assert_eq!(overrides.api_url, Some("http://example.com/v1".to_string()));
+}
+
+#[test]
+fn parse_tls_skip_verify() {
+    let args = Args::try_parse_from(["libllm", "--tls-skip-verify"]).unwrap();
+    assert!(args.tls_skip_verify);
+}
+
+#[test]
+fn parse_edit_subcommand() {
+    let args = Args::try_parse_from(["libllm", "edit", "character", "my_char"]).unwrap();
+    match args.command {
+        Some(Command::Edit { kind, name }) => {
+            assert_eq!(kind, "character");
+            assert_eq!(name, "my_char");
+        }
+        _ => panic!("expected Command::Edit"),
+    }
+}
+
+#[test]
+fn parse_import_subcommand() {
+    let args = Args::try_parse_from(["libllm", "import", "card.json"]).unwrap();
+    match args.command {
+        Some(Command::Import { files, .. }) => {
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].to_str().unwrap(), "card.json");
+        }
+        _ => panic!("expected Command::Import"),
+    }
+}
+
+#[test]
+fn parse_import_with_type() {
+    let args = Args::try_parse_from(["libllm", "import", "-t", "persona", "note.txt"]).unwrap();
+    match args.command {
+        Some(Command::Import { kind, .. }) => {
+            assert_eq!(kind, Some("persona".to_string()));
+        }
+        _ => panic!("expected Command::Import"),
+    }
+}
+
+// The following 6 tests document EXPECTED behavior for `requires` constraints that are not yet
+// enforced by clap attributes in cli.rs. They will fail until those constraints are implemented.
+
+#[test]
+fn parse_character_without_persona_errors() {
+    let result = Args::try_parse_from(["libllm", "-c", "foo"]);
+    assert!(result.is_err(), "-c without -p should be rejected");
+}
+
+#[test]
+fn parse_persona_without_character_errors() {
+    let result = Args::try_parse_from(["libllm", "-p", "bar"]);
+    assert!(result.is_err(), "-p without -c should be rejected");
+}
+
+#[test]
+fn parse_no_encrypt_without_data_errors() {
+    let result = Args::try_parse_from(["libllm", "--no-encrypt"]);
+    assert!(result.is_err(), "--no-encrypt without -d should be rejected");
+}
+
+#[test]
+fn parse_passkey_without_data_errors() {
+    let result = Args::try_parse_from(["libllm", "--passkey", "secret"]);
+    assert!(result.is_err(), "--passkey without -d should be rejected");
+}
+
+#[test]
+fn parse_continue_without_data_errors() {
+    let result = Args::try_parse_from(["libllm", "--continue", "uuid"]);
+    assert!(result.is_err(), "--continue without -d should be rejected");
+}
+
+#[test]
+fn parse_continue_without_message_errors() {
+    let result = Args::try_parse_from(["libllm", "-d", "./data", "--continue", "uuid"]);
+    assert!(result.is_err(), "--continue without -m should be rejected");
+}

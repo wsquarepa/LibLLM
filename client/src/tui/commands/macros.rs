@@ -234,3 +234,189 @@ pub fn expand_macro(template: &str, raw_args: &str) -> Result<String, String> {
     result.push_str(&template[last_end..]);
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_all_args() {
+        let result = expand_macro("Refactor: {{}}", "fn foo() {}").unwrap();
+        assert_eq!(result, "Refactor: fn foo() {}");
+    }
+
+    #[test]
+    fn expand_single_positional() {
+        let result = expand_macro("Hello {{1}}", "world").unwrap();
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn expand_multiple_positional() {
+        let result = expand_macro("Compare {{1}} with {{2}}", "apples oranges").unwrap();
+        assert_eq!(result, "Compare apples with oranges");
+    }
+
+    #[test]
+    fn expand_positional_out_of_bounds() {
+        let result = expand_macro("A={{1}} B={{2}} C={{3}}", "only two").unwrap();
+        assert_eq!(result, "A=only B=two C=");
+    }
+
+    #[test]
+    fn expand_range_two_dots() {
+        let result = expand_macro("Items: {{1..3}}", "a b c d").unwrap();
+        assert_eq!(result, "Items: a b c");
+    }
+
+    #[test]
+    fn expand_range_three_dots() {
+        let result = expand_macro("Items: {{1...3}}", "a b c d").unwrap();
+        assert_eq!(result, "Items: a b c");
+    }
+
+    #[test]
+    fn expand_range_out_of_bounds() {
+        let result = expand_macro("Items: {{1..5}}", "a b").unwrap();
+        assert_eq!(result, "Items: a b");
+    }
+
+    #[test]
+    fn expand_greedy_two_dots() {
+        let result = expand_macro("{{1}} {{2}} rest: {{3..}}", "a b c d e").unwrap();
+        assert_eq!(result, "a b rest: c d e");
+    }
+
+    #[test]
+    fn expand_greedy_three_dots() {
+        let result = expand_macro("{{1}} {{2}} rest: {{3...}}", "a b c d e").unwrap();
+        assert_eq!(result, "a b rest: c d e");
+    }
+
+    #[test]
+    fn expand_greedy_out_of_bounds() {
+        let result = expand_macro("{{1}} {{2}} rest: {{3..}}", "a b").unwrap();
+        assert_eq!(result, "a b rest: ");
+    }
+
+    #[test]
+    fn expand_mixed_positional_and_greedy() {
+        let result = expand_macro("From {{1}} to {{2}}: {{3..}}", "en fr hello world").unwrap();
+        assert_eq!(result, "From en to fr: hello world");
+    }
+
+    #[test]
+    fn expand_no_placeholders() {
+        let result = expand_macro("Just a template", "ignored args").unwrap();
+        assert_eq!(result, "Just a template");
+    }
+
+    #[test]
+    fn expand_empty_args() {
+        let result = expand_macro("Hello {{}}", "").unwrap();
+        assert_eq!(result, "Hello ");
+    }
+
+    #[test]
+    fn expand_empty_args_positional() {
+        let result = expand_macro("A={{1}}", "").unwrap();
+        assert_eq!(result, "A=");
+    }
+
+    #[test]
+    fn overlap_range_and_single_errors() {
+        let result = expand_macro("{{1..3}} {{2}}", "a b c");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("overlaps"));
+    }
+
+    #[test]
+    fn overlap_greedy_and_single_errors() {
+        let result = expand_macro("{{3..}} {{5}}", "a b c d e");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("overlaps"));
+    }
+
+    #[test]
+    fn single_outside_range_ok() {
+        let result = expand_macro("{{1..2}} and {{3}}", "a b c").unwrap();
+        assert_eq!(result, "a b and c");
+    }
+
+    #[test]
+    fn zero_index_errors() {
+        let result = expand_macro("{{0}}", "a");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("start at 1"));
+    }
+
+    #[test]
+    fn invalid_placeholder_errors() {
+        let result = expand_macro("{{abc}}", "a");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid placeholder"));
+    }
+
+    #[test]
+    fn range_start_greater_than_end_errors() {
+        let result = expand_macro("{{3..1}}", "a b c");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("start > end"));
+    }
+
+    #[test]
+    fn all_placeholder_preserves_whitespace() {
+        let result = expand_macro("Say: {{}}", "  hello   world  ").unwrap();
+        assert_eq!(result, "Say:   hello   world  ");
+    }
+
+    #[test]
+    fn multiple_all_placeholders() {
+        let result = expand_macro("{{}} and {{}}", "test").unwrap();
+        assert_eq!(result, "test and test");
+    }
+
+    #[test]
+    fn gap_in_indices_errors() {
+        let result = expand_macro("{{1}} {{3}}", "a b c");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Gap at index 2"));
+    }
+
+    #[test]
+    fn greedy_without_preceding_errors() {
+        let result = expand_macro("{{5..}}", "a b c d e");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Gap at index 1"));
+    }
+
+    #[test]
+    fn greedy_with_all_preceding_ok() {
+        let result = expand_macro("{{1}} {{2}} {{3..}}", "a b c d e").unwrap();
+        assert_eq!(result, "a b c d e");
+    }
+
+    #[test]
+    fn escape_backslash_opening_braces() {
+        let result = expand_macro("literal \\{{}} here", "args").unwrap();
+        assert_eq!(result, "literal {{}} here");
+    }
+
+    #[test]
+    fn escape_mixed_with_real_placeholder() {
+        let result = expand_macro("real={{}} escaped=\\{{}}", "hello").unwrap();
+        assert_eq!(result, "real=hello escaped={{}}");
+    }
+
+    #[test]
+    fn range_covers_all_indices() {
+        let result = expand_macro("{{1..3}} then {{4}}", "a b c d").unwrap();
+        assert_eq!(result, "a b c then d");
+    }
+
+    #[test]
+    fn greedy_covers_rest() {
+        let result = expand_macro("first={{1}} rest={{2..}}", "a b c d").unwrap();
+        assert_eq!(result, "first=a rest=b c d");
+    }
+}

@@ -437,6 +437,85 @@ pub(super) fn apply_config(app: &mut App) {
     app.invalidate_chat_cache();
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libllm::config::Config;
+    use libllm::session::Session;
+
+    #[test]
+    fn non_empty_with_content() {
+        assert_eq!(non_empty("hello"), Some("hello".to_owned()));
+    }
+
+    #[test]
+    fn non_empty_empty_string() {
+        assert_eq!(non_empty(""), None);
+    }
+
+    #[test]
+    fn non_empty_whitespace_only() {
+        assert_eq!(non_empty("   "), None);
+        assert_eq!(non_empty("\t\n"), None);
+    }
+
+    #[test]
+    fn non_empty_with_surrounding_whitespace() {
+        assert_eq!(non_empty("  hello  "), Some("  hello  ".to_owned()));
+    }
+
+    #[test]
+    fn enabled_worldbook_names_session_only() {
+        let mut session = Session::default();
+        session.worldbooks = vec!["lore_a".to_owned(), "lore_b".to_owned()];
+        let cfg = Config::default();
+
+        let names = enabled_worldbook_names(&session, &cfg);
+        assert_eq!(names, vec!["lore_a", "lore_b"]);
+    }
+
+    #[test]
+    fn enabled_worldbook_names_config_only() {
+        let session = Session::default();
+        let cfg = Config {
+            worldbooks: vec!["cfg_lore".to_owned()],
+            ..Config::default()
+        };
+
+        let names = enabled_worldbook_names(&session, &cfg);
+        assert_eq!(names, vec!["cfg_lore"]);
+    }
+
+    #[test]
+    fn enabled_worldbook_names_merged_dedup() {
+        let mut session = Session::default();
+        session.worldbooks = vec!["shared".to_owned(), "session_only".to_owned()];
+        let cfg = Config {
+            worldbooks: vec!["shared".to_owned(), "cfg_only".to_owned()],
+            ..Config::default()
+        };
+
+        let names = enabled_worldbook_names(&session, &cfg);
+        assert!(names.contains(&"shared".to_owned()));
+        assert!(names.contains(&"cfg_only".to_owned()));
+        assert!(names.contains(&"session_only".to_owned()));
+        assert_eq!(
+            names.iter().filter(|n| *n == "shared").count(),
+            1,
+            "shared should appear exactly once"
+        );
+    }
+
+    #[test]
+    fn enabled_worldbook_names_both_empty() {
+        let session = Session::default();
+        let cfg = Config::default();
+
+        let names = enabled_worldbook_names(&session, &cfg);
+        assert!(names.is_empty());
+    }
+}
+
 pub(super) fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona {
         if let Some(ref db) = app.db {

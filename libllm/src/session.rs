@@ -793,4 +793,139 @@ mod tests {
         loaded.tree.switch_to(ids.branch_parent);
         assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
     }
+
+    #[test]
+    fn save_mode_id_returns_none_for_none() {
+        assert_eq!(SaveMode::None.id(), None);
+    }
+
+    #[test]
+    fn save_mode_id_returns_some_for_database() {
+        assert_eq!(SaveMode::Database { id: "abc".into() }.id(), Some("abc"));
+    }
+
+    #[test]
+    fn save_mode_set_id_updates_database() {
+        let mut mode = SaveMode::Database { id: "old".into() };
+        mode.set_id("new".into());
+        assert_eq!(mode.id(), Some("new"));
+    }
+
+    #[test]
+    fn save_mode_set_id_noop_for_none() {
+        let mut mode = SaveMode::None;
+        mode.set_id("ignored".into());
+        assert_eq!(mode.id(), None);
+    }
+
+    #[test]
+    fn save_mode_needs_passkey() {
+        assert!(SaveMode::PendingPasskey { id: "x".into() }.needs_passkey());
+        assert!(!SaveMode::None.needs_passkey());
+        assert!(!SaveMode::Database { id: "x".into() }.needs_passkey());
+    }
+
+    #[test]
+    fn current_branch_ids_linear_path() {
+        let mut tree = MessageTree::new();
+        let a = tree.push(None, Message::new(Role::User, "a".into()));
+        let b = tree.push(Some(a), Message::new(Role::Assistant, "b".into()));
+        let c = tree.push(Some(b), Message::new(Role::User, "c".into()));
+
+        assert_eq!(tree.current_branch_ids(), &[a, b, c]);
+    }
+
+    #[test]
+    fn current_branch_ids_after_branch() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".into()));
+        let left = tree.push(Some(root), Message::new(Role::Assistant, "left".into()));
+        tree.set_head(Some(root));
+        let right = tree.push(Some(root), Message::new(Role::Assistant, "right".into()));
+
+        assert_eq!(tree.current_branch_ids(), &[root, right]);
+        let _ = left;
+    }
+
+    #[test]
+    fn current_user_branch_ids_filters_roles() {
+        let mut tree = MessageTree::new();
+        let u1 = tree.push(None, Message::new(Role::User, "u1".into()));
+        let a1 = tree.push(Some(u1), Message::new(Role::Assistant, "a1".into()));
+        let u2 = tree.push(Some(a1), Message::new(Role::User, "u2".into()));
+
+        assert_eq!(tree.current_user_branch_ids(), &[u1, u2]);
+    }
+
+    #[test]
+    fn current_deepest_branch_info_no_branching() {
+        let mut tree = MessageTree::new();
+        let a = tree.push(None, Message::new(Role::User, "a".into()));
+        tree.push(Some(a), Message::new(Role::Assistant, "b".into()));
+
+        assert_eq!(tree.current_deepest_branch_info(), None);
+    }
+
+    #[test]
+    fn current_deepest_branch_info_with_branches() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".into()));
+        tree.push(Some(root), Message::new(Role::Assistant, "sibling a".into()));
+        tree.set_head(Some(root));
+        tree.push(Some(root), Message::new(Role::Assistant, "sibling b".into()));
+
+        let info = tree.current_deepest_branch_info();
+        assert!(info.is_some());
+        let (_, total) = info.unwrap();
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn current_last_assistant_preview_present() {
+        let mut tree = MessageTree::new();
+        let u = tree.push(None, Message::new(Role::User, "hello".into()));
+        tree.push(Some(u), Message::new(Role::Assistant, "world".into()));
+
+        assert_eq!(tree.current_last_assistant_preview(), Some("world"));
+    }
+
+    #[test]
+    fn current_last_assistant_preview_absent() {
+        let mut tree = MessageTree::new();
+        tree.push(None, Message::new(Role::User, "hello".into()));
+
+        assert_eq!(tree.current_last_assistant_preview(), None);
+    }
+
+    #[test]
+    fn switch_sibling_wraps_around() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".into()));
+        let first = tree.push(Some(root), Message::new(Role::Assistant, "first".into()));
+        tree.set_head(Some(root));
+        let second = tree.push(Some(root), Message::new(Role::Assistant, "second".into()));
+
+        assert_eq!(tree.head(), Some(second));
+        tree.switch_sibling(1);
+        assert_eq!(tree.head(), Some(first));
+        tree.switch_sibling(-1);
+        assert_eq!(tree.head(), Some(second));
+    }
+
+    #[test]
+    fn from_messages_builds_linear_tree() {
+        let messages = vec![
+            Message::new(Role::User, "first".into()),
+            Message::new(Role::Assistant, "second".into()),
+            Message::new(Role::User, "third".into()),
+        ];
+        let tree = MessageTree::from_messages(messages);
+
+        let ids = tree.current_branch_ids();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(tree.node(ids[0]).unwrap().message.content, "first");
+        assert_eq!(tree.node(ids[1]).unwrap().message.content, "second");
+        assert_eq!(tree.node(ids[2]).unwrap().message.content, "third");
+        assert_eq!(tree.head(), Some(ids[2]));
+    }
 }

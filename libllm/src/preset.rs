@@ -593,3 +593,381 @@ pub fn list_template_preset_names() -> Vec<String> {
 
     names
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::session::{Message, Role};
+
+    use super::*;
+
+    fn setup_data_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        crate::config::set_data_dir(dir.path().to_path_buf()).ok();
+        dir
+    }
+
+    fn user_msg(content: &str) -> Message {
+        Message::new(Role::User, content.to_string())
+    }
+
+    fn assistant_msg(content: &str) -> Message {
+        Message::new(Role::Assistant, content.to_string())
+    }
+
+    fn system_msg(content: &str) -> Message {
+        Message::new(Role::System, content.to_string())
+    }
+
+    #[test]
+    fn raw_preset_render() {
+        let preset = InstructPreset::raw();
+        let msgs = vec![user_msg("Hello"), assistant_msg("Hi there")];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let output = preset.render(&refs, None);
+
+        assert!(output.contains("Hello"), "user content missing");
+        assert!(output.contains("Hi there"), "assistant content missing");
+        assert!(
+            !output.contains("<|"),
+            "raw preset should not contain special tokens"
+        );
+    }
+
+    #[test]
+    fn chatml_render() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let msgs = vec![
+            system_msg("You are helpful."),
+            user_msg("Hi"),
+            assistant_msg("Hello!"),
+        ];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let output = preset.render(&refs, None);
+
+        assert!(output.contains("<|im_start|>system"), "missing system tag");
+        assert!(output.contains("<|im_start|>user"), "missing user tag");
+        assert!(
+            output.contains("<|im_start|>assistant"),
+            "missing assistant tag"
+        );
+        assert!(
+            output.contains("You are helpful."),
+            "system content missing"
+        );
+        assert!(output.contains("Hi"), "user content missing");
+        assert!(output.contains("Hello!"), "assistant content missing");
+        assert!(output.contains("<|im_end|>"), "missing im_end tag");
+    }
+
+    #[test]
+    fn llama3_render() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("Llama 3 Instruct");
+        let msgs = vec![user_msg("Hi"), assistant_msg("Hello!")];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let output = preset.render(&refs, Some("System text"));
+
+        assert!(
+            output.contains("<|start_header_id|>system<|end_header_id|>"),
+            "missing system header"
+        );
+        assert!(
+            output.contains("<|start_header_id|>user<|end_header_id|>"),
+            "missing user header"
+        );
+        assert!(
+            output.contains("<|start_header_id|>assistant<|end_header_id|>"),
+            "missing assistant header"
+        );
+        assert!(output.contains("System text"), "system prompt missing");
+        assert!(output.contains("<|eot_id|>"), "missing eot_id");
+    }
+
+    #[test]
+    fn system_prompt_injection() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let msgs = vec![user_msg("Hi")];
+        let refs: Vec<&_> = msgs.iter().collect();
+
+        let without = preset.render(&refs, None);
+        let with_sys = preset.render(&refs, Some("Be helpful."));
+
+        assert!(
+            !without.contains("Be helpful."),
+            "system prompt should be absent"
+        );
+        assert!(
+            with_sys.contains("Be helpful."),
+            "system prompt should be present"
+        );
+    }
+
+    #[test]
+    fn stop_tokens_chatml() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let tokens = preset.stop_tokens();
+
+        assert!(
+            tokens.iter().any(|t| t == "<|im_end|>"),
+            "ChatML should have <|im_end|> stop token, got: {tokens:?}"
+        );
+        assert!(
+            tokens.iter().any(|t| t.contains("<|im_start|>user")),
+            "ChatML with sequences_as_stop_strings should include input_sequence, got: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn stop_tokens_llama3() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("Llama 3 Instruct");
+        let tokens = preset.stop_tokens();
+
+        assert!(
+            tokens.iter().any(|t| t == "<|eot_id|>"),
+            "Llama 3 should have <|eot_id|> stop token, got: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn all_instruct_presets_load() {
+        let _dir = setup_data_dir();
+        let names = list_instruct_preset_names();
+        assert!(!names.is_empty(), "should have at least one preset");
+        for name in &names {
+            let p = resolve_instruct_preset(name);
+            assert!(!p.name.is_empty(), "preset {name} should have a name");
+        }
+    }
+
+    #[test]
+    fn empty_message_list() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let refs: Vec<&Message> = Vec::new();
+        let output = preset.render(&refs, None);
+        let _ = output;
+    }
+
+    #[test]
+    fn empty_message_list_with_system_prompt() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let refs: Vec<&Message> = Vec::new();
+        let output = preset.render(&refs, Some("System"));
+        assert!(
+            output.contains("System"),
+            "system prompt should appear even with no messages"
+        );
+    }
+
+    #[test]
+    fn multi_turn_conversation() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let msgs = vec![
+            user_msg("Turn 1"),
+            assistant_msg("Reply 1"),
+            user_msg("Turn 2"),
+            assistant_msg("Reply 2"),
+            user_msg("Turn 3"),
+            assistant_msg("Reply 3"),
+        ];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let output = preset.render(&refs, None);
+
+        for content in &["Turn 1", "Reply 1", "Turn 2", "Reply 2", "Turn 3", "Reply 3"] {
+            assert!(output.contains(content), "missing content: {content}");
+        }
+
+        let user_count = output.matches("<|im_start|>user").count();
+        let assistant_count = output.matches("<|im_start|>assistant").count();
+        assert_eq!(user_count, 3, "expected 3 user tags, got {user_count}");
+        assert_eq!(
+            assistant_count, 3,
+            "expected 3 assistant tags, got {assistant_count}"
+        );
+    }
+
+    #[test]
+    fn special_characters_in_messages() {
+        let _dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML");
+        let msgs = vec![
+            user_msg("line1\nline2\nline3"),
+            assistant_msg("<tag>content</tag> | pipe | test"),
+        ];
+        let refs: Vec<&_> = msgs.iter().collect();
+        let output = preset.render(&refs, None);
+
+        assert!(
+            output.contains("line1\nline2\nline3"),
+            "newlines should be preserved"
+        );
+        assert!(
+            output.contains("<tag>content</tag> | pipe | test"),
+            "angle brackets and pipes should be preserved"
+        );
+    }
+
+    #[test]
+    fn all_template_presets_load() {
+        let _dir = setup_data_dir();
+        let names = list_template_preset_names();
+        assert!(
+            !names.is_empty(),
+            "should have at least one template preset"
+        );
+        for name in &names {
+            let _p = resolve_template_preset(name);
+        }
+    }
+
+    #[test]
+    fn render_story_string_populated() {
+        let _dir = setup_data_dir();
+        let preset = resolve_template_preset("Default");
+        let vars = ContextVars {
+            system: "SystemText".to_string(),
+            description: "DescText".to_string(),
+            personality: "PersonText".to_string(),
+            scenario: "ScenarioText".to_string(),
+            persona: "PersonaText".to_string(),
+            wi_before: "WiBeforeText".to_string(),
+            wi_after: "WiAfterText".to_string(),
+            mes_examples: "ExampleText".to_string(),
+        };
+        let output = preset.render_story_string(&vars);
+
+        let expected_vars = [
+            ("system", "SystemText"),
+            ("description", "DescText"),
+            ("personality", "PersonText"),
+            ("scenario", "ScenarioText"),
+            ("persona", "PersonaText"),
+            ("wi_before", "WiBeforeText"),
+            ("wi_after", "WiAfterText"),
+        ];
+        for (label, text) in &expected_vars {
+            assert!(
+                output.contains(text),
+                "{label} not substituted, output: {output:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_story_string_empty_vars() {
+        let _dir = setup_data_dir();
+        let preset = resolve_template_preset("Default");
+        let vars = ContextVars {
+            system: String::new(),
+            description: String::new(),
+            personality: String::new(),
+            scenario: String::new(),
+            persona: String::new(),
+            wi_before: String::new(),
+            wi_after: String::new(),
+            mes_examples: String::new(),
+        };
+        let output = preset.render_story_string(&vars);
+
+        assert!(
+            !output.contains("{{"),
+            "leftover template markers in output: {output:?}"
+        );
+    }
+
+    #[test]
+    fn render_continuation_omits_output_suffix() {
+        let preset = InstructPreset {
+            name: "test".to_owned(),
+            output_suffix: "\n".to_owned(),
+            input_suffix: "\n".to_owned(),
+            ..Default::default()
+        };
+        let msgs = vec![user_msg("Hello"), assistant_msg("Hi")];
+        let refs: Vec<&_> = msgs.iter().collect();
+
+        let complete = preset.render(&refs, None);
+        let continuation = preset.render_continuation(&refs, None);
+
+        assert!(
+            complete.ends_with("Hi\n"),
+            "complete render should end with output_suffix, got: {complete:?}"
+        );
+        assert!(
+            continuation.ends_with("Hi"),
+            "continuation render should not append output_suffix on last assistant msg, got: {continuation:?}"
+        );
+    }
+
+    #[test]
+    fn render_continuation_vs_render_differ() {
+        let preset = InstructPreset {
+            name: "test".to_owned(),
+            output_suffix: "</s>".to_owned(),
+            input_suffix: "\n".to_owned(),
+            ..Default::default()
+        };
+        let msgs = vec![user_msg("Q"), assistant_msg("A")];
+        let refs: Vec<&_> = msgs.iter().collect();
+
+        let complete = preset.render(&refs, None);
+        let continuation = preset.render_continuation(&refs, None);
+
+        assert_ne!(
+            complete, continuation,
+            "render and render_continuation must produce different output"
+        );
+        assert!(
+            complete.contains("</s>"),
+            "complete output should contain output_suffix"
+        );
+        assert!(
+            !continuation.ends_with("</s>"),
+            "continuation should not end with output_suffix"
+        );
+    }
+
+    #[test]
+    fn resolve_reasoning_preset_off() {
+        let _dir = setup_data_dir();
+        let result = resolve_reasoning_preset("OFF");
+        assert!(result.is_none(), "\"OFF\" should resolve to None");
+    }
+
+    #[test]
+    fn resolve_reasoning_preset_empty() {
+        let _dir = setup_data_dir();
+        let result = resolve_reasoning_preset("");
+        assert!(result.is_none(), "empty string should resolve to None");
+    }
+
+    #[test]
+    fn list_reasoning_preset_names_includes_off() {
+        let _dir = setup_data_dir();
+        let names = list_reasoning_preset_names();
+        assert!(
+            !names.is_empty(),
+            "reasoning preset list should not be empty"
+        );
+        assert_eq!(
+            names[0], "OFF",
+            "first reasoning preset name should be \"OFF\", got: {names:?}"
+        );
+    }
+
+    #[test]
+    fn backward_compat_alias_chatml() {
+        let result = backward_compat_alias("chatml");
+        assert_eq!(
+            result,
+            Some("ChatML"),
+            "\"chatml\" should alias to \"ChatML\""
+        );
+    }
+}

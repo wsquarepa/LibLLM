@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
@@ -98,19 +97,27 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
             let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
             let db_key = libllm::crypto::derive_key(pk, &salt)?;
 
+            // Remove the existing DB file so the destination connection creates a fresh
+            // unencrypted database. We then use sqlcipher_export to write an encrypted copy.
+            if db_path.exists() {
+                std::fs::remove_file(&db_path)
+                    .context("failed to remove existing database before encrypted restore")?;
+            }
+
+            // Open the plaintext source and export it directly into an encrypted destination.
+            // SQLCipher's backup API does not support plaintext->encrypted transfers, so we use
+            // ATTACH + sqlcipher_export which is the canonical SQLCipher migration path.
             let src = rusqlite::Connection::open(&temp_plain_path)
                 .context("failed to open plaintext temp db")?;
-
-            let mut dest = rusqlite::Connection::open(&db_path)
-                .context("failed to open destination db")?;
-            dest.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", db_key.hex()))
-                .context("failed to set encryption key on destination db")?;
-
-            let backup = rusqlite::backup::Backup::new(&src, &mut dest)
-                .context("failed to create SQLite backup")?;
-            backup
-                .run_to_completion(100, Duration::ZERO, None)
-                .context("failed to run SQLite backup to completion")?;
+            let key_hex = db_key.hex();
+            src.execute_batch(&format!(
+                "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\
+                 SELECT sqlcipher_export('encrypted');\
+                 DETACH DATABASE encrypted;",
+                db_path.display(),
+                key_hex,
+            ))
+            .context("failed to export plaintext database as encrypted")?;
         }
     }
 

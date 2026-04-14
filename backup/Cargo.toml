@@ -3,10 +3,6 @@ name = "backup"
 version = "1.0.0"
 edition = "2024"
 
-[[bin]]
-name = "libllm-recover"
-path = "src/main.rs"
-
 [dependencies]
 libllm = { path = "../libllm" }
 anyhow = "1"

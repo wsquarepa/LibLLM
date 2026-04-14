@@ -1,3 +1,5 @@
+//! Text measurement and hit-testing for wrapped chat message layout.
+
 use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Wrap};

@@ -1,3 +1,5 @@
+//! Backup-specific encryption using XChaCha20-Poly1305 with Argon2id key derivation.
+
 use std::path::Path;
 
 use anyhow::{Result, bail};

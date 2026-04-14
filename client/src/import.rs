@@ -1,3 +1,5 @@
+//! File import for characters, worldbooks, personas, and system prompts.
+
 use anyhow::{Context, Result};
 use libllm::character;
 use libllm::db::Database;

@@ -1,3 +1,5 @@
+//! Retention thinning policy for pruning old backup snapshots.
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 

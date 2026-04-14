@@ -1,3 +1,5 @@
+//! Branch navigation dialog for browsing and switching conversation branches.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

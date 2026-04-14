@@ -1,8 +1,14 @@
+//! Context window management and token budget allocation.
+
 use crate::session::Message;
 
 const DEFAULT_CONTEXT_LIMIT: usize = 4096;
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
+/// Estimates token counts and truncates message paths to fit within a configured token budget.
+///
+/// Uses a simple heuristic of ~4 characters per token plus a per-message overhead of 4 tokens.
+/// Always preserves at least the last 2 messages.
 pub struct ContextManager {
     token_limit: usize,
 }

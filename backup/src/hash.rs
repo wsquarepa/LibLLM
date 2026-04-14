@@ -1,11 +1,15 @@
+//! BLAKE3 hashing utilities for backup integrity verification.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
+/// Returns the BLAKE3 hash of `data` as a 64-character lowercase hex string.
 pub fn hash_bytes(data: &[u8]) -> String {
     blake3::hash(data).to_hex().to_string()
 }
 
+/// Reads a file into memory and returns its BLAKE3 hash as a hex string.
 pub fn hash_file(path: &Path) -> Result<String> {
     let data = std::fs::read(path)
         .with_context(|| format!("failed to read file: {}", path.display()))?;

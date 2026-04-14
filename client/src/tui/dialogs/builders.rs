@@ -1,3 +1,5 @@
+//! Factory functions for constructing field editor dialogs with validation rules.
+
 use super::FieldDialog;
 use super::validation::FieldValidation;
 

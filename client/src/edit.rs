@@ -1,3 +1,5 @@
+//! External editor integration for character cards and worldbooks.
+
 use anyhow::Result;
 use std::io::Write;
 use libllm::character;

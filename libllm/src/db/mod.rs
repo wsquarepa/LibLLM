@@ -1,3 +1,5 @@
+//! SQLite/SQLCipher database layer with CRUD operations for all persistent entities.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -31,6 +33,7 @@ fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Res
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
 }
 
+/// Handle to an open SQLite/SQLCipher database with methods for all persistent entity operations.
 pub struct Database {
     conn: Connection,
 }

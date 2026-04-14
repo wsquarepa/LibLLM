@@ -1,3 +1,5 @@
+//! Chat input field key handling with command picker integration.
+
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;

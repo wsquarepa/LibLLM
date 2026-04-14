@@ -1,3 +1,5 @@
+//! Application configuration with TOML persistence and default resolution.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -17,6 +19,7 @@ thread_local! {
     static DATA_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Top-level application configuration, serialized as `config.toml` in the data directory.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub api_url: Option<String>,
@@ -52,6 +55,7 @@ pub struct Config {
     pub backup: BackupConfig,
 }
 
+/// Backup retention and rebase policy settings, nested under `[backup]` in config.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupConfig {
     #[serde(default = "BackupConfig::default_enabled")]
@@ -90,6 +94,7 @@ impl Default for BackupConfig {
     }
 }
 
+/// Optional color overrides for TUI theme elements, specified as CSS-style hex strings.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ThemeColorOverrides {
     pub user_message: Option<String>,
@@ -237,6 +242,10 @@ pub(crate) fn migrate_config() {
     }
 }
 
+/// Reads and parses `config.toml` from the data directory.
+///
+/// Returns `Config::default()` when the file is missing or unparseable (with a
+/// warning printed to stderr in the latter case).
 pub fn load() -> Config {
     let path = config_path();
     let read_start = Instant::now();
@@ -374,6 +383,7 @@ mod tests {
     }
 }
 
+/// Serializes and atomically writes the config to `config.toml` in the data directory.
 pub fn save(cfg: &Config) -> Result<()> {
     let path = config_path();
     let serialize_start = Instant::now();

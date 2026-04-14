@@ -1,3 +1,5 @@
+//! Passkey entry dialog for unlocking an encrypted database on startup.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

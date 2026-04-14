@@ -1,3 +1,5 @@
+//! Database schema definitions and versioned migration runner.
+
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 

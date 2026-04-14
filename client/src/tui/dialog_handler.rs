@@ -1,3 +1,5 @@
+//! Dialog-level key event routing and generation cancellation logic.
+
 use crossterm::event::KeyEvent;
 use ratatui::style::Style;
 use tui_textarea::TextArea;

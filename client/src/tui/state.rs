@@ -1,3 +1,5 @@
+//! Application state management: autosave scheduling, status messages, and notification timers.
+
 use anyhow::Result;
 
 use super::dialogs;

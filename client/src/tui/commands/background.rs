@@ -1,3 +1,5 @@
+//! Background event processing for passkey derivation and model name resolution.
+
 use libllm::db::Database;
 use libllm::session::{self, SaveMode};
 

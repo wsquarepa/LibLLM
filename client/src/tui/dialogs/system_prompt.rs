@@ -1,3 +1,5 @@
+//! System prompt picker and editor dialog for selecting and editing prompts.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

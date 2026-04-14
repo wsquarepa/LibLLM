@@ -1,3 +1,5 @@
+//! Streaming completion request lifecycle: start, token handling, and worldbook loading.
+
 use anyhow::Result;
 use tokio::sync::mpsc;
 

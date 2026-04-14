@@ -1,3 +1,5 @@
+//! Slash command execution and dispatch for TUI chat actions.
+
 pub mod macros;
 pub use macros::expand_macro;
 

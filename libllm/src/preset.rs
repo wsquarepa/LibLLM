@@ -1,3 +1,5 @@
+//! Instruct, reasoning, and context template presets with file and builtin resolution.
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -36,6 +38,7 @@ enum RenderMode {
     Continuation,
 }
 
+/// One or more stop sequences that terminate generation, accepting both single and array JSON forms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum StopSequence {
@@ -64,6 +67,10 @@ impl StopSequence {
     }
 }
 
+/// An instruct-mode prompt template defining input/output/system sequences and stop tokens.
+///
+/// Controls how multi-turn messages are formatted into a single prompt string for the
+/// completions API. Supports first/last sequence overrides and `system_same_as_user` mode.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InstructPreset {
     pub name: String,
@@ -365,6 +372,10 @@ fn load_builtin_instruct(name: &str) -> Option<InstructPreset> {
     None
 }
 
+/// Resolves an instruct preset by name, checking user files first, then builtins, then the default.
+///
+/// The special name "Raw" returns a minimal preset with newline-only suffixes. Legacy
+/// aliases like "chatml" are mapped to their canonical names.
 pub fn resolve_instruct_preset(name: &str) -> InstructPreset {
     if name.eq_ignore_ascii_case("raw") {
         return InstructPreset::raw();
@@ -383,6 +394,7 @@ pub fn resolve_instruct_preset(name: &str) -> InstructPreset {
     load_builtin_instruct(DEFAULT_INSTRUCT_PRESET).unwrap()
 }
 
+/// Returns all available instruct preset names, merging user files with builtins.
 pub fn list_instruct_preset_names() -> Vec<String> {
     let mut names = list_json_names_in_dir(&instruct_presets_dir());
     let mut seen: HashSet<String> = names.iter().map(|n| n.to_lowercase()).collect();
@@ -400,6 +412,7 @@ pub fn list_instruct_preset_names() -> Vec<String> {
     names
 }
 
+/// Returns all available reasoning preset names, always starting with "OFF".
 pub fn list_reasoning_preset_names() -> Vec<String> {
     let mut names = vec![REASONING_OFF.to_owned()];
     let mut seen: HashSet<String> = HashSet::from([REASONING_OFF.to_lowercase()]);
@@ -429,6 +442,7 @@ fn load_builtin_reasoning(name: &str) -> Option<ReasoningPreset> {
     None
 }
 
+/// Resolves a reasoning preset by name, returning `None` for "OFF" or an empty string.
 pub fn resolve_reasoning_preset(name: &str) -> Option<ReasoningPreset> {
     if name.eq_ignore_ascii_case(REASONING_OFF) || name.is_empty() {
         return None;
@@ -439,6 +453,7 @@ pub fn resolve_reasoning_preset(name: &str) -> Option<ReasoningPreset> {
     load_builtin_reasoning(name)
 }
 
+/// A reasoning-mode wrapper that adds think-aloud prefix/suffix around assistant output.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ReasoningPreset {
     pub name: String,
@@ -450,6 +465,8 @@ pub struct ReasoningPreset {
     pub separator: String,
 }
 
+/// A context template that controls how character description, persona, and worldbook entries
+/// are assembled into the story string portion of the system prompt.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContextPreset {
     pub name: String,
@@ -467,6 +484,7 @@ pub struct ContextPreset {
     pub story_string_role: u32,
 }
 
+/// Variable bindings for context template rendering (handlebars-style `{{variable}}`).
 pub struct ContextVars {
     pub system: String,
     pub description: String,
@@ -571,6 +589,7 @@ fn load_builtin_template(name: &str) -> Option<ContextPreset> {
     None
 }
 
+/// Resolves a context template preset by name, falling back to the "Default" builtin.
 pub fn resolve_template_preset(name: &str) -> ContextPreset {
     if let Some(preset) = load_json_from_dir(&template_presets_dir(), name) {
         return preset;
@@ -581,6 +600,7 @@ pub fn resolve_template_preset(name: &str) -> ContextPreset {
     load_builtin_template(DEFAULT_TEMPLATE_PRESET).unwrap()
 }
 
+/// Returns all available context template preset names, merging user files with builtins.
 pub fn list_template_preset_names() -> Vec<String> {
     let mut names = list_json_names_in_dir(&template_presets_dir());
     let mut seen: HashSet<String> = names.iter().map(|n| n.to_lowercase()).collect();

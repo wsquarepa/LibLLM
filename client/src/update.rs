@@ -1,3 +1,5 @@
+//! Self-update mechanism via GitHub release downloads.
+
 use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};

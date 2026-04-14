@@ -1,3 +1,5 @@
+//! Input validation rules for TUI dialog fields.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};

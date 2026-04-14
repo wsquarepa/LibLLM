@@ -1,3 +1,8 @@
+//! Template variable substitution for character and persona placeholders.
+
+/// Replaces `{{char}}` and `{{user}}` placeholders in `text` with the given names.
+///
+/// Returns the input unchanged (without allocation) when neither placeholder is present.
 pub fn apply_template_vars(text: &str, char_name: &str, user_name: &str) -> String {
     if !text.contains("{{char}}") && !text.contains("{{user}}") {
         return text.to_owned();

@@ -1,5 +1,8 @@
+//! Sampling parameter types and CLI override merging for the completions API.
+
 use serde::{Deserialize, Serialize};
 
+/// Resolved sampling parameters sent to the completions API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamplingParams {
     pub temperature: f64,
@@ -25,6 +28,7 @@ impl Default for SamplingParams {
     }
 }
 
+/// Optional per-field overrides from CLI flags or config, merged onto `SamplingParams` defaults.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SamplingOverrides {
     pub temperature: Option<f64>,

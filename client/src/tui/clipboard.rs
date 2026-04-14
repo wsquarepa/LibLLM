@@ -1,3 +1,5 @@
+//! System clipboard read/write with platform-specific handling.
+
 use arboard::Clipboard;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tui_textarea::TextArea;

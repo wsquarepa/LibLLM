@@ -1,3 +1,5 @@
+//! Chat export to Markdown, HTML, and JSONL file formats.
+
 use std::io::Write;
 
 use anyhow::Result;

@@ -1,3 +1,5 @@
+//! Backup index types and persistence for tracking backup chains.
+
 use std::fmt;
 use std::path::Path;
 
@@ -5,6 +7,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Whether a backup entry is a full base snapshot or an incremental diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BackupType {
@@ -21,6 +24,7 @@ impl fmt::Display for BackupType {
     }
 }
 
+/// Metadata for a single backup file: type, hashes, sizes, and timestamps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupEntry {
     pub id: String,
@@ -37,6 +41,7 @@ pub struct BackupEntry {
     pub created_at: DateTime<Utc>,
 }
 
+/// The persistent backup index: a versioned list of all backup entries in chronological order.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BackupIndex {
     pub version: u32,

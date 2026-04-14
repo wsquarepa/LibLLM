@@ -1,14 +1,18 @@
+//! Binary diff and zstd compression for incremental backup payloads.
+
 use anyhow::Result;
 use std::io::Cursor;
 
 const ZSTD_COMPRESSION_LEVEL: i32 = 3;
 
+/// Computes a bsdiff binary patch from `old` to `new`.
 pub fn compute_diff(old: &[u8], new: &[u8]) -> Result<Vec<u8>> {
     let mut patch = Vec::new();
     bsdiff::diff(old, new, &mut patch)?;
     Ok(patch)
 }
 
+/// Applies a bsdiff patch to `old`, producing the reconstructed `new` content.
 pub fn apply_patch(old: &[u8], patch: &[u8]) -> Result<Vec<u8>> {
     let mut cursor = Cursor::new(patch);
     let mut output = Vec::new();
@@ -16,11 +20,13 @@ pub fn apply_patch(old: &[u8], patch: &[u8]) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// Compresses data with zstd at the default backup compression level (3).
 pub fn compress(data: &[u8]) -> Result<Vec<u8>> {
     let compressed = zstd::encode_all(data, ZSTD_COMPRESSION_LEVEL)?;
     Ok(compressed)
 }
 
+/// Decompresses zstd-compressed data back to its original form.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
     let decompressed = zstd::decode_all(data)?;
     Ok(decompressed)

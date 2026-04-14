@@ -1,3 +1,5 @@
+//! Conversation session types with a branching message tree backed by an arena allocator.
+
 use std::collections::HashMap;
 use std::fmt;
 #[cfg(debug_assertions)]
@@ -8,10 +10,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
 
+/// Controls whether and how a session is persisted to the database.
 #[derive(Clone)]
 pub enum SaveMode {
+    /// Session is ephemeral and will not be saved.
     None,
+    /// Session is actively persisted to the database under the given ID.
     Database { id: String },
+    /// Session has a database ID but cannot be saved until a passkey is provided.
     PendingPasskey { id: String },
 }
 
@@ -37,6 +43,7 @@ impl SaveMode {
     }
 }
 
+/// Lightweight session metadata used for sidebar display and session switching.
 pub struct SessionEntry {
     pub id: String,
     pub display_name: String,
@@ -47,6 +54,7 @@ pub struct SessionEntry {
     pub is_new_chat: bool,
 }
 
+/// The speaker role for a chat message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -78,6 +86,7 @@ impl std::str::FromStr for Role {
     }
 }
 
+/// A single chat message with role, content text, and ISO-8601 timestamp.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
@@ -95,8 +104,10 @@ impl Message {
     }
 }
 
+/// Index into the `MessageTree` arena, identifying a single node.
 pub type NodeId = usize;
 
+/// An arena-allocated node in the message tree, holding one message and its parent/child links.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
@@ -127,6 +138,11 @@ struct TreeRuntimeCache {
     debug: CacheDebugState,
 }
 
+/// Arena-backed branching message tree where `/retry` and `/edit` create sibling branches.
+///
+/// Nodes are stored in a flat `Vec<Node>` indexed by `NodeId`. The `head` points to the
+/// currently active leaf. `preferred_child` tracks which branch was last visited at each
+/// fork so that `switch_to` can restore the user's previous path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTree {
     nodes: Vec<Node>,
@@ -573,6 +589,7 @@ impl Default for MessageTree {
     }
 }
 
+/// A conversation session: a message tree plus metadata (model, character, worldbooks, etc.).
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Session {
     pub tree: MessageTree,

@@ -1,3 +1,5 @@
+//! Terminal UI application: event loop, layout, and state management.
+
 pub mod business;
 mod clipboard;
 pub mod commands;

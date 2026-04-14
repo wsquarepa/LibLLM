@@ -1,3 +1,5 @@
+//! User-defined macro expansion with positional argument substitution.
+
 #[derive(Debug, PartialEq)]
 pub(super) enum Placeholder {
     All,

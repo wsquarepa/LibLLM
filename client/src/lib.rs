@@ -1,3 +1,5 @@
+//! LibLLM client binary: TUI chat interface and CLI subcommands.
+
 pub mod cli;
 pub mod edit;
 pub mod import;

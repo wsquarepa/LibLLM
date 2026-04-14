@@ -1,3 +1,5 @@
+//! Database backup recovery subcommands: list, verify, restore, rebuild-index.
+
 use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::Path;

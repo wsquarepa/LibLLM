@@ -1,3 +1,5 @@
+//! Persona picker and editor dialog for managing user profiles.
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};

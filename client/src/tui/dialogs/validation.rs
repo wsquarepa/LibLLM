@@ -1,3 +1,5 @@
+//! Per-keystroke field validation for numeric ranges and length limits.
+
 #[derive(Clone, Copy)]
 pub enum FieldValidation {
     Float { min: f64, max: f64 },

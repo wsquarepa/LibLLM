@@ -13,6 +13,14 @@ pub enum Command {
         /// Name of the character or worldbook
         name: String,
     },
+    /// Import characters, worldbooks, personas, or system prompts from files
+    Import {
+        /// File(s) to import (.json, .png, or .txt)
+        files: Vec<std::path::PathBuf>,
+        /// Force content type: character, char, worldbook, wb, book, persona, prompt, system-prompt
+        #[arg(long, short = 't')]
+        kind: Option<String>,
+    },
     /// Update libllm to the latest build
     Update {
         /// Target branch name (omit for stable)

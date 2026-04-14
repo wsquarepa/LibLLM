@@ -249,6 +249,13 @@ libllm update --list
 # Edit a character card or worldbook in $EDITOR
 libllm edit character <name>
 libllm edit worldbook <name>
+
+# Import characters, worldbooks, personas, or system prompts from files
+libllm import card.json                        # auto-detects character vs worldbook
+libllm import card.png                         # PNG character card
+libllm import --type persona persona.txt       # .txt requires --type
+libllm import --type prompt system.txt
+libllm import card.json lore.json card2.png    # batch import
 ```
 
 ### CLI override behavior

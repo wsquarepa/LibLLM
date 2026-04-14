@@ -146,6 +146,10 @@ async fn main() -> Result<()> {
 
     check_and_run_migration(&args).await?;
 
+    if let Some(cli::Command::Import { files, kind }) = &args.command {
+        return handle_import_command(files, kind.as_deref(), &args);
+    }
+
     if let Some(cli::Command::Edit { kind, name }) = &args.command {
         return handle_edit_command(kind, name, &args);
     }
@@ -301,6 +305,7 @@ fn infer_run_mode(args: &Args) -> &'static str {
     } else if let Some(command) = &args.command {
         match command {
             cli::Command::Edit { .. } => "edit_subcommand",
+            cli::Command::Import { .. } => "import_subcommand",
             cli::Command::Update { .. } => "update_subcommand",
         }
     } else if args.message.is_some() {
@@ -330,6 +335,7 @@ fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
     if let Some(command) = &args.command {
         let command_name = match command {
             cli::Command::Edit { .. } => "edit",
+            cli::Command::Import { .. } => "import",
             cli::Command::Update { .. } => "update",
         };
         fields.push(debug_log::field("command", command_name));
@@ -433,6 +439,190 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
         anyhow::bail!("Wrong passkey.");
     }
     Database::open(&db_path, Some(&key))
+}
+
+enum ImportType {
+    Character,
+    Worldbook,
+    Persona,
+    SystemPrompt,
+}
+
+fn parse_import_kind(kind: &str) -> Result<ImportType> {
+    match kind {
+        "character" | "char" => Ok(ImportType::Character),
+        "worldbook" | "wb" | "book" => Ok(ImportType::Worldbook),
+        "persona" => Ok(ImportType::Persona),
+        "prompt" | "system-prompt" => Ok(ImportType::SystemPrompt),
+        _ => anyhow::bail!(
+            "Unknown import type: {kind}. \
+             Use: character, char, worldbook, wb, book, persona, prompt, system-prompt"
+        ),
+    }
+}
+
+fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<ImportType> {
+    if let Some(kind) = kind {
+        return parse_import_kind(kind);
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "png" => Ok(ImportType::Character),
+        "txt" => anyhow::bail!(
+            "{}: .txt files are ambiguous. Use --type persona or --type prompt",
+            path.display()
+        ),
+        "json" => {
+            let contents = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+
+            if character::parse_card_json(&contents).is_ok() {
+                return Ok(ImportType::Character);
+            }
+
+            let fallback_name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if libllm_core::worldinfo::parse_worldbook_json(&contents, &fallback_name).is_ok() {
+                return Ok(ImportType::Worldbook);
+            }
+
+            anyhow::bail!(
+                "{}: JSON file does not match character or worldbook format. \
+                 Use --type to specify the content type.",
+                path.display()
+            )
+        }
+        _ => anyhow::bail!(
+            "{}: unsupported file extension '.{ext}'. Supported: .json, .png, .txt",
+            path.display()
+        ),
+    }
+}
+
+fn import_single_file(
+    path: &std::path::Path,
+    import_type: &ImportType,
+    db: &Database,
+) -> Result<String> {
+    match import_type {
+        ImportType::Character => {
+            let card = character::import_card(path)?;
+            let slug = character::slugify(&card.name);
+            db.insert_character(&slug, &card)?;
+            Ok(format!("Imported character: \"{}\" ({})", card.name, slug))
+        }
+        ImportType::Worldbook => {
+            let contents = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let fallback_name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let wb = libllm_core::worldinfo::parse_worldbook_json(&contents, &fallback_name)?;
+            let slug = character::slugify(&wb.name);
+            db.insert_worldbook(&slug, &wb)?;
+            Ok(format!("Imported worldbook: \"{}\" ({})", wb.name, slug))
+        }
+        ImportType::Persona => {
+            let contents = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(sanitize_name)
+                .flatten()
+                .ok_or_else(|| anyhow::anyhow!("{}: invalid filename for persona name", path.display()))?;
+            let slug = character::slugify(&name);
+            let persona = libllm_core::persona::PersonaFile {
+                name: name.clone(),
+                persona: contents,
+            };
+            db.insert_persona(&slug, &persona)?;
+            Ok(format!("Imported persona: \"{}\" ({})", name, slug))
+        }
+        ImportType::SystemPrompt => {
+            let contents = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(sanitize_name)
+                .flatten()
+                .ok_or_else(|| anyhow::anyhow!("{}: invalid filename for prompt name", path.display()))?;
+            let slug = character::slugify(&name);
+            let prompt = libllm_core::system_prompt::SystemPromptFile {
+                name: name.clone(),
+                content: contents,
+            };
+            db.insert_prompt(&slug, &prompt, false)?;
+            Ok(format!("Imported system prompt: \"{}\" ({})", name, slug))
+        }
+    }
+}
+
+fn sanitize_name(raw: &str) -> Option<String> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+fn handle_import_command(
+    files: &[std::path::PathBuf],
+    kind: Option<&str>,
+    args: &Args,
+) -> Result<()> {
+    if files.is_empty() {
+        anyhow::bail!("No files specified. Usage: libllm import <file>...");
+    }
+
+    let db = resolve_edit_db(args)?;
+    let mut had_errors = false;
+
+    for file in files {
+        if !file.exists() {
+            eprintln!("Error: {}: file not found", file.display());
+            had_errors = true;
+            continue;
+        }
+        if !file.is_file() {
+            eprintln!("Error: {}: not a regular file", file.display());
+            had_errors = true;
+            continue;
+        }
+
+        match detect_import_type(file, kind) {
+            Ok(import_type) => match import_single_file(file, &import_type, &db) {
+                Ok(msg) => eprintln!("{msg}"),
+                Err(e) => {
+                    eprintln!("Error: {}: {e}", file.display());
+                    had_errors = true;
+                }
+            },
+            Err(e) => {
+                eprintln!("Error: {e}");
+                had_errors = true;
+            }
+        }
+    }
+
+    if had_errors {
+        anyhow::bail!("Some imports failed.");
+    }
+    Ok(())
 }
 
 fn handle_edit_command(kind: &str, name: &str, args: &Args) -> Result<()> {

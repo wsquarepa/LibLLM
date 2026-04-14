@@ -37,11 +37,6 @@ fn collect_backup_files(data_dir: &Path) -> Vec<PathBuf> {
         files.push(salt);
     }
 
-    let key_check = data_dir.join(".key_check");
-    if key_check.is_file() {
-        files.push(key_check);
-    }
-
     files
 }
 

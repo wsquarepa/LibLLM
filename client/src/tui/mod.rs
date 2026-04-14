@@ -79,9 +79,9 @@ pub async fn run(
 
     let config = libllm::config::load();
 
-    let key_check_exists = libllm::config::key_check_path().exists();
+    let salt_exists = libllm::config::salt_path().exists();
     let initial_passkey_setup =
-        save_mode.needs_passkey() && !key_check_exists;
+        save_mode.needs_passkey() && !salt_exists;
 
     let mut app = App {
         client,

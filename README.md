@@ -221,7 +221,7 @@ libllm -d ./data --passkey mypasskey
 | `-t`, `--template` | Instruct preset: `Mistral V3-Tekken`, `Llama 3 Instruct`, `ChatML`, `Phi`, `Alpaca`, `Raw` |
 | `--api-url` | API base URL (env: `LIBLLM_API_URL`) |
 | `--no-encrypt` | Disable session encryption (requires `-d`) |
-| `--passkey` | Encryption passkey (env: `LIBLLM_PASSKEY`, requires `-d`) |
+| `--passkey` | Encryption passkey (env: `LIBLLM_PASSKEY`, requires `-d`). **Visible in process listings** (`ps`, `/proc`); prefer the interactive prompt or `LIBLLM_PASSKEY` env var. |
 | `--temperature` | Sampling temperature |
 | `--top-k` | Top-K sampling |
 | `--top-p` | Top-P (nucleus) sampling |
@@ -429,7 +429,6 @@ The default data directory is `~/.local/share/libllm/`. Use `--data/-d` to speci
   config.toml              # API URL, template, sampling defaults (NOT encrypted)
   data.db                  # SQLite database (SQLCipher-encrypted or plain)
   .salt                    # 16-byte random salt (generated on first run)
-  .key_check               # Passkey verification fingerprint
   presets/
     instruct/              # Instruct presets (Mistral V3-Tekken, Llama 3, ChatML, Phi, Alpaca)
     reasoning/             # Reasoning presets (DeepSeek)

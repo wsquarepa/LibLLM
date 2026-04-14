@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
         config::set_data_dir(data_path.clone())?;
 
         if is_existing_dir {
-            let is_encrypted_dir = config::key_check_path().exists();
+            let is_encrypted_dir = config::salt_path().exists();
             if is_encrypted_dir && args.no_encrypt {
                 anyhow::bail!("Data directory is encrypted; --no-encrypt cannot be used with it.");
             }
@@ -129,6 +129,15 @@ async fn main() -> Result<()> {
     } else {
         cfg.tls_skip_verify
     };
+    if tls_skip_verify {
+        use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
+        let _ = crossterm::execute!(
+            io::stderr(),
+            SetForegroundColor(Color::Yellow),
+            Print("Warning: TLS certificate verification is disabled.\n"),
+            ResetColor,
+        );
+    }
     let client = ApiClient::new(api_url, tls_skip_verify);
 
     let preset_name = args
@@ -326,11 +335,8 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
     if let Some(ref passkey) = args.passkey {
         let salt = crypto::load_or_create_salt(&config::salt_path())?;
         let key = crypto::derive_key(passkey, &salt)?;
-        let valid = crypto::verify_or_set_key(&config::key_check_path(), &key)?;
-        if !valid {
-            anyhow::bail!("Wrong passkey.");
-        }
-        let db = Database::open(&db_path, Some(&key))?;
+        let db = Database::open(&db_path, Some(&key))
+            .context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
@@ -391,10 +397,7 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
 
     let salt = crypto::load_or_create_salt(&config::salt_path())?;
     let key = crypto::derive_key(&passkey, &salt)?;
-    let valid = crypto::verify_or_set_key(&config::key_check_path(), &key)?;
-    if !valid {
-        anyhow::bail!("Wrong passkey.");
-    }
     Database::open(&db_path, Some(&key))
+        .context("Wrong passkey (or corrupt database).")
 }
 

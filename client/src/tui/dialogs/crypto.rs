@@ -65,11 +65,10 @@ pub(in crate::tui) fn derive_key_blocking<F>(
     apply: F,
 ) -> BackgroundEvent
 where
-    F: FnOnce(DerivedKey, &std::path::Path) -> BackgroundEvent,
+    F: FnOnce(DerivedKey) -> BackgroundEvent,
 {
     let total_start = std::time::Instant::now();
     let salt_path = libllm::config::salt_path();
-    let check_path = libllm::config::key_check_path();
 
     let salt_start = std::time::Instant::now();
     let salt_result = libllm::crypto::load_or_create_salt(&salt_path);
@@ -104,7 +103,7 @@ where
         }
     };
 
-    let result = apply(derived_key, &check_path);
+    let result = apply(derived_key);
     log_phase(debug_kind, "blocking_total", "done", total_start.elapsed());
     result
 }

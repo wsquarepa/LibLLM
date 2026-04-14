@@ -5,7 +5,6 @@ on:
     paths:
       - 'libllm/**'
       - 'client/**'
-      - 'migrate/**'
       - 'backup/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -82,7 +81,7 @@ jobs:
       - name: Rename binaries
         shell: bash
         run: |
-          for pair in "client:libllm" "migrate:migrate" "libllm-recover:recover"; do
+          for pair in "client:libllm"; do
             cargo_name="${pair%%:*}"
             release_name="${pair##*:}"
             src="target/${{ matrix.target }}/release/${cargo_name}"
@@ -99,8 +98,6 @@ jobs:
           name: binaries-${{ matrix.target }}
           path: |
             libllm-${{ matrix.target }}*
-            migrate-${{ matrix.target }}*
-            recover-${{ matrix.target }}*
           if-no-files-found: error
 
   release:

@@ -14,8 +14,8 @@ jobs:
       - name: Delete branch release
         env:
           GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.ref }}
         run: |
-          BRANCH="${{ github.event.ref }}"
           if gh release view "$BRANCH" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release delete "$BRANCH" --repo "${{ github.repository }}" --yes --cleanup-tag
             echo "Deleted release for branch: $BRANCH"

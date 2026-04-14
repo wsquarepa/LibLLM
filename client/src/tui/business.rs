@@ -333,7 +333,10 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
     } else {
         parse_i64_clamped(&fields[12], -1, 32767)
     };
-    let repeat_last_n_max = max_tokens.unwrap_or(32767);
+    let repeat_last_n_max = match max_tokens {
+        Some(v) if v > 0 => v,
+        _ => 32767,
+    };
     let reasoning_value = non_empty(&fields[4]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
     let cfg = libllm::config::Config {
         api_url: if locked.contains(&0) {
@@ -461,8 +464,9 @@ pub fn new_chat_entry() -> SessionEntry {
 }
 
 fn truncate_preview(msg: &str) -> String {
-    let truncated: String = msg.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
-    if msg.chars().count() > SIDEBAR_PREVIEW_CHARS {
+    let sanitized: String = msg.chars().filter(|c| !c.is_control() || *c == ' ').collect();
+    let truncated: String = sanitized.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
+    if sanitized.chars().count() > SIDEBAR_PREVIEW_CHARS {
         format!("  {truncated}...")
     } else {
         format!("  {truncated}")

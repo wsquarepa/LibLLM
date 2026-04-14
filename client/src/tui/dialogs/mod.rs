@@ -46,13 +46,15 @@ pub(in crate::tui) fn generate_unique_name(
     base: &str,
     existing: &std::collections::HashSet<String>,
 ) -> String {
-    if !existing.contains(base) {
+    let lower_existing: std::collections::HashSet<String> =
+        existing.iter().map(|s| s.to_lowercase()).collect();
+    if !lower_existing.contains(&base.to_lowercase()) {
         return base.to_owned();
     }
     let mut i = 1u32;
     loop {
         let candidate = format!("{base}-{i}");
-        if !existing.contains(&candidate) {
+        if !lower_existing.contains(&candidate.to_lowercase()) {
             return candidate;
         }
         i += 1;

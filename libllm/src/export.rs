@@ -254,8 +254,9 @@ fn html_format_line(line: &str) -> String {
             }
         }
 
-        out.push(bytes[i] as char);
-        i += 1;
+        let ch = escaped[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
     }
 
     out

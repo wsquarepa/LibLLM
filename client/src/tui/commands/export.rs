@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+
 use anyhow::Result;
 
 use libllm::session;
@@ -71,7 +74,14 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
     let filename = format!("export-{timestamp}.{}", format.extension());
     let output_path = current_dir.join(&filename);
 
-    match std::fs::write(&output_path, content) {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&output_path)
+        .and_then(|mut f| f.write_all(content.as_bytes()))
+    {
         Ok(()) => app.set_status(
             format!("Exported to {}", output_path.display()),
             super::super::StatusLevel::Info,

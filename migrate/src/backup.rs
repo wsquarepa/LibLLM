@@ -1,3 +1,5 @@
+use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -53,7 +55,12 @@ pub fn create_backup(data_dir: &Path) -> Result<PathBuf> {
         anyhow::bail!("no files to back up");
     }
 
-    let dest = std::fs::File::create(&archive_path)
+    let dest = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&archive_path)
         .with_context(|| format!("failed to create archive: {}", archive_path.display()))?;
 
     let mut encoder = sevenz_rust::SevenZWriter::new(dest)

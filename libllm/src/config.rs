@@ -48,6 +48,46 @@ pub struct Config {
     pub theme: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub theme_colors: Option<ThemeColorOverrides>,
+    #[serde(default)]
+    pub backup: BackupConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupConfig {
+    #[serde(default = "BackupConfig::default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "BackupConfig::default_keep_all_days")]
+    pub keep_all_days: u32,
+    #[serde(default = "BackupConfig::default_keep_daily_days")]
+    pub keep_daily_days: u32,
+    #[serde(default = "BackupConfig::default_keep_weekly_days")]
+    pub keep_weekly_days: u32,
+    #[serde(default = "BackupConfig::default_rebase_threshold_percent")]
+    pub rebase_threshold_percent: u32,
+    #[serde(default = "BackupConfig::default_rebase_hard_ceiling")]
+    pub rebase_hard_ceiling: u32,
+}
+
+impl BackupConfig {
+    fn default_enabled() -> bool { true }
+    fn default_keep_all_days() -> u32 { 7 }
+    fn default_keep_daily_days() -> u32 { 30 }
+    fn default_keep_weekly_days() -> u32 { 90 }
+    fn default_rebase_threshold_percent() -> u32 { 50 }
+    fn default_rebase_hard_ceiling() -> u32 { 10 }
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            keep_all_days: 7,
+            keep_daily_days: 30,
+            keep_weekly_days: 90,
+            rebase_threshold_percent: 50,
+            rebase_hard_ceiling: 10,
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -300,6 +340,37 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(cfg.api_url(), "http://example.com/v1");
+    }
+
+    #[test]
+    fn backup_config_defaults_when_missing() {
+        let toml_str = r#"
+            api_url = "http://localhost:5001/v1"
+        "#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert!(cfg.backup.enabled);
+        assert_eq!(cfg.backup.keep_all_days, 7);
+        assert_eq!(cfg.backup.keep_daily_days, 30);
+        assert_eq!(cfg.backup.keep_weekly_days, 90);
+        assert_eq!(cfg.backup.rebase_threshold_percent, 50);
+        assert_eq!(cfg.backup.rebase_hard_ceiling, 10);
+    }
+
+    #[test]
+    fn backup_config_round_trips_through_toml() {
+        let toml_str = r#"
+            [backup]
+            enabled = false
+            keep_all_days = 14
+            keep_daily_days = 60
+            keep_weekly_days = 180
+            rebase_threshold_percent = 30
+            rebase_hard_ceiling = 5
+        "#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert!(!cfg.backup.enabled);
+        assert_eq!(cfg.backup.keep_all_days, 14);
+        assert_eq!(cfg.backup.rebase_hard_ceiling, 5);
     }
 }
 

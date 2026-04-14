@@ -165,34 +165,9 @@ pub(in crate::tui) fn handle_set_passkey_key(
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {
-                    super::derive_key_blocking(passkey, debug_kind, |derived_key, check_path| {
-                        if is_initial {
-                            let fingerprint_start = std::time::Instant::now();
-                            let fingerprint_result =
-                                libllm::crypto::set_key_fingerprint(check_path, &derived_key);
-                            let fingerprint_status = if fingerprint_result.is_ok() {
-                                "ok"
-                            } else {
-                                "error"
-                            };
-                            super::log_phase_with_path(
-                                debug_kind,
-                                "fingerprint",
-                                fingerprint_status,
-                                fingerprint_start.elapsed(),
-                                check_path.display(),
-                            );
-                            match fingerprint_result {
-                                Ok(()) => {
-                                    let key = std::sync::Arc::new(derived_key);
-                                    BackgroundEvent::PasskeySet(key)
-                                }
-                                Err(err) => BackgroundEvent::PasskeySetFailed(err.to_string()),
-                            }
-                        } else {
-                            let key = std::sync::Arc::new(derived_key);
-                            BackgroundEvent::PasskeySet(key)
-                        }
+                    super::derive_key_blocking(passkey, debug_kind, |derived_key| {
+                        let key = std::sync::Arc::new(derived_key);
+                        BackgroundEvent::PasskeySet(key)
                     })
                 })
                 .await

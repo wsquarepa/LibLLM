@@ -124,16 +124,6 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 if let Some(ref db) = app.db {
                     match db.rekey(&new_key) {
                         Ok(()) => {
-                            let check_path = libllm::config::key_check_path();
-                            if let Err(err) =
-                                libllm::crypto::set_key_fingerprint(&check_path, &new_key)
-                            {
-                                app.set_status(
-                                    format!("Failed to update key fingerprint: {err}"),
-                                    StatusLevel::Error,
-                                );
-                                return;
-                            }
                             app.passkey_changed = true;
                             app.should_quit = true;
                         }

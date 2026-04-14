@@ -126,10 +126,6 @@ pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
 
-pub fn key_check_path() -> PathBuf {
-    data_dir().join(".key_check")
-}
-
 pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(data_dir()).context("failed to create data directory")?;
     crate::preset::ensure_default_presets();
@@ -289,14 +285,6 @@ mod tests {
         set_data_dir(dir.path().to_path_buf()).ok();
         let path = salt_path();
         assert_eq!(path, dir.path().join(".salt"));
-    }
-
-    #[test]
-    fn key_check_path_under_data_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        set_data_dir(dir.path().to_path_buf()).ok();
-        let path = key_check_path();
-        assert_eq!(path, dir.path().join(".key_check"));
     }
 
     #[test]

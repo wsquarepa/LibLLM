@@ -98,31 +98,30 @@ pub(in crate::tui) fn handle_passkey_key(
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {
-                    super::derive_key_blocking(passkey, "unlock", |derived_key, check_path| {
+                    super::derive_key_blocking(passkey, "unlock", |derived_key| {
                         let verify_start = std::time::Instant::now();
                         let verify_result =
-                            libllm::crypto::verify_or_set_key(check_path, &derived_key);
-                        let verify_status = match verify_result {
-                            Ok(true) => "ok",
-                            Ok(false) => "wrong_passkey",
-                            Err(_) => "error",
+                            libllm::db::Database::open(&db_path, Some(&derived_key));
+                        let verify_status = if verify_result.is_ok() {
+                            "ok"
+                        } else {
+                            "wrong_passkey"
                         };
                         super::log_phase_with_path(
                             "unlock",
                             "verify",
                             verify_status,
                             verify_start.elapsed(),
-                            check_path.display(),
+                            db_path.display(),
                         );
                         match verify_result {
-                            Ok(true) => {
+                            Ok(_db) => {
                                 let key = std::sync::Arc::new(derived_key);
                                 BackgroundEvent::KeyDerived(key, db_path)
                             }
-                            Ok(false) => {
+                            Err(_) => {
                                 BackgroundEvent::KeyDeriveFailed("Wrong passkey.".to_owned())
                             }
-                            Err(err) => BackgroundEvent::KeyDeriveFailed(err.to_string()),
                         }
                     })
                 })

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use libllm::crypto::{derive_key, load_or_create_salt, verify_or_set_key};
+use libllm::crypto::{derive_key, load_or_create_salt};
 use libllm::db::Database;
 use libllm::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY};
 
@@ -66,7 +66,6 @@ fn main() -> Result<()> {
     }
 
     let salt_path = data_dir.join(".salt");
-    let key_check_path = data_dir.join(".key_check");
     let encrypted_mode = !args.no_encrypt && salt_path.exists();
 
     let derived_key = if encrypted_mode {
@@ -75,15 +74,7 @@ fn main() -> Result<()> {
             None => prompt_passkey()?,
         };
         let salt = load_or_create_salt(&salt_path)?;
-        let key = derive_key(&passkey, &salt)?;
-
-        if key_check_path.exists() {
-            let valid = verify_or_set_key(&key_check_path, &key)?;
-            if !valid {
-                bail!("incorrect passkey -- key verification failed");
-            }
-        }
-        Some(key)
+        Some(derive_key(&passkey, &salt)?)
     } else {
         None
     };

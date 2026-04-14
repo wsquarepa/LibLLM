@@ -398,6 +398,7 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
         macros: existing.macros,
         theme: existing.theme,
         theme_colors: existing.theme_colors,
+        backup: existing.backup,
     };
 
     libllm::config::save(&cfg)

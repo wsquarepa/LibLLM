@@ -47,7 +47,7 @@ pub async fn run(
     instruct_preset: InstructPreset,
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let sidebar_sessions = libllm::debug_log::timed_kv(
         "startup.phase",
         &[libllm::debug_log::field("phase", "sidebar_discovery")],
@@ -133,6 +133,7 @@ pub async fn run(
         passkey_input: String::new(),
         passkey_error: String::new(),
         passkey_deriving: false,
+        resolved_passkey: None,
         set_passkey_input: String::new(),
         set_passkey_confirm: String::new(),
         set_passkey_active_field: 0,
@@ -308,7 +309,7 @@ pub async fn run(
         println!("Passkey changed. Please re-launch to authenticate with your new passkey.");
     }
 
-    Ok(())
+    Ok(app.resolved_passkey.clone())
 }
 
 fn render_frame(f: &mut ratatui::Frame, app: &mut App) {

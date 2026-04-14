@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use crate::index::{BackupType, load_index};
+use crate::index::load_index;
 
 /// Restores the database to the state captured at `target_id`.
 ///
@@ -186,7 +186,7 @@ mod tests {
         let diff_id = index
             .entries
             .iter()
-            .find(|e| e.entry_type == BackupType::Diff)
+            .find(|e| e.entry_type == crate::index::BackupType::Diff)
             .unwrap()
             .id
             .clone();

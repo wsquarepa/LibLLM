@@ -76,6 +76,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
             app.passkey_deriving = false;
             app.passkey_error = format!("Failed: {err}");
+            app.resolved_passkey = None;
         }
         BackgroundEvent::PasskeySet(new_key) => {
             if let Some(debug) = app.unlock_debug.take() {

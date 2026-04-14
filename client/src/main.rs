@@ -242,6 +242,8 @@ async fn main() -> Result<()> {
             eprintln!("Session: {id}");
         }
 
+        try_backup(&config::data_dir(), args.passkey.as_deref(), &cfg.backup);
+
         return Ok(());
     }
 
@@ -253,7 +255,7 @@ async fn main() -> Result<()> {
         ],
     );
     let cli_overrides = args.cli_overrides();
-    tui::run(
+    let resolved_passkey = tui::run(
         client,
         &mut session,
         save_mode,
@@ -262,7 +264,12 @@ async fn main() -> Result<()> {
         sampling,
         cli_overrides,
     )
-    .await
+    .await?;
+
+    let effective_passkey = resolved_passkey.as_deref().or(args.passkey.as_deref());
+    try_backup(&config::data_dir(), effective_passkey, &cfg.backup);
+
+    Ok(())
 }
 
 fn infer_run_mode(args: &Args) -> &'static str {
@@ -399,5 +406,32 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
     let key = crypto::derive_key(&passkey, &salt)?;
     Database::open(&db_path, Some(&key))
         .context("Wrong passkey (or corrupt database).")
+}
+
+fn try_backup(
+    data_dir: &std::path::Path,
+    passkey: Option<&str>,
+    config: &libllm::config::BackupConfig,
+) {
+    if !config.enabled {
+        return;
+    }
+
+    if !data_dir.join("data.db").exists() {
+        return;
+    }
+
+    let backup_config = backup::BackupConfig {
+        enabled: config.enabled,
+        keep_all_days: config.keep_all_days,
+        keep_daily_days: config.keep_daily_days,
+        keep_weekly_days: config.keep_weekly_days,
+        rebase_threshold_percent: config.rebase_threshold_percent,
+        rebase_hard_ceiling: config.rebase_hard_ceiling,
+    };
+
+    if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, &backup_config) {
+        eprintln!("Warning: backup failed: {err}");
+    }
 }
 

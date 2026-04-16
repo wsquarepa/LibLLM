@@ -128,15 +128,9 @@ fn apply_preset_selection(app: &mut App, chosen: String) {
         return;
     };
     match app.preset_picker_kind {
-        PresetKind::Template => {
-            dialog.values[2] = chosen;
-        }
-        PresetKind::Instruct => {
-            dialog.values[3] = chosen;
-        }
-        PresetKind::Reasoning => {
-            dialog.values[4] = chosen;
-        }
+        PresetKind::Template => dialog.set_value(0, 1, chosen),
+        PresetKind::Instruct => dialog.set_value(0, 2, chosen),
+        PresetKind::Reasoning => dialog.set_value(0, 3, chosen),
     }
 }
 
@@ -151,9 +145,9 @@ pub(in crate::tui) fn open_preset_picker(app: &mut App, kind: PresetKind) {
         .config_dialog
         .as_ref()
         .map(|d| match kind {
-            PresetKind::Template => d.values[2].as_str(),
-            PresetKind::Instruct => d.values[3].as_str(),
-            PresetKind::Reasoning => d.values[4].as_str(),
+            PresetKind::Template => d.sections()[0].values[1].as_str(),
+            PresetKind::Instruct => d.sections()[0].values[2].as_str(),
+            PresetKind::Reasoning => d.sections()[0].values[3].as_str(),
         })
         .unwrap_or("");
 

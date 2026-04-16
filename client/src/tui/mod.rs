@@ -150,6 +150,7 @@ pub async fn run(
         set_passkey_deriving: false,
         set_passkey_is_initial: initial_passkey_setup,
         config_dialog: None,
+        theme_dialog: None,
         persona_editor: None,
         system_prompt_editor: None,
         system_editor_prompt_name: String::new(),
@@ -551,7 +552,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::ConfigDialog => {
             if let Some(ref dialog) = app.config_dialog {
-                dialog.render(f, f.area());
+                dialog.render(f, f.area(), &app.theme);
             }
         }
         Focus::PresetPickerDialog => {

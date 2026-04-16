@@ -75,8 +75,74 @@ pub(super) fn handle_field_dialog_key(
     app: &mut App,
     kind: DialogKind,
 ) -> Option<Action> {
+    if matches!(kind, DialogKind::Config) {
+        let Some(dialog) = app.config_dialog.as_mut() else {
+            return None;
+        };
+        let action = dialog.handle_key(key);
+        if let Some(msg) = dialog.clipboard_warning.take() {
+            app.set_status(msg, StatusLevel::Warning);
+        }
+        match action {
+            dialogs::TabbedFieldAction::Continue => {}
+            dialogs::TabbedFieldAction::Close => {
+                let (has_changes, sections) = {
+                    let dialog = app.config_dialog.as_ref().unwrap();
+                    let has_changes = dialog.has_changes();
+                    let sections: Vec<Vec<String>> = dialog
+                        .sections()
+                        .iter()
+                        .map(|s| s.values.clone())
+                        .collect();
+                    (has_changes, sections)
+                };
+                if !has_changes {
+                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                    app.config_dialog = None;
+                } else {
+                    let existing = libllm::config::load();
+                    if let Err(e) = business::apply_tabbed_config_fields(
+                        &sections,
+                        existing,
+                        &app.cli_overrides,
+                    ) {
+                        app.set_status(
+                            format!("Failed to save config: {e}"),
+                            StatusLevel::Error,
+                        );
+                    } else {
+                        business::apply_config(app);
+                        app.set_status("Config saved.".to_owned(), StatusLevel::Info);
+                    }
+                    app.config_dialog = None;
+                }
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 1 } => {
+                crate::tui::dialogs::preset::open_preset_picker(
+                    app,
+                    crate::tui::dialogs::preset::PresetKind::Template,
+                );
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 2 } => {
+                crate::tui::dialogs::preset::open_preset_picker(
+                    app,
+                    crate::tui::dialogs::preset::PresetKind::Instruct,
+                );
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 3 } => {
+                crate::tui::dialogs::preset::open_preset_picker(
+                    app,
+                    crate::tui::dialogs::preset::PresetKind::Reasoning,
+                );
+            }
+            dialogs::TabbedFieldAction::OpenSelector { .. } => {}
+            dialogs::TabbedFieldAction::InvokeAction { .. } => {}
+        }
+        return None;
+    }
+
     let dialog = match kind {
-        DialogKind::Config => app.config_dialog.as_mut(),
+        DialogKind::Config => unreachable!(),
         DialogKind::PresetEditor => app.preset_editor.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
@@ -106,54 +172,10 @@ pub(super) fn handle_field_dialog_key(
 
     match result {
         dialogs::FieldDialogAction::Continue => None,
-        dialogs::FieldDialogAction::OpenSelector(field_index) => {
-            if matches!(kind, DialogKind::Config) {
-                match field_index {
-                    2 => dialogs::preset::open_preset_picker(
-                        app,
-                        dialogs::preset::PresetKind::Template,
-                    ),
-                    3 => dialogs::preset::open_preset_picker(
-                        app,
-                        dialogs::preset::PresetKind::Instruct,
-                    ),
-                    4 => dialogs::preset::open_preset_picker(
-                        app,
-                        dialogs::preset::PresetKind::Reasoning,
-                    ),
-                    _ => {}
-                }
-            }
-            None
-        }
+        dialogs::FieldDialogAction::OpenSelector(_field_index) => None,
         dialogs::FieldDialogAction::Close => {
             match kind {
-                DialogKind::Config => {
-                    let dialog = app.config_dialog.as_ref().unwrap();
-                    if !dialog.has_changes() {
-                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                        app.config_dialog = None;
-                    } else {
-                        let values = &dialog.values;
-                        let locked = business::config_locked_fields(&app.cli_overrides);
-                        match business::save_config_from_fields(values, &locked) {
-                            Ok(()) => {
-                                business::apply_config(app);
-                                app.set_status(
-                                    "Configuration saved.".to_owned(),
-                                    StatusLevel::Info,
-                                );
-                            }
-                            Err(e) => {
-                                app.set_status(
-                                    format!("Failed to save config: {e}"),
-                                    StatusLevel::Error,
-                                );
-                            }
-                        }
-                        app.config_dialog = None;
-                    }
-                }
+                DialogKind::Config => unreachable!(),
                 DialogKind::PresetEditor => {
                     if !app.preset_editor.as_ref().unwrap().has_changes() {
                         app.set_status("No changes found.".to_owned(), StatusLevel::Info);
@@ -469,7 +491,6 @@ pub(super) fn handle_field_dialog_key(
                     return None;
                 }
             }
-            app.focus = Focus::Input;
             None
         }
     }

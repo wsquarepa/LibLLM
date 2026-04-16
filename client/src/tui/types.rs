@@ -24,6 +24,7 @@ pub(super) enum Focus {
     PasskeyDialog,
     SetPasskeyDialog,
     ConfigDialog,
+    ThemeDialog,
     PresetPickerDialog,
     PresetEditorDialog,
     PersonaDialog,
@@ -197,7 +198,8 @@ pub(super) struct App<'a> {
     pub(super) set_passkey_deriving: bool,
     pub(super) set_passkey_is_initial: bool,
 
-    pub(super) config_dialog: Option<dialogs::FieldDialog<'a>>,
+    pub(super) config_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
+    pub(super) theme_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
     pub(super) persona_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) system_prompt_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) system_editor_prompt_name: String,

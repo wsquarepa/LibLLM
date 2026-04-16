@@ -71,6 +71,10 @@ impl<'a> TabbedFieldDialog<'a> {
         &self.sections
     }
 
+    pub fn set_value(&mut self, section: usize, field: usize, value: String) {
+        self.sections[section].values[field] = value;
+    }
+
     pub fn has_changes(&self) -> bool {
         self.sections
             .iter()

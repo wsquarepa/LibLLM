@@ -26,6 +26,14 @@ pub fn parse_import_kind(kind: &str) -> Result<ImportType> {
 
 pub fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<ImportType> {
     if let Some(kind) = kind {
+        libllm::debug_log::log_kv(
+            "import.detect_type",
+            &[
+                libllm::debug_log::field("path", path.display()),
+                libllm::debug_log::field("mode", "explicit"),
+                libllm::debug_log::field("kind", kind),
+            ],
+        );
         return parse_import_kind(kind);
     }
 
@@ -44,6 +52,15 @@ pub fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<
         "json" => {
             let contents = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
+            libllm::debug_log::log_kv(
+                "import.detect_type",
+                &[
+                    libllm::debug_log::field("path", path.display()),
+                    libllm::debug_log::field("mode", "auto"),
+                    libllm::debug_log::field("extension", "json"),
+                    libllm::debug_log::field("bytes", contents.len()),
+                ],
+            );
 
             if character::parse_card_json(&contents).is_ok() {
                 return Ok(ImportType::Character);
@@ -153,14 +170,38 @@ mod tests {
 
     #[test]
     fn parse_import_kind_valid() {
-        assert!(matches!(parse_import_kind("character").unwrap(), ImportType::Character));
-        assert!(matches!(parse_import_kind("char").unwrap(), ImportType::Character));
-        assert!(matches!(parse_import_kind("worldbook").unwrap(), ImportType::Worldbook));
-        assert!(matches!(parse_import_kind("wb").unwrap(), ImportType::Worldbook));
-        assert!(matches!(parse_import_kind("book").unwrap(), ImportType::Worldbook));
-        assert!(matches!(parse_import_kind("persona").unwrap(), ImportType::Persona));
-        assert!(matches!(parse_import_kind("prompt").unwrap(), ImportType::SystemPrompt));
-        assert!(matches!(parse_import_kind("system-prompt").unwrap(), ImportType::SystemPrompt));
+        assert!(matches!(
+            parse_import_kind("character").unwrap(),
+            ImportType::Character
+        ));
+        assert!(matches!(
+            parse_import_kind("char").unwrap(),
+            ImportType::Character
+        ));
+        assert!(matches!(
+            parse_import_kind("worldbook").unwrap(),
+            ImportType::Worldbook
+        ));
+        assert!(matches!(
+            parse_import_kind("wb").unwrap(),
+            ImportType::Worldbook
+        ));
+        assert!(matches!(
+            parse_import_kind("book").unwrap(),
+            ImportType::Worldbook
+        ));
+        assert!(matches!(
+            parse_import_kind("persona").unwrap(),
+            ImportType::Persona
+        ));
+        assert!(matches!(
+            parse_import_kind("prompt").unwrap(),
+            ImportType::SystemPrompt
+        ));
+        assert!(matches!(
+            parse_import_kind("system-prompt").unwrap(),
+            ImportType::SystemPrompt
+        ));
     }
 
     #[test]
@@ -171,7 +212,10 @@ mod tests {
 
     #[test]
     fn sanitize_name_normal() {
-        assert_eq!(sanitize_name("hello-world_1"), Some("hello-world_1".to_string()));
+        assert_eq!(
+            sanitize_name("hello-world_1"),
+            Some("hello-world_1".to_string())
+        );
     }
 
     #[test]
@@ -191,6 +235,14 @@ pub fn handle_import_command(
     kind: Option<&str>,
     db: &Database,
 ) -> Result<()> {
+    libllm::debug_log::log_kv(
+        "import.run",
+        &[
+            libllm::debug_log::field("file_count", files.len()),
+            libllm::debug_log::field("kind", kind.unwrap_or("auto")),
+        ],
+    );
+
     if files.is_empty() {
         anyhow::bail!("No files specified. Usage: libllm import <file>...");
     }
@@ -199,11 +251,27 @@ pub fn handle_import_command(
 
     for file in files {
         if !file.exists() {
+            libllm::debug_log::log_kv(
+                "import.file",
+                &[
+                    libllm::debug_log::field("path", file.display()),
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("reason", "not_found"),
+                ],
+            );
             eprintln!("Error: {}: file not found", file.display());
             had_errors = true;
             continue;
         }
         if !file.is_file() {
+            libllm::debug_log::log_kv(
+                "import.file",
+                &[
+                    libllm::debug_log::field("path", file.display()),
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("reason", "not_regular_file"),
+                ],
+            );
             eprintln!("Error: {}: not a regular file", file.display());
             had_errors = true;
             continue;
@@ -211,13 +279,40 @@ pub fn handle_import_command(
 
         match detect_import_type(file, kind) {
             Ok(import_type) => match import_single_file(file, &import_type, db) {
-                Ok(msg) => eprintln!("{msg}"),
+                Ok(msg) => {
+                    libllm::debug_log::log_kv(
+                        "import.file",
+                        &[
+                            libllm::debug_log::field("path", file.display()),
+                            libllm::debug_log::field("result", "ok"),
+                        ],
+                    );
+                    eprintln!("{msg}")
+                }
                 Err(e) => {
+                    libllm::debug_log::log_kv(
+                        "import.file",
+                        &[
+                            libllm::debug_log::field("path", file.display()),
+                            libllm::debug_log::field("result", "error"),
+                            libllm::debug_log::field("reason", "import_failed"),
+                            libllm::debug_log::field("error", &e),
+                        ],
+                    );
                     eprintln!("Error: {}: {e}", file.display());
                     had_errors = true;
                 }
             },
             Err(e) => {
+                libllm::debug_log::log_kv(
+                    "import.file",
+                    &[
+                        libllm::debug_log::field("path", file.display()),
+                        libllm::debug_log::field("result", "error"),
+                        libllm::debug_log::field("reason", "type_detection_failed"),
+                        libllm::debug_log::field("error", &e),
+                    ],
+                );
                 eprintln!("Error: {e}");
                 had_errors = true;
             }

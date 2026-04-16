@@ -226,8 +226,7 @@ async fn main() -> Result<()> {
             message.clone()
         };
 
-        let effective_prompt =
-            tui::build_effective_system_prompt_standalone(&session, db.as_ref());
+        let effective_prompt = tui::build_effective_system_prompt_standalone(&session, db.as_ref());
 
         let parent = session.tree.head();
         let user_node = session.tree.push(parent, Message::new(Role::User, text));
@@ -334,13 +333,31 @@ fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Database>)> {
+    debug_log::log_kv(
+        "startup.resolve_session",
+        &[
+            debug_log::field("has_message", args.message.is_some()),
+            debug_log::field("has_data_dir", args.data.is_some()),
+            debug_log::field("no_encrypt", args.no_encrypt),
+            debug_log::field("has_passkey", args.passkey.is_some()),
+            debug_log::field("has_continue", args.continue_session.is_some()),
+        ],
+    );
     if args.message.is_some() && args.data.is_none() {
+        debug_log::log_kv(
+            "startup.resolve_session",
+            &[debug_log::field("mode", "ephemeral_message")],
+        );
         return Ok((session::Session::default(), SaveMode::None, None));
     }
 
     let db_path = config::data_dir().join("data.db");
 
     if args.no_encrypt {
+        debug_log::log_kv(
+            "startup.resolve_session",
+            &[debug_log::field("mode", "plaintext_database")],
+        );
         let db = Database::open(&db_path, None)?;
         db.ensure_builtin_prompts()?;
         let id = session::generate_session_id();
@@ -348,31 +365,55 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
             let session = db.load_session(uuid)?;
             return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
         }
-        return Ok((session::Session::default(), SaveMode::Database { id }, Some(db)));
+        return Ok((
+            session::Session::default(),
+            SaveMode::Database { id },
+            Some(db),
+        ));
     }
 
     if let Some(ref passkey) = args.passkey {
+        debug_log::log_kv(
+            "startup.resolve_session",
+            &[debug_log::field("mode", "encrypted_database")],
+        );
         let salt = crypto::load_or_create_salt(&config::salt_path())?;
         let key = crypto::derive_key(passkey, &salt)?;
-        let db = Database::open(&db_path, Some(&key))
-            .context("Wrong passkey (or corrupt database).")?;
+        let db =
+            Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;
             return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
         }
-        return Ok((session::Session::default(), SaveMode::Database { id }, Some(db)));
+        return Ok((
+            session::Session::default(),
+            SaveMode::Database { id },
+            Some(db),
+        ));
     }
 
     let id = session::generate_session_id();
-    Ok((session::Session::default(), SaveMode::PendingPasskey { id }, None))
+    debug_log::log_kv(
+        "startup.resolve_session",
+        &[debug_log::field("mode", "pending_passkey")],
+    );
+    Ok((
+        session::Session::default(),
+        SaveMode::PendingPasskey { id },
+        None,
+    ))
 }
 
-fn resolve_character(
-    char_arg: &str,
-    db: Option<&Database>,
-) -> Result<character::CharacterCard> {
+fn resolve_character(char_arg: &str, db: Option<&Database>) -> Result<character::CharacterCard> {
+    debug_log::log_kv(
+        "startup.resolve_character",
+        &[
+            debug_log::field("character", char_arg),
+            debug_log::field("has_db", db.is_some()),
+        ],
+    );
     let path = std::path::Path::new(char_arg);
     if path.exists() {
         let card = character::import_card(path)?;
@@ -394,6 +435,13 @@ fn resolve_character(
 }
 
 fn resolve_edit_db(args: &Args) -> Result<Database> {
+    debug_log::log_kv(
+        "startup.resolve_edit_db",
+        &[
+            debug_log::field("no_encrypt", args.no_encrypt),
+            debug_log::field("has_passkey", args.passkey.is_some()),
+        ],
+    );
     let db_path = config::data_dir().join("data.db");
 
     if args.no_encrypt {
@@ -416,8 +464,7 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
 
     let salt = crypto::load_or_create_salt(&config::salt_path())?;
     let key = crypto::derive_key(&passkey, &salt)?;
-    Database::open(&db_path, Some(&key))
-        .context("Wrong passkey (or corrupt database).")
+    Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")
 }
 
 fn try_backup(
@@ -426,15 +473,63 @@ fn try_backup(
     config: &libllm::config::BackupConfig,
 ) {
     if !config.enabled {
+        debug_log::log_kv(
+            "backup.snapshot",
+            &[
+                debug_log::field("phase", "precheck"),
+                debug_log::field("result", "skipped"),
+                debug_log::field("reason", "disabled"),
+            ],
+        );
         return;
     }
 
-    if !data_dir.join("data.db").exists() {
+    let db_path = data_dir.join("data.db");
+    if !db_path.exists() {
+        debug_log::log_kv(
+            "backup.snapshot",
+            &[
+                debug_log::field("phase", "precheck"),
+                debug_log::field("result", "skipped"),
+                debug_log::field("reason", "missing_database"),
+                debug_log::field("db_path", db_path.display()),
+            ],
+        );
         return;
     }
 
-    if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, config) {
+    let result = debug_log::timed_result(
+        "backup.snapshot",
+        &[
+            debug_log::field("phase", "create"),
+            debug_log::field("data_dir", data_dir.display()),
+            debug_log::field("has_passkey", passkey.is_some()),
+            debug_log::field("keep_all_days", config.keep_all_days),
+            debug_log::field("keep_daily_days", config.keep_daily_days),
+            debug_log::field("keep_weekly_days", config.keep_weekly_days),
+            debug_log::field("rebase_threshold_percent", config.rebase_threshold_percent),
+            debug_log::field("rebase_hard_ceiling", config.rebase_hard_ceiling),
+        ],
+        || backup::snapshot::create_snapshot(data_dir, passkey, config),
+    );
+
+    if let Err(err) = result {
+        debug_log::log_kv(
+            "backup.snapshot",
+            &[
+                debug_log::field("phase", "create"),
+                debug_log::field("result", "error"),
+                debug_log::field("error", &err),
+            ],
+        );
         eprintln!("Warning: backup failed: {err}");
+    } else {
+        debug_log::log_kv(
+            "backup.snapshot",
+            &[
+                debug_log::field("phase", "create"),
+                debug_log::field("result", "ok"),
+            ],
+        );
     }
 }
-

@@ -93,6 +93,10 @@ fn current_exe_path() -> Result<std::path::PathBuf> {
 }
 
 pub async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
+    libllm::debug_log::log_kv(
+        "update.fetch_release",
+        &[libllm::debug_log::field("url", url)],
+    );
     let resp = client
         .get(url)
         .send()
@@ -134,6 +138,10 @@ fn find_asset(release: &Release) -> Result<&Asset> {
 }
 
 async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result<()> {
+    libllm::debug_log::log_kv(
+        "update.download",
+        &[libllm::debug_log::field("asset", &asset.name)],
+    );
     let download_resp = client
         .get(&asset.url)
         .header(reqwest::header::ACCEPT, "application/octet-stream")
@@ -150,6 +158,13 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
         .bytes()
         .await
         .context("failed to read download body")?;
+    libllm::debug_log::log_kv(
+        "update.download",
+        &[
+            libllm::debug_log::field("asset", &asset.name),
+            libllm::debug_log::field("bytes", bytes.len()),
+        ],
+    );
 
     let exe_path = current_exe_path()?;
     let tmp_path = exe_path.with_extension("tmp");
@@ -178,6 +193,10 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
 }
 
 async fn update_stable(client: &reqwest::Client) -> Result<()> {
+    libllm::debug_log::log_kv(
+        "update.phase",
+        &[libllm::debug_log::field("phase", "stable")],
+    );
     let url = format!("https://api.github.com/repos/{REPO}/releases/tags/stable");
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
@@ -206,6 +225,13 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
 }
 
 async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
+    libllm::debug_log::log_kv(
+        "update.phase",
+        &[
+            libllm::debug_log::field("phase", "branch"),
+            libllm::debug_log::field("branch", branch),
+        ],
+    );
     let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{branch}");
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
@@ -263,6 +289,10 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
 }
 
 async fn list_branches(client: &reqwest::Client) -> Result<()> {
+    libllm::debug_log::log_kv(
+        "update.phase",
+        &[libllm::debug_log::field("phase", "list_branches")],
+    );
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let resp = client
         .get(&url)
@@ -321,6 +351,15 @@ async fn list_branches(client: &reqwest::Client) -> Result<()> {
 }
 
 pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
+    libllm::debug_log::log_kv(
+        "update.run",
+        &[
+            libllm::debug_log::field("list", list),
+            libllm::debug_log::field("yes", yes),
+            libllm::debug_log::field("target_branch", branch.as_deref().unwrap_or("stable")),
+            libllm::debug_log::field("channel", CHANNEL),
+        ],
+    );
     if CHANNEL == "unknown" {
         anyhow::bail!("This build was not installed from a release. Use install.sh to install.");
     }

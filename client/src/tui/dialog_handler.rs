@@ -551,6 +551,7 @@ pub(super) fn handle_field_dialog_key(
                     return None;
                 }
             }
+            #[allow(unreachable_code)]
             None
         }
     }

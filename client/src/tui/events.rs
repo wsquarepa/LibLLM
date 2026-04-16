@@ -12,8 +12,7 @@ use libllm::client::StreamToken;
 use super::types::*;
 use super::{clipboard, commands, dialogs, input, render};
 use super::dialog_handler::{
-    cancel_generation, configure_textarea, handle_field_dialog_key, open_base_theme_picker,
-    DialogKind,
+    cancel_generation, configure_textarea, handle_field_dialog_key, DialogKind,
 };
 
 pub(super) fn handle_event(

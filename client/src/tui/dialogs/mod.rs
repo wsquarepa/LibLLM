@@ -192,16 +192,6 @@ impl<'a> FieldDialog<'a> {
         self
     }
 
-    fn with_separator_fields(mut self, fields: &'static [usize]) -> Self {
-        self.separator_fields = fields;
-        self
-    }
-
-    fn with_selector_fields(mut self, fields: &'static [usize]) -> Self {
-        self.selector_fields = fields;
-        self
-    }
-
     pub fn has_changes(&self) -> bool {
         self.values != self.original_values
     }

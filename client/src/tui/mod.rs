@@ -151,6 +151,8 @@ pub async fn run(
         set_passkey_is_initial: initial_passkey_setup,
         config_dialog: None,
         theme_dialog: None,
+        base_theme_picker_names: Vec::new(),
+        base_theme_picker_selected: 0,
         persona_editor: None,
         system_prompt_editor: None,
         system_editor_prompt_name: String::new(),
@@ -505,6 +507,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::PasskeyDialog => Some("passkey"),
         Focus::SetPasskeyDialog => Some("set_passkey"),
         Focus::ConfigDialog => Some("config"),
+        Focus::ThemeDialog => Some("theme"),
+        Focus::BaseThemePickerDialog => Some("base_theme_picker"),
         Focus::PresetPickerDialog => Some("preset_picker"),
         Focus::PresetEditorDialog => Some("preset_editor"),
         Focus::PersonaDialog => Some("persona"),
@@ -554,6 +558,14 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
             if let Some(ref dialog) = app.config_dialog {
                 dialog.render(f, f.area(), &app.theme);
             }
+        }
+        Focus::ThemeDialog => {
+            if let Some(ref dialog) = app.theme_dialog {
+                dialog.render(f, f.area(), &app.theme);
+            }
+        }
+        Focus::BaseThemePickerDialog => {
+            render_base_theme_picker(f, app, f.area());
         }
         Focus::PresetPickerDialog => {
             dialogs::preset::render_preset_dialog(f, app, f.area());
@@ -622,5 +634,48 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         _ => {}
     }
+}
+
+fn render_base_theme_picker(
+    f: &mut ratatui::Frame,
+    app: &App,
+    area: ratatui::layout::Rect,
+) {
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::text::{Line, Span, Text};
+    use ratatui::widgets::Paragraph;
+
+    let names = &app.base_theme_picker_names;
+    let count = names.len();
+    let dialog = render::clear_centered(
+        f,
+        dialogs::LIST_DIALOG_WIDTH,
+        count as u16 + dialogs::LIST_DIALOG_TALL_PADDING,
+        area,
+    );
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    for (i, name) in names.iter().enumerate() {
+        let is_selected = i == app.base_theme_picker_selected;
+        let marker = if is_selected { "> " } else { "  " };
+        let style = if is_selected {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
+    }
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(render::dialog_block(" Select Base Theme ", Color::Yellow));
+    f.render_widget(paragraph, dialog);
+    render::render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[Line::from("Up/Down: navigate  Enter: select  Esc: cancel")],
+    );
 }
 

@@ -63,6 +63,7 @@ pub(super) fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
 
 pub(super) enum DialogKind {
     Config,
+    Theme,
     PresetEditor,
     PersonaEditor,
     CharacterEditor,
@@ -141,8 +142,48 @@ pub(super) fn handle_field_dialog_key(
         return None;
     }
 
+    if matches!(kind, DialogKind::Theme) {
+        let Some(dialog) = app.theme_dialog.as_mut() else {
+            return None;
+        };
+        let action = dialog.handle_key(key);
+        live_apply_theme_dialog(app);
+        match action {
+            dialogs::TabbedFieldAction::Continue => {}
+            dialogs::TabbedFieldAction::Close => {
+                let sections: Vec<Vec<String>> = app
+                    .theme_dialog
+                    .as_ref()
+                    .unwrap()
+                    .sections()
+                    .iter()
+                    .map(|s| s.values.clone())
+                    .collect();
+                let existing = libllm::config::load();
+                if let Err(e) = business::apply_theme_color_sections(&sections, existing) {
+                    app.set_status(
+                        format!("Failed to save theme: {e}"),
+                        StatusLevel::Error,
+                    );
+                } else {
+                    app.config = libllm::config::load();
+                    app.theme = crate::tui::theme::resolve_theme(&app.config);
+                    app.invalidate_chat_cache();
+                }
+                app.theme_dialog = None;
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 0 } => {
+                open_base_theme_picker(app);
+            }
+            dialogs::TabbedFieldAction::OpenSelector { .. } => {}
+            dialogs::TabbedFieldAction::InvokeAction { .. } => {}
+        }
+        return None;
+    }
+
     let dialog = match kind {
         DialogKind::Config => unreachable!(),
+        DialogKind::Theme => unreachable!(),
         DialogKind::PresetEditor => app.preset_editor.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
@@ -176,6 +217,7 @@ pub(super) fn handle_field_dialog_key(
         dialogs::FieldDialogAction::Close => {
             match kind {
                 DialogKind::Config => unreachable!(),
+                DialogKind::Theme => unreachable!(),
                 DialogKind::PresetEditor => {
                     if !app.preset_editor.as_ref().unwrap().has_changes() {
                         app.set_status("No changes found.".to_owned(), StatusLevel::Info);
@@ -494,4 +536,72 @@ pub(super) fn handle_field_dialog_key(
             None
         }
     }
+}
+
+fn non_empty_opt(s: &str) -> Option<String> {
+    if s.trim().is_empty() {
+        None
+    } else {
+        Some(s.to_owned())
+    }
+}
+
+fn live_apply_theme_dialog(app: &mut App) {
+    let Some(dialog) = app.theme_dialog.as_ref() else {
+        return;
+    };
+    let sections: Vec<Vec<String>> = dialog
+        .sections()
+        .iter()
+        .map(|s| s.values.clone())
+        .collect();
+    let base_theme = sections[0][0].clone();
+    let mut preview = app.config.clone();
+    preview.theme = Some(base_theme);
+    preview.theme_colors = Some(libllm::config::ThemeColorOverrides {
+        user_message: non_empty_opt(&sections[1][0]),
+        assistant_message_fg: non_empty_opt(&sections[1][1]),
+        assistant_message_bg: non_empty_opt(&sections[1][2]),
+        system_message: non_empty_opt(&sections[1][3]),
+        dialogue: non_empty_opt(&sections[1][4]),
+        border_focused: non_empty_opt(&sections[2][0]),
+        border_unfocused: non_empty_opt(&sections[2][1]),
+        status_bar_fg: non_empty_opt(&sections[2][2]),
+        status_bar_bg: non_empty_opt(&sections[2][3]),
+        status_error_fg: non_empty_opt(&sections[2][4]),
+        status_error_bg: non_empty_opt(&sections[2][5]),
+        status_info_fg: non_empty_opt(&sections[2][6]),
+        status_info_bg: non_empty_opt(&sections[2][7]),
+        status_warning_fg: non_empty_opt(&sections[2][8]),
+        status_warning_bg: non_empty_opt(&sections[2][9]),
+        nav_cursor_fg: non_empty_opt(&sections[3][0]),
+        nav_cursor_bg: non_empty_opt(&sections[3][1]),
+        hover_bg: non_empty_opt(&sections[3][2]),
+        sidebar_highlight_fg: non_empty_opt(&sections[3][3]),
+        sidebar_highlight_bg: non_empty_opt(&sections[3][4]),
+        dimmed: non_empty_opt(&sections[3][5]),
+        command_picker_fg: non_empty_opt(&sections[3][6]),
+        command_picker_bg: non_empty_opt(&sections[3][7]),
+        streaming_indicator: non_empty_opt(&sections[4][0]),
+        api_unavailable: non_empty_opt(&sections[4][1]),
+        summary_indicator: non_empty_opt(&sections[4][2]),
+    });
+    app.theme = crate::tui::theme::resolve_theme(&preview);
+    app.invalidate_chat_cache();
+}
+
+pub(super) fn open_base_theme_picker(app: &mut App) {
+    let names: Vec<String> = crate::tui::theme::Theme::available_themes()
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    let current = app
+        .theme_dialog
+        .as_ref()
+        .map(|d| d.sections()[0].values[0].clone())
+        .unwrap_or_default();
+    let selected = names.iter().position(|n| *n == current).unwrap_or(0);
+    app.base_theme_picker_names = names;
+    app.base_theme_picker_selected = selected;
+    app.focus = Focus::BaseThemePickerDialog;
 }

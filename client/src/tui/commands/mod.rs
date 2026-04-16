@@ -353,12 +353,9 @@ fn cmd_passkey(app: &mut App) {
 fn cmd_theme(app: &mut App, arg: &str) {
     let arg = arg.trim();
     if arg.is_empty() {
-        let current = app.config.theme.as_deref().unwrap_or("dark");
-        let available = super::theme::Theme::available_themes().join(", ");
-        app.set_status(
-            format!("Current theme: {current}. Available: {available}"),
-            StatusLevel::Info,
-        );
+        let cfg = libllm::config::load();
+        app.theme_dialog = Some(dialogs::open_theme_editor(&cfg));
+        app.focus = Focus::ThemeDialog;
         return;
     }
 

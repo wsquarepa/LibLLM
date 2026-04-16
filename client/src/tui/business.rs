@@ -507,6 +507,94 @@ pub(super) fn apply_config(app: &mut App) {
     app.invalidate_chat_cache();
 }
 
+pub fn apply_theme_color_sections(
+    sections: &[Vec<String>],
+    existing: libllm::config::Config,
+) -> anyhow::Result<()> {
+    let base_theme = sections[0][0].clone();
+
+    let messages = &sections[1];
+    let borders = &sections[2];
+    let ui_tab = &sections[3];
+    let indicators = &sections[4];
+
+    let to_opt = |s: &str| -> Option<String> {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.to_owned())
+        }
+    };
+
+    let overrides = libllm::config::ThemeColorOverrides {
+        user_message: to_opt(&messages[0]),
+        assistant_message_fg: to_opt(&messages[1]),
+        assistant_message_bg: to_opt(&messages[2]),
+        system_message: to_opt(&messages[3]),
+        dialogue: to_opt(&messages[4]),
+        border_focused: to_opt(&borders[0]),
+        border_unfocused: to_opt(&borders[1]),
+        status_bar_fg: to_opt(&borders[2]),
+        status_bar_bg: to_opt(&borders[3]),
+        status_error_fg: to_opt(&borders[4]),
+        status_error_bg: to_opt(&borders[5]),
+        status_info_fg: to_opt(&borders[6]),
+        status_info_bg: to_opt(&borders[7]),
+        status_warning_fg: to_opt(&borders[8]),
+        status_warning_bg: to_opt(&borders[9]),
+        nav_cursor_fg: to_opt(&ui_tab[0]),
+        nav_cursor_bg: to_opt(&ui_tab[1]),
+        hover_bg: to_opt(&ui_tab[2]),
+        sidebar_highlight_fg: to_opt(&ui_tab[3]),
+        sidebar_highlight_bg: to_opt(&ui_tab[4]),
+        dimmed: to_opt(&ui_tab[5]),
+        command_picker_fg: to_opt(&ui_tab[6]),
+        command_picker_bg: to_opt(&ui_tab[7]),
+        streaming_indicator: to_opt(&indicators[0]),
+        api_unavailable: to_opt(&indicators[1]),
+        summary_indicator: to_opt(&indicators[2]),
+    };
+
+    let any_set = [
+        &overrides.user_message,
+        &overrides.assistant_message_fg,
+        &overrides.assistant_message_bg,
+        &overrides.system_message,
+        &overrides.dialogue,
+        &overrides.border_focused,
+        &overrides.border_unfocused,
+        &overrides.status_bar_fg,
+        &overrides.status_bar_bg,
+        &overrides.status_error_fg,
+        &overrides.status_error_bg,
+        &overrides.status_info_fg,
+        &overrides.status_info_bg,
+        &overrides.status_warning_fg,
+        &overrides.status_warning_bg,
+        &overrides.nav_cursor_fg,
+        &overrides.nav_cursor_bg,
+        &overrides.hover_bg,
+        &overrides.sidebar_highlight_fg,
+        &overrides.sidebar_highlight_bg,
+        &overrides.dimmed,
+        &overrides.command_picker_fg,
+        &overrides.command_picker_bg,
+        &overrides.streaming_indicator,
+        &overrides.api_unavailable,
+        &overrides.summary_indicator,
+    ]
+    .iter()
+    .any(|o| o.is_some());
+
+    let cfg = libllm::config::Config {
+        theme: Some(base_theme),
+        theme_colors: if any_set { Some(overrides) } else { None },
+        ..existing
+    };
+
+    libllm::config::save(&cfg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

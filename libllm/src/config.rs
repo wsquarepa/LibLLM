@@ -20,7 +20,7 @@ thread_local! {
 }
 
 /// Top-level application configuration, serialized as `config.toml` in the data directory.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub api_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -75,7 +75,7 @@ fn default_summarization_prompt() -> String {
 }
 
 /// Auto-summarization settings, nested under `[summarization]` in config.toml.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummarizationConfig {
     #[serde(default = "default_summarization_enabled")]
     pub enabled: bool,

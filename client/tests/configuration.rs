@@ -273,3 +273,51 @@ fn theme_editor_covers_all_color_override_fields() {
         .sum();
     assert_eq!(color_field_count, 26, "tabs 2-5 must cover all 26 ThemeColorOverrides fields");
 }
+
+#[test]
+fn theme_overrides_apply_round_trip() {
+    let dir = common::temp_dir();
+    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm::config::ensure_dirs().unwrap();
+
+    let sections = vec![
+        vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["#ff0000".to_owned(), "".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["".to_owned(); 10],
+        vec!["".to_owned(); 8],
+        vec!["".to_owned(); 3],
+    ];
+
+    let cfg = libllm::config::Config::default();
+    client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
+
+    let saved = libllm::config::load();
+    let overrides = saved.theme_colors.expect("expected overrides to persist");
+    assert_eq!(overrides.user_message.as_deref(), Some("#ff0000"));
+    assert!(overrides.assistant_message_fg.is_none());
+}
+
+#[test]
+fn empty_theme_override_drops_to_none() {
+    let dir = common::temp_dir();
+    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm::config::ensure_dirs().unwrap();
+
+    let mut cfg = libllm::config::Config::default();
+    cfg.theme_colors = Some(libllm::config::ThemeColorOverrides {
+        user_message: Some("#ff0000".to_owned()),
+        ..Default::default()
+    });
+
+    let sections = vec![
+        vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["".to_owned(), "".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["".to_owned(); 10],
+        vec!["".to_owned(); 8],
+        vec!["".to_owned(); 3],
+    ];
+
+    client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
+    let saved = libllm::config::load();
+    assert!(saved.theme_colors.is_none());
+}

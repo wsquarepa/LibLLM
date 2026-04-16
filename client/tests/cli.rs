@@ -1,5 +1,5 @@
 use clap::Parser;
-use client::cli::{Args, Command};
+use client::cli::{Args, Command, RecoverCommand};
 
 #[test]
 fn parse_message_flag() {
@@ -122,7 +122,7 @@ fn parse_recover_without_subcommand() {
 fn parse_recover_with_list_subcommand() {
     let args = Args::try_parse_from(["libllm", "recover", "list"]).unwrap();
     match args.command {
-        Some(Command::Recover { command: Some(_) }) => {}
+        Some(Command::Recover { command: Some(RecoverCommand::List) }) => {}
         _ => panic!("expected Command::Recover with Some(RecoverCommand::List)"),
     }
 }
@@ -151,5 +151,9 @@ fn parse_update_with_branch() {
 #[test]
 fn parse_update_list_flag_rejected() {
     let result = Args::try_parse_from(["libllm", "update", "--list"]);
-    assert!(result.is_err(), "--list should no longer be accepted");
+    let err = result.err().expect("--list should no longer be accepted");
+    assert!(
+        err.to_string().contains("--list"),
+        "error should mention --list: {err}"
+    );
 }

@@ -52,6 +52,42 @@ pub struct Asset {
     pub url: String,
 }
 
+/// One row in the interactive branch picker.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BranchEntry {
+    pub name: String,
+    pub current: bool,
+}
+
+/// Build the branch picker list from prerelease tag names.
+///
+/// Rules:
+/// - `stable` is always the first entry.
+/// - Prereleases are included in input order, except tags equal to
+///   `"stable"` or `"master"`. Per release CI, `stable` is built from
+///   every push to `master`, so a `master` prerelease tag would be a
+///   duplicate of `stable`; the `stable` exclusion guards against a
+///   stable tag being incorrectly marked prerelease.
+/// - The `current` flag is set on whichever entry matches `channel`;
+///   when `channel == "master"`, it is set on the `stable` entry.
+pub fn build_branch_list(prerelease_tags: &[String], channel: &str) -> Vec<BranchEntry> {
+    let current_is_stable = channel == "stable" || channel == "master";
+    let mut out = vec![BranchEntry {
+        name: "stable".to_string(),
+        current: current_is_stable,
+    }];
+    for tag in prerelease_tags {
+        if tag == "stable" || tag == "master" {
+            continue;
+        }
+        out.push(BranchEntry {
+            name: tag.clone(),
+            current: tag == channel,
+        });
+    }
+    out
+}
+
 fn github_token() -> Option<String> {
     std::env::var("GITHUB_TOKEN")
         .or_else(|_| std::env::var("GH_TOKEN"))
@@ -530,5 +566,66 @@ pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
     match branch {
         Some(name) => update_branch(&client, &name).await,
         None => update_stable(&client).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_prepends_stable_and_marks_it_current_for_stable_channel() {
+        let tags = vec!["feat/foo".to_string(), "bugfix/bar".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].name, "stable");
+        assert!(result[0].current);
+        assert_eq!(result[1].name, "feat/foo");
+        assert!(!result[1].current);
+        assert_eq!(result[2].name, "bugfix/bar");
+        assert!(!result[2].current);
+    }
+
+    #[test]
+    fn filter_excludes_stable_tag_from_prereleases() {
+        let tags = vec!["stable".to_string(), "feat/foo".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result.iter().filter(|b| b.name == "stable").count(), 1);
+    }
+
+    #[test]
+    fn filter_excludes_master_tag_from_prereleases() {
+        let tags = vec!["master".to_string(), "feat/foo".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result.iter().filter(|b| b.name == "master").count(), 0);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn filter_marks_master_channel_as_stable_current() {
+        let tags = vec!["feat/foo".to_string()];
+        let result = build_branch_list(&tags, "master");
+        assert_eq!(result[0].name, "stable");
+        assert!(result[0].current, "stable should be marked current when CHANNEL=master");
+        assert!(!result[1].current);
+    }
+
+    #[test]
+    fn filter_marks_selected_branch_current() {
+        let tags = vec!["feat/foo".to_string(), "bugfix/bar".to_string()];
+        let result = build_branch_list(&tags, "feat/foo");
+        assert!(!result[0].current);
+        assert_eq!(result[1].name, "feat/foo");
+        assert!(result[1].current);
+        assert!(!result[2].current);
+    }
+
+    #[test]
+    fn filter_preserves_api_order_of_prereleases() {
+        let tags = vec!["c".to_string(), "a".to_string(), "b".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result[1].name, "c");
+        assert_eq!(result[2].name, "a");
+        assert_eq!(result[3].name, "b");
     }
 }

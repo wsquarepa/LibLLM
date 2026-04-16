@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod edit;
 pub mod import;
+pub mod interactive;
 pub mod legacy_migration;
 pub mod recover;
 pub mod tui;

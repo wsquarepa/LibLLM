@@ -1,4 +1,4 @@
-//! Per-keystroke field validation for numeric ranges and length limits.
+//! Per-keystroke and on-commit field validation for text, numeric ranges, length limits, and color values.
 
 use crate::tui::theme::parse_color;
 
@@ -51,6 +51,7 @@ impl FieldValidation {
                 }
             }
             Self::MaxLen(max) => current.chars().count() < *max,
+            // Color input spans multiple formats; validity can only be determined on commit.
             Self::Color => true,
         }
     }

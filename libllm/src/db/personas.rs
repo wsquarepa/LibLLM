@@ -3,62 +3,113 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::debug_log;
 use crate::persona::PersonaFile;
 use crate::session::now_iso8601;
 
 pub fn insert_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> Result<()> {
-    let now = now_iso8601();
-    conn.execute(
-        "INSERT INTO personas (slug, name, persona, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![slug, persona.name, persona.persona, now, now],
+    debug_log::timed_result(
+        "db.persona.insert",
+        &[debug_log::field("slug", slug)],
+        || {
+            let now = now_iso8601();
+            conn.execute(
+                "INSERT INTO personas (slug, name, persona, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![slug, persona.name, persona.persona, now, now],
+            )
+            .context("failed to insert persona")?;
+            Ok(())
+        },
     )
-    .context("failed to insert persona")?;
-    Ok(())
 }
 
 pub fn load_persona(conn: &Connection, slug: &str) -> Result<PersonaFile> {
-    conn.query_row(
-        "SELECT name, persona FROM personas WHERE slug = ?1",
-        params![slug],
-        |row| {
-            let name: String = row.get(0)?;
-            let persona: String = row.get(1)?;
-            Ok(PersonaFile { name, persona })
+    debug_log::timed_result(
+        "db.persona.load",
+        &[debug_log::field("slug", slug)],
+        || {
+            conn.query_row(
+                "SELECT name, persona FROM personas WHERE slug = ?1",
+                params![slug],
+                |row| {
+                    let name: String = row.get(0)?;
+                    let persona: String = row.get(1)?;
+                    Ok(PersonaFile { name, persona })
+                },
+            )
+            .with_context(|| format!("persona not found: {slug}"))
         },
     )
-    .with_context(|| format!("persona not found: {slug}"))
 }
 
 pub fn list_personas(conn: &Connection) -> Result<Vec<(String, String)>> {
-    super::query_slug_name_pairs(
-        conn,
-        "SELECT slug, name FROM personas ORDER BY name",
-        "failed to list personas",
-    )
+    debug_log::timed_result("db.persona.list", &[], || {
+        let entries = super::query_slug_name_pairs(
+            conn,
+            "SELECT slug, name FROM personas ORDER BY name",
+            "failed to list personas",
+        )?;
+        debug_log::log_kv(
+            "db.persona.list",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("count", entries.len()),
+            ],
+        );
+        Ok(entries)
+    })
 }
 
 pub fn update_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> Result<()> {
-    let now = now_iso8601();
-    let affected = conn
-        .execute(
-            "UPDATE personas SET name = ?1, persona = ?2, updated_at = ?3 WHERE slug = ?4",
-            params![persona.name, persona.persona, now, slug],
-        )
-        .context("failed to update persona")?;
-    if affected == 0 {
-        anyhow::bail!("persona not found: {slug}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.persona.update",
+        &[debug_log::field("slug", slug)],
+        || {
+            let now = now_iso8601();
+            let affected = conn
+                .execute(
+                    "UPDATE personas SET name = ?1, persona = ?2, updated_at = ?3 WHERE slug = ?4",
+                    params![persona.name, persona.persona, now, slug],
+                )
+                .context("failed to update persona")?;
+            debug_log::log_kv(
+                "db.persona.update",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("persona not found: {slug}");
+            }
+            Ok(())
+        },
+    )
 }
 
 pub fn delete_persona(conn: &Connection, slug: &str) -> Result<()> {
-    let affected = conn
-        .execute("DELETE FROM personas WHERE slug = ?1", params![slug])
-        .context("failed to delete persona")?;
-    if affected == 0 {
-        anyhow::bail!("persona not found: {slug}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.persona.delete",
+        &[debug_log::field("slug", slug)],
+        || {
+            let affected = conn
+                .execute("DELETE FROM personas WHERE slug = ?1", params![slug])
+                .context("failed to delete persona")?;
+            debug_log::log_kv(
+                "db.persona.delete",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("persona not found: {slug}");
+            }
+            Ok(())
+        },
+    )
 }
 
 #[cfg(test)]

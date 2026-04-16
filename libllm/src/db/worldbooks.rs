@@ -3,68 +3,138 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::debug_log;
 use crate::session::now_iso8601;
 use crate::worldinfo::WorldBook;
 
 pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {
-    let now = now_iso8601();
-    let entries = serde_json::to_string(&book.entries).context("failed to serialize worldbook entries")?;
-    conn.execute(
-        "INSERT INTO worldbooks (slug, name, entries, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![slug, book.name, entries, now, now],
+    debug_log::timed_result(
+        "db.worldbook.insert",
+        &[
+            debug_log::field("slug", slug),
+            debug_log::field("entry_count", book.entries.len()),
+        ],
+        || {
+            let now = now_iso8601();
+            let entries = serde_json::to_string(&book.entries)
+                .context("failed to serialize worldbook entries")?;
+            conn.execute(
+                "INSERT INTO worldbooks (slug, name, entries, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![slug, book.name, entries, now, now],
+            )
+            .context("failed to insert worldbook")?;
+            Ok(())
+        },
     )
-    .context("failed to insert worldbook")?;
-    Ok(())
 }
 
 pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
-    conn.query_row(
-        "SELECT name, entries FROM worldbooks WHERE slug = ?1",
-        params![slug],
-        |row| {
-            let name: String = row.get(0)?;
-            let entries_json: String = row.get(1)?;
-            Ok((name, entries_json))
+    debug_log::timed_result(
+        "db.worldbook.load",
+        &[debug_log::field("slug", slug)],
+        || {
+            let book = conn
+                .query_row(
+                    "SELECT name, entries FROM worldbooks WHERE slug = ?1",
+                    params![slug],
+                    |row| {
+                        let name: String = row.get(0)?;
+                        let entries_json: String = row.get(1)?;
+                        Ok((name, entries_json))
+                    },
+                )
+                .with_context(|| format!("worldbook not found: {slug}"))
+                .and_then(|(name, entries_json)| {
+                    let entries = serde_json::from_str(&entries_json)
+                        .context("failed to deserialize worldbook entries")?;
+                    Ok(WorldBook { name, entries })
+                })?;
+            debug_log::log_kv(
+                "db.worldbook.load",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("entry_count", book.entries.len()),
+                ],
+            );
+            Ok(book)
         },
     )
-    .with_context(|| format!("worldbook not found: {slug}"))
-    .and_then(|(name, entries_json)| {
-        let entries = serde_json::from_str(&entries_json).context("failed to deserialize worldbook entries")?;
-        Ok(WorldBook { name, entries })
-    })
 }
 
 pub fn list_worldbooks(conn: &Connection) -> Result<Vec<(String, String)>> {
-    super::query_slug_name_pairs(
-        conn,
-        "SELECT slug, name FROM worldbooks ORDER BY name",
-        "failed to list worldbooks",
-    )
+    debug_log::timed_result("db.worldbook.list", &[], || {
+        let entries = super::query_slug_name_pairs(
+            conn,
+            "SELECT slug, name FROM worldbooks ORDER BY name",
+            "failed to list worldbooks",
+        )?;
+        debug_log::log_kv(
+            "db.worldbook.list",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("count", entries.len()),
+            ],
+        );
+        Ok(entries)
+    })
 }
 
 pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {
-    let now = now_iso8601();
-    let entries = serde_json::to_string(&book.entries).context("failed to serialize worldbook entries")?;
-    let affected = conn
-        .execute(
-            "UPDATE worldbooks SET name = ?1, entries = ?2, updated_at = ?3 WHERE slug = ?4",
-            params![book.name, entries, now, slug],
-        )
-        .context("failed to update worldbook")?;
-    if affected == 0 {
-        anyhow::bail!("worldbook not found: {slug}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.worldbook.update",
+        &[
+            debug_log::field("slug", slug),
+            debug_log::field("entry_count", book.entries.len()),
+        ],
+        || {
+            let now = now_iso8601();
+            let entries = serde_json::to_string(&book.entries)
+                .context("failed to serialize worldbook entries")?;
+            let affected = conn
+                .execute(
+                    "UPDATE worldbooks SET name = ?1, entries = ?2, updated_at = ?3 WHERE slug = ?4",
+                    params![book.name, entries, now, slug],
+                )
+                .context("failed to update worldbook")?;
+            debug_log::log_kv(
+                "db.worldbook.update",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("worldbook not found: {slug}");
+            }
+            Ok(())
+        },
+    )
 }
 
 pub fn delete_worldbook(conn: &Connection, slug: &str) -> Result<()> {
-    let affected = conn
-        .execute("DELETE FROM worldbooks WHERE slug = ?1", params![slug])
-        .context("failed to delete worldbook")?;
-    if affected == 0 {
-        anyhow::bail!("worldbook not found: {slug}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.worldbook.delete",
+        &[debug_log::field("slug", slug)],
+        || {
+            let affected = conn
+                .execute("DELETE FROM worldbooks WHERE slug = ?1", params![slug])
+                .context("failed to delete worldbook")?;
+            debug_log::log_kv(
+                "db.worldbook.delete",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("worldbook not found: {slug}");
+            }
+            Ok(())
+        },
+    )
 }
 
 #[cfg(test)]

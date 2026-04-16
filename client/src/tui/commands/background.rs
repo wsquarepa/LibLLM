@@ -166,12 +166,26 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             app.set_passkey_error = format!("Failed: {err}");
         }
         BackgroundEvent::ModelFetched(Ok(name)) => {
+            libllm::debug_log::log_kv(
+                "api.model",
+                &[
+                    libllm::debug_log::field("result", "ok"),
+                    libllm::debug_log::field("name", &name),
+                ],
+            );
             app.model_name = Some(name);
             if app.focus == Focus::LoadingDialog {
                 app.focus = Focus::Input;
             }
         }
         BackgroundEvent::ModelFetched(Err(err)) => {
+            libllm::debug_log::log_kv(
+                "api.model",
+                &[
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("error", &err),
+                ],
+            );
             app.model_name = Some("Backend connection failure".to_owned());
             app.api_available = false;
             app.api_error = err;
@@ -183,6 +197,10 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
         }
         BackgroundEvent::ServerContextSize(size) => {
+            libllm::debug_log::log_kv(
+                "api.context_size",
+                &[libllm::debug_log::field("n_ctx", size)],
+            );
             app.context_mgr.set_token_limit(size);
         }
     }

@@ -7,6 +7,8 @@ use anyhow::{Context, Result, bail};
 use argon2::Argon2;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use crate::debug_log;
+
 const SALT_LEN: usize = 16;
 
 fn write_restricted(path: &Path, data: &[u8]) -> Result<()> {
@@ -50,6 +52,17 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
     match std::fs::read(path) {
         Ok(data) => {
             if data.len() != SALT_LEN {
+                debug_log::log_kv(
+                    "crypto.salt",
+                    &[
+                        debug_log::field("phase", "load"),
+                        debug_log::field("result", "error"),
+                        debug_log::field("reason", "invalid_length"),
+                        debug_log::field("path", path.display()),
+                        debug_log::field("bytes", data.len()),
+                        debug_log::field("expected", SALT_LEN),
+                    ],
+                );
                 bail!(
                     "invalid salt file length for {}: expected {SALT_LEN} bytes, got {}",
                     path.display(),
@@ -58,10 +71,28 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
             }
             let mut salt = [0u8; SALT_LEN];
             salt.copy_from_slice(&data);
+            debug_log::log_kv(
+                "crypto.salt",
+                &[
+                    debug_log::field("phase", "load"),
+                    debug_log::field("result", "ok"),
+                    debug_log::field("path", path.display()),
+                    debug_log::field("bytes", SALT_LEN),
+                ],
+            );
             return Ok(salt);
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => {
+            debug_log::log_kv(
+                "crypto.salt",
+                &[
+                    debug_log::field("phase", "load"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("path", path.display()),
+                    debug_log::field("error", &err),
+                ],
+            );
             return Err(err).context(format!("failed to read salt file: {}", path.display()));
         }
     }
@@ -70,24 +101,60 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context("failed to create directory for salt file")?;
     }
-    write_restricted(path, &salt)?;
-    Ok(salt)
+    match write_restricted(path, &salt) {
+        Ok(()) => {
+            debug_log::log_kv(
+                "crypto.salt",
+                &[
+                    debug_log::field("phase", "create"),
+                    debug_log::field("result", "ok"),
+                    debug_log::field("path", path.display()),
+                ],
+            );
+            Ok(salt)
+        }
+        Err(err) => {
+            debug_log::log_kv(
+                "crypto.salt",
+                &[
+                    debug_log::field("phase", "create"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("path", path.display()),
+                    debug_log::field("error", &err),
+                ],
+            );
+            Err(err)
+        }
+    }
 }
 
 /// Derives a 32-byte database encryption key from a passkey and 16-byte salt using Argon2id.
 ///
 /// Parameters: memory=65536, iterations=3, parallelism=1, output=32.
 pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
-    let params = argon2::Params::new(65536, 3, 1, Some(32))
-        .map_err(|e| anyhow::anyhow!("invalid argon2 params: {e}"))?;
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    debug_log::timed_result(
+        "crypto.derive",
+        &[
+            debug_log::field("mem_kib", 65536),
+            debug_log::field("iterations", 3),
+            debug_log::field("parallelism", 1),
+            debug_log::field("output_bytes", 32),
+            debug_log::field("salt_bytes", SALT_LEN),
+        ],
+        || {
+            let params = argon2::Params::new(65536, 3, 1, Some(32))
+                .map_err(|e| anyhow::anyhow!("invalid argon2 params: {e}"))?;
+            let argon2 =
+                Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
-    let mut key_bytes = [0u8; 32];
-    argon2
-        .hash_password_into(passkey.as_bytes(), salt, &mut key_bytes)
-        .map_err(|e| anyhow::anyhow!("key derivation failed: {e}"))?;
+            let mut key_bytes = [0u8; 32];
+            argon2
+                .hash_password_into(passkey.as_bytes(), salt, &mut key_bytes)
+                .map_err(|e| anyhow::anyhow!("key derivation failed: {e}"))?;
 
-    Ok(DerivedKey { bytes: key_bytes })
+            Ok(DerivedKey { bytes: key_bytes })
+        },
+    )
 }
 
 fn temp_write_path(path: &Path) -> Result<PathBuf> {
@@ -109,36 +176,54 @@ fn temp_write_path(path: &Path) -> Result<PathBuf> {
 pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     let temp_path = temp_write_path(path)?;
 
-    let write_result = (|| -> Result<()> {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
+    let write_result = debug_log::timed_result(
+        "crypto.write_atomic",
+        &[
+            debug_log::field("path", path.display()),
+            debug_log::field("bytes", data.len()),
+        ],
+        || -> Result<()> {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
 
-        let mut file = options.open(&temp_path).context(format!(
-            "failed to create temp file: {}",
-            temp_path.display()
-        ))?;
-        file.write_all(data).context(format!(
-            "failed to write temp file: {}",
-            temp_path.display()
-        ))?;
-        file.sync_all()
-            .context(format!("failed to sync temp file: {}", temp_path.display()))?;
-        drop(file);
+            let mut file = options.open(&temp_path).context(format!(
+                "failed to create temp file: {}",
+                temp_path.display()
+            ))?;
+            file.write_all(data).context(format!(
+                "failed to write temp file: {}",
+                temp_path.display()
+            ))?;
+            file.sync_all()
+                .context(format!("failed to sync temp file: {}", temp_path.display()))?;
+            drop(file);
 
-        std::fs::rename(&temp_path, path).context(format!(
-            "failed to replace file atomically: {}",
-            path.display()
-        ))
-    })();
+            std::fs::rename(&temp_path, path).context(format!(
+                "failed to replace file atomically: {}",
+                path.display()
+            ))
+        },
+    );
 
     if write_result.is_err() {
-        let _ = std::fs::remove_file(&temp_path);
+        let cleanup = std::fs::remove_file(&temp_path);
+        debug_log::log_kv(
+            "crypto.write_atomic",
+            &[
+                debug_log::field("phase", "cleanup"),
+                debug_log::field(
+                    "result",
+                    if cleanup.is_ok() { "ok" } else { "error" },
+                ),
+                debug_log::field("path", temp_path.display()),
+            ],
+        );
     }
 
     write_result

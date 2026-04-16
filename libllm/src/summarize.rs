@@ -1,6 +1,9 @@
 //! Background conversation summarization engine.
 
+use std::time::Instant;
+
 use crate::client::ApiClient;
+use crate::debug_log;
 use crate::sampling::SamplingParams;
 use crate::session::{Message, Role};
 use anyhow::Result;
@@ -69,8 +72,37 @@ impl Summarizer {
         messages: &[&Message],
         token_budget: usize,
     ) -> Result<String> {
+        let start = Instant::now();
+        debug_log::log_kv(
+            "summarize.run",
+            &[
+                debug_log::field("phase", "start"),
+                debug_log::field("input_message_count", messages.len()),
+                debug_log::field("token_budget", token_budget),
+            ],
+        );
+
         let trimmed = Self::shed_to_fit(messages, token_budget);
+        let dropped = messages.len() - trimmed.len();
+        debug_log::log_kv(
+            "summarize.run",
+            &[
+                debug_log::field("phase", "trim"),
+                debug_log::field("input_message_count", messages.len()),
+                debug_log::field("trimmed_message_count", trimmed.len()),
+                debug_log::field("dropped", dropped),
+            ],
+        );
+
         let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed);
+        debug_log::log_kv(
+            "summarize.run",
+            &[
+                debug_log::field("phase", "prompt"),
+                debug_log::field("prompt_bytes", prompt.len()),
+                debug_log::field("estimated_tokens", prompt.len() / 4),
+            ],
+        );
 
         let sampling = SamplingParams {
             temperature: 0.3,
@@ -78,9 +110,29 @@ impl Summarizer {
             ..SamplingParams::default()
         };
 
-        self.client
-            .complete(&prompt, &[], &sampling)
-            .await
+        let result = self.client.complete(&prompt, &[], &sampling).await;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        match &result {
+            Ok(summary) => debug_log::log_kv(
+                "summarize.run",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("result", "ok"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("summary_bytes", summary.len()),
+                ],
+            ),
+            Err(err) => debug_log::log_kv(
+                "summarize.run",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("error", err),
+                ],
+            ),
+        }
+        result
     }
 }
 

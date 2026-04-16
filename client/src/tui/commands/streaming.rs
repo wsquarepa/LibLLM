@@ -51,9 +51,23 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
     if app.summary_receiver.is_some() {
         app.is_summarizing = true;
         app.message_queue.push(content.to_owned());
+        libllm::debug_log::log_kv(
+            "stream.start",
+            &[
+                libllm::debug_log::field("phase", "queued_for_summary"),
+                libllm::debug_log::field("queue_len", app.message_queue.len()),
+            ],
+        );
         return;
     }
     if app.model_name.is_none() {
+        libllm::debug_log::log_kv(
+            "stream.start",
+            &[
+                libllm::debug_log::field("phase", "blocked"),
+                libllm::debug_log::field("reason", "model_pending"),
+            ],
+        );
         app.set_status(
             "Connecting to API server...".to_owned(),
             StatusLevel::Warning,
@@ -61,6 +75,13 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
         return;
     }
     if !app.api_available {
+        libllm::debug_log::log_kv(
+            "stream.start",
+            &[
+                libllm::debug_log::field("phase", "blocked"),
+                libllm::debug_log::field("reason", "api_unavailable"),
+            ],
+        );
         app.set_status(
             "Cannot send: API server is not available".to_owned(),
             StatusLevel::Error,
@@ -100,6 +121,21 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
     let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();
 
+    libllm::debug_log::log_kv(
+        "stream.start",
+        &[
+            libllm::debug_log::field("phase", "dispatch"),
+            libllm::debug_log::field("branch_len", branch_path.len()),
+            libllm::debug_log::field("summary_aware_len", context_messages.len()),
+            libllm::debug_log::field("truncated_len", truncated.len()),
+            libllm::debug_log::field("worldbook_count", worldbooks.len()),
+            libllm::debug_log::field("has_system_prompt", effective_prompt.is_some()),
+            libllm::debug_log::field("stop_token_count", stop_tokens.len()),
+            libllm::debug_log::field("prompt_bytes", prompt.len()),
+            libllm::debug_log::field("continuation", false),
+        ],
+    );
+
     let client = app.client.clone();
     let handle = tokio::spawn(async move {
         let stop_refs: Vec<&str> = stop_tokens.iter().map(String::as_str).collect();
@@ -125,6 +161,8 @@ pub(in crate::tui) fn handle_stream_token(
         }
         StreamToken::Done(full_response) => {
             let head = app.session.tree.head().unwrap();
+            let response_bytes = full_response.len();
+            let is_continuation = app.is_continuation;
             if app.is_continuation {
                 let existing = app.session.tree.node(head).unwrap().message.content.clone();
                 let combined = format!("{}{}", existing, full_response);
@@ -135,6 +173,15 @@ pub(in crate::tui) fn handle_stream_token(
                     .tree
                     .push(Some(head), Message::new(Role::Assistant, full_response));
             }
+            libllm::debug_log::log_kv(
+                "stream.done",
+                &[
+                    libllm::debug_log::field("result", "ok"),
+                    libllm::debug_log::field("bytes", response_bytes),
+                    libllm::debug_log::field("is_continuation", is_continuation),
+                    libllm::debug_log::field("node_id", head),
+                ],
+            );
             app.mark_session_dirty(SaveTrigger::StreamDone, true);
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
@@ -146,8 +193,9 @@ pub(in crate::tui) fn handle_stream_token(
                 let branch_path = app.session.tree.branch_path();
                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                 let dropped = app.context_mgr.dropped_message_count(&summary_aware);
+                let trigger_threshold = app.config.summarization.trigger_threshold;
 
-                if dropped >= app.config.summarization.trigger_threshold {
+                if dropped >= trigger_threshold {
                     let summary_boundary = branch_path.len() - summary_aware.len();
                     let messages_to_summarize: Vec<Message> = branch_path
                         [..summary_boundary + dropped]
@@ -157,6 +205,19 @@ pub(in crate::tui) fn handle_stream_token(
                         .collect();
 
                     if !messages_to_summarize.is_empty() {
+                        libllm::debug_log::log_kv(
+                            "stream.summary.schedule",
+                            &[
+                                libllm::debug_log::field("result", "scheduled"),
+                                libllm::debug_log::field("dropped", dropped),
+                                libllm::debug_log::field("trigger_threshold", trigger_threshold),
+                                libllm::debug_log::field("summary_boundary", summary_boundary),
+                                libllm::debug_log::field(
+                                    "messages_to_summarize",
+                                    messages_to_summarize.len(),
+                                ),
+                            ],
+                        );
                         let summarize_api_url = app
                             .config
                             .summarization
@@ -195,6 +256,14 @@ pub(in crate::tui) fn handle_stream_token(
             }
         }
         StreamToken::Error(err) => {
+            libllm::debug_log::log_kv(
+                "stream.done",
+                &[
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("is_continuation", app.is_continuation),
+                    libllm::debug_log::field("error", &err),
+                ],
+            );
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.is_continuation = false;

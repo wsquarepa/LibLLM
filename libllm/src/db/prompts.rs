@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::debug_log;
 use crate::session::now_iso8601;
 use crate::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
@@ -18,96 +19,169 @@ pub fn insert_prompt(
     prompt: &SystemPromptFile,
     builtin: bool,
 ) -> Result<()> {
-    let now = now_iso8601();
-    conn.execute(
-        "INSERT INTO system_prompts (slug, name, content, builtin, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![slug, prompt.name, prompt.content, builtin as i64, now, now],
+    debug_log::timed_result(
+        "db.prompt.insert",
+        &[
+            debug_log::field("slug", slug),
+            debug_log::field("builtin", builtin),
+            debug_log::field("content_bytes", prompt.content.len()),
+        ],
+        || {
+            let now = now_iso8601();
+            conn.execute(
+                "INSERT INTO system_prompts (slug, name, content, builtin, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![slug, prompt.name, prompt.content, builtin as i64, now, now],
+            )
+            .context("failed to insert system prompt")?;
+            Ok(())
+        },
     )
-    .context("failed to insert system prompt")?;
-    Ok(())
 }
 
 pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
-    conn.query_row(
-        "SELECT name, content FROM system_prompts WHERE slug = ?1",
-        params![slug],
-        |row| {
-            let name: String = row.get(0)?;
-            let content: String = row.get(1)?;
-            Ok(SystemPromptFile { name, content })
+    debug_log::timed_result(
+        "db.prompt.load",
+        &[debug_log::field("slug", slug)],
+        || {
+            conn.query_row(
+                "SELECT name, content FROM system_prompts WHERE slug = ?1",
+                params![slug],
+                |row| {
+                    let name: String = row.get(0)?;
+                    let content: String = row.get(1)?;
+                    Ok(SystemPromptFile { name, content })
+                },
+            )
+            .with_context(|| format!("system prompt not found: {slug}"))
         },
     )
-    .with_context(|| format!("system prompt not found: {slug}"))
 }
 
 pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
-    let mut stmt = conn
-        .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
-        .context("failed to prepare list_prompts query")?;
+    debug_log::timed_result("db.prompt.list", &[], || {
+        let mut stmt = conn
+            .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
+            .context("failed to prepare list_prompts query")?;
 
-    let rows = stmt
-        .query_map([], |row| {
-            let slug: String = row.get(0)?;
-            let name: String = row.get(1)?;
-            let builtin: i64 = row.get(2)?;
-            Ok(PromptListEntry {
-                slug,
-                name,
-                builtin: builtin != 0,
+        let rows = stmt
+            .query_map([], |row| {
+                let slug: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let builtin: i64 = row.get(2)?;
+                Ok(PromptListEntry {
+                    slug,
+                    name,
+                    builtin: builtin != 0,
+                })
             })
-        })
-        .context("failed to query system prompts")?;
+            .context("failed to query system prompts")?;
 
-    let mut entries = Vec::new();
-    for row in rows {
-        entries.push(row.context("failed to read system prompt row")?);
-    }
-    Ok(entries)
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row.context("failed to read system prompt row")?);
+        }
+        let builtin_count = entries.iter().filter(|e| e.builtin).count();
+        debug_log::log_kv(
+            "db.prompt.list",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("count", entries.len()),
+                debug_log::field("builtin_count", builtin_count),
+            ],
+        );
+        Ok(entries)
+    })
 }
 
 pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -> Result<()> {
-    let now = now_iso8601();
-    let affected = conn
-        .execute(
-            "UPDATE system_prompts SET name = ?1, content = ?2, updated_at = ?3 WHERE slug = ?4",
-            params![prompt.name, prompt.content, now, slug],
-        )
-        .context("failed to update system prompt")?;
-    if affected == 0 {
-        anyhow::bail!("system prompt not found: {slug}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.prompt.update",
+        &[
+            debug_log::field("slug", slug),
+            debug_log::field("content_bytes", prompt.content.len()),
+        ],
+        || {
+            let now = now_iso8601();
+            let affected = conn
+                .execute(
+                    "UPDATE system_prompts SET name = ?1, content = ?2, updated_at = ?3 WHERE slug = ?4",
+                    params![prompt.name, prompt.content, now, slug],
+                )
+                .context("failed to update system prompt")?;
+            debug_log::log_kv(
+                "db.prompt.update",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("system prompt not found: {slug}");
+            }
+            Ok(())
+        },
+    )
 }
 
 pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
-    let affected = conn
-        .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
-        .context("failed to delete system prompt")?;
-    if affected == 0 {
-        anyhow::bail!("system prompt not found: {slug}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.prompt.delete",
+        &[debug_log::field("slug", slug)],
+        || {
+            let affected = conn
+                .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
+                .context("failed to delete system prompt")?;
+            debug_log::log_kv(
+                "db.prompt.delete",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("slug", slug),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("system prompt not found: {slug}");
+            }
+            Ok(())
+        },
+    )
 }
 
 pub fn ensure_builtins(conn: &Connection) -> Result<()> {
-    for slug in [BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY] {
-        let exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) > 0 FROM system_prompts WHERE slug = ?1",
-                params![slug],
-                |row| row.get(0),
-            )
-            .context("failed to check builtin prompt existence")?;
+    debug_log::timed_result("db.prompt.ensure_builtins", &[], || {
+        let mut inserted = 0usize;
+        let mut existed = 0usize;
+        for slug in [BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY] {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM system_prompts WHERE slug = ?1",
+                    params![slug],
+                    |row| row.get(0),
+                )
+                .context("failed to check builtin prompt existence")?;
 
-        if !exists {
-            let prompt = SystemPromptFile {
-                name: slug.to_owned(),
-                content: String::new(),
-            };
-            insert_prompt(conn, slug, &prompt, true)?;
+            if !exists {
+                let prompt = SystemPromptFile {
+                    name: slug.to_owned(),
+                    content: String::new(),
+                };
+                insert_prompt(conn, slug, &prompt, true)?;
+                inserted += 1;
+            } else {
+                existed += 1;
+            }
         }
-    }
-    Ok(())
+        debug_log::log_kv(
+            "db.prompt.ensure_builtins",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("inserted", inserted),
+                debug_log::field("existed", existed),
+            ],
+        );
+        Ok(())
+    })
 }
 
 #[cfg(test)]

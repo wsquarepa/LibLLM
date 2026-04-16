@@ -1,56 +1,74 @@
 //! Session and character export to Markdown and JSON formats.
 
+use crate::debug_log;
 use crate::session::{self, Message, Role};
 use crate::template;
 
 pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) -> String {
-    let mut out = String::new();
-    for msg in messages {
-        let role_label = match msg.role {
-            Role::User => user_name,
-            Role::Assistant => char_name,
-            Role::System | Role::Summary => "System",
-        };
-        let content = template::apply_template_vars(&msg.content, char_name, user_name);
-        out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
-    }
-    out
+    debug_log::timed_kv(
+        "export.markdown",
+        &[debug_log::field("message_count", messages.len())],
+        || {
+            let mut out = String::new();
+            for msg in messages {
+                let role_label = match msg.role {
+                    Role::User => user_name,
+                    Role::Assistant => char_name,
+                    Role::System | Role::Summary => "System",
+                };
+                let content = template::apply_template_vars(&msg.content, char_name, user_name);
+                out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
+            }
+            debug_log::log_kv(
+                "export.markdown",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("output_bytes", out.len()),
+                ],
+            );
+            out
+        },
+    )
 }
 
 pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> String {
-    let mut body = String::new();
-    for msg in messages {
-        let role_label = match msg.role {
-            Role::User => user_name,
-            Role::Assistant => char_name,
-            Role::System | Role::Summary => "System",
-        };
-        let content = template::apply_template_vars(&msg.content, char_name, user_name);
-        let formatted = html_format_content(&content);
-        let class = match msg.role {
-            Role::User => "user",
-            Role::Assistant => "assistant",
-            Role::System | Role::Summary => "system",
-        };
-        let tag = match msg.role {
-            Role::System | Role::Summary => "em",
-            _ => "span",
-        };
-        body.push_str(&format!(
-            "    <article class=\"message {class}\">\n\
-             \x20     <div class=\"role\">{}</div>\n\
-             \x20     <div class=\"content\"><{tag}>{formatted}</{tag}></div>\n\
-             \x20     <time>{}</time>\n\
-             \x20   </article>\n",
-            html_escape(role_label),
-            html_escape(&msg.timestamp),
-        ));
-    }
+    debug_log::timed_kv(
+        "export.html",
+        &[debug_log::field("message_count", messages.len())],
+        || {
+            let mut body = String::new();
+            for msg in messages {
+                let role_label = match msg.role {
+                    Role::User => user_name,
+                    Role::Assistant => char_name,
+                    Role::System | Role::Summary => "System",
+                };
+                let content = template::apply_template_vars(&msg.content, char_name, user_name);
+                let formatted = html_format_content(&content);
+                let class = match msg.role {
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                    Role::System | Role::Summary => "system",
+                };
+                let tag = match msg.role {
+                    Role::System | Role::Summary => "em",
+                    _ => "span",
+                };
+                body.push_str(&format!(
+                    "    <article class=\"message {class}\">\n\
+                     \x20     <div class=\"role\">{}</div>\n\
+                     \x20     <div class=\"content\"><{tag}>{formatted}</{tag}></div>\n\
+                     \x20     <time>{}</time>\n\
+                     \x20   </article>\n",
+                    html_escape(role_label),
+                    html_escape(&msg.timestamp),
+                ));
+            }
 
-    let char_escaped = html_escape(char_name);
-    let user_escaped = html_escape(user_name);
+            let char_escaped = html_escape(char_name);
+            let user_escaped = html_escape(user_name);
 
-    format!(
+            let out = format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -205,6 +223,16 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
 </body>
 </html>
 "#
+            );
+            debug_log::log_kv(
+                "export.html",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("output_bytes", out.len()),
+                ],
+            );
+            out
+        },
     )
 }
 
@@ -281,35 +309,48 @@ pub fn html_format_content(content: &str) -> String {
 }
 
 pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> String {
-    let mut lines = Vec::new();
+    debug_log::timed_kv(
+        "export.jsonl",
+        &[debug_log::field("message_count", messages.len())],
+        || {
+            let mut lines = Vec::new();
 
-    let header = serde_json::json!({
-        "user_name": user_name,
-        "character_name": char_name,
-        "create_date": session::now_compact(),
-    });
-    lines.push(serde_json::to_string(&header).unwrap_or_default());
+            let header = serde_json::json!({
+                "user_name": user_name,
+                "character_name": char_name,
+                "create_date": session::now_compact(),
+            });
+            lines.push(serde_json::to_string(&header).unwrap_or_default());
 
-    for msg in messages {
-        let content = template::apply_template_vars(&msg.content, char_name, user_name);
-        let name = match msg.role {
-            Role::User => user_name,
-            Role::Assistant => char_name,
-            Role::System | Role::Summary => "System",
-        };
-        let entry = serde_json::json!({
-            "name": name,
-            "is_user": msg.role == Role::User,
-            "is_system": msg.role == Role::System,
-            "mes": content,
-            "send_date": msg.timestamp,
-        });
-        lines.push(serde_json::to_string(&entry).unwrap_or_default());
-    }
+            for msg in messages {
+                let content = template::apply_template_vars(&msg.content, char_name, user_name);
+                let name = match msg.role {
+                    Role::User => user_name,
+                    Role::Assistant => char_name,
+                    Role::System | Role::Summary => "System",
+                };
+                let entry = serde_json::json!({
+                    "name": name,
+                    "is_user": msg.role == Role::User,
+                    "is_system": msg.role == Role::System,
+                    "mes": content,
+                    "send_date": msg.timestamp,
+                });
+                lines.push(serde_json::to_string(&entry).unwrap_or_default());
+            }
 
-    let mut result = lines.join("\n");
-    result.push('\n');
-    result
+            let mut result = lines.join("\n");
+            result.push('\n');
+            debug_log::log_kv(
+                "export.jsonl",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("output_bytes", result.len()),
+                ],
+            );
+            result
+        },
+    )
 }
 
 #[cfg(test)]

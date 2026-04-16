@@ -1,5 +1,6 @@
 //! Context window management and token budget allocation.
 
+use crate::debug_log;
 use crate::session::{Message, Role};
 
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
@@ -22,7 +23,16 @@ impl ContextManager {
     }
 
     pub fn set_token_limit(&mut self, limit: usize) {
+        let previous = self.token_limit;
         self.token_limit = limit;
+        debug_log::log_kv(
+            "context.limit",
+            &[
+                debug_log::field("phase", "set"),
+                debug_log::field("previous", previous),
+                debug_log::field("token_limit", limit),
+            ],
+        );
     }
 
     pub fn estimate_message_tokens(messages: &[&Message]) -> usize {
@@ -63,6 +73,18 @@ impl ContextManager {
             }
         }
 
+        debug_log::log_kv(
+            "context.truncate",
+            &[
+                debug_log::field("phase", "truncate"),
+                debug_log::field("result", "ok"),
+                debug_log::field("input_message_count", messages.len()),
+                debug_log::field("kept", messages.len() - skip),
+                debug_log::field("dropped", skip),
+                debug_log::field("estimated_tokens", total),
+                debug_log::field("token_limit", self.token_limit),
+            ],
+        );
         &messages[skip..]
     }
 
@@ -77,10 +99,19 @@ impl ContextManager {
     pub fn summary_aware_path<'a>(&self, messages: &'a [&'a Message]) -> Vec<&'a Message> {
         let last_summary_idx = messages.iter().rposition(|m| m.role == Role::Summary);
 
-        match last_summary_idx {
+        let result = match last_summary_idx {
             Some(idx) => messages[idx..].to_vec(),
             None => messages.to_vec(),
-        }
+        };
+        debug_log::log_kv(
+            "context.summary_boundary",
+            &[
+                debug_log::field("summary_found", last_summary_idx.is_some()),
+                debug_log::field("input_message_count", messages.len()),
+                debug_log::field("kept_after_boundary", result.len()),
+            ],
+        );
+        result
     }
 }
 

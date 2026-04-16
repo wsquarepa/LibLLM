@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::debug_log;
 use crate::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
 
 pub struct SessionListEntry {
@@ -76,19 +77,39 @@ fn write_session_rows(conn: &Connection, id: &str, session: &Session) -> Result<
 }
 
 pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
-    let sp = conn.savepoint().context("failed to begin savepoint")?;
-    write_session_rows(&sp, id, session)?;
-    sp.commit().context("failed to commit session insert")?;
-    Ok(())
+    debug_log::timed_result(
+        "db.session.insert",
+        &[
+            debug_log::field("session_id", id),
+            debug_log::field("node_count", session.tree.node_count()),
+            debug_log::field("worldbook_count", session.worldbooks.len()),
+        ],
+        || {
+            let sp = conn.savepoint().context("failed to begin savepoint")?;
+            write_session_rows(&sp, id, session)?;
+            sp.commit().context("failed to commit session insert")?;
+            Ok(())
+        },
+    )
 }
 
 pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
-    let sp = conn.savepoint().context("failed to begin savepoint")?;
-    sp.execute("DELETE FROM sessions WHERE id = ?1", params![id])
-        .context("failed to clear session")?;
-    write_session_rows(&sp, id, session)?;
-    sp.commit().context("failed to commit session save")?;
-    Ok(())
+    debug_log::timed_result(
+        "db.session.save",
+        &[
+            debug_log::field("session_id", id),
+            debug_log::field("node_count", session.tree.node_count()),
+            debug_log::field("worldbook_count", session.worldbooks.len()),
+        ],
+        || {
+            let sp = conn.savepoint().context("failed to begin savepoint")?;
+            sp.execute("DELETE FROM sessions WHERE id = ?1", params![id])
+                .context("failed to clear session")?;
+            write_session_rows(&sp, id, session)?;
+            sp.commit().context("failed to commit session save")?;
+            Ok(())
+        },
+    )
 }
 
 pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
@@ -99,188 +120,259 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
             |row| row.get(0),
         )
         .context("failed to check session existence")?;
+    debug_log::log_kv(
+        "db.session.exists",
+        &[
+            debug_log::field("session_id", id),
+            debug_log::field("result", "ok"),
+            debug_log::field("found", count > 0),
+        ],
+    );
     Ok(count > 0)
 }
 
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
-    let (model, template, system_prompt, character, persona, head_id): (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-    ) = conn
-        .query_row(
-            "SELECT model, template, system_prompt, character, persona, head_id
-             FROM sessions WHERE id = ?1",
-            params![id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
-            },
-        )
-        .with_context(|| format!("session not found: {id}"))?;
+    debug_log::timed_result(
+        "db.session.load",
+        &[debug_log::field("session_id", id)],
+        || {
+            let (model, template, system_prompt, character, persona, head_id): (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+            ) = conn
+                .query_row(
+                    "SELECT model, template, system_prompt, character, persona, head_id
+                     FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .with_context(|| format!("session not found: {id}"))?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, parent_id, preferred_child_id, role, content, timestamp
-             FROM messages WHERE session_id = ?1 ORDER BY id",
-        )
-        .context("failed to prepare message query")?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp
+                     FROM messages WHERE session_id = ?1 ORDER BY id",
+                )
+                .context("failed to prepare message query")?;
 
-    let mut nodes: Vec<Node> = Vec::new();
-    let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
+            let mut nodes: Vec<Node> = Vec::new();
+            let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
 
-    let rows = stmt
-        .query_map(params![id], |row| {
-            let msg_id: i64 = row.get(0)?;
-            let parent_id: Option<i64> = row.get(1)?;
-            let preferred_child_id: Option<i64> = row.get(2)?;
-            let role_str: String = row.get(3)?;
-            let content: String = row.get(4)?;
-            let timestamp: String = row.get(5)?;
-            Ok((msg_id, parent_id, preferred_child_id, role_str, content, timestamp))
-        })
-        .context("failed to query messages")?;
+            let rows = stmt
+                .query_map(params![id], |row| {
+                    let msg_id: i64 = row.get(0)?;
+                    let parent_id: Option<i64> = row.get(1)?;
+                    let preferred_child_id: Option<i64> = row.get(2)?;
+                    let role_str: String = row.get(3)?;
+                    let content: String = row.get(4)?;
+                    let timestamp: String = row.get(5)?;
+                    Ok((msg_id, parent_id, preferred_child_id, role_str, content, timestamp))
+                })
+                .context("failed to query messages")?;
 
-    for row in rows {
-        let (msg_id, parent_id, preferred_child_id, role_str, content, timestamp) =
-            row.context("failed to read message row")?;
+            for row in rows {
+                let (msg_id, parent_id, preferred_child_id, role_str, content, timestamp) =
+                    row.context("failed to read message row")?;
 
-        let role: Role = role_str
-            .parse()
-            .with_context(|| format!("invalid role in message {msg_id}: {role_str}"))?;
+                let role: Role = role_str
+                    .parse()
+                    .with_context(|| format!("invalid role in message {msg_id}: {role_str}"))?;
 
-        let node = Node {
-            id: msg_id as usize,
-            parent: parent_id.map(|p| p as usize),
-            children: Vec::new(),
-            message: Message { role, content, timestamp },
-        };
+                let node = Node {
+                    id: msg_id as usize,
+                    parent: parent_id.map(|p| p as usize),
+                    children: Vec::new(),
+                    message: Message { role, content, timestamp },
+                };
 
-        if let Some(child_id) = preferred_child_id {
-            preferred_child.insert(msg_id as usize, child_id as usize);
-        }
+                if let Some(child_id) = preferred_child_id {
+                    preferred_child.insert(msg_id as usize, child_id as usize);
+                }
 
-        nodes.push(node);
-    }
-
-    for i in 0..nodes.len() {
-        if let Some(parent_id) = nodes[i].parent {
-            let child_id = nodes[i].id;
-            if let Some(parent_node) = nodes.get_mut(parent_id) {
-                parent_node.children.push(child_id);
+                nodes.push(node);
             }
-        }
-    }
 
-    let head = head_id.map(|h| h as usize);
-    let tree = MessageTree::from_parts(nodes, head, preferred_child);
+            for i in 0..nodes.len() {
+                if let Some(parent_id) = nodes[i].parent {
+                    let child_id = nodes[i].id;
+                    if let Some(parent_node) = nodes.get_mut(parent_id) {
+                        parent_node.children.push(child_id);
+                    }
+                }
+            }
 
-    let mut worldbooks: Vec<String> = Vec::new();
-    let mut wb_stmt = conn
-        .prepare("SELECT worldbook_slug FROM session_worldbooks WHERE session_id = ?1")
-        .context("failed to prepare worldbooks query")?;
-    let wb_rows = wb_stmt
-        .query_map(params![id], |row| row.get(0))
-        .context("failed to query worldbooks")?;
-    for wb in wb_rows {
-        worldbooks.push(wb.context("failed to read worldbook row")?);
-    }
+            let head = head_id.map(|h| h as usize);
+            let tree = MessageTree::from_parts(nodes, head, preferred_child);
 
-    Ok(Session {
-        tree,
-        model,
-        template,
-        system_prompt,
-        character,
-        worldbooks,
-        persona,
-    })
+            let mut worldbooks: Vec<String> = Vec::new();
+            let mut wb_stmt = conn
+                .prepare("SELECT worldbook_slug FROM session_worldbooks WHERE session_id = ?1")
+                .context("failed to prepare worldbooks query")?;
+            let wb_rows = wb_stmt
+                .query_map(params![id], |row| row.get(0))
+                .context("failed to query worldbooks")?;
+            for wb in wb_rows {
+                worldbooks.push(wb.context("failed to read worldbook row")?);
+            }
+
+            Ok(Session {
+                tree,
+                model,
+                template,
+                system_prompt,
+                character,
+                worldbooks,
+                persona,
+            })
+        },
+    )
 }
 
 pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT s.id, s.display_name, s.updated_at,
-                    COUNT(m.id) AS message_count,
-                    (SELECT content FROM messages
-                     WHERE session_id = s.id AND role = 'assistant'
-                     ORDER BY id DESC LIMIT 1) AS last_assistant_preview
-             FROM sessions s
-             LEFT JOIN messages m ON m.session_id = s.id
-             GROUP BY s.id
-             ORDER BY s.updated_at DESC",
-        )
-        .context("failed to prepare list_sessions query")?;
+    debug_log::timed_result("db.session.list", &[], || {
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.display_name, s.updated_at,
+                        COUNT(m.id) AS message_count,
+                        (SELECT content FROM messages
+                         WHERE session_id = s.id AND role = 'assistant'
+                         ORDER BY id DESC LIMIT 1) AS last_assistant_preview
+                 FROM sessions s
+                 LEFT JOIN messages m ON m.session_id = s.id
+                 GROUP BY s.id
+                 ORDER BY s.updated_at DESC",
+            )
+            .context("failed to prepare list_sessions query")?;
 
-    let rows = stmt
-        .query_map([], |row| {
-            let id: String = row.get(0)?;
-            let display_name: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
-            let updated_at: String = row.get(2)?;
-            let message_count: i64 = row.get(3)?;
-            let last_assistant_preview: Option<String> = row.get(4)?;
-            Ok(SessionListEntry {
-                id,
-                display_name,
-                message_count: message_count as usize,
-                last_assistant_preview,
-                updated_at,
+        let rows = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let display_name: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
+                let updated_at: String = row.get(2)?;
+                let message_count: i64 = row.get(3)?;
+                let last_assistant_preview: Option<String> = row.get(4)?;
+                Ok(SessionListEntry {
+                    id,
+                    display_name,
+                    message_count: message_count as usize,
+                    last_assistant_preview,
+                    updated_at,
+                })
             })
-        })
-        .context("failed to query sessions")?;
+            .context("failed to query sessions")?;
 
-    let mut entries = Vec::new();
-    for row in rows {
-        entries.push(row.context("failed to read session row")?);
-    }
-    Ok(entries)
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row.context("failed to read session row")?);
+        }
+        debug_log::log_kv(
+            "db.session.list",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("session_count", entries.len()),
+            ],
+        );
+        Ok(entries)
+    })
 }
 
 pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
-    let affected = conn
-        .execute("DELETE FROM sessions WHERE id = ?1", params![id])
-        .context("failed to delete session")?;
-    if affected == 0 {
-        anyhow::bail!("session not found: {id}");
-    }
-    Ok(())
+    debug_log::timed_result(
+        "db.session.delete",
+        &[debug_log::field("session_id", id)],
+        || {
+            let affected = conn
+                .execute("DELETE FROM sessions WHERE id = ?1", params![id])
+                .context("failed to delete session")?;
+            debug_log::log_kv(
+                "db.session.delete",
+                &[
+                    debug_log::field("phase", "summary"),
+                    debug_log::field("session_id", id),
+                    debug_log::field("affected", affected),
+                ],
+            );
+            if affected == 0 {
+                anyhow::bail!("session not found: {id}");
+            }
+            Ok(())
+        },
+    )
 }
 
 pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Result<()> {
-    conn.execute(
-        "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            node.id as i64,
-            session_id,
-            node.parent.map(|p| p as i64),
-            Option::<i64>::None,
-            node.message.role.to_string(),
-            node.message.content,
-            node.message.timestamp,
+    debug_log::timed_result(
+        "db.message.upsert",
+        &[
+            debug_log::field("session_id", session_id),
+            debug_log::field("node_id", node.id),
+            debug_log::field("role", node.message.role.to_string()),
+            debug_log::field("content_bytes", node.message.content.len()),
         ],
+        || {
+            conn.execute(
+                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    node.id as i64,
+                    session_id,
+                    node.parent.map(|p| p as i64),
+                    Option::<i64>::None,
+                    node.message.role.to_string(),
+                    node.message.content,
+                    node.message.timestamp,
+                ],
+            )
+            .context("failed to upsert message")?;
+            Ok(())
+        },
     )
-    .context("failed to upsert message")?;
-    Ok(())
 }
 
 pub fn update_head(conn: &Connection, session_id: &str, head_id: Option<NodeId>) -> Result<()> {
     let now = now_iso8601();
-    conn.execute(
-        "UPDATE sessions SET head_id = ?1, updated_at = ?2 WHERE id = ?3",
-        params![head_id.map(|h| h as i64), now, session_id],
-    )
-    .context("failed to update session head")?;
-    Ok(())
+    let result = conn
+        .execute(
+            "UPDATE sessions SET head_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![head_id.map(|h| h as i64), now, session_id],
+        )
+        .context("failed to update session head");
+    match &result {
+        Ok(affected) => debug_log::log_kv(
+            "db.session.head",
+            &[
+                debug_log::field("session_id", session_id),
+                debug_log::field(
+                    "head_id",
+                    head_id.map(|h| h.to_string()).unwrap_or_else(|| "none".to_owned()),
+                ),
+                debug_log::field("result", "ok"),
+                debug_log::field("affected", *affected),
+            ],
+        ),
+        Err(err) => debug_log::log_kv(
+            "db.session.head",
+            &[
+                debug_log::field("session_id", session_id),
+                debug_log::field("result", "error"),
+                debug_log::field("error", err),
+            ],
+        ),
+    }
+    result.map(|_| ())
 }
 
 pub fn update_preferred_child(
@@ -289,12 +381,35 @@ pub fn update_preferred_child(
     parent_id: NodeId,
     child_id: NodeId,
 ) -> Result<()> {
-    conn.execute(
-        "UPDATE messages SET preferred_child_id = ?1 WHERE session_id = ?2 AND id = ?3",
-        params![child_id as i64, session_id, parent_id as i64],
-    )
-    .context("failed to update preferred_child")?;
-    Ok(())
+    let result = conn
+        .execute(
+            "UPDATE messages SET preferred_child_id = ?1 WHERE session_id = ?2 AND id = ?3",
+            params![child_id as i64, session_id, parent_id as i64],
+        )
+        .context("failed to update preferred_child");
+    match &result {
+        Ok(affected) => debug_log::log_kv(
+            "db.session.preferred_child",
+            &[
+                debug_log::field("session_id", session_id),
+                debug_log::field("parent_id", parent_id),
+                debug_log::field("child_id", child_id),
+                debug_log::field("result", "ok"),
+                debug_log::field("affected", *affected),
+            ],
+        ),
+        Err(err) => debug_log::log_kv(
+            "db.session.preferred_child",
+            &[
+                debug_log::field("session_id", session_id),
+                debug_log::field("parent_id", parent_id),
+                debug_log::field("child_id", child_id),
+                debug_log::field("result", "error"),
+                debug_log::field("error", err),
+            ],
+        ),
+    }
+    result.map(|_| ())
 }
 
 #[cfg(test)]

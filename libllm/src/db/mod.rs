@@ -7,6 +7,7 @@ use rusqlite::Connection;
 
 use crate::character::CharacterCard;
 use crate::crypto::DerivedKey;
+use crate::debug_log;
 use crate::persona::PersonaFile;
 use crate::session::{Node, NodeId, Session};
 use crate::system_prompt::SystemPromptFile;
@@ -40,23 +41,33 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &Path, key: Option<&DerivedKey>) -> Result<Self> {
-        let conn = Connection::open(path)
-            .with_context(|| format!("failed to open database: {}", path.display()))?;
+        let encrypted = key.is_some();
+        debug_log::timed_result(
+            "db.open",
+            &[
+                debug_log::field("path", path.display()),
+                debug_log::field("encrypted", encrypted),
+            ],
+            || {
+                let conn = Connection::open(path)
+                    .with_context(|| format!("failed to open database: {}", path.display()))?;
 
-        if let Some(key) = key {
-            let hex_key = key.hex();
-            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-                .context("failed to set database encryption key")?;
-        }
+                if let Some(key) = key {
+                    let hex_key = key.hex();
+                    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
+                        .context("failed to set database encryption key")?;
+                }
 
-        conn.execute_batch("PRAGMA journal_mode = WAL;")
-            .context("failed to enable WAL mode")?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")
-            .context("failed to enable foreign keys")?;
+                conn.execute_batch("PRAGMA journal_mode = WAL;")
+                    .context("failed to enable WAL mode")?;
+                conn.execute_batch("PRAGMA foreign_keys = ON;")
+                    .context("failed to enable foreign keys")?;
 
-        schema::run_migrations(&conn)?;
+                schema::run_migrations(&conn)?;
 
-        Ok(Self { conn })
+                Ok(Self { conn })
+            },
+        )
     }
 
     #[cfg(test)]
@@ -186,11 +197,13 @@ impl Database {
     }
 
     pub fn rekey(&self, new_key: &DerivedKey) -> Result<()> {
-        let hex_key = new_key.hex();
-        self.conn
-            .execute_batch(&format!("PRAGMA rekey = \"x'{}'\";", hex_key))
-            .context("failed to rekey database")?;
-        Ok(())
+        debug_log::timed_result("db.rekey", &[], || {
+            let hex_key = new_key.hex();
+            self.conn
+                .execute_batch(&format!("PRAGMA rekey = \"x'{}'\";", hex_key))
+                .context("failed to rekey database")?;
+            Ok(())
+        })
     }
 
     pub fn session_exists(&self, id: &str) -> Result<bool> {

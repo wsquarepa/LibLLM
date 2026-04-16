@@ -1,6 +1,7 @@
 //! HTTP client for the llama.cpp completions API with streaming support.
 
 use std::io::Write;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -8,6 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::debug_log;
 use crate::sampling::SamplingParams;
 
 /// HTTP client for the llama.cpp `/completions` and `/models` endpoints.
@@ -56,6 +58,7 @@ impl ApiClient {
     /// Queries `GET /models` and returns the first model ID, or an error string on failure.
     pub async fn fetch_model_name(&self) -> std::result::Result<String, String> {
         let url = format!("{}/models", self.base_url);
+        let start = Instant::now();
         let result: Result<String> = async {
             let resp = self
                 .client
@@ -74,6 +77,28 @@ impl ApiClient {
                 .context("no model id in response")
         }
         .await;
+
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        match &result {
+            Ok(name) => debug_log::log_kv(
+                "client.models",
+                &[
+                    debug_log::field("phase", "request"),
+                    debug_log::field("result", "ok"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("model_name_bytes", name.len()),
+                ],
+            ),
+            Err(err) => debug_log::log_kv(
+                "client.models",
+                &[
+                    debug_log::field("phase", "request"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("error", err),
+                ],
+            ),
+        }
 
         result.map_err(|e| e.to_string())
     }
@@ -130,14 +155,58 @@ impl ApiClient {
         sampling: &SamplingParams,
         sender: &mpsc::Sender<StreamToken>,
     ) -> Result<String> {
-        let resp = self.start_completion(prompt, stop_tokens, sampling).await?;
+        let start = Instant::now();
+        debug_log::log_kv(
+            "client.stream",
+            &[
+                debug_log::field("phase", "start"),
+                debug_log::field("prompt_bytes", prompt.len()),
+                debug_log::field("stop_token_count", stop_tokens.len()),
+                debug_log::field("max_tokens", sampling.max_tokens),
+                debug_log::field("temperature", sampling.temperature),
+            ],
+        );
+        let resp = match self.start_completion(prompt, stop_tokens, sampling).await {
+            Ok(resp) => resp,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                debug_log::log_kv(
+                    "client.stream",
+                    &[
+                        debug_log::field("phase", "done"),
+                        debug_log::field("result", "error"),
+                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                        debug_log::field("error", &err),
+                    ],
+                );
+                return Err(err);
+            }
+        };
         let mut stream = resp.bytes_stream();
         let mut buffer = Vec::<u8>::new();
         let mut consumed = 0usize;
         let mut full_response = String::new();
+        let mut token_chunks = 0usize;
 
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("stream read error")?;
+            let chunk = match chunk.context("stream read error") {
+                Ok(chunk) => chunk,
+                Err(err) => {
+                    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    debug_log::log_kv(
+                        "client.stream",
+                        &[
+                            debug_log::field("phase", "done"),
+                            debug_log::field("result", "error"),
+                            debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                            debug_log::field("response_bytes", full_response.len()),
+                            debug_log::field("token_chunks", token_chunks),
+                            debug_log::field("error", &err),
+                        ],
+                    );
+                    return Err(err);
+                }
+            };
             buffer.extend_from_slice(&chunk);
 
             while let Some((line_start, line_end)) = next_line_bounds(&buffer, consumed) {
@@ -146,7 +215,20 @@ impl ApiClient {
 
                 if let Some(text) = parse_token_line(line_bytes) {
                     full_response.push_str(&text);
+                    token_chunks += 1;
                     if sender.send(StreamToken::Token(text)).await.is_err() {
+                        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                        debug_log::log_kv(
+                            "client.stream",
+                            &[
+                                debug_log::field("phase", "done"),
+                                debug_log::field("result", "ok"),
+                                debug_log::field("reason", "receiver_dropped"),
+                                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                                debug_log::field("response_bytes", full_response.len()),
+                                debug_log::field("token_chunks", token_chunks),
+                            ],
+                        );
                         return Ok(full_response);
                     }
                 }
@@ -158,6 +240,17 @@ impl ApiClient {
             }
         }
 
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        debug_log::log_kv(
+            "client.stream",
+            &[
+                debug_log::field("phase", "done"),
+                debug_log::field("result", "ok"),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                debug_log::field("response_bytes", full_response.len()),
+                debug_log::field("token_chunks", token_chunks),
+            ],
+        );
         Ok(full_response)
     }
 
@@ -183,25 +276,89 @@ impl ApiClient {
             "samplers": ["top_k", "top_p", "min_p", "temperature"],
         });
 
-        let resp = self
+        let start = Instant::now();
+        debug_log::log_kv(
+            "client.complete",
+            &[
+                debug_log::field("phase", "start"),
+                debug_log::field("prompt_bytes", prompt.len()),
+                debug_log::field("stop_token_count", stop_tokens.len()),
+                debug_log::field("max_tokens", sampling.max_tokens),
+                debug_log::field("temperature", sampling.temperature),
+            ],
+        );
+        let send_result = self
             .client
             .post(&url)
             .json(&body)
             .send()
             .await
-            .context("POST /completions (non-streaming) failed")?;
+            .context("POST /completions (non-streaming) failed");
+        let resp = match send_result {
+            Ok(resp) => resp,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                debug_log::log_kv(
+                    "client.complete",
+                    &[
+                        debug_log::field("phase", "done"),
+                        debug_log::field("result", "error"),
+                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                        debug_log::field("error", &err),
+                    ],
+                );
+                return Err(err);
+            }
+        };
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            debug_log::log_kv(
+                "client.complete",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("status", status.as_u16()),
+                    debug_log::field("body_bytes", text.len()),
+                ],
+            );
             anyhow::bail!("API returned {status}: {text}");
         }
 
-        let json: serde_json::Value = resp.json().await.context("failed to parse response JSON")?;
-        let content = json["content"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
+        let json: serde_json::Value = match resp
+            .json()
+            .await
+            .context("failed to parse response JSON")
+        {
+            Ok(json) => json,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                debug_log::log_kv(
+                    "client.complete",
+                    &[
+                        debug_log::field("phase", "done"),
+                        debug_log::field("result", "error"),
+                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                        debug_log::field("error", &err),
+                    ],
+                );
+                return Err(err);
+            }
+        };
+        let content = json["content"].as_str().unwrap_or_default().to_owned();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        debug_log::log_kv(
+            "client.complete",
+            &[
+                debug_log::field("phase", "done"),
+                debug_log::field("result", "ok"),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                debug_log::field("response_bytes", content.len()),
+            ],
+        );
         Ok(content)
     }
 
@@ -209,14 +366,77 @@ impl ApiClient {
     /// Returns `None` if the server doesn't support the endpoint or the field is missing.
     pub async fn fetch_server_context_size(&self) -> Option<usize> {
         let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
-        let resp = self.client.get(&url).send().await.ok()?;
+        let start = Instant::now();
+        let resp = match self.client.get(&url).send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                debug_log::log_kv(
+                    "client.props",
+                    &[
+                        debug_log::field("phase", "request"),
+                        debug_log::field("result", "error"),
+                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                        debug_log::field("error", err),
+                    ],
+                );
+                return None;
+            }
+        };
         if !resp.status().is_success() {
+            let status = resp.status();
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            debug_log::log_kv(
+                "client.props",
+                &[
+                    debug_log::field("phase", "request"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("status", status.as_u16()),
+                ],
+            );
             return None;
         }
-        let json: serde_json::Value = resp.json().await.ok()?;
-        json["default_generation_settings"]["n_ctx"]
+        let json: serde_json::Value = match resp.json().await {
+            Ok(json) => json,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                debug_log::log_kv(
+                    "client.props",
+                    &[
+                        debug_log::field("phase", "request"),
+                        debug_log::field("result", "error"),
+                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                        debug_log::field("error", err),
+                    ],
+                );
+                return None;
+            }
+        };
+        let n_ctx = json["default_generation_settings"]["n_ctx"]
             .as_u64()
-            .map(|n| n as usize)
+            .map(|n| n as usize);
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        match n_ctx {
+            Some(size) => debug_log::log_kv(
+                "client.props",
+                &[
+                    debug_log::field("phase", "request"),
+                    debug_log::field("result", "ok"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("n_ctx", size),
+                ],
+            ),
+            None => debug_log::log_kv(
+                "client.props",
+                &[
+                    debug_log::field("phase", "request"),
+                    debug_log::field("result", "missing"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                ],
+            ),
+        }
+        n_ctx
     }
 
     pub fn base_url(&self) -> &str {
@@ -255,6 +475,15 @@ impl ApiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            debug_log::log_kv(
+                "client.stream",
+                &[
+                    debug_log::field("phase", "start"),
+                    debug_log::field("result", "error"),
+                    debug_log::field("status", status.as_u16()),
+                    debug_log::field("body_bytes", text.len()),
+                ],
+            );
             anyhow::bail!("API returned {status}: {text}");
         }
 

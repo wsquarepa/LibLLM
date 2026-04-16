@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use libllm::debug_log;
 
 use backup::index::{BackupEntry, BackupIndex, BackupType, load_index, parse_backup_filename, save_index};
 use backup::verify::verify_chain;
@@ -26,6 +27,21 @@ fn format_size(bytes: u64) -> String {
 }
 
 pub fn run(data_dir: &Path, passkey: Option<&str>, command: &RecoverCommand) -> Result<()> {
+    let subcommand = match command {
+        RecoverCommand::List => "list",
+        RecoverCommand::Verify { .. } => "verify",
+        RecoverCommand::Restore { .. } => "restore",
+        RecoverCommand::RebuildIndex => "rebuild_index",
+    };
+    debug_log::log_kv(
+        "recover.run",
+        &[
+            debug_log::field("phase", "start"),
+            debug_log::field("subcommand", subcommand),
+            debug_log::field("data_dir", data_dir.display()),
+            debug_log::field("has_passkey", passkey.is_some()),
+        ],
+    );
     match command {
         RecoverCommand::List => cmd_list(data_dir),
         RecoverCommand::Verify { full } => cmd_verify(data_dir, passkey, *full),
@@ -37,6 +53,13 @@ pub fn run(data_dir: &Path, passkey: Option<&str>, command: &RecoverCommand) -> 
 fn cmd_list(data_dir: &Path) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
     let index = load_index(&index_path)?;
+    debug_log::log_kv(
+        "recover.list",
+        &[
+            debug_log::field("result", "ok"),
+            debug_log::field("entry_count", index.entries.len()),
+        ],
+    );
 
     if index.entries.is_empty() {
         println!("No backup points found.");
@@ -65,7 +88,23 @@ fn cmd_list(data_dir: &Path) -> Result<()> {
 }
 
 fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> {
-    let result = verify_chain(data_dir, passkey, full)?;
+    let result = debug_log::timed_result(
+        "recover.verify",
+        &[debug_log::field("full", full)],
+        || verify_chain(data_dir, passkey, full).map_err(anyhow::Error::from),
+    )?;
+    debug_log::log_kv(
+        "recover.verify",
+        &[
+            debug_log::field("phase", "summary"),
+            debug_log::field("checked_count", result.checked_count),
+            debug_log::field("error_count", result.errors.len()),
+            debug_log::field(
+                "result",
+                if result.errors.is_empty() { "ok" } else { "error" },
+            ),
+        ],
+    );
 
     println!("Checked {} backup(s).", result.checked_count);
 
@@ -105,102 +144,150 @@ fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> R
 
         if input.trim().to_lowercase() != "y" {
             println!("Aborted.");
+            debug_log::log_kv(
+                "recover.restore",
+                &[
+                    debug_log::field("phase", "aborted"),
+                    debug_log::field("id", id),
+                    debug_log::field("result", "skipped"),
+                ],
+            );
             return Ok(());
         }
     }
 
-    restore_to_point(data_dir, id, passkey)?;
+    debug_log::timed_result(
+        "recover.restore",
+        &[
+            debug_log::field("id", id),
+            debug_log::field("entry_type", entry.entry_type.to_string()),
+            debug_log::field("plaintext_size", entry.plaintext_size),
+            debug_log::field("stored_size", entry.stored_size),
+            debug_log::field("encrypted", entry.encrypted),
+        ],
+        || restore_to_point(data_dir, id, passkey).map_err(anyhow::Error::from),
+    )?;
     println!("Restore to '{id}' completed successfully.");
     Ok(())
 }
 
 fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
-    let backups_dir = data_dir.join("backups");
+    debug_log::timed_result("recover.rebuild_index", &[], || {
+        let backups_dir = data_dir.join("backups");
 
-    if !backups_dir.exists() {
-        bail!("backups directory does not exist: {}", backups_dir.display());
-    }
+        if !backups_dir.exists() {
+            bail!("backups directory does not exist: {}", backups_dir.display());
+        }
 
-    let backup_key = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+        let backup_key = debug_log::timed_result(
+            "recover.resolve_backup_key",
+            &[debug_log::field("has_passkey", passkey.is_some())],
+            || backup::crypto::resolve_backup_key(data_dir, passkey).map_err(anyhow::Error::from),
+        )?;
 
-    struct FileInfo {
-        filename: String,
-        id: String,
-        entry_type: BackupType,
-        stored_size: u64,
-        mtime: std::time::SystemTime,
-    }
+        struct FileInfo {
+            filename: String,
+            id: String,
+            entry_type: BackupType,
+            stored_size: u64,
+            mtime: std::time::SystemTime,
+        }
 
-    let mut files: Vec<FileInfo> = std::fs::read_dir(&backups_dir)
-        .with_context(|| format!("failed to read backups dir: {}", backups_dir.display()))?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            let filename = entry.file_name().to_string_lossy().to_string();
-            let (id, entry_type) = parse_backup_filename(&filename)?;
-            let metadata = entry.metadata().ok()?;
-            let mtime = metadata.modified().ok()?;
-            let stored_size = metadata.len();
-            Some(FileInfo { filename, id, entry_type, stored_size, mtime })
-        })
-        .collect();
+        let mut files: Vec<FileInfo> = std::fs::read_dir(&backups_dir)
+            .with_context(|| format!("failed to read backups dir: {}", backups_dir.display()))?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let filename = entry.file_name().to_string_lossy().to_string();
+                let (id, entry_type) = parse_backup_filename(&filename)?;
+                let metadata = entry.metadata().ok()?;
+                let mtime = metadata.modified().ok()?;
+                let stored_size = metadata.len();
+                Some(FileInfo { filename, id, entry_type, stored_size, mtime })
+            })
+            .collect();
 
-    files.sort_by_key(|f| f.mtime);
+        files.sort_by_key(|f| f.mtime);
 
-    let mut entries: Vec<BackupEntry> = Vec::new();
-    let mut last_base_id: Option<String> = None;
+        let mut entries: Vec<BackupEntry> = Vec::new();
+        let mut last_base_id: Option<String> = None;
 
-    for file in &files {
-        let file_path = backups_dir.join(&file.filename);
-        let stored_bytes = std::fs::read(&file_path)
-            .with_context(|| format!("failed to read backup file: {}", file_path.display()))?;
+        for file in &files {
+            let file_path = backups_dir.join(&file.filename);
+            let stored_bytes = std::fs::read(&file_path)
+                .with_context(|| format!("failed to read backup file: {}", file_path.display()))?;
 
-        let file_hash = backup::hash::hash_bytes(&stored_bytes);
-        let encrypted = backup_key.is_some();
+            let file_hash = backup::hash::hash_bytes(&stored_bytes);
+            let encrypted = backup_key.is_some();
 
-        let created_at = chrono::DateTime::from(file.mtime);
+            let created_at = chrono::DateTime::from(file.mtime);
 
-        let (plaintext_hash, plaintext_size) = match file.entry_type {
-            BackupType::Base => {
-                let decrypted: Cow<[u8]> = match &backup_key {
-                    Some(key) => Cow::Owned(backup::crypto::decrypt_payload(&stored_bytes, key)
-                        .with_context(|| format!("failed to decrypt base file: {}", file.filename))?),
-                    None => Cow::Borrowed(&stored_bytes),
-                };
-                let decompressed = backup::diff::decompress(&decrypted)
-                    .with_context(|| format!("failed to decompress base file: {}", file.filename))?;
-                let hash = backup::hash::hash_bytes(&decompressed);
-                let size = decompressed.len() as u64;
-                (hash, size)
-            }
-            BackupType::Diff => (String::new(), 0u64),
-        };
+            let (plaintext_hash, plaintext_size) = match file.entry_type {
+                BackupType::Base => {
+                    let decrypted: Cow<[u8]> = match &backup_key {
+                        Some(key) => Cow::Owned(
+                            backup::crypto::decrypt_payload(&stored_bytes, key).with_context(
+                                || format!("failed to decrypt base file: {}", file.filename),
+                            )?,
+                        ),
+                        None => Cow::Borrowed(&stored_bytes),
+                    };
+                    let decompressed = backup::diff::decompress(&decrypted).with_context(|| {
+                        format!("failed to decompress base file: {}", file.filename)
+                    })?;
+                    let hash = backup::hash::hash_bytes(&decompressed);
+                    let size = decompressed.len() as u64;
+                    (hash, size)
+                }
+                BackupType::Diff => (String::new(), 0u64),
+            };
 
-        let base_id: Option<String> = match file.entry_type {
-            BackupType::Base => {
-                last_base_id = Some(file.id.clone());
-                None
-            }
-            BackupType::Diff => last_base_id.clone(),
-        };
+            let base_id: Option<String> = match file.entry_type {
+                BackupType::Base => {
+                    last_base_id = Some(file.id.clone());
+                    None
+                }
+                BackupType::Diff => last_base_id.clone(),
+            };
 
-        entries.push(BackupEntry {
-            id: file.id.clone(),
-            entry_type: file.entry_type,
-            filename: file.filename.clone(),
-            base_id,
-            plaintext_hash,
-            file_hash,
-            plaintext_size,
-            stored_size: file.stored_size,
-            encrypted,
-            created_at,
-        });
-    }
+            entries.push(BackupEntry {
+                id: file.id.clone(),
+                entry_type: file.entry_type,
+                filename: file.filename.clone(),
+                base_id,
+                plaintext_hash,
+                file_hash,
+                plaintext_size,
+                stored_size: file.stored_size,
+                encrypted,
+                created_at,
+            });
+        }
 
-    let rebuilt = BackupIndex { version: 1, entries };
-    let index_path = backups_dir.join("index.json");
-    save_index(&index_path, &rebuilt)?;
+        let base_count = entries
+            .iter()
+            .filter(|e| matches!(e.entry_type, BackupType::Base))
+            .count();
+        let diff_count = entries
+            .iter()
+            .filter(|e| matches!(e.entry_type, BackupType::Diff))
+            .count();
+        let encrypted_any = entries.iter().any(|e| e.encrypted);
+        debug_log::log_kv(
+            "recover.rebuild_index",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("file_count", files.len()),
+                debug_log::field("base_count", base_count),
+                debug_log::field("diff_count", diff_count),
+                debug_log::field("encrypted", encrypted_any),
+            ],
+        );
 
-    println!("Rebuilt index with {} entry/entries.", rebuilt.entries.len());
-    Ok(())
+        let rebuilt = BackupIndex { version: 1, entries };
+        let index_path = backups_dir.join("index.json");
+        save_index(&index_path, &rebuilt)?;
+
+        println!("Rebuilt index with {} entry/entries.", rebuilt.entries.len());
+        Ok(())
+    })
 }

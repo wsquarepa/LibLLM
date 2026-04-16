@@ -1,8 +1,10 @@
 //! Self-update mechanism via GitHub release downloads.
 
 use std::io::{self, IsTerminal, Write};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
+use libllm::debug_log;
 use serde::Deserialize;
 
 pub const REPO: &str = "wsquarepa/LibLLM";
@@ -93,14 +95,42 @@ fn current_exe_path() -> Result<std::path::PathBuf> {
 }
 
 pub async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Release> {
-    let resp = client
+    let start = Instant::now();
+    let resp = match client
         .get(url)
         .send()
         .await
-        .context("failed to fetch release info")?;
+        .context("failed to fetch release info")
+    {
+        Ok(resp) => resp,
+        Err(err) => {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            debug_log::log_kv(
+                "update.fetch_release",
+                &[
+                    debug_log::field("url", url),
+                    debug_log::field("result", "error"),
+                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                    debug_log::field("error", &err),
+                ],
+            );
+            return Err(err);
+        }
+    };
 
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::UNAUTHORIZED {
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        debug_log::log_kv(
+            "update.fetch_release",
+            &[
+                debug_log::field("url", url),
+                debug_log::field("result", "error"),
+                debug_log::field("status", status.as_u16()),
+                debug_log::field("has_token", github_token().is_some()),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+            ],
+        );
         if github_token().is_none() {
             anyhow::bail!(
                 "GitHub API returned {status}. \
@@ -111,10 +141,44 @@ pub async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Releas
     }
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        debug_log::log_kv(
+            "update.fetch_release",
+            &[
+                debug_log::field("url", url),
+                debug_log::field("result", "error"),
+                debug_log::field("status", status.as_u16()),
+                debug_log::field("body_bytes", body.len()),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+            ],
+        );
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
-    resp.json().await.context("failed to parse release JSON")
+    let release: Result<Release> = resp.json().await.context("failed to parse release JSON");
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    match &release {
+        Ok(release) => debug_log::log_kv(
+            "update.fetch_release",
+            &[
+                debug_log::field("url", url),
+                debug_log::field("result", "ok"),
+                debug_log::field("tag", &release.tag_name),
+                debug_log::field("asset_count", release.assets.len()),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+            ],
+        ),
+        Err(err) => debug_log::log_kv(
+            "update.fetch_release",
+            &[
+                debug_log::field("url", url),
+                debug_log::field("result", "error"),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+                debug_log::field("error", err),
+            ],
+        ),
+    }
+    release
 }
 
 fn find_asset(release: &Release) -> Result<&Asset> {
@@ -134,6 +198,7 @@ fn find_asset(release: &Release) -> Result<&Asset> {
 }
 
 async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result<()> {
+    let start = Instant::now();
     let download_resp = client
         .get(&asset.url)
         .header(reqwest::header::ACCEPT, "application/octet-stream")
@@ -143,6 +208,17 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
     if !download_resp.status().is_success() {
         let status = download_resp.status();
         let body = download_resp.text().await.unwrap_or_default();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        debug_log::log_kv(
+            "update.download",
+            &[
+                debug_log::field("asset", &asset.name),
+                debug_log::field("result", "error"),
+                debug_log::field("status", status.as_u16()),
+                debug_log::field("body_bytes", body.len()),
+                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+            ],
+        );
         anyhow::bail!("download failed with status {status}: {body}");
     }
 
@@ -150,7 +226,18 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
         .bytes()
         .await
         .context("failed to read download body")?;
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    debug_log::log_kv(
+        "update.download",
+        &[
+            debug_log::field("asset", &asset.name),
+            debug_log::field("result", "ok"),
+            debug_log::field("bytes", bytes.len()),
+            debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
+        ],
+    );
 
+    let install_start = Instant::now();
     let exe_path = current_exe_path()?;
     let tmp_path = exe_path.with_extension("tmp");
     let old_path = exe_path.with_extension("old");
@@ -170,9 +257,31 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
     std::fs::rename(&exe_path, &old_path).context("failed to move current binary aside")?;
     if let Err(e) = std::fs::rename(&tmp_path, &exe_path) {
         let _ = std::fs::rename(&old_path, &exe_path);
+        let install_elapsed = install_start.elapsed().as_secs_f64() * 1000.0;
+        debug_log::log_kv(
+            "update.install",
+            &[
+                debug_log::field("phase", "rollback"),
+                debug_log::field("result", "error"),
+                debug_log::field("exe_path", exe_path.display()),
+                debug_log::field("elapsed_ms", format!("{install_elapsed:.3}")),
+                debug_log::field("error", &e),
+            ],
+        );
         return Err(e).context("failed to install new binary");
     }
     let _ = std::fs::remove_file(&old_path);
+
+    let install_elapsed = install_start.elapsed().as_secs_f64() * 1000.0;
+    debug_log::log_kv(
+        "update.install",
+        &[
+            debug_log::field("phase", "install"),
+            debug_log::field("result", "ok"),
+            debug_log::field("exe_path", exe_path.display()),
+            debug_log::field("elapsed_ms", format!("{install_elapsed:.3}")),
+        ],
+    );
 
     Ok(())
 }
@@ -186,6 +295,14 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
         if let Some(remote_hash) = parse_release_hash(body) {
             let current_hash = env!("LIBLLM_COMMIT", "unknown");
             if current_hash != "unknown" && current_hash == remote_hash {
+                debug_log::log_kv(
+                    "update.check",
+                    &[
+                        debug_log::field("channel", "stable"),
+                        debug_log::field("result", "skipped"),
+                        debug_log::field("reason", "up_to_date"),
+                    ],
+                );
                 println!("Already up to date (commit {current_hash}).");
                 return Ok(());
             }
@@ -215,6 +332,14 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
             if let Some(remote_hash) = parse_release_hash(body) {
                 let current_hash = env!("LIBLLM_COMMIT", "unknown");
                 if current_hash != "unknown" && current_hash == remote_hash {
+                    debug_log::log_kv(
+                        "update.check",
+                        &[
+                            debug_log::field("channel", branch),
+                            debug_log::field("result", "skipped"),
+                            debug_log::field("reason", "up_to_date"),
+                        ],
+                    );
                     println!("Already up to date on '{branch}' (commit {current_hash}).");
                     return Ok(());
                 }
@@ -237,11 +362,29 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
 
 fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     if yes {
+        debug_log::log_kv(
+            "update.channel_switch",
+            &[
+                debug_log::field("from", CHANNEL),
+                debug_log::field("to", target),
+                debug_log::field("result", "confirmed"),
+                debug_log::field("reason", "yes_flag"),
+            ],
+        );
         return Ok(true);
     }
 
     let stdin = io::stdin();
     if !stdin.is_terminal() {
+        debug_log::log_kv(
+            "update.channel_switch",
+            &[
+                debug_log::field("from", CHANNEL),
+                debug_log::field("to", target),
+                debug_log::field("result", "error"),
+                debug_log::field("reason", "non_interactive"),
+            ],
+        );
         anyhow::bail!(
             "Currently on '{CHANNEL}'. \
              Switching channels in a non-interactive terminal requires --yes."
@@ -259,7 +402,19 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
 
     let mut answer = String::new();
     stdin.read_line(&mut answer)?;
-    Ok(answer.trim().eq_ignore_ascii_case("y"))
+    let confirmed = answer.trim().eq_ignore_ascii_case("y");
+    debug_log::log_kv(
+        "update.channel_switch",
+        &[
+            debug_log::field("from", CHANNEL),
+            debug_log::field("to", target),
+            debug_log::field(
+                "result",
+                if confirmed { "confirmed" } else { "declined" },
+            ),
+        ],
+    );
+    Ok(confirmed)
 }
 
 async fn list_branches(client: &reqwest::Client) -> Result<()> {
@@ -282,6 +437,14 @@ async fn list_branches(client: &reqwest::Client) -> Result<()> {
         .filter(|r| r.prerelease)
         .map(|r| r.tag_name.as_str())
         .collect();
+
+    debug_log::log_kv(
+        "update.list_branches",
+        &[
+            debug_log::field("branch_count", branches.len()),
+            debug_log::field("result", "ok"),
+        ],
+    );
 
     if branches.is_empty() {
         println!("No branch builds available.");
@@ -322,8 +485,26 @@ async fn list_branches(client: &reqwest::Client) -> Result<()> {
 
 pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
     if CHANNEL == "unknown" {
+        debug_log::log_kv(
+            "update.run",
+            &[
+                debug_log::field("phase", "start"),
+                debug_log::field("result", "error"),
+                debug_log::field("reason", "not_installed"),
+            ],
+        );
         anyhow::bail!("This build was not installed from a release. Use install.sh to install.");
     }
+
+    debug_log::log_kv(
+        "update.run",
+        &[
+            debug_log::field("phase", "start"),
+            debug_log::field("channel", CHANNEL),
+            debug_log::field("target", branch.as_deref().unwrap_or("stable")),
+            debug_log::field("list", list),
+        ],
+    );
 
     let client = build_client()?;
 
@@ -334,6 +515,13 @@ pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
     let target = branch.as_deref().unwrap_or("stable");
     if CHANNEL != target {
         if !confirm_channel_switch(target, yes)? {
+            debug_log::log_kv(
+                "update.run",
+                &[
+                    debug_log::field("phase", "cancel"),
+                    debug_log::field("reason", "channel_switch_declined"),
+                ],
+            );
             println!("Cancelled.");
             return Ok(());
         }

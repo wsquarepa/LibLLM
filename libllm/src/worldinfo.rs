@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::debug_log;
+
 /// A named collection of lorebook entries with keyword-activated content injection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldBook {
@@ -69,49 +71,75 @@ const DEFAULT_SCAN_DEPTH: usize = 4;
 /// Disabled and empty-content entries are filtered out. Uses `fallback_name` when the
 /// JSON does not include a `name` field.
 pub fn parse_worldbook_json(contents: &str, fallback_name: &str) -> Result<WorldBook> {
-    if let Ok(normalized) = serde_json::from_str::<WorldBook>(contents) {
-        return Ok(normalized);
-    }
-
-    let raw: RawWorldBook =
-        serde_json::from_str(contents).context("failed to parse worldbook JSON")?;
-
-    let name = raw
-        .name
-        .unwrap_or_else(|| fallback_name.to_owned());
-
-    let scan_depth = raw.scan_depth.unwrap_or(DEFAULT_SCAN_DEPTH);
-
-    let mut entries: Vec<Entry> = raw
-        .entries
-        .into_values()
-        .map(|raw_entry| {
-            let keys = raw_entry.keys.or(raw_entry.key).unwrap_or_default();
-            let secondary_keys = raw_entry
-                .secondary_keys
-                .or(raw_entry.keysecondary)
-                .unwrap_or_default();
-            let enabled = raw_entry
-                .enabled
-                .unwrap_or_else(|| !raw_entry.disable.unwrap_or(false));
-
-            Entry {
-                keys,
-                secondary_keys,
-                selective: raw_entry.selective.unwrap_or(false),
-                content: raw_entry.content.unwrap_or_default(),
-                constant: raw_entry.constant.unwrap_or(false),
-                enabled,
-                order: raw_entry.order.unwrap_or(10),
-                depth: raw_entry.depth.unwrap_or(scan_depth),
-                case_sensitive: raw_entry.case_sensitive.unwrap_or(false),
+    debug_log::timed_result(
+        "worldinfo.parse",
+        &[debug_log::field("bytes", contents.len())],
+        || {
+            if let Ok(normalized) = serde_json::from_str::<WorldBook>(contents) {
+                debug_log::log_kv(
+                    "worldinfo.parse",
+                    &[
+                        debug_log::field("phase", "normalized"),
+                        debug_log::field("entry_count", normalized.entries.len()),
+                        debug_log::field("fallback_name_used", false),
+                    ],
+                );
+                return Ok(normalized);
             }
-        })
-        .filter(|e| e.enabled && !e.content.is_empty())
-        .collect();
 
-    entries.sort_by_key(|e| e.order);
-    Ok(WorldBook { name, entries })
+            let raw: RawWorldBook =
+                serde_json::from_str(contents).context("failed to parse worldbook JSON")?;
+
+            let fallback_name_used = raw.name.is_none();
+            let name = raw
+                .name
+                .unwrap_or_else(|| fallback_name.to_owned());
+
+            let scan_depth = raw.scan_depth.unwrap_or(DEFAULT_SCAN_DEPTH);
+            let raw_entry_count = raw.entries.len();
+
+            let mut entries: Vec<Entry> = raw
+                .entries
+                .into_values()
+                .map(|raw_entry| {
+                    let keys = raw_entry.keys.or(raw_entry.key).unwrap_or_default();
+                    let secondary_keys = raw_entry
+                        .secondary_keys
+                        .or(raw_entry.keysecondary)
+                        .unwrap_or_default();
+                    let enabled = raw_entry
+                        .enabled
+                        .unwrap_or_else(|| !raw_entry.disable.unwrap_or(false));
+
+                    Entry {
+                        keys,
+                        secondary_keys,
+                        selective: raw_entry.selective.unwrap_or(false),
+                        content: raw_entry.content.unwrap_or_default(),
+                        constant: raw_entry.constant.unwrap_or(false),
+                        enabled,
+                        order: raw_entry.order.unwrap_or(10),
+                        depth: raw_entry.depth.unwrap_or(scan_depth),
+                        case_sensitive: raw_entry.case_sensitive.unwrap_or(false),
+                    }
+                })
+                .filter(|e| e.enabled && !e.content.is_empty())
+                .collect();
+
+            entries.sort_by_key(|e| e.order);
+            debug_log::log_kv(
+                "worldinfo.parse",
+                &[
+                    debug_log::field("phase", "legacy"),
+                    debug_log::field("entry_count", entries.len()),
+                    debug_log::field("filtered_count", raw_entry_count - entries.len()),
+                    debug_log::field("fallback_name_used", fallback_name_used),
+                    debug_log::field("scan_depth", scan_depth),
+                ],
+            );
+            Ok(WorldBook { name, entries })
+        },
+    )
 }
 
 /// A worldbook entry whose keywords matched the recent message window.
@@ -141,7 +169,7 @@ struct RuntimeEntry {
 
 impl RuntimeWorldBook {
     pub fn from_worldbook(worldbook: &WorldBook) -> Self {
-        let entries = worldbook
+        let entries: Vec<RuntimeEntry> = worldbook
             .entries
             .iter()
             .map(|entry| RuntimeEntry {
@@ -168,6 +196,18 @@ impl RuntimeWorldBook {
             })
             .collect();
 
+        let case_sensitive_count = entries.iter().filter(|e| e.case_sensitive).count();
+        let constant_count = entries.iter().filter(|e| e.constant).count();
+        debug_log::log_kv(
+            "worldinfo.runtime",
+            &[
+                debug_log::field("phase", "build"),
+                debug_log::field("entry_count", entries.len()),
+                debug_log::field("case_sensitive_count", case_sensitive_count),
+                debug_log::field("constant_count", constant_count),
+            ],
+        );
+
         Self { entries }
     }
 }
@@ -181,64 +221,86 @@ pub fn scan_runtime_entries(
     worldbook: &RuntimeWorldBook,
     messages: &[&str],
 ) -> Vec<ActivatedEntry> {
-    let mut activated: Vec<ActivatedEntry> = Vec::new();
-    let mut case_sensitive_windows: std::collections::HashMap<usize, String> =
-        std::collections::HashMap::new();
-    let mut case_insensitive_windows: std::collections::HashMap<usize, String> =
-        std::collections::HashMap::new();
+    debug_log::timed_kv(
+        "worldinfo.scan",
+        &[
+            debug_log::field("message_count", messages.len()),
+            debug_log::field("entry_count", worldbook.entries.len()),
+        ],
+        || {
+            let mut activated: Vec<ActivatedEntry> = Vec::new();
+            let mut constant_activated = 0usize;
+            let mut keyword_activated = 0usize;
+            let mut case_sensitive_windows: std::collections::HashMap<usize, String> =
+                std::collections::HashMap::new();
+            let mut case_insensitive_windows: std::collections::HashMap<usize, String> =
+                std::collections::HashMap::new();
 
-    for entry in &worldbook.entries {
-        if entry.constant {
-            activated.push(ActivatedEntry {
-                content: entry.content.clone(),
-                depth: entry.depth,
-                order: entry.order,
-            });
-            continue;
-        }
-
-        let haystack = if entry.case_sensitive {
-            case_sensitive_windows
-                .entry(entry.depth)
-                .or_insert_with(|| build_window(messages, entry.depth))
-        } else {
-            case_insensitive_windows
-                .entry(entry.depth)
-                .or_insert_with(|| build_window(messages, entry.depth).to_lowercase())
-        };
-
-        let primary_match = entry.primary_keys.iter().any(|k| {
-            if k.is_empty() {
-                return false;
-            }
-            haystack.contains(k)
-        });
-
-        if !primary_match {
-            continue;
-        }
-
-        if entry.selective && !entry.secondary_keys.is_empty() {
-            let secondary_match = entry.secondary_keys.iter().all(|k| {
-                if k.is_empty() {
-                    return true;
+            for entry in &worldbook.entries {
+                if entry.constant {
+                    activated.push(ActivatedEntry {
+                        content: entry.content.clone(),
+                        depth: entry.depth,
+                        order: entry.order,
+                    });
+                    constant_activated += 1;
+                    continue;
                 }
-                haystack.contains(k)
-            });
-            if !secondary_match {
-                continue;
+
+                let haystack = if entry.case_sensitive {
+                    case_sensitive_windows
+                        .entry(entry.depth)
+                        .or_insert_with(|| build_window(messages, entry.depth))
+                } else {
+                    case_insensitive_windows
+                        .entry(entry.depth)
+                        .or_insert_with(|| build_window(messages, entry.depth).to_lowercase())
+                };
+
+                let primary_match = entry.primary_keys.iter().any(|k| {
+                    if k.is_empty() {
+                        return false;
+                    }
+                    haystack.contains(k)
+                });
+
+                if !primary_match {
+                    continue;
+                }
+
+                if entry.selective && !entry.secondary_keys.is_empty() {
+                    let secondary_match = entry.secondary_keys.iter().all(|k| {
+                        if k.is_empty() {
+                            return true;
+                        }
+                        haystack.contains(k)
+                    });
+                    if !secondary_match {
+                        continue;
+                    }
+                }
+
+                activated.push(ActivatedEntry {
+                    content: entry.content.clone(),
+                    depth: entry.depth,
+                    order: entry.order,
+                });
+                keyword_activated += 1;
             }
-        }
 
-        activated.push(ActivatedEntry {
-            content: entry.content.clone(),
-            depth: entry.depth,
-            order: entry.order,
-        });
-    }
-
-    activated.sort_by_key(|e| e.order);
-    activated
+            activated.sort_by_key(|e| e.order);
+            debug_log::log_kv(
+                "worldinfo.scan",
+                &[
+                    debug_log::field("phase", "done"),
+                    debug_log::field("activated", activated.len()),
+                    debug_log::field("constant_activated", constant_activated),
+                    debug_log::field("keyword_activated", keyword_activated),
+                ],
+            );
+            activated
+        },
+    )
 }
 
 fn build_window(messages: &[&str], depth: usize) -> String {

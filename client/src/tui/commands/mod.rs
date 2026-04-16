@@ -25,6 +25,13 @@ pub(super) fn handle_slash_command(
     sender: mpsc::Sender<StreamToken>,
 ) {
     let cmd = libllm::commands::resolve_alias(cmd);
+    libllm::debug_log::log_kv(
+        "tui.command",
+        &[
+            libllm::debug_log::field("cmd", cmd),
+            libllm::debug_log::field("has_arg", !arg.is_empty()),
+        ],
+    );
     match cmd {
         "/quit" => cmd_quit(app),
         "/clear" => cmd_clear(app),
@@ -42,6 +49,13 @@ pub(super) fn handle_slash_command(
         "/macro" => cmd_macro(app, arg, sender),
         "/report" => cmd_report(app),
         _ => {
+            libllm::debug_log::log_kv(
+                "tui.command",
+                &[
+                    libllm::debug_log::field("cmd", cmd),
+                    libllm::debug_log::field("result", "unknown"),
+                ],
+            );
             app.set_status(
                 format!("Unknown command: {cmd}"),
                 StatusLevel::Warning,
@@ -379,6 +393,13 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
     let arg = arg.trim();
     if arg.is_empty() {
         let names: Vec<&String> = app.config.macros.keys().collect();
+        libllm::debug_log::log_kv(
+            "tui.command.macro",
+            &[
+                libllm::debug_log::field("result", "listed"),
+                libllm::debug_log::field("macro_count", names.len()),
+            ],
+        );
         if names.is_empty() {
             app.set_status(
                 "No macros defined. Add [macros] to config.toml".to_owned(),
@@ -406,6 +427,13 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
     let template = match app.config.macros.get(name) {
         Some(t) => t.clone(),
         None => {
+            libllm::debug_log::log_kv(
+                "tui.command.macro",
+                &[
+                    libllm::debug_log::field("name", name),
+                    libllm::debug_log::field("result", "unknown"),
+                ],
+            );
             app.set_status(
                 format!("Unknown macro: {name}"),
                 StatusLevel::Warning,
@@ -415,13 +443,39 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
     };
 
     match macros::expand_macro(&template, macro_args) {
-        Ok(expanded) => streaming::start_streaming(app, &expanded, sender),
-        Err(err) => app.set_status(err, StatusLevel::Error),
+        Ok(expanded) => {
+            libllm::debug_log::log_kv(
+                "tui.command.macro",
+                &[
+                    libllm::debug_log::field("name", name),
+                    libllm::debug_log::field("result", "expanded"),
+                    libllm::debug_log::field("expanded_bytes", expanded.len()),
+                ],
+            );
+            streaming::start_streaming(app, &expanded, sender)
+        }
+        Err(err) => {
+            libllm::debug_log::log_kv(
+                "tui.command.macro",
+                &[
+                    libllm::debug_log::field("name", name),
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("error", &err),
+                ],
+            );
+            app.set_status(err, StatusLevel::Error)
+        }
     }
 }
 
 fn cmd_report(app: &mut App) {
     if !libllm::config::load().debug_log {
+        libllm::debug_log::log_kv(
+            "tui.command.report",
+            &[
+                libllm::debug_log::field("result", "disabled"),
+            ],
+        );
         app.set_status(
             "Debug logging is disabled in config".to_owned(),
             StatusLevel::Error,
@@ -431,6 +485,14 @@ fn cmd_report(app: &mut App) {
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
         Err(err) => {
+            libllm::debug_log::log_kv(
+                "tui.command.report",
+                &[
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("reason", "cwd_error"),
+                    libllm::debug_log::field("error", &err),
+                ],
+            );
             app.set_status(
                 format!("Cannot resolve current directory: {err}"),
                 StatusLevel::Error,
@@ -440,6 +502,14 @@ fn cmd_report(app: &mut App) {
     };
     let output_path = current_dir.join("debug.log");
     if output_path.exists() {
+        libllm::debug_log::log_kv(
+            "tui.command.report",
+            &[
+                libllm::debug_log::field("result", "error"),
+                libllm::debug_log::field("reason", "collision"),
+                libllm::debug_log::field("output_path", output_path.display()),
+            ],
+        );
         app.set_status(
             format!("Refusing to overwrite existing {}", output_path.display()),
             StatusLevel::Error,
@@ -448,13 +518,33 @@ fn cmd_report(app: &mut App) {
     }
 
     match libllm::debug_log::copy_current_log_to(&output_path) {
-        Ok(()) => app.set_status(
-            format!("Debug log copied to {}", output_path.display()),
-            StatusLevel::Info,
-        ),
-        Err(err) => app.set_status(
-            format!("Failed to write debug report: {err}"),
-            StatusLevel::Error,
-        ),
+        Ok(()) => {
+            libllm::debug_log::log_kv(
+                "tui.command.report",
+                &[
+                    libllm::debug_log::field("result", "ok"),
+                    libllm::debug_log::field("output_path", output_path.display()),
+                ],
+            );
+            app.set_status(
+                format!("Debug log copied to {}", output_path.display()),
+                StatusLevel::Info,
+            )
+        }
+        Err(err) => {
+            libllm::debug_log::log_kv(
+                "tui.command.report",
+                &[
+                    libllm::debug_log::field("result", "error"),
+                    libllm::debug_log::field("reason", "copy_error"),
+                    libllm::debug_log::field("output_path", output_path.display()),
+                    libllm::debug_log::field("error", &err),
+                ],
+            );
+            app.set_status(
+                format!("Failed to write debug report: {err}"),
+                StatusLevel::Error,
+            )
+        }
     }
 }

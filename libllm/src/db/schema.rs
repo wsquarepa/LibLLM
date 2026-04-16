@@ -3,33 +3,49 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+use crate::debug_log;
+
 pub fn run_migrations(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER NOT NULL
-        );",
-    )
-    .context("failed to create schema_version table")?;
-
-    let version: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-            [],
-            |row| row.get(0),
+    debug_log::timed_result("db.migrate", &[], || {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER NOT NULL
+            );",
         )
-        .context("failed to read schema version")?;
+        .context("failed to create schema_version table")?;
 
-    if version < 1 {
-        migrate_v1(conn)?;
-        conn.execute_batch("INSERT INTO schema_version (version) VALUES (1);")
-            .context("failed to record schema version 1")?;
-    }
+        let version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .context("failed to read schema version")?;
 
-    Ok(())
+        let mut applied = 0usize;
+        if version < 1 {
+            migrate_v1(conn)?;
+            conn.execute_batch("INSERT INTO schema_version (version) VALUES (1);")
+                .context("failed to record schema version 1")?;
+            applied += 1;
+        }
+
+        debug_log::log_kv(
+            "db.migrate",
+            &[
+                debug_log::field("phase", "summary"),
+                debug_log::field("from_version", version),
+                debug_log::field("to_version", 1),
+                debug_log::field("applied", applied),
+            ],
+        );
+        Ok(())
+    })
 }
 
 fn migrate_v1(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
+    debug_log::timed_result("db.migrate", &[debug_log::field("phase", "v1")], || {
+        conn.execute_batch(
         "CREATE TABLE sessions (
             id TEXT PRIMARY KEY NOT NULL,
             display_name TEXT,
@@ -103,8 +119,9 @@ fn migrate_v1(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );",
-    )
-    .context("failed to run migration v1")
+        )
+        .context("failed to run migration v1")
+    })
 }
 
 #[cfg(test)]

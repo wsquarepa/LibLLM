@@ -4,7 +4,7 @@ pub mod business;
 mod clipboard;
 pub mod commands;
 mod dialog_handler;
-mod dialogs;
+pub mod dialogs;
 mod events;
 mod input;
 mod maintenance;

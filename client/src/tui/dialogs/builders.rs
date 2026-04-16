@@ -291,3 +291,213 @@ pub fn open_entry_editor_non_selective(values: Vec<String>) -> FieldDialog<'stat
     dialog.hidden_fields = vec![3];
     dialog
 }
+
+const THEME_TAB_LABELS: &[&str] = &["Base theme", "", "Reset all colors", "Cancel"];
+const THEME_TAB_SELECTOR: &[usize] = &[0];
+const THEME_TAB_SEPARATOR: &[usize] = &[1];
+const THEME_TAB_ACTIONS: &[usize] = &[2, 3];
+
+const MESSAGES_LABELS: &[&str] = &[
+    "user_message",
+    "assistant_message_fg",
+    "assistant_message_bg",
+    "system_message",
+    "dialogue",
+];
+const MESSAGES_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4];
+
+const BORDERS_STATUS_LABELS: &[&str] = &[
+    "border_focused",
+    "border_unfocused",
+    "status_bar_fg",
+    "status_bar_bg",
+    "status_error_fg",
+    "status_error_bg",
+    "status_info_fg",
+    "status_info_bg",
+    "status_warning_fg",
+    "status_warning_bg",
+];
+const BORDERS_STATUS_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+const UI_LABELS: &[&str] = &[
+    "nav_cursor_fg",
+    "nav_cursor_bg",
+    "hover_bg",
+    "sidebar_highlight_fg",
+    "sidebar_highlight_bg",
+    "dimmed",
+    "command_picker_fg",
+    "command_picker_bg",
+];
+const UI_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7];
+
+const INDICATORS_LABELS: &[&str] = &[
+    "streaming_indicator",
+    "api_unavailable",
+    "summary_indicator",
+];
+const INDICATORS_COLOR_FIELDS: &[usize] = &[0, 1, 2];
+
+pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'static> {
+    let overrides = config
+        .theme_colors
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
+
+    let base_theme = config.theme.clone().unwrap_or_else(|| "dark".to_owned());
+
+    let theme_vals = vec![
+        base_theme,
+        String::new(),
+        String::new(),
+        String::new(),
+    ];
+    let theme_tab = TabSection {
+        title: "Theme",
+        labels: THEME_TAB_LABELS,
+        original_values: theme_vals.clone(),
+        values: theme_vals,
+        multiline_fields: &[],
+        boolean_fields: &[],
+        selector_fields: THEME_TAB_SELECTOR,
+        action_fields: THEME_TAB_ACTIONS,
+        separator_fields: THEME_TAB_SEPARATOR,
+        placeholder_fields: &[],
+        placeholder_text: None,
+        locked_fields: Vec::new(),
+        validated_fields: Vec::new(),
+        color_preview_fields: &[],
+        selected: 0,
+    };
+
+    let messages_vals: Vec<String> = MESSAGES_LABELS
+        .iter()
+        .map(|l| override_value(&overrides, l))
+        .collect();
+    let messages = TabSection {
+        title: "Messages",
+        labels: MESSAGES_LABELS,
+        original_values: messages_vals.clone(),
+        values: messages_vals,
+        multiline_fields: &[],
+        boolean_fields: &[],
+        selector_fields: &[],
+        action_fields: &[],
+        separator_fields: &[],
+        placeholder_fields: &[],
+        placeholder_text: None,
+        locked_fields: Vec::new(),
+        validated_fields: color_validations(MESSAGES_LABELS.len()),
+        color_preview_fields: MESSAGES_COLOR_FIELDS,
+        selected: 0,
+    };
+
+    let borders_vals: Vec<String> = BORDERS_STATUS_LABELS
+        .iter()
+        .map(|l| override_value(&overrides, l))
+        .collect();
+    let borders_status = TabSection {
+        title: "Borders & Status",
+        labels: BORDERS_STATUS_LABELS,
+        original_values: borders_vals.clone(),
+        values: borders_vals,
+        multiline_fields: &[],
+        boolean_fields: &[],
+        selector_fields: &[],
+        action_fields: &[],
+        separator_fields: &[],
+        placeholder_fields: &[],
+        placeholder_text: None,
+        locked_fields: Vec::new(),
+        validated_fields: color_validations(BORDERS_STATUS_LABELS.len()),
+        color_preview_fields: BORDERS_STATUS_COLOR_FIELDS,
+        selected: 0,
+    };
+
+    let ui_vals: Vec<String> = UI_LABELS
+        .iter()
+        .map(|l| override_value(&overrides, l))
+        .collect();
+    let ui_tab = TabSection {
+        title: "UI",
+        labels: UI_LABELS,
+        original_values: ui_vals.clone(),
+        values: ui_vals,
+        multiline_fields: &[],
+        boolean_fields: &[],
+        selector_fields: &[],
+        action_fields: &[],
+        separator_fields: &[],
+        placeholder_fields: &[],
+        placeholder_text: None,
+        locked_fields: Vec::new(),
+        validated_fields: color_validations(UI_LABELS.len()),
+        color_preview_fields: UI_COLOR_FIELDS,
+        selected: 0,
+    };
+
+    let ind_vals: Vec<String> = INDICATORS_LABELS
+        .iter()
+        .map(|l| override_value(&overrides, l))
+        .collect();
+    let indicators = TabSection {
+        title: "Indicators",
+        labels: INDICATORS_LABELS,
+        original_values: ind_vals.clone(),
+        values: ind_vals,
+        multiline_fields: &[],
+        boolean_fields: &[],
+        selector_fields: &[],
+        action_fields: &[],
+        separator_fields: &[],
+        placeholder_fields: &[],
+        placeholder_text: None,
+        locked_fields: Vec::new(),
+        validated_fields: color_validations(INDICATORS_LABELS.len()),
+        color_preview_fields: INDICATORS_COLOR_FIELDS,
+        selected: 0,
+    };
+
+    TabbedFieldDialog::new(
+        " Theme ",
+        vec![theme_tab, messages, borders_status, ui_tab, indicators],
+    )
+}
+
+fn color_validations(count: usize) -> Vec<(usize, FieldValidation)> {
+    (0..count).map(|i| (i, FieldValidation::Color)).collect()
+}
+
+fn override_value(overrides: &libllm::config::ThemeColorOverrides, label: &str) -> String {
+    match label {
+        "user_message" => overrides.user_message.clone().unwrap_or_default(),
+        "assistant_message_fg" => overrides.assistant_message_fg.clone().unwrap_or_default(),
+        "assistant_message_bg" => overrides.assistant_message_bg.clone().unwrap_or_default(),
+        "system_message" => overrides.system_message.clone().unwrap_or_default(),
+        "dialogue" => overrides.dialogue.clone().unwrap_or_default(),
+        "border_focused" => overrides.border_focused.clone().unwrap_or_default(),
+        "border_unfocused" => overrides.border_unfocused.clone().unwrap_or_default(),
+        "status_bar_fg" => overrides.status_bar_fg.clone().unwrap_or_default(),
+        "status_bar_bg" => overrides.status_bar_bg.clone().unwrap_or_default(),
+        "status_error_fg" => overrides.status_error_fg.clone().unwrap_or_default(),
+        "status_error_bg" => overrides.status_error_bg.clone().unwrap_or_default(),
+        "status_info_fg" => overrides.status_info_fg.clone().unwrap_or_default(),
+        "status_info_bg" => overrides.status_info_bg.clone().unwrap_or_default(),
+        "status_warning_fg" => overrides.status_warning_fg.clone().unwrap_or_default(),
+        "status_warning_bg" => overrides.status_warning_bg.clone().unwrap_or_default(),
+        "nav_cursor_fg" => overrides.nav_cursor_fg.clone().unwrap_or_default(),
+        "nav_cursor_bg" => overrides.nav_cursor_bg.clone().unwrap_or_default(),
+        "hover_bg" => overrides.hover_bg.clone().unwrap_or_default(),
+        "sidebar_highlight_fg" => overrides.sidebar_highlight_fg.clone().unwrap_or_default(),
+        "sidebar_highlight_bg" => overrides.sidebar_highlight_bg.clone().unwrap_or_default(),
+        "dimmed" => overrides.dimmed.clone().unwrap_or_default(),
+        "command_picker_fg" => overrides.command_picker_fg.clone().unwrap_or_default(),
+        "command_picker_bg" => overrides.command_picker_bg.clone().unwrap_or_default(),
+        "streaming_indicator" => overrides.streaming_indicator.clone().unwrap_or_default(),
+        "api_unavailable" => overrides.api_unavailable.clone().unwrap_or_default(),
+        "summary_indicator" => overrides.summary_indicator.clone().unwrap_or_default(),
+        _ => String::new(),
+    }
+}

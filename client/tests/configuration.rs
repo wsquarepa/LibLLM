@@ -259,3 +259,17 @@ fn is_libllm_data_dir_detects_config_toml() {
     std::fs::write(dir.path().join("config.toml"), "").unwrap();
     assert!(validation::is_libllm_data_dir(dir.path()));
 }
+
+#[test]
+fn theme_editor_covers_all_color_override_fields() {
+    let config = libllm::config::Config::default();
+    let dialog = client::tui::dialogs::open_theme_editor(&config);
+    assert_eq!(dialog.sections().len(), 5, "expected 5 theme tabs");
+    let color_field_count: usize = dialog
+        .sections()
+        .iter()
+        .skip(1)
+        .map(|s| s.labels.len())
+        .sum();
+    assert_eq!(color_field_count, 26, "tabs 2-5 must cover all 26 ThemeColorOverrides fields");
+}

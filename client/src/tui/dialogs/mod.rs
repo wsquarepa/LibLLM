@@ -21,7 +21,7 @@ mod validation;
 pub use builders::{
     open_character_editor, open_config_editor, open_entry_editor, open_entry_editor_non_selective,
     open_instruct_editor, open_persona_editor, open_reasoning_editor, open_system_prompt_editor,
-    open_template_editor,
+    open_template_editor, open_theme_editor,
 };
 pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub(in crate::tui) use builders::{

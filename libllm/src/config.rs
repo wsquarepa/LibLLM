@@ -141,7 +141,7 @@ impl Default for BackupConfig {
 }
 
 /// Optional color overrides for TUI theme elements, specified as CSS-style hex strings.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ThemeColorOverrides {
     pub user_message: Option<String>,
     pub assistant_message_fg: Option<String>,

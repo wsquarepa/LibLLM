@@ -1,10 +1,17 @@
 //! Tabbed multi-section field-editor dialog used by /config and /theme.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::Paragraph;
 use std::time::Instant;
 use tui_textarea::TextArea;
 
+use super::is_flash_active;
 use super::validation::FieldValidation;
+use crate::tui::render::{clear_centered, dialog_block, render_hints_below_dialog};
+use crate::tui::theme::{Theme, parse_color};
 
 pub struct TabSection {
     pub title: &'static str,
@@ -339,6 +346,281 @@ impl<'a> TabbedFieldDialog<'a> {
         }
         TabbedFieldAction::Continue
     }
+
+    const LABEL_PREFIX_WIDTH: usize = 24;
+    const DIALOG_WIDTH: u16 = 78;
+    const SWATCH_WIDTH: usize = 4;
+    const MULTILINE_WIDTH_PERCENT: u16 = 70;
+    const MULTILINE_HEIGHT_PERCENT: u16 = 60;
+
+    fn dialog_dimensions(&self, area: Rect) -> (u16, u16) {
+        if self.editor.is_some() {
+            let w = (area.width as f32 * Self::MULTILINE_WIDTH_PERCENT as f32 / 100.0) as u16;
+            let h = (area.height as f32 * Self::MULTILINE_HEIGHT_PERCENT as f32 / 100.0) as u16;
+            return (w, h);
+        }
+        let tallest = self
+            .sections
+            .iter()
+            .map(|s| s.labels.len() as u16)
+            .max()
+            .unwrap_or(0);
+        let height = tallest + 6;
+        (Self::DIALOG_WIDTH, height)
+    }
+
+    pub fn render(&self, f: &mut ratatui::Frame, area: Rect, theme: &Theme) {
+        let (w, h) = self.dialog_dimensions(area);
+        let dialog = clear_centered(f, w, h, area);
+        if self.editor.is_some() {
+            self.render_with_editor(f, dialog, area);
+        } else {
+            self.render_tabs_and_fields(f, dialog, area, theme);
+        }
+    }
+
+    fn render_tabs_and_fields(
+        &self,
+        f: &mut ratatui::Frame,
+        dialog: Rect,
+        area: Rect,
+        theme: &Theme,
+    ) {
+        let mut lines: Vec<Line> = Vec::new();
+        lines.push(Line::from(""));
+        lines.push(self.build_tab_bar_line());
+        lines.push(Line::from(""));
+        let section = &self.sections[self.current_tab];
+        for (i, &label) in section.labels.iter().enumerate() {
+            if section.separator_fields.contains(&i) {
+                lines.push(Line::from(""));
+                continue;
+            }
+            lines.push(self.build_field_line(section, i, label, dialog.width, theme));
+        }
+        let paragraph =
+            Paragraph::new(Text::from(lines)).block(dialog_block(self.title, Color::Yellow));
+        f.render_widget(paragraph, dialog);
+        render_hints_below_dialog(f, dialog, area, &[Line::from(self.current_hint())]);
+    }
+
+    fn current_hint(&self) -> &'static str {
+        let tab = self.current_tab;
+        let idx = self.sections[tab].selected;
+        if self.is_boolean(tab, idx) {
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: toggle  Esc: save & close"
+        } else if self.is_selector(tab, idx) {
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: select  Esc: save & close"
+        } else if self.is_action(tab, idx) {
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: invoke  Esc: save & close"
+        } else {
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: edit  Esc: save & close"
+        }
+    }
+
+    fn build_tab_bar_line(&self) -> Line<'static> {
+        let mut spans: Vec<Span<'static>> = vec![Span::raw("  ")];
+        for (i, section) in self.sections.iter().enumerate() {
+            let label = format!("[ {} ]", section.title);
+            let style = if i == self.current_tab {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            spans.push(Span::styled(label, style));
+            spans.push(Span::raw(" "));
+        }
+        Line::from(spans)
+    }
+
+    fn build_field_line(
+        &self,
+        section: &TabSection,
+        i: usize,
+        label: &'static str,
+        dialog_width: u16,
+        theme: &Theme,
+    ) -> Line<'static> {
+        let value = &section.values[i];
+        let is_selected = i == section.selected;
+        let show_cursor = is_selected && self.editing;
+        let is_locked = section.locked_fields.contains(&i);
+
+        let label_style = if is_locked {
+            Style::default().fg(Color::Red)
+        } else if is_selected {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let flashing = is_selected && self.editing && is_flash_active(self.reject_flash);
+        let is_color = section.color_preview_fields.contains(&i);
+        let value_is_invalid_color =
+            is_color && !value.is_empty() && parse_color(value).is_none();
+
+        let value_style = if is_locked || value_is_invalid_color {
+            Style::default().fg(Color::Red)
+        } else if flashing {
+            Style::default().fg(Color::Yellow)
+        } else if is_selected {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+
+        let is_empty = value.is_empty();
+        let is_boolean = section.boolean_fields.contains(&i);
+        let is_multiline = section.multiline_fields.contains(&i);
+        let display_value = if is_boolean {
+            if value == "true" {
+                "[x]".to_owned()
+            } else {
+                "[ ]".to_owned()
+            }
+        } else if is_multiline && value.contains('\n') {
+            format!("({} lines)", value.lines().count())
+        } else {
+            value.clone()
+        };
+
+        let has_placeholder = section.placeholder_fields.contains(&i) || is_color;
+        let show_placeholder = is_empty && !self.editing && has_placeholder;
+
+        let max_value_width = dialog_width as usize
+            - 2
+            - Self::LABEL_PREFIX_WIDTH
+            - if is_color { Self::SWATCH_WIDTH + 1 } else { 0 };
+
+        let mut spans: Vec<Span<'static>> =
+            vec![Span::styled(format!("  {label:<22}"), label_style)];
+
+        if is_color {
+            let swatch_color = self.resolve_swatch_color(value, theme, label);
+            let swatch_style = Style::default().fg(swatch_color);
+            spans.push(Span::styled("████".to_owned(), swatch_style));
+            spans.push(Span::raw(" "));
+        }
+
+        if show_placeholder {
+            let ph_text = if is_color {
+                "(inherit)"
+            } else {
+                section.placeholder_text.unwrap_or("")
+            };
+            spans.push(Span::styled(
+                ph_text.to_owned(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else if show_cursor {
+            let chars: Vec<char> = display_value.chars().collect();
+            let char_count = chars.len();
+            let visible_width = max_value_width.saturating_sub(1);
+            let scroll = if self.cursor_pos > visible_width {
+                self.cursor_pos - visible_width
+            } else {
+                0
+            };
+            let visible_end = (scroll + max_value_width).min(char_count);
+            let before: String = chars[scroll..self.cursor_pos].iter().collect();
+            let cursor_ch = if self.cursor_pos < char_count {
+                chars[self.cursor_pos].to_string()
+            } else {
+                " ".to_string()
+            };
+            let after_start = (self.cursor_pos + 1).min(char_count);
+            let after: String = chars[after_start..visible_end].iter().collect();
+            let cursor_style = value_style.add_modifier(Modifier::REVERSED);
+            spans.push(Span::styled(before, value_style));
+            spans.push(Span::styled(cursor_ch, cursor_style));
+            spans.push(Span::styled(after, value_style));
+        } else {
+            let full = &display_value;
+            let visible: String = if full.chars().count() > max_value_width {
+                let skip = full.chars().count() - max_value_width;
+                full.chars().skip(skip).collect()
+            } else {
+                full.clone()
+            };
+            spans.push(Span::styled(visible, value_style));
+        }
+
+        Line::from(spans)
+    }
+
+    fn resolve_swatch_color(&self, value: &str, theme: &Theme, label: &str) -> Color {
+        if value.is_empty() {
+            return theme_color_by_label(theme, label);
+        }
+        parse_color(value).unwrap_or(theme.status_error_bg)
+    }
+
+    fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
+        let editor = self.editor.as_ref().unwrap();
+        let tab = self.current_tab;
+        let idx = self.sections[tab].selected;
+        let label = self.sections[tab].labels[idx];
+        let inner = Rect {
+            x: dialog.x + 1,
+            y: dialog.y + 1,
+            width: dialog.width.saturating_sub(2),
+            height: dialog.height.saturating_sub(2),
+        };
+        let title_line = Line::from(Span::styled(
+            format!("  Editing: {label}"),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+        let header = Paragraph::new(Text::from(vec![Line::from(""), title_line]));
+        let header_area = Rect { height: 2, ..inner };
+        f.render_widget(header, header_area);
+        let editor_area = Rect {
+            x: inner.x + 1,
+            y: inner.y + 2,
+            width: inner.width.saturating_sub(2),
+            height: inner.height.saturating_sub(3),
+        };
+        f.render_widget(editor, editor_area);
+        f.render_widget(dialog_block(self.title, Color::Yellow), dialog);
+        render_hints_below_dialog(f, dialog, area, &[Line::from("Esc: done editing")]);
+    }
+}
+
+fn theme_color_by_label(theme: &Theme, label: &str) -> Color {
+    match label {
+        "user_message" => theme.user_message,
+        "assistant_message_fg" => theme.assistant_message_fg,
+        "assistant_message_bg" => theme.assistant_message_bg,
+        "system_message" => theme.system_message,
+        "border_focused" => theme.border_focused,
+        "border_unfocused" => theme.border_unfocused,
+        "status_bar_fg" => theme.status_bar_fg,
+        "status_bar_bg" => theme.status_bar_bg,
+        "status_error_fg" => theme.status_error_fg,
+        "status_error_bg" => theme.status_error_bg,
+        "status_info_fg" => theme.status_info_fg,
+        "status_info_bg" => theme.status_info_bg,
+        "status_warning_fg" => theme.status_warning_fg,
+        "status_warning_bg" => theme.status_warning_bg,
+        "dialogue" => theme.dialogue,
+        "nav_cursor_fg" => theme.nav_cursor_fg,
+        "nav_cursor_bg" => theme.nav_cursor_bg,
+        "hover_bg" => theme.hover_bg,
+        "dimmed" => theme.dimmed,
+        "sidebar_highlight_fg" => theme.sidebar_highlight_fg,
+        "sidebar_highlight_bg" => theme.sidebar_highlight_bg,
+        "command_picker_fg" => theme.command_picker_fg,
+        "command_picker_bg" => theme.command_picker_bg,
+        "streaming_indicator" => theme.streaming_indicator,
+        "api_unavailable" => theme.api_unavailable,
+        "summary_indicator" => theme.summary_indicator,
+        _ => Color::Reset,
+    }
 }
 
 #[cfg(test)]
@@ -554,5 +836,34 @@ mod tests {
         let mut d = TabbedFieldDialog::new(" test ", sections);
         let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(action, TabbedFieldAction::Close));
+    }
+
+    #[test]
+    fn tab_bar_highlights_current_tab() {
+        let sections = vec![
+            make_section("Alpha", &["x"]),
+            make_section("Beta", &["y"]),
+        ];
+        let mut d = TabbedFieldDialog::new(" test ", sections);
+        let line = d.build_tab_bar_line();
+        let rendered: String = line
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref().to_string())
+            .collect();
+        assert!(rendered.contains("Alpha"));
+        assert!(rendered.contains("Beta"));
+
+        d.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let line_after = d.build_tab_bar_line();
+        let styles: Vec<Style> = line_after.spans.iter().map(|s| s.style).collect();
+        assert!(styles.iter().any(|s| s.fg == Some(Color::Yellow)));
+    }
+
+    #[test]
+    fn theme_color_lookup_returns_expected() {
+        let theme = Theme::dark();
+        assert_eq!(theme_color_by_label(&theme, "user_message"), Color::Green);
+        assert_eq!(theme_color_by_label(&theme, "unknown"), Color::Reset);
     }
 }

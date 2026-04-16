@@ -464,6 +464,14 @@ async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        debug_log::log_kv(
+            "update.fetch_prereleases",
+            &[
+                debug_log::field("result", "error"),
+                debug_log::field("status", status.as_u16()),
+                debug_log::field("body_bytes", body.len()),
+            ],
+        );
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
@@ -506,7 +514,6 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
             "update.interactive",
             &[debug_log::field("phase", "cancelled")],
         );
-        println!("Cancelled.");
         return Ok(None);
     };
 
@@ -568,10 +575,9 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    match resolved {
-        Some(name) if name == "stable" => update_stable(&client).await,
-        Some(name) => update_branch(&client, &name).await,
-        None => update_stable(&client).await,
+    match resolved.as_deref() {
+        Some("stable") | None => update_stable(&client).await,
+        Some(name) => update_branch(&client, name).await,
     }
 }
 

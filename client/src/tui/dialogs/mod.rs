@@ -15,6 +15,7 @@ pub mod worldbook;
 mod builders;
 mod crypto;
 mod mouse;
+mod tabbed_field;
 mod validation;
 
 pub use builders::{
@@ -22,6 +23,7 @@ pub use builders::{
     open_instruct_editor, open_persona_editor, open_reasoning_editor, open_system_prompt_editor,
     open_template_editor,
 };
+pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub(in crate::tui) use builders::{
     DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
     LIST_DIALOG_WIDTH,

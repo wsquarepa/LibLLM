@@ -453,8 +453,7 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     Ok(confirmed)
 }
 
-#[allow(dead_code)]
-async fn list_branches(client: &reqwest::Client) -> Result<()> {
+async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let resp = client
         .get(&url)
@@ -469,55 +468,57 @@ async fn list_branches(client: &reqwest::Client) -> Result<()> {
     }
 
     let releases: Vec<Release> = resp.json().await.context("failed to parse releases")?;
-    let branches: Vec<&str> = releases
-        .iter()
+
+    let tags: Vec<String> = releases
+        .into_iter()
         .filter(|r| r.prerelease)
-        .map(|r| r.tag_name.as_str())
+        .map(|r| r.tag_name)
         .collect();
 
     debug_log::log_kv(
-        "update.list_branches",
+        "update.fetch_prereleases",
         &[
-            debug_log::field("branch_count", branches.len()),
+            debug_log::field("tag_count", tags.len()),
             debug_log::field("result", "ok"),
         ],
     );
 
-    if branches.is_empty() {
-        println!("No branch builds available.");
-        return Ok(());
-    }
+    Ok(tags)
+}
 
-    let stdin = io::stdin();
-    if stdin.is_terminal() {
-        for (i, name) in branches.iter().enumerate() {
-            let marker = if *name == CHANNEL { " (current)" } else { "" };
-            println!("  {}) {name}{marker}", i + 1);
-        }
-        eprint!("\nSelect a branch (or press Enter to cancel): ");
-        io::stderr().flush()?;
+async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
+    let tags = fetch_prerelease_tags(client).await?;
+    let entries = build_branch_list(&tags, CHANNEL);
 
-        let mut input = String::new();
-        stdin.read_line(&mut input)?;
-        let input = input.trim();
-        if input.is_empty() {
-            return Ok(());
-        }
+    let rows: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            if entry.current {
+                format!("{} (current)", entry.name)
+            } else {
+                entry.name.clone()
+            }
+        })
+        .collect();
 
-        let index: usize = input
-            .parse::<usize>()
-            .ok()
-            .filter(|&n| n >= 1 && n <= branches.len())
-            .context("invalid selection")?;
+    let Some(index) = crate::interactive::select("Select a release channel:", &rows)? else {
+        debug_log::log_kv(
+            "update.interactive",
+            &[debug_log::field("phase", "cancelled")],
+        );
+        println!("Cancelled.");
+        return Ok(None);
+    };
 
-        let selected = branches[index - 1];
-        update_branch(client, selected).await
-    } else {
-        for name in &branches {
-            println!("{name}");
-        }
-        Ok(())
-    }
+    let selected = entries[index].name.clone();
+    debug_log::log_kv(
+        "update.interactive",
+        &[
+            debug_log::field("phase", "branch_selected"),
+            debug_log::field("branch", selected.as_str()),
+        ],
+    );
+    Ok(Some(selected))
 }
 
 pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
@@ -539,27 +540,36 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
             debug_log::field("phase", "start"),
             debug_log::field("channel", CHANNEL),
             debug_log::field("target", branch.as_deref().unwrap_or("stable")),
+            debug_log::field("interactive", crate::interactive::is_interactive()),
         ],
     );
 
     let client = build_client()?;
 
-    let target = branch.as_deref().unwrap_or("stable");
-    if CHANNEL != target {
-        if !confirm_channel_switch(target, yes)? {
-            debug_log::log_kv(
-                "update.run",
-                &[
-                    debug_log::field("phase", "cancel"),
-                    debug_log::field("reason", "channel_switch_declined"),
-                ],
-            );
-            println!("Cancelled.");
-            return Ok(());
-        }
+    let resolved = match branch {
+        Some(name) => Some(name),
+        None if crate::interactive::is_interactive() => match pick_branch(&client).await? {
+            Some(name) => Some(name),
+            None => return Ok(()),
+        },
+        None => None,
+    };
+
+    let target = resolved.as_deref().unwrap_or("stable");
+    if CHANNEL != target && !confirm_channel_switch(target, yes)? {
+        debug_log::log_kv(
+            "update.run",
+            &[
+                debug_log::field("phase", "cancel"),
+                debug_log::field("reason", "channel_switch_declined"),
+            ],
+        );
+        println!("Cancelled.");
+        return Ok(());
     }
 
-    match branch {
+    match resolved {
+        Some(name) if name == "stable" => update_stable(&client).await,
         Some(name) => update_branch(&client, &name).await,
         None => update_stable(&client).await,
     }

@@ -160,11 +160,12 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         .iter()
         .map(|entry| {
             format!(
-                "{:<20} {:<6} {:<12} {:<10} {}",
+                "{:<20} {:<6} {:<12} {:<12} {:<10} {}",
                 entry.id,
                 entry.entry_type,
                 format_size(entry.plaintext_size),
-                if entry.encrypted { "encrypted" } else { "plain" },
+                format_size(entry.stored_size),
+                if entry.encrypted { "yes" } else { "no" },
                 entry.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
             )
         })

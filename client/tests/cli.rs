@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use clap::Parser;
-use client::cli::{Args, Command};
+use client::cli::{Args, Command, RecoverCommand};
 
 #[test]
 fn parse_message_flag() {
@@ -107,4 +109,60 @@ fn parse_continue_without_data_errors() {
 fn parse_continue_without_message_errors() {
     let result = Args::try_parse_from(["libllm", "-d", "./data", "--continue", "uuid"]);
     assert!(result.is_err(), "--continue without -m should be rejected");
+}
+
+#[test]
+fn parse_recover_without_subcommand() {
+    let args = Args::try_parse_from(["libllm", "recover"]).unwrap();
+    match args.command {
+        Some(Command::Recover { command }) => assert!(command.is_none()),
+        _ => panic!("expected Command::Recover"),
+    }
+}
+
+#[test]
+fn parse_recover_with_list_subcommand() {
+    let args = Args::try_parse_from(["libllm", "recover", "list"]).unwrap();
+    match args.command {
+        Some(Command::Recover { command: Some(RecoverCommand::List) }) => {}
+        _ => panic!("expected Command::Recover with Some(RecoverCommand::List)"),
+    }
+}
+
+#[test]
+fn parse_update_without_branch() {
+    let args = Args::try_parse_from(["libllm", "update"]).unwrap();
+    match args.command {
+        Some(Command::Update { branch, yes }) => {
+            assert!(branch.is_none());
+            assert!(!yes);
+        }
+        _ => panic!("expected Command::Update"),
+    }
+}
+
+#[test]
+fn parse_update_with_branch() {
+    let args = Args::try_parse_from(["libllm", "update", "feat/foo"]).unwrap();
+    match args.command {
+        Some(Command::Update { branch, .. }) => assert_eq!(branch.as_deref(), Some("feat/foo")),
+        _ => panic!("expected Command::Update"),
+    }
+}
+
+#[test]
+fn parse_update_list_flag_rejected() {
+    let result = Args::try_parse_from(["libllm", "update", "--list"]);
+    let err = result.err().expect("--list should no longer be accepted");
+    assert!(
+        err.to_string().contains("--list"),
+        "error should mention --list: {err}"
+    );
+}
+
+#[test]
+fn recover_non_interactive_without_subcommand_returns_ok() {
+    let dummy_dir = PathBuf::from("/tmp/libllm-test-recover-noop");
+    let result = client::recover::run_with_interactivity(&dummy_dir, None, None, false);
+    assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 }

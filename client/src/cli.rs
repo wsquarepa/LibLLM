@@ -44,18 +44,18 @@ pub enum Command {
         #[arg(long, short = 't')]
         kind: Option<String>,
     },
-    /// Manage database backups (list, verify, restore, rebuild-index)
+    /// Manage database backups (list, verify, restore, rebuild-index).
+    /// Without a subcommand, opens an interactive menu on a TTY or prints
+    /// this help in non-interactive environments.
     Recover {
         #[command(subcommand)]
-        command: RecoverCommand,
+        command: Option<RecoverCommand>,
     },
-    /// Update libllm to the latest build
+    /// Update libllm to the latest build. Without a branch, opens a
+    /// branch picker on a TTY or updates to stable non-interactively.
     Update {
-        /// Target branch name (omit for stable)
+        /// Target branch name (omit for stable / interactive picker)
         branch: Option<String>,
-        /// List available branch builds
-        #[arg(long)]
-        list: bool,
         /// Skip downgrade confirmation
         #[arg(long, short = 'y')]
         yes: bool,

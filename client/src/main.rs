@@ -100,8 +100,8 @@ async fn main() -> Result<()> {
         config::ensure_dirs,
     )?;
 
-    if let Some(cli::Command::Update { branch, list, yes }) = &args.command {
-        return update::run(branch.clone(), *list, *yes).await;
+    if let Some(cli::Command::Update { branch, yes }) = &args.command {
+        return update::run(branch.clone(), *yes).await;
     }
 
     if let Some(cli::Command::Recover { command }) = &args.command {
@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
             .as_deref()
             .map(std::path::Path::to_path_buf)
             .unwrap_or_else(config::data_dir);
-        return recover::run(&data_dir, args.passkey.as_deref(), command);
+        return recover::run(&data_dir, args.passkey.as_deref(), command.as_ref());
     }
 
     migration::migrate_config_path();

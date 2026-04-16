@@ -52,6 +52,42 @@ pub struct Asset {
     pub url: String,
 }
 
+/// One row in the interactive branch picker.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BranchEntry {
+    pub name: String,
+    pub current: bool,
+}
+
+/// Build the branch picker list from prerelease tag names.
+///
+/// Rules:
+/// - `stable` is always the first entry.
+/// - Prereleases are included in input order, except tags equal to
+///   `"stable"` or `"master"`. Per release CI, `stable` is built from
+///   every push to `master`, so a `master` prerelease tag would be a
+///   duplicate of `stable`; the `stable` exclusion guards against a
+///   stable tag being incorrectly marked prerelease.
+/// - The `current` flag is set on whichever entry matches `channel`;
+///   when `channel == "master"`, it is set on the `stable` entry.
+pub fn build_branch_list(prerelease_tags: &[String], channel: &str) -> Vec<BranchEntry> {
+    let current_is_stable = channel == "stable" || channel == "master";
+    let mut out = vec![BranchEntry {
+        name: "stable".to_string(),
+        current: current_is_stable,
+    }];
+    for tag in prerelease_tags {
+        if tag == "stable" || tag == "master" {
+            continue;
+        }
+        out.push(BranchEntry {
+            name: tag.clone(),
+            current: tag == channel,
+        });
+    }
+    out
+}
+
 fn github_token() -> Option<String> {
     std::env::var("GITHUB_TOKEN")
         .or_else(|_| std::env::var("GH_TOKEN"))
@@ -417,7 +453,7 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     Ok(confirmed)
 }
 
-async fn list_branches(client: &reqwest::Client) -> Result<()> {
+async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let resp = client
         .get(&url)
@@ -428,62 +464,75 @@ async fn list_branches(client: &reqwest::Client) -> Result<()> {
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        debug_log::log_kv(
+            "update.fetch_prereleases",
+            &[
+                debug_log::field("result", "error"),
+                debug_log::field("status", status.as_u16()),
+                debug_log::field("body_bytes", body.len()),
+            ],
+        );
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
     let releases: Vec<Release> = resp.json().await.context("failed to parse releases")?;
-    let branches: Vec<&str> = releases
-        .iter()
+
+    let tags: Vec<String> = releases
+        .into_iter()
         .filter(|r| r.prerelease)
-        .map(|r| r.tag_name.as_str())
+        .map(|r| r.tag_name)
         .collect();
 
     debug_log::log_kv(
-        "update.list_branches",
+        "update.fetch_prereleases",
         &[
-            debug_log::field("branch_count", branches.len()),
+            debug_log::field("tag_count", tags.len()),
             debug_log::field("result", "ok"),
         ],
     );
 
-    if branches.is_empty() {
-        println!("No branch builds available.");
-        return Ok(());
-    }
-
-    let stdin = io::stdin();
-    if stdin.is_terminal() {
-        for (i, name) in branches.iter().enumerate() {
-            let marker = if *name == CHANNEL { " (current)" } else { "" };
-            println!("  {}) {name}{marker}", i + 1);
-        }
-        eprint!("\nSelect a branch (or press Enter to cancel): ");
-        io::stderr().flush()?;
-
-        let mut input = String::new();
-        stdin.read_line(&mut input)?;
-        let input = input.trim();
-        if input.is_empty() {
-            return Ok(());
-        }
-
-        let index: usize = input
-            .parse::<usize>()
-            .ok()
-            .filter(|&n| n >= 1 && n <= branches.len())
-            .context("invalid selection")?;
-
-        let selected = branches[index - 1];
-        update_branch(client, selected).await
-    } else {
-        for name in &branches {
-            println!("{name}");
-        }
-        Ok(())
-    }
+    Ok(tags)
 }
 
-pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
+async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
+    debug_log::log_kv(
+        "update.interactive",
+        &[debug_log::field("phase", "start")],
+    );
+    let tags = fetch_prerelease_tags(client).await?;
+    let entries = build_branch_list(&tags, CHANNEL);
+
+    let rows: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            if entry.current {
+                format!("{} (current)", entry.name)
+            } else {
+                entry.name.clone()
+            }
+        })
+        .collect();
+
+    let Some(index) = crate::interactive::select("Select a release channel:", &rows)? else {
+        debug_log::log_kv(
+            "update.interactive",
+            &[debug_log::field("phase", "cancelled")],
+        );
+        return Ok(None);
+    };
+
+    let selected = entries[index].name.clone();
+    debug_log::log_kv(
+        "update.interactive",
+        &[
+            debug_log::field("phase", "branch_selected"),
+            debug_log::field("branch", selected.as_str()),
+        ],
+    );
+    Ok(Some(selected))
+}
+
+pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
     if CHANNEL == "unknown" {
         debug_log::log_kv(
             "update.run",
@@ -502,33 +551,97 @@ pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
             debug_log::field("phase", "start"),
             debug_log::field("channel", CHANNEL),
             debug_log::field("target", branch.as_deref().unwrap_or("stable")),
-            debug_log::field("list", list),
+            debug_log::field("interactive", crate::interactive::is_interactive()),
         ],
     );
 
     let client = build_client()?;
 
-    if list {
-        return list_branches(&client).await;
+    let resolved = match branch {
+        Some(name) => Some(name),
+        None if crate::interactive::is_interactive() => match pick_branch(&client).await? {
+            Some(name) => Some(name),
+            None => return Ok(()),
+        },
+        None => None,
+    };
+
+    let target = resolved.as_deref().unwrap_or("stable");
+    if CHANNEL != target && !confirm_channel_switch(target, yes)? {
+        debug_log::log_kv(
+            "update.run",
+            &[
+                debug_log::field("phase", "cancel"),
+                debug_log::field("reason", "channel_switch_declined"),
+            ],
+        );
+        println!("Cancelled.");
+        return Ok(());
     }
 
-    let target = branch.as_deref().unwrap_or("stable");
-    if CHANNEL != target {
-        if !confirm_channel_switch(target, yes)? {
-            debug_log::log_kv(
-                "update.run",
-                &[
-                    debug_log::field("phase", "cancel"),
-                    debug_log::field("reason", "channel_switch_declined"),
-                ],
-            );
-            println!("Cancelled.");
-            return Ok(());
-        }
+    match resolved.as_deref() {
+        Some("stable") | None => update_stable(&client).await,
+        Some(name) => update_branch(&client, name).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_prepends_stable_and_marks_it_current_for_stable_channel() {
+        let tags = vec!["feat/foo".to_string(), "bugfix/bar".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].name, "stable");
+        assert!(result[0].current);
+        assert_eq!(result[1].name, "feat/foo");
+        assert!(!result[1].current);
+        assert_eq!(result[2].name, "bugfix/bar");
+        assert!(!result[2].current);
     }
 
-    match branch {
-        Some(name) => update_branch(&client, &name).await,
-        None => update_stable(&client).await,
+    #[test]
+    fn filter_excludes_stable_tag_from_prereleases() {
+        let tags = vec!["stable".to_string(), "feat/foo".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result.iter().filter(|b| b.name == "stable").count(), 1);
+    }
+
+    #[test]
+    fn filter_excludes_master_tag_from_prereleases() {
+        let tags = vec!["master".to_string(), "feat/foo".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result.iter().filter(|b| b.name == "master").count(), 0);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn filter_marks_master_channel_as_stable_current() {
+        let tags = vec!["feat/foo".to_string()];
+        let result = build_branch_list(&tags, "master");
+        assert_eq!(result[0].name, "stable");
+        assert!(result[0].current, "stable should be marked current when CHANNEL=master");
+        assert!(!result[1].current);
+    }
+
+    #[test]
+    fn filter_marks_selected_branch_current() {
+        let tags = vec!["feat/foo".to_string(), "bugfix/bar".to_string()];
+        let result = build_branch_list(&tags, "feat/foo");
+        assert!(!result[0].current);
+        assert_eq!(result[1].name, "feat/foo");
+        assert!(result[1].current);
+        assert!(!result[2].current);
+    }
+
+    #[test]
+    fn filter_preserves_api_order_of_prereleases() {
+        let tags = vec!["c".to_string(), "a".to_string(), "b".to_string()];
+        let result = build_branch_list(&tags, "stable");
+        assert_eq!(result[1].name, "c");
+        assert_eq!(result[2].name, "a");
+        assert_eq!(result[3].name, "b");
     }
 }

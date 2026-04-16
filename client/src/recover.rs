@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use clap::CommandFactory;
 use libllm::debug_log;
 
 use backup::index::{BackupEntry, BackupIndex, BackupType, load_index, parse_backup_filename, save_index};
@@ -26,12 +27,27 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-pub fn run(data_dir: &Path, passkey: Option<&str>, command: &RecoverCommand) -> Result<()> {
+pub fn run(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    command: Option<&RecoverCommand>,
+) -> Result<()> {
+    run_with_interactivity(data_dir, passkey, command, crate::interactive::is_interactive())
+}
+
+pub fn run_with_interactivity(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    command: Option<&RecoverCommand>,
+    interactive: bool,
+) -> Result<()> {
     let subcommand = match command {
-        RecoverCommand::List => "list",
-        RecoverCommand::Verify { .. } => "verify",
-        RecoverCommand::Restore { .. } => "restore",
-        RecoverCommand::RebuildIndex => "rebuild_index",
+        Some(RecoverCommand::List) => "list",
+        Some(RecoverCommand::Verify { .. }) => "verify",
+        Some(RecoverCommand::Restore { .. }) => "restore",
+        Some(RecoverCommand::RebuildIndex) => "rebuild_index",
+        None if interactive => "interactive",
+        None => "help",
     };
     debug_log::log_kv(
         "recover.run",
@@ -40,14 +56,155 @@ pub fn run(data_dir: &Path, passkey: Option<&str>, command: &RecoverCommand) -> 
             debug_log::field("subcommand", subcommand),
             debug_log::field("data_dir", data_dir.display()),
             debug_log::field("has_passkey", passkey.is_some()),
+            debug_log::field("interactive", interactive),
         ],
     );
     match command {
-        RecoverCommand::List => cmd_list(data_dir),
-        RecoverCommand::Verify { full } => cmd_verify(data_dir, passkey, *full),
-        RecoverCommand::Restore { id, yes } => cmd_restore(data_dir, passkey, id, *yes),
-        RecoverCommand::RebuildIndex => cmd_rebuild_index(data_dir, passkey),
+        Some(RecoverCommand::List) => cmd_list(data_dir),
+        Some(RecoverCommand::Verify { full }) => cmd_verify(data_dir, passkey, *full),
+        Some(RecoverCommand::Restore { id, yes }) => cmd_restore(data_dir, passkey, id, *yes),
+        Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
+        None if interactive => run_interactive_menu(data_dir, passkey),
+        None => print_recover_help(),
     }
+}
+
+fn print_recover_help() -> Result<()> {
+    let mut root = crate::cli::Args::command();
+    let recover_cmd = root
+        .find_subcommand_mut("recover")
+        .context("clap schema missing `recover` subcommand")?;
+    recover_cmd.print_long_help().context("failed to print help")?;
+    Ok(())
+}
+
+fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
+    debug_log::log_kv(
+        "recover.interactive",
+        &[debug_log::field("phase", "start")],
+    );
+    const ITEMS: &[&str] = &[
+        "Restore from backup",
+        "Verify backups",
+        "Verify backups (full content check)",
+        "Rebuild backup index",
+        "Quit",
+    ];
+
+    loop {
+        let choice = crate::interactive::select("What would you like to do?", ITEMS)?;
+        let Some(index) = choice else {
+            debug_log::log_kv(
+                "recover.interactive",
+                &[
+                    debug_log::field("phase", "exit"),
+                    debug_log::field("reason", "cancelled"),
+                ],
+            );
+            return Ok(());
+        };
+
+        debug_log::log_kv(
+            "recover.interactive",
+            &[
+                debug_log::field("phase", "action_selected"),
+                debug_log::field("action", ITEMS[index]),
+            ],
+        );
+
+        match index {
+            0 => {
+                if let Err(err) = interactive_restore(data_dir, passkey) {
+                    eprintln!("error: {err}");
+                }
+            }
+            1 => {
+                if let Err(err) = cmd_verify(data_dir, passkey, false) {
+                    eprintln!("error: {err}");
+                }
+            }
+            2 => {
+                if let Err(err) = cmd_verify(data_dir, passkey, true) {
+                    eprintln!("error: {err}");
+                }
+            }
+            3 => {
+                if let Err(err) = cmd_rebuild_index(data_dir, passkey) {
+                    eprintln!("error: {err}");
+                }
+            }
+            4 => {
+                debug_log::log_kv(
+                    "recover.interactive",
+                    &[
+                        debug_log::field("phase", "exit"),
+                        debug_log::field("reason", "quit"),
+                    ],
+                );
+                return Ok(());
+            }
+            _ => unreachable!("select returned an out-of-range index"),
+        }
+
+        println!();
+    }
+}
+
+fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
+    let index_path = data_dir.join("backups").join("index.json");
+    let index = load_index(&index_path)?;
+
+    if index.entries.is_empty() {
+        println!("No backup points found.");
+        return Ok(());
+    }
+
+    let rows: Vec<String> = index
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{:<20} {:<6} {:<12} {:<12} {:<10} {}",
+                entry.id,
+                entry.entry_type,
+                format_size(entry.plaintext_size),
+                format_size(entry.stored_size),
+                if entry.encrypted { "yes" } else { "no" },
+                entry.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
+            )
+        })
+        .collect();
+
+    let Some(chosen_index) = crate::interactive::select("Select a backup to restore", &rows)? else {
+        return Ok(());
+    };
+
+    let entry = &index.entries[chosen_index];
+
+    let prompt = format!(
+        "Restore to '{}'? This overwrites the live database.",
+        entry.id
+    );
+    let Some(true) = crate::interactive::confirm(&prompt, false)? else {
+        println!("Cancelled.");
+        return Ok(());
+    };
+
+    debug_log::timed_result(
+        "recover.restore",
+        &[
+            debug_log::field("id", entry.id.as_str()),
+            debug_log::field("entry_type", entry.entry_type.to_string()),
+            debug_log::field("plaintext_size", entry.plaintext_size),
+            debug_log::field("stored_size", entry.stored_size),
+            debug_log::field("encrypted", entry.encrypted),
+            debug_log::field("source", "interactive"),
+        ],
+        || restore_to_point(data_dir, &entry.id, passkey).map_err(anyhow::Error::from),
+    )?;
+
+    println!("Restore to '{}' completed successfully.", entry.id);
+    Ok(())
 }
 
 fn cmd_list(data_dir: &Path) -> Result<()> {

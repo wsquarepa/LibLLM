@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use clap::CommandFactory;
 use libllm::debug_log;
 
 use backup::index::{BackupEntry, BackupIndex, BackupType, load_index, parse_backup_filename, save_index};
@@ -69,13 +70,11 @@ pub fn run_with_interactivity(
 }
 
 fn print_recover_help() -> Result<()> {
-    use clap::CommandFactory;
     let mut root = crate::cli::Args::command();
     let recover_cmd = root
         .find_subcommand_mut("recover")
         .context("clap schema missing `recover` subcommand")?;
     recover_cmd.print_long_help().context("failed to print help")?;
-    println!();
     Ok(())
 }
 

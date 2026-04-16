@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use client::cli::{Args, Command, RecoverCommand};
 
@@ -160,11 +162,7 @@ fn parse_update_list_flag_rejected() {
 
 #[test]
 fn recover_non_interactive_without_subcommand_returns_ok() {
-    // When stdin/stderr aren't TTYs, `recover` with no subcommand should
-    // render help to stdout and exit Ok — no interactive prompts.
-    use std::path::PathBuf;
     let dummy_dir = PathBuf::from("/tmp/libllm-test-recover-noop");
-    // Simulate non-interactive by calling run_with_interactivity directly.
     let result = client::recover::run_with_interactivity(&dummy_dir, None, None, false);
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 }

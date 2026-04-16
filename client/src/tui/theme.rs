@@ -4,6 +4,7 @@ use ratatui::style::Color;
 
 use libllm::config::{Config, ThemeColorOverrides};
 
+#[derive(PartialEq)]
 pub struct Theme {
     pub user_message: Color,
     pub assistant_message_fg: Color,

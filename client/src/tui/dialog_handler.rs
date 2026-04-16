@@ -556,14 +556,6 @@ pub(super) fn handle_field_dialog_key(
     }
 }
 
-fn non_empty_opt(s: &str) -> Option<String> {
-    if s.trim().is_empty() {
-        None
-    } else {
-        Some(s.to_owned())
-    }
-}
-
 fn live_apply_theme_dialog(app: &mut App) {
     let Some(dialog) = app.theme_dialog.as_ref() else {
         return;
@@ -576,36 +568,13 @@ fn live_apply_theme_dialog(app: &mut App) {
     let base_theme = sections[0][0].clone();
     let mut preview = app.config.clone();
     preview.theme = Some(base_theme);
-    preview.theme_colors = Some(libllm::config::ThemeColorOverrides {
-        user_message: non_empty_opt(&sections[1][0]),
-        assistant_message_fg: non_empty_opt(&sections[1][1]),
-        assistant_message_bg: non_empty_opt(&sections[1][2]),
-        system_message: non_empty_opt(&sections[1][3]),
-        dialogue: non_empty_opt(&sections[1][4]),
-        border_focused: non_empty_opt(&sections[2][0]),
-        border_unfocused: non_empty_opt(&sections[2][1]),
-        status_bar_fg: non_empty_opt(&sections[2][2]),
-        status_bar_bg: non_empty_opt(&sections[2][3]),
-        status_error_fg: non_empty_opt(&sections[2][4]),
-        status_error_bg: non_empty_opt(&sections[2][5]),
-        status_info_fg: non_empty_opt(&sections[2][6]),
-        status_info_bg: non_empty_opt(&sections[2][7]),
-        status_warning_fg: non_empty_opt(&sections[2][8]),
-        status_warning_bg: non_empty_opt(&sections[2][9]),
-        nav_cursor_fg: non_empty_opt(&sections[3][0]),
-        nav_cursor_bg: non_empty_opt(&sections[3][1]),
-        hover_bg: non_empty_opt(&sections[3][2]),
-        sidebar_highlight_fg: non_empty_opt(&sections[3][3]),
-        sidebar_highlight_bg: non_empty_opt(&sections[3][4]),
-        dimmed: non_empty_opt(&sections[3][5]),
-        command_picker_fg: non_empty_opt(&sections[3][6]),
-        command_picker_bg: non_empty_opt(&sections[3][7]),
-        streaming_indicator: non_empty_opt(&sections[4][0]),
-        api_unavailable: non_empty_opt(&sections[4][1]),
-        summary_indicator: non_empty_opt(&sections[4][2]),
-    });
-    app.theme = crate::tui::theme::resolve_theme(&preview);
-    app.invalidate_chat_cache();
+    let overrides = business::build_theme_color_overrides(&sections);
+    preview.theme_colors = Some(overrides);
+    let new_theme = crate::tui::theme::resolve_theme(&preview);
+    if new_theme != app.theme {
+        app.theme = new_theme;
+        app.invalidate_chat_cache();
+    }
 }
 
 pub(super) fn open_base_theme_picker(app: &mut App) {

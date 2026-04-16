@@ -507,53 +507,44 @@ pub(super) fn apply_config(app: &mut App) {
     app.invalidate_chat_cache();
 }
 
+pub fn build_theme_color_overrides(sections: &[Vec<String>]) -> libllm::config::ThemeColorOverrides {
+    libllm::config::ThemeColorOverrides {
+        user_message: non_empty(&sections[1][0]),
+        assistant_message_fg: non_empty(&sections[1][1]),
+        assistant_message_bg: non_empty(&sections[1][2]),
+        system_message: non_empty(&sections[1][3]),
+        dialogue: non_empty(&sections[1][4]),
+        border_focused: non_empty(&sections[2][0]),
+        border_unfocused: non_empty(&sections[2][1]),
+        status_bar_fg: non_empty(&sections[2][2]),
+        status_bar_bg: non_empty(&sections[2][3]),
+        status_error_fg: non_empty(&sections[2][4]),
+        status_error_bg: non_empty(&sections[2][5]),
+        status_info_fg: non_empty(&sections[2][6]),
+        status_info_bg: non_empty(&sections[2][7]),
+        status_warning_fg: non_empty(&sections[2][8]),
+        status_warning_bg: non_empty(&sections[2][9]),
+        nav_cursor_fg: non_empty(&sections[3][0]),
+        nav_cursor_bg: non_empty(&sections[3][1]),
+        hover_bg: non_empty(&sections[3][2]),
+        sidebar_highlight_fg: non_empty(&sections[3][3]),
+        sidebar_highlight_bg: non_empty(&sections[3][4]),
+        dimmed: non_empty(&sections[3][5]),
+        command_picker_fg: non_empty(&sections[3][6]),
+        command_picker_bg: non_empty(&sections[3][7]),
+        streaming_indicator: non_empty(&sections[4][0]),
+        api_unavailable: non_empty(&sections[4][1]),
+        summary_indicator: non_empty(&sections[4][2]),
+    }
+}
+
 pub fn apply_theme_color_sections(
     sections: &[Vec<String>],
     existing: libllm::config::Config,
 ) -> anyhow::Result<()> {
     let base_theme = sections[0][0].clone();
 
-    let messages = &sections[1];
-    let borders = &sections[2];
-    let ui_tab = &sections[3];
-    let indicators = &sections[4];
-
-    let to_opt = |s: &str| -> Option<String> {
-        if s.trim().is_empty() {
-            None
-        } else {
-            Some(s.to_owned())
-        }
-    };
-
-    let overrides = libllm::config::ThemeColorOverrides {
-        user_message: to_opt(&messages[0]),
-        assistant_message_fg: to_opt(&messages[1]),
-        assistant_message_bg: to_opt(&messages[2]),
-        system_message: to_opt(&messages[3]),
-        dialogue: to_opt(&messages[4]),
-        border_focused: to_opt(&borders[0]),
-        border_unfocused: to_opt(&borders[1]),
-        status_bar_fg: to_opt(&borders[2]),
-        status_bar_bg: to_opt(&borders[3]),
-        status_error_fg: to_opt(&borders[4]),
-        status_error_bg: to_opt(&borders[5]),
-        status_info_fg: to_opt(&borders[6]),
-        status_info_bg: to_opt(&borders[7]),
-        status_warning_fg: to_opt(&borders[8]),
-        status_warning_bg: to_opt(&borders[9]),
-        nav_cursor_fg: to_opt(&ui_tab[0]),
-        nav_cursor_bg: to_opt(&ui_tab[1]),
-        hover_bg: to_opt(&ui_tab[2]),
-        sidebar_highlight_fg: to_opt(&ui_tab[3]),
-        sidebar_highlight_bg: to_opt(&ui_tab[4]),
-        dimmed: to_opt(&ui_tab[5]),
-        command_picker_fg: to_opt(&ui_tab[6]),
-        command_picker_bg: to_opt(&ui_tab[7]),
-        streaming_indicator: to_opt(&indicators[0]),
-        api_unavailable: to_opt(&indicators[1]),
-        summary_indicator: to_opt(&indicators[2]),
-    };
+    let overrides = build_theme_color_overrides(sections);
 
     let any_set = [
         &overrides.user_message,

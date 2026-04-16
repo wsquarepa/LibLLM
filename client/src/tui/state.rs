@@ -31,6 +31,16 @@ impl App<'_> {
                 }
             }
         }
+        if let Some(d) = self.theme_dialog.as_mut() {
+            if let Some(t) = d.reject_flash {
+                if dialogs::is_flash_active(Some(t)) {
+                    needs_redraw = true;
+                } else {
+                    d.reject_flash = None;
+                    needs_redraw = true;
+                }
+            }
+        }
         for dialog in [
             &mut self.persona_editor,
             &mut self.system_prompt_editor,

@@ -319,7 +319,6 @@ impl<'a> TabbedFieldDialog<'a> {
                 let tab = self.current_tab;
                 let idx = self.sections[tab].selected;
                 if self.is_locked(tab, idx) {
-                    // locked by CLI override; no action
                 } else if self.is_action(tab, idx) {
                     return TabbedFieldAction::InvokeAction {
                         section: tab,
@@ -548,8 +547,9 @@ impl<'a> TabbedFieldDialog<'a> {
             spans.push(Span::styled(after, value_style));
         } else {
             let full = &display_value;
-            let visible: String = if full.chars().count() > max_value_width {
-                let skip = full.chars().count() - max_value_width;
+            let char_count = full.chars().count();
+            let visible: String = if char_count > max_value_width {
+                let skip = char_count - max_value_width;
                 full.chars().skip(skip).collect()
             } else {
                 full.clone()

@@ -79,6 +79,10 @@ fn print_recover_help() -> Result<()> {
 }
 
 fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
+    debug_log::log_kv(
+        "recover.interactive",
+        &[debug_log::field("phase", "start")],
+    );
     const ITEMS: &[&str] = &[
         "Restore from backup",
         "Verify backups",

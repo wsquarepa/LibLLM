@@ -495,6 +495,10 @@ async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> 
 }
 
 async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
+    debug_log::log_kv(
+        "update.interactive",
+        &[debug_log::field("phase", "start")],
+    );
     let tags = fetch_prerelease_tags(client).await?;
     let entries = build_branch_list(&tags, CHANNEL);
 

@@ -48,6 +48,11 @@ pub(in crate::tui::commands) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::
 }
 
 pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
+    if app.summary_receiver.is_some() {
+        app.is_summarizing = true;
+        app.message_queue.push(content.to_owned());
+        return;
+    }
     if app.model_name.is_none() {
         app.set_status(
             "Connecting to API server...".to_owned(),
@@ -77,7 +82,8 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
 
     let worldbooks = loaded_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
-    let truncated = app.context_mgr.truncated_path(&branch_path);
+    let context_messages = app.context_mgr.summary_aware_path(&branch_path);
+    let truncated = app.context_mgr.truncated_path(&context_messages);
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected = business::inject_loaded_worldbook_entries(
@@ -136,6 +142,50 @@ pub(in crate::tui) fn handle_stream_token(
             app.auto_scroll = true;
             app.flush_session_save(SaveTrigger::StreamDone)?;
             business::refresh_sidebar(app);
+            if app.summarization_enabled && app.summary_receiver.is_none() {
+                let branch_path = app.session.tree.branch_path();
+                let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+                let dropped = app.context_mgr.dropped_message_count(&summary_aware);
+
+                if dropped >= app.config.summarization.trigger_threshold {
+                    let summary_boundary = branch_path.len() - summary_aware.len();
+                    let messages_to_summarize: Vec<Message> = branch_path
+                        [..summary_boundary + dropped]
+                        .iter()
+                        .filter(|m| m.role != Role::Summary)
+                        .map(|m| (*m).clone())
+                        .collect();
+
+                    if !messages_to_summarize.is_empty() {
+                        let summarize_api_url = app
+                            .config
+                            .summarization
+                            .api_url
+                            .as_deref()
+                            .unwrap_or(app.client.base_url());
+                        let summarizer_client = libllm::client::ApiClient::new(
+                            summarize_api_url,
+                            app.config.tls_skip_verify || app.cli_overrides.tls_skip_verify,
+                        );
+                        let summarizer = libllm::summarize::Summarizer::new(
+                            summarizer_client,
+                            app.config.summarization.prompt.clone(),
+                        );
+                        let token_budget = app.context_mgr.token_limit();
+                        let current_head = app.session.tree.head();
+
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        app.summary_receiver = Some(rx);
+                        app.summary_branch_head = current_head;
+
+                        tokio::spawn(async move {
+                            let refs: Vec<&Message> = messages_to_summarize.iter().collect();
+                            let result = summarizer.summarize(&refs, token_budget).await;
+                            let _ = tx.send(result.map_err(|e| e.to_string()));
+                        });
+                    }
+                }
+            }
             if !app.message_queue.is_empty() {
                 let next = app.message_queue.remove(0);
                 start_streaming(app, &next, sender);

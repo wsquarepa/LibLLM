@@ -205,7 +205,8 @@ pub fn render_chat(
         );
         let entries: Vec<CachedMessageLines> = branch_ids
             .iter()
-            .map(|&node_id| {
+            .enumerate()
+            .map(|(idx, &node_id)| {
                 let msg = &app
                     .session
                     .tree
@@ -232,6 +233,12 @@ pub fn render_chat(
                             .fg(app.theme.system_message)
                             .add_modifier(Modifier::BOLD),
                     ),
+                    Role::Summary => (
+                        "Summary".to_owned(),
+                        Style::default()
+                            .fg(app.theme.summary_indicator)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 };
 
                 let (sib_idx, sib_total) = app.session.tree.sibling_info(node_id);
@@ -241,23 +248,36 @@ pub fn render_chat(
                     String::new()
                 };
 
-                let content = replace_vars(&msg.content);
-                let dialogue_color = app.theme.dialogue;
-                let content_lines: Vec<Line<'static>> = content
-                    .lines()
-                    .map(|line| {
-                        let styled = parse_styled_line(line, dialogue_color);
-                        let mut indented = vec![Span::raw("  ")];
-                        indented.extend(styled.spans);
-                        Line::from(indented)
-                    })
-                    .collect();
-
-                let total_height = content_lines
-                    .iter()
-                    .map(|line| wrapped_line_height(line, area))
-                    .sum::<u16>()
-                    + 2;
+                let (content_lines, total_height) = if msg.role == Role::Summary {
+                    let msg_count = idx;
+                    let summary_line =
+                        format!("--- Summary of {} earlier messages ---", msg_count);
+                    let lines = vec![Line::from(Span::styled(
+                        format!("  {summary_line}"),
+                        Style::default()
+                            .fg(app.theme.summary_indicator)
+                            .add_modifier(Modifier::DIM),
+                    ))];
+                    (lines, 2u16)
+                } else {
+                    let content = replace_vars(&msg.content);
+                    let dialogue_color = app.theme.dialogue;
+                    let lines: Vec<Line<'static>> = content
+                        .lines()
+                        .map(|line| {
+                            let styled = parse_styled_line(line, dialogue_color);
+                            let mut indented = vec![Span::raw("  ")];
+                            indented.extend(styled.spans);
+                            Line::from(indented)
+                        })
+                        .collect();
+                    let height = lines
+                        .iter()
+                        .map(|line| wrapped_line_height(line, area))
+                        .sum::<u16>()
+                        + 2;
+                    (lines, height)
+                };
 
                 CachedMessageLines {
                     role_label,
@@ -432,6 +452,16 @@ pub fn render_chat(
         chat_block = chat_block.title_bottom(
             Line::from(Span::styled(
                 " Generating... Esc to cancel ",
+                Style::default()
+                    .fg(app.theme.streaming_indicator)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .centered(),
+        );
+    } else if app.is_summarizing {
+        chat_block = chat_block.title_bottom(
+            Line::from(Span::styled(
+                " Summarizing... ",
                 Style::default()
                     .fg(app.theme.streaming_indicator)
                     .add_modifier(Modifier::BOLD),

@@ -441,6 +441,7 @@ dependencies = [
  "tempfile",
  "time",
  "tokio",
+ "toml",
  "tui-textarea-2",
  "uuid",
 ]

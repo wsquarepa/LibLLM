@@ -125,6 +125,7 @@ pub(super) enum BackgroundEvent {
     PasskeySet(std::sync::Arc<libllm::crypto::DerivedKey>),
     PasskeySetFailed(String),
     ModelFetched(std::result::Result<String, String>),
+    ServerContextSize(usize),
 }
 
 #[derive(PartialEq, Eq)]
@@ -172,6 +173,10 @@ pub(super) struct App<'a> {
     pub(super) is_continuation: bool,
     pub(super) message_queue: Vec<String>,
     pub(super) streaming_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) is_summarizing: bool,
+    pub(super) summary_receiver: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
+    pub(super) summary_branch_head: Option<NodeId>,
+    pub(super) summarization_enabled: bool,
     pub(super) model_name: Option<String>,
     pub(super) api_available: bool,
     pub(super) api_error: String,

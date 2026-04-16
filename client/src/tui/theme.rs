@@ -30,6 +30,7 @@ pub struct Theme {
     pub command_picker_bg: Color,
     pub streaming_indicator: Color,
     pub api_unavailable: Color,
+    pub summary_indicator: Color,
 }
 
 impl Theme {
@@ -60,6 +61,7 @@ impl Theme {
             command_picker_bg: Color::Yellow,
             streaming_indicator: Color::Yellow,
             api_unavailable: Color::Red,
+            summary_indicator: Color::DarkGray,
         }
     }
 
@@ -90,6 +92,7 @@ impl Theme {
             command_picker_bg: Color::Blue,
             streaming_indicator: Color::Blue,
             api_unavailable: Color::Red,
+            summary_indicator: Color::Gray,
         }
     }
 
@@ -136,6 +139,7 @@ impl Theme {
         apply!(command_picker_bg);
         apply!(streaming_indicator);
         apply!(api_unavailable);
+        apply!(summary_indicator);
     }
 
     pub fn available_themes() -> &'static [&'static str] {

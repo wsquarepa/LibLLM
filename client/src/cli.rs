@@ -70,6 +70,7 @@ pub struct CliOverrides {
     pub sampling: SamplingOverrides,
     pub system_prompt: Option<String>,
     pub persona: Option<String>,
+    pub no_summarize: bool,
 }
 
 #[derive(Parser)]
@@ -153,6 +154,10 @@ pub struct Args {
     #[arg(long)]
     pub tls_skip_verify: bool,
 
+    /// Disable auto-summarization
+    #[arg(long)]
+    pub no_summarize: bool,
+
     /// Write debug log to this path instead of a temp file
     #[arg(long)]
     pub debug: Option<PathBuf>,
@@ -187,6 +192,7 @@ impl Args {
             sampling: self.sampling_overrides(),
             system_prompt: self.system_prompt.clone(),
             persona: self.persona.clone(),
+            no_summarize: self.no_summarize,
         }
     }
 }

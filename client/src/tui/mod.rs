@@ -76,6 +76,9 @@ pub async fn run(
         tokio::spawn(async move {
             let result = client.fetch_model_name().await;
             let _ = tx.send(BackgroundEvent::ModelFetched(result)).await;
+            if let Some(server_ctx) = client.fetch_server_context_size().await {
+                let _ = tx.send(BackgroundEvent::ServerContextSize(server_ctx)).await;
+            }
         });
     }
 
@@ -105,7 +108,7 @@ pub async fn run(
         stop_tokens: instruct_preset.stop_tokens(),
         instruct_preset,
         sampling,
-        context_mgr: ContextManager::default(),
+        context_mgr: ContextManager::new(config.summarization.context_size),
         textarea,
         chat_scroll: 0,
         chat_max_scroll: 0,
@@ -125,6 +128,10 @@ pub async fn run(
         is_continuation: false,
         message_queue: Vec::new(),
         streaming_task: None,
+        is_summarizing: false,
+        summary_receiver: None,
+        summary_branch_head: None,
+        summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
         model_name: None,
         api_available: true,
         api_error: String::new(),
@@ -264,6 +271,53 @@ pub async fn run(
                 needs_redraw = false;
             }
             _ = frame_tick.tick() => {
+                if app.summary_receiver.is_some() {
+                    let completed = app.summary_receiver.as_mut().unwrap().try_recv();
+                    if let Ok(result) = completed {
+                        let current_head = app.session.tree.head();
+                        let expected_head = app.summary_branch_head;
+                        app.summary_receiver = None;
+                        app.summary_branch_head = None;
+
+                        if current_head == expected_head {
+                            if let Ok(summary_text) = result {
+                                let branch_path = app.session.tree.branch_path();
+                                let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+                                let dropped = app.context_mgr.dropped_message_count(&summary_aware);
+
+                                if dropped > 0 {
+                                    let branch_ids = app.session.tree.branch_path_ids();
+                                    let summary_boundary = branch_ids.len() - summary_aware.len();
+                                    let insert_idx = summary_boundary + dropped - 1;
+                                    if insert_idx < branch_ids.len() {
+                                        let parent_node_id = branch_ids[insert_idx];
+                                        app.session.tree.push(
+                                            Some(parent_node_id),
+                                            libllm::session::Message::new(
+                                                libllm::session::Role::Summary,
+                                                summary_text,
+                                            ),
+                                        );
+                                        app.mark_session_dirty(SaveTrigger::StreamDone, true);
+                                        app.invalidate_chat_cache();
+                                    }
+                                }
+                            }
+                        }
+
+                        if app.is_summarizing {
+                            app.is_summarizing = false;
+                            if !app.message_queue.is_empty() {
+                                let next = app.message_queue.remove(0);
+                                commands::start_streaming(&mut app, &next, token_tx.clone());
+                                if !app.is_streaming {
+                                    app.message_queue.clear();
+                                }
+                            }
+                        }
+                        needs_redraw = true;
+                    }
+                }
                 if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
                     let trigger = app.pending_save_trigger.unwrap_or(SaveTrigger::Retry);
                     if let Err(err) = app.flush_session_save(trigger) {

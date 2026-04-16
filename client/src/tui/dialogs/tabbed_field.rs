@@ -1,17 +1,10 @@
 //! Tabbed multi-section field-editor dialog used by /config and /theme.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Position, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::Paragraph;
 use std::time::Instant;
 use tui_textarea::TextArea;
 
 use super::validation::FieldValidation;
-use super::is_flash_active;
-use crate::tui::render::{clear_centered, dialog_block, render_hints_below_dialog};
-use crate::tui::theme::{Theme, parse_color};
 
 pub struct TabSection {
     pub title: &'static str,
@@ -106,6 +99,10 @@ impl<'a> TabbedFieldDialog<'a> {
                     self.prev_tab();
                     return TabbedFieldAction::Continue;
                 }
+                KeyCode::Char('\t') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.prev_tab();
+                    return TabbedFieldAction::Continue;
+                }
                 _ => {}
             }
         }
@@ -167,6 +164,17 @@ mod tests {
         assert_eq!(d.current_tab(), 1);
         d.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(d.current_tab(), 0);
+    }
+
+    #[test]
+    fn tab_wraps_backward_via_shift_tab_char() {
+        let sections = vec![
+            make_section("A", &["f"]),
+            make_section("B", &["f"]),
+        ];
+        let mut d = TabbedFieldDialog::new(" test ", sections);
+        d.handle_key(KeyEvent::new(KeyCode::Char('\t'), KeyModifiers::SHIFT));
+        assert_eq!(d.current_tab(), 1);
     }
 
     #[test]

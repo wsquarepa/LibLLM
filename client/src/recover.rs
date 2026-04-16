@@ -31,12 +31,22 @@ pub fn run(
     passkey: Option<&str>,
     command: Option<&RecoverCommand>,
 ) -> Result<()> {
+    run_with_interactivity(data_dir, passkey, command, crate::interactive::is_interactive())
+}
+
+pub fn run_with_interactivity(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    command: Option<&RecoverCommand>,
+    interactive: bool,
+) -> Result<()> {
     let subcommand = match command {
         Some(RecoverCommand::List) => "list",
         Some(RecoverCommand::Verify { .. }) => "verify",
         Some(RecoverCommand::Restore { .. }) => "restore",
         Some(RecoverCommand::RebuildIndex) => "rebuild_index",
-        None => "interactive",
+        None if interactive => "interactive",
+        None => "help",
     };
     debug_log::log_kv(
         "recover.run",
@@ -45,6 +55,7 @@ pub fn run(
             debug_log::field("subcommand", subcommand),
             debug_log::field("data_dir", data_dir.display()),
             debug_log::field("has_passkey", passkey.is_some()),
+            debug_log::field("interactive", interactive),
         ],
     );
     match command {
@@ -52,11 +63,23 @@ pub fn run(
         Some(RecoverCommand::Verify { full }) => cmd_verify(data_dir, passkey, *full),
         Some(RecoverCommand::Restore { id, yes }) => cmd_restore(data_dir, passkey, id, *yes),
         Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
-        None => run_interactive(data_dir, passkey, crate::interactive::is_interactive()),
+        None if interactive => run_interactive_menu(data_dir, passkey),
+        None => print_recover_help(),
     }
 }
 
-fn run_interactive(_data_dir: &Path, _passkey: Option<&str>, _interactive: bool) -> Result<()> {
+fn print_recover_help() -> Result<()> {
+    use clap::CommandFactory;
+    let mut root = crate::cli::Args::command();
+    let recover_cmd = root
+        .find_subcommand_mut("recover")
+        .context("clap schema missing `recover` subcommand")?;
+    recover_cmd.print_long_help().context("failed to print help")?;
+    println!();
+    Ok(())
+}
+
+fn run_interactive_menu(_data_dir: &Path, _passkey: Option<&str>) -> Result<()> {
     anyhow::bail!("interactive recover not yet implemented")
 }
 

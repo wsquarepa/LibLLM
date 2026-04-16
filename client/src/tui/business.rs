@@ -200,130 +200,422 @@ pub fn replace_template_vars(
         .collect()
 }
 
-pub fn load_config_fields(
+pub fn load_tabbed_config_sections(
     cfg: &libllm::config::Config,
     overrides: &crate::cli::CliOverrides,
-) -> Vec<String> {
+) -> Vec<Vec<String>> {
     let defaults = libllm::sampling::SamplingParams::default();
-    vec![
-        // [0] API URL
+
+    let general = vec![
         overrides
             .api_url
             .as_deref()
             .or(cfg.api_url.as_deref())
             .unwrap_or(libllm::config::Config::default().api_url())
             .to_owned(),
-        // [1] Spacer
-        String::new(),
-        // [2] Template preset
-        cfg.template_preset
-            .as_deref()
-            .unwrap_or("Default")
-            .to_owned(),
-        // [3] Instruct preset
+        cfg.template_preset.as_deref().unwrap_or("Default").to_owned(),
         overrides
             .template
             .as_deref()
             .or(cfg.instruct_preset.as_deref())
             .unwrap_or("Mistral V3-Tekken")
             .to_owned(),
-        // [4] Reasoning preset
         cfg.reasoning_preset.as_deref().unwrap_or("OFF").to_owned(),
-        // [5] Spacer
-        String::new(),
-        // [6] Temperature
+        if overrides.tls_skip_verify {
+            "true".to_owned()
+        } else {
+            cfg.tls_skip_verify.to_string()
+        },
+        cfg.debug_log.to_string(),
+    ];
+
+    let sampling = vec![
         overrides
             .sampling
             .temperature
             .or(cfg.sampling.temperature)
             .unwrap_or(defaults.temperature)
             .to_string(),
-        // [7] Top-K
         overrides
             .sampling
             .top_k
             .or(cfg.sampling.top_k)
             .unwrap_or(defaults.top_k)
             .to_string(),
-        // [8] Top-P
         overrides
             .sampling
             .top_p
             .or(cfg.sampling.top_p)
             .unwrap_or(defaults.top_p)
             .to_string(),
-        // [9] Min-P
         overrides
             .sampling
             .min_p
             .or(cfg.sampling.min_p)
             .unwrap_or(defaults.min_p)
             .to_string(),
-        // [10] Repeat Last N
         overrides
             .sampling
             .repeat_last_n
             .or(cfg.sampling.repeat_last_n)
             .unwrap_or(defaults.repeat_last_n)
             .to_string(),
-        // [11] Repeat Penalty
         overrides
             .sampling
             .repeat_penalty
             .or(cfg.sampling.repeat_penalty)
             .unwrap_or(defaults.repeat_penalty)
             .to_string(),
-        // [12] Max Tokens
         overrides
             .sampling
             .max_tokens
             .or(cfg.sampling.max_tokens)
             .unwrap_or(defaults.max_tokens)
             .to_string(),
-        // [13] TLS Skip Verify
-        if overrides.tls_skip_verify {
-            "true".to_owned()
-        } else {
-            cfg.tls_skip_verify.to_string()
+    ];
+
+    let backup = vec![
+        cfg.backup.enabled.to_string(),
+        cfg.backup.keep_all_days.to_string(),
+        cfg.backup.keep_daily_days.to_string(),
+        cfg.backup.keep_weekly_days.to_string(),
+        cfg.backup.rebase_threshold_percent.to_string(),
+        cfg.backup.rebase_hard_ceiling.to_string(),
+    ];
+
+    let summarization = vec![
+        cfg.summarization.enabled.to_string(),
+        cfg.summarization.api_url.clone().unwrap_or_default(),
+        cfg.summarization.context_size.to_string(),
+        cfg.summarization.trigger_threshold.to_string(),
+        cfg.summarization.prompt.clone(),
+    ];
+
+    vec![general, sampling, backup, summarization]
+}
+
+pub fn config_locked_fields_by_section(
+    overrides: &crate::cli::CliOverrides,
+) -> Vec<Vec<usize>> {
+    let mut general: Vec<usize> = Vec::new();
+    let mut sampling: Vec<usize> = Vec::new();
+    if overrides.api_url.is_some() {
+        general.push(0);
+    }
+    if overrides.template.is_some() {
+        general.push(2);
+    }
+    if overrides.tls_skip_verify {
+        general.push(4);
+    }
+    if overrides.sampling.temperature.is_some() {
+        sampling.push(0);
+    }
+    if overrides.sampling.top_k.is_some() {
+        sampling.push(1);
+    }
+    if overrides.sampling.top_p.is_some() {
+        sampling.push(2);
+    }
+    if overrides.sampling.min_p.is_some() {
+        sampling.push(3);
+    }
+    if overrides.sampling.repeat_last_n.is_some() {
+        sampling.push(4);
+    }
+    if overrides.sampling.repeat_penalty.is_some() {
+        sampling.push(5);
+    }
+    if overrides.sampling.max_tokens.is_some() {
+        sampling.push(6);
+    }
+    vec![general, sampling, Vec::new(), Vec::new()]
+}
+
+pub fn apply_tabbed_config_fields(
+    sections: &[Vec<String>],
+    existing: libllm::config::Config,
+    overrides: &crate::cli::CliOverrides,
+) -> anyhow::Result<()> {
+    let locked = config_locked_fields_by_section(overrides);
+    let general = &sections[0];
+    let sampling = &sections[1];
+    let backup = &sections[2];
+    let summarization = &sections[3];
+
+    let api_url = if locked[0].contains(&0) {
+        existing.api_url.clone()
+    } else {
+        non_empty(&general[0])
+    };
+    let template_preset = non_empty(&general[1]);
+    let instruct_preset = if locked[0].contains(&2) {
+        existing.instruct_preset.clone()
+    } else {
+        non_empty(&general[2])
+    };
+    let reasoning_preset = non_empty(&general[3]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
+    let tls_skip_verify = if locked[0].contains(&4) {
+        existing.tls_skip_verify
+    } else {
+        general[4] == "true"
+    };
+    let debug_log = general[5] == "true";
+
+    let temperature = if locked[1].contains(&0) {
+        existing.sampling.temperature
+    } else {
+        parse_f64_clamped(&sampling[0], 0.0, 2.0)
+    };
+    let top_k = if locked[1].contains(&1) {
+        existing.sampling.top_k
+    } else {
+        parse_i64_clamped(&sampling[1], 1, 100)
+    };
+    let top_p = if locked[1].contains(&2) {
+        existing.sampling.top_p
+    } else {
+        parse_f64_clamped(&sampling[2], 0.0, 1.0)
+    };
+    let min_p = if locked[1].contains(&3) {
+        existing.sampling.min_p
+    } else {
+        parse_f64_clamped(&sampling[3], 0.0, 1.0)
+    };
+    let repeat_last_n = if locked[1].contains(&4) {
+        existing.sampling.repeat_last_n
+    } else {
+        parse_i64_clamped(&sampling[4], -1, 32767)
+    };
+    let repeat_penalty = if locked[1].contains(&5) {
+        existing.sampling.repeat_penalty
+    } else {
+        parse_f64_clamped(&sampling[5], 0.0, 2.0)
+    };
+    let max_tokens = if locked[1].contains(&6) {
+        existing.sampling.max_tokens
+    } else {
+        parse_i64_clamped(&sampling[6], -1, 32767)
+    };
+
+    let backup_cfg = libllm::config::BackupConfig {
+        enabled: backup[0] == "true",
+        keep_all_days: parse_u32_clamped(&backup[1], 0, 3650),
+        keep_daily_days: parse_u32_clamped(&backup[2], 0, 3650),
+        keep_weekly_days: parse_u32_clamped(&backup[3], 0, 3650),
+        rebase_threshold_percent: parse_u32_clamped(&backup[4], 0, 100),
+        rebase_hard_ceiling: parse_u32_clamped(&backup[5], 0, 100),
+    };
+
+    let summarization_api_url = if summarization[1].trim().is_empty() {
+        None
+    } else {
+        Some(summarization[1].clone())
+    };
+    let summarization_cfg = libllm::config::SummarizationConfig {
+        enabled: summarization[0] == "true",
+        api_url: summarization_api_url,
+        context_size: parse_usize_clamped(&summarization[2], 512, 131072),
+        trigger_threshold: parse_usize_clamped(&summarization[3], 1, 100),
+        prompt: summarization[4].clone(),
+    };
+
+    let cfg = libllm::config::Config {
+        api_url,
+        template_preset,
+        instruct_preset,
+        reasoning_preset,
+        sampling: libllm::sampling::SamplingOverrides {
+            temperature,
+            top_k,
+            top_p,
+            min_p,
+            repeat_last_n,
+            repeat_penalty,
+            max_tokens,
         },
-        // [14] Debug Logging
-        cfg.debug_log.to_string(),
+        worldbooks: existing.worldbooks,
+        tls_skip_verify,
+        debug_log,
+        default_persona: existing.default_persona,
+        macros: existing.macros,
+        theme: existing.theme,
+        theme_colors: existing.theme_colors,
+        backup: backup_cfg,
+        summarization: summarization_cfg,
+    };
+
+    libllm::config::save(&cfg)
+}
+
+pub(super) fn load_config_fields(
+    cfg: &libllm::config::Config,
+    overrides: &crate::cli::CliOverrides,
+) -> Vec<String> {
+    let sections = load_tabbed_config_sections(cfg, overrides);
+    let general = &sections[0];
+    let sampling = &sections[1];
+    vec![
+        general[0].clone(),
+        String::new(),
+        general[1].clone(),
+        general[2].clone(),
+        general[3].clone(),
+        String::new(),
+        sampling[0].clone(),
+        sampling[1].clone(),
+        sampling[2].clone(),
+        sampling[3].clone(),
+        sampling[4].clone(),
+        sampling[5].clone(),
+        sampling[6].clone(),
+        general[4].clone(),
+        general[5].clone(),
     ]
 }
 
-pub fn config_locked_fields(overrides: &crate::cli::CliOverrides) -> Vec<usize> {
-    let mut locked = Vec::new();
-    if overrides.api_url.is_some() {
-        locked.push(0);
+pub(super) fn config_locked_fields(overrides: &crate::cli::CliOverrides) -> Vec<usize> {
+    let by_section = config_locked_fields_by_section(overrides);
+    let mut flat: Vec<usize> = Vec::new();
+    for i in &by_section[0] {
+        let flat_idx = match i {
+            0 => 0,
+            2 => 3,
+            4 => 13,
+            _ => continue,
+        };
+        flat.push(flat_idx);
     }
-    if overrides.template.is_some() {
-        locked.push(3);
+    for i in &by_section[1] {
+        let flat_idx = match i {
+            0 => 6,
+            1 => 7,
+            2 => 8,
+            3 => 9,
+            4 => 10,
+            5 => 11,
+            6 => 12,
+            _ => continue,
+        };
+        flat.push(flat_idx);
     }
-    if overrides.sampling.temperature.is_some() {
-        locked.push(6);
+    flat
+}
+
+pub(super) fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::Result<()> {
+    let existing = libllm::config::load();
+    let backup_section = vec![
+        existing.backup.enabled.to_string(),
+        existing.backup.keep_all_days.to_string(),
+        existing.backup.keep_daily_days.to_string(),
+        existing.backup.keep_weekly_days.to_string(),
+        existing.backup.rebase_threshold_percent.to_string(),
+        existing.backup.rebase_hard_ceiling.to_string(),
+    ];
+    let summarization_section = vec![
+        existing.summarization.enabled.to_string(),
+        existing.summarization.api_url.clone().unwrap_or_default(),
+        existing.summarization.context_size.to_string(),
+        existing.summarization.trigger_threshold.to_string(),
+        existing.summarization.prompt.clone(),
+    ];
+    let mut overrides_api_url: Option<String> = None;
+    let mut overrides_template: Option<String> = None;
+    let mut overrides_tls_skip = false;
+    if locked.contains(&0) {
+        overrides_api_url = existing.api_url.clone();
     }
-    if overrides.sampling.top_k.is_some() {
-        locked.push(7);
+    if locked.contains(&3) {
+        overrides_template = existing.instruct_preset.clone();
     }
-    if overrides.sampling.top_p.is_some() {
-        locked.push(8);
+    if locked.contains(&13) {
+        overrides_tls_skip = existing.tls_skip_verify;
     }
-    if overrides.sampling.min_p.is_some() {
-        locked.push(9);
+
+    let gen_api_url = if locked.contains(&0) {
+        overrides_api_url.unwrap_or_default()
+    } else {
+        fields[0].clone()
+    };
+    let gen_instruct = if locked.contains(&3) {
+        overrides_template.unwrap_or_default()
+    } else {
+        fields[3].clone()
+    };
+    let gen_tls = if locked.contains(&13) {
+        overrides_tls_skip.to_string()
+    } else {
+        fields[13].clone()
+    };
+
+    let mut samp = vec![
+        fields[6].clone(),
+        fields[7].clone(),
+        fields[8].clone(),
+        fields[9].clone(),
+        fields[10].clone(),
+        fields[11].clone(),
+        fields[12].clone(),
+    ];
+    for &li in locked {
+        let samp_idx = match li {
+            6 => Some(0),
+            7 => Some(1),
+            8 => Some(2),
+            9 => Some(3),
+            10 => Some(4),
+            11 => Some(5),
+            12 => Some(6),
+            _ => None,
+        };
+        if let Some(si) = samp_idx {
+            let defaults = libllm::sampling::SamplingParams::default();
+            samp[si] = match si {
+                0 => existing.sampling.temperature.unwrap_or(defaults.temperature).to_string(),
+                1 => existing.sampling.top_k.unwrap_or(defaults.top_k).to_string(),
+                2 => existing.sampling.top_p.unwrap_or(defaults.top_p).to_string(),
+                3 => existing.sampling.min_p.unwrap_or(defaults.min_p).to_string(),
+                4 => existing.sampling.repeat_last_n.unwrap_or(defaults.repeat_last_n).to_string(),
+                5 => existing.sampling.repeat_penalty.unwrap_or(defaults.repeat_penalty).to_string(),
+                6 => existing.sampling.max_tokens.unwrap_or(defaults.max_tokens).to_string(),
+                _ => samp[si].clone(),
+            };
+        }
     }
-    if overrides.sampling.repeat_last_n.is_some() {
-        locked.push(10);
-    }
-    if overrides.sampling.repeat_penalty.is_some() {
-        locked.push(11);
-    }
-    if overrides.sampling.max_tokens.is_some() {
-        locked.push(12);
-    }
-    if overrides.tls_skip_verify {
-        locked.push(13);
-    }
-    locked
+
+    let sections = vec![
+        vec![
+            gen_api_url,
+            fields[2].clone(),
+            gen_instruct,
+            fields[4].clone(),
+            gen_tls,
+            fields[14].clone(),
+        ],
+        samp,
+        backup_section,
+        summarization_section,
+    ];
+
+    let no_overrides = crate::cli::CliOverrides {
+        api_url: None,
+        template: None,
+        tls_skip_verify: false,
+        sampling: libllm::sampling::SamplingOverrides {
+            temperature: None,
+            top_k: None,
+            top_p: None,
+            min_p: None,
+            repeat_last_n: None,
+            repeat_penalty: None,
+            max_tokens: None,
+        },
+        system_prompt: None,
+        persona: None,
+        no_summarize: false,
+    };
+
+    apply_tabbed_config_fields(&sections, existing, &no_overrides)
 }
 
 fn parse_f64_clamped(s: &str, min: f64, max: f64) -> Option<f64> {
@@ -334,80 +626,22 @@ fn parse_i64_clamped(s: &str, min: i64, max: i64) -> Option<i64> {
     s.parse::<i64>().ok().map(|v| v.clamp(min, max))
 }
 
-pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::Result<()> {
-    let existing = libllm::config::load();
-    let max_tokens: Option<i64> = if locked.contains(&12) {
-        existing.sampling.max_tokens
-    } else {
-        parse_i64_clamped(&fields[12], -1, 32767)
-    };
-    let repeat_last_n_max = match max_tokens {
-        Some(v) if v > 0 => v,
-        _ => 32767,
-    };
-    let reasoning_value = non_empty(&fields[4]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
-    let cfg = libllm::config::Config {
-        api_url: if locked.contains(&0) {
-            existing.api_url
-        } else {
-            non_empty(&fields[0])
-        },
-        template_preset: non_empty(&fields[2]),
-        instruct_preset: if locked.contains(&3) {
-            existing.instruct_preset
-        } else {
-            non_empty(&fields[3])
-        },
-        reasoning_preset: reasoning_value,
-        worldbooks: existing.worldbooks,
-        sampling: libllm::sampling::SamplingOverrides {
-            temperature: if locked.contains(&6) {
-                existing.sampling.temperature
-            } else {
-                parse_f64_clamped(&fields[6], 0.0, 2.0)
-            },
-            top_k: if locked.contains(&7) {
-                existing.sampling.top_k
-            } else {
-                parse_i64_clamped(&fields[7], 1, 100)
-            },
-            top_p: if locked.contains(&8) {
-                existing.sampling.top_p
-            } else {
-                parse_f64_clamped(&fields[8], 0.0, 1.0)
-            },
-            min_p: if locked.contains(&9) {
-                existing.sampling.min_p
-            } else {
-                parse_f64_clamped(&fields[9], 0.0, 1.0)
-            },
-            repeat_last_n: if locked.contains(&10) {
-                existing.sampling.repeat_last_n
-            } else {
-                parse_i64_clamped(&fields[10], -1, repeat_last_n_max)
-            },
-            repeat_penalty: if locked.contains(&11) {
-                existing.sampling.repeat_penalty
-            } else {
-                parse_f64_clamped(&fields[11], 0.0, 2.0)
-            },
-            max_tokens,
-        },
-        tls_skip_verify: if locked.contains(&13) {
-            existing.tls_skip_verify
-        } else {
-            fields[13].parse().unwrap_or(existing.tls_skip_verify)
-        },
-        debug_log: fields[14].parse().unwrap_or(existing.debug_log),
-        default_persona: existing.default_persona,
-        macros: existing.macros,
-        theme: existing.theme,
-        theme_colors: existing.theme_colors,
-        backup: existing.backup,
-        summarization: existing.summarization,
-    };
+fn parse_u32_clamped(value: &str, min: u32, max: u32) -> u32 {
+    value
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .map(|v| v.clamp(min, max))
+        .unwrap_or(min)
+}
 
-    libllm::config::save(&cfg)
+fn parse_usize_clamped(value: &str, min: usize, max: usize) -> usize {
+    value
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .map(|v| v.clamp(min, max))
+        .unwrap_or(min)
 }
 
 pub(super) fn apply_config(app: &mut App) {

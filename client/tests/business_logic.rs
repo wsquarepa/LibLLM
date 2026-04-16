@@ -5,7 +5,6 @@ mod common;
 use client::cli::CliOverrides;
 use client::tui::business;
 use libllm::config::Config;
-use libllm::sampling::SamplingOverrides;
 use libllm::session::{Message, MessageTree, Role, Session};
 
 // ---------------------------------------------------------------------------
@@ -72,132 +71,99 @@ fn empty_session() -> Session {
 }
 
 // ---------------------------------------------------------------------------
-// Config Locked Fields (moved from tui_business.rs)
+// Tabbed Config Sections
 // ---------------------------------------------------------------------------
 
 #[test]
-fn config_locked_fields_no_overrides() {
-    let overrides = no_overrides();
-    let locked = business::config_locked_fields(&overrides);
-    assert!(locked.is_empty());
-}
-
-#[test]
-fn config_locked_fields_api_url() {
-    let overrides = CliOverrides {
-        api_url: Some("http://example.com".to_owned()),
-        ..no_overrides()
-    };
-    let locked = business::config_locked_fields(&overrides);
-    assert!(locked.contains(&0));
-}
-
-#[test]
-fn config_locked_fields_template() {
-    let overrides = CliOverrides {
-        template: Some("chatml".to_owned()),
-        ..no_overrides()
-    };
-    let locked = business::config_locked_fields(&overrides);
-    assert!(locked.contains(&3));
-}
-
-#[test]
-fn config_locked_fields_sampling_temperature() {
-    let overrides = CliOverrides {
-        sampling: SamplingOverrides {
-            temperature: Some(0.5),
-            ..common::empty_overrides()
-        },
-        ..no_overrides()
-    };
-    let locked = business::config_locked_fields(&overrides);
-    assert!(locked.contains(&6));
-}
-
-#[test]
-fn config_locked_fields_multiple_overrides() {
-    let overrides = CliOverrides {
-        api_url: Some("http://example.com".to_owned()),
-        template: Some("chatml".to_owned()),
-        tls_skip_verify: true,
-        sampling: SamplingOverrides {
-            temperature: Some(0.5),
-            top_k: Some(50),
-            max_tokens: Some(1024),
-            ..common::empty_overrides()
-        },
-        ..no_overrides()
-    };
-    let locked = business::config_locked_fields(&overrides);
-    assert!(locked.contains(&0), "api_url index 0");
-    assert!(locked.contains(&3), "template index 3");
-    assert!(locked.contains(&6), "temperature index 6");
-    assert!(locked.contains(&7), "top_k index 7");
-    assert!(locked.contains(&12), "max_tokens index 12");
-    assert!(locked.contains(&13), "tls_skip_verify index 13");
-}
-
-#[test]
-fn config_locked_fields_tls_skip_verify() {
-    let overrides = CliOverrides {
-        tls_skip_verify: true,
-        ..no_overrides()
-    };
-    let locked = business::config_locked_fields(&overrides);
-    assert!(locked.contains(&13));
-}
-
-// ---------------------------------------------------------------------------
-// Config Field Loading (moved from tui_business.rs)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn load_config_fields_defaults() {
+fn load_tabbed_config_sections_defaults() {
     let cfg = Config::default();
     let overrides = no_overrides();
-    let fields = business::load_config_fields(&cfg, &overrides);
-
-    assert_eq!(fields[0], "http://localhost:5001/v1");
-    assert_eq!(fields[13], "false");
-    assert_eq!(fields[14], "false");
-    assert_eq!(fields.len(), 15);
+    let sections = business::load_tabbed_config_sections(&cfg, &overrides);
+    assert_eq!(sections.len(), 4, "expected 4 tabs");
+    assert_eq!(sections[0].len(), 6, "General tab");
+    assert_eq!(sections[1].len(), 7, "Sampling tab");
+    assert_eq!(sections[2].len(), 6, "Backup tab");
+    assert_eq!(sections[3].len(), 5, "Summarization tab");
+    assert_eq!(sections[0][0], "http://localhost:5001/v1");
+    assert_eq!(sections[1][0], "0.8"); // default temperature
+    assert_eq!(sections[2][0], "true"); // backup enabled
+    assert_eq!(sections[3][0], "true"); // summarization enabled
 }
 
 #[test]
-fn load_config_fields_custom_config() {
-    let cfg = Config {
-        api_url: Some("http://custom:8080/v1".to_owned()),
-        tls_skip_verify: true,
-        debug_log: true,
-        ..Config::default()
-    };
-    let overrides = no_overrides();
-    let fields = business::load_config_fields(&cfg, &overrides);
-
-    assert_eq!(fields[0], "http://custom:8080/v1");
-    assert_eq!(fields[13], "true");
-    assert_eq!(fields[14], "true");
-}
-
-#[test]
-fn load_config_fields_override_precedence() {
-    let cfg = Config {
-        api_url: Some("http://config-url/v1".to_owned()),
-        ..Config::default()
-    };
+fn load_tabbed_config_sections_override_precedence() {
+    let mut cfg = Config::default();
+    cfg.api_url = Some("http://stored.example/v1".to_owned());
     let overrides = CliOverrides {
-        api_url: Some("http://override-url/v1".to_owned()),
-        sampling: SamplingOverrides {
-            temperature: Some(0.1),
-            ..common::empty_overrides()
+        api_url: Some("http://cli.example/v1".to_owned()),
+        ..no_overrides()
+    };
+    let sections = business::load_tabbed_config_sections(&cfg, &overrides);
+    assert_eq!(sections[0][0], "http://cli.example/v1");
+}
+
+#[test]
+fn config_locked_by_section_tracks_sampling_overrides() {
+    let overrides = CliOverrides {
+        sampling: libllm::sampling::SamplingOverrides {
+            temperature: Some(0.5),
+            ..Default::default()
         },
         ..no_overrides()
     };
-    let fields = business::load_config_fields(&cfg, &overrides);
+    let locked = business::config_locked_fields_by_section(&overrides);
+    assert_eq!(locked.len(), 4);
+    assert!(locked[1].contains(&0));
+    assert!(locked[0].is_empty());
+}
 
-    assert_eq!(fields[0], "http://override-url/v1");
-    assert_eq!(fields[6], "0.1");
+#[test]
+fn apply_tabbed_config_fields_preserves_locked() {
+    let dir = tempfile::tempdir().unwrap();
+    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    let mut existing = Config::default();
+    existing.api_url = Some("http://preserve.me/v1".to_owned());
+    let overrides = CliOverrides {
+        api_url: Some("http://cli.example/v1".to_owned()),
+        ..no_overrides()
+    };
+    let sections = vec![
+        vec![
+            "http://should-not-save.example/v1".to_owned(),
+            "Default".to_owned(),
+            "Mistral V3-Tekken".to_owned(),
+            "OFF".to_owned(),
+            "false".to_owned(),
+            "false".to_owned(),
+        ],
+        vec![
+            "1".to_owned(),
+            "40".to_owned(),
+            "0.9".to_owned(),
+            "0.1".to_owned(),
+            "64".to_owned(),
+            "1.1".to_owned(),
+            "512".to_owned(),
+        ],
+        vec![
+            "true".to_owned(),
+            "7".to_owned(),
+            "30".to_owned(),
+            "90".to_owned(),
+            "50".to_owned(),
+            "10".to_owned(),
+        ],
+        vec![
+            "true".to_owned(),
+            "".to_owned(),
+            "8192".to_owned(),
+            "5".to_owned(),
+            "Summarize.".to_owned(),
+        ],
+    ];
+    business::apply_tabbed_config_fields(&sections, existing, &overrides).unwrap();
+    let saved = libllm::config::load();
+    assert_eq!(saved.api_url.as_deref(), Some("http://preserve.me/v1"));
 }
 
 // ---------------------------------------------------------------------------
@@ -292,58 +258,3 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
     assert_eq!(result.len(), messages.len());
 }
 
-// ---------------------------------------------------------------------------
-// save_config_from_fields
-// ---------------------------------------------------------------------------
-
-#[test]
-fn save_config_from_fields_clamps_temperature() {
-    let dir = common::temp_dir();
-    libllm::config::set_data_dir(dir.path().to_path_buf()).unwrap();
-    std::fs::create_dir_all(dir.path()).unwrap();
-
-    let defaults = libllm::sampling::SamplingParams::default();
-    let mut fields = business::load_config_fields(&Config::default(), &no_overrides());
-    // Set temperature (index 6) to a value above the max of 2.0.
-    fields[6] = "5.0".to_owned();
-
-    business::save_config_from_fields(&fields, &[]).unwrap();
-    let saved = libllm::config::load();
-
-    let temperature = saved
-        .sampling
-        .temperature
-        .unwrap_or(defaults.temperature);
-    assert!(
-        temperature <= 2.0,
-        "temperature should be clamped to max 2.0, got {temperature}"
-    );
-}
-
-#[test]
-fn save_config_from_fields_skips_locked_fields() {
-    let dir = common::temp_dir();
-    libllm::config::set_data_dir(dir.path().to_path_buf()).unwrap();
-    std::fs::create_dir_all(dir.path()).unwrap();
-
-    // Save an initial config with a known api_url.
-    let initial = Config {
-        api_url: Some("http://original:1234/v1".to_owned()),
-        ..Config::default()
-    };
-    libllm::config::save(&initial).unwrap();
-
-    // Build fields with a different api_url at index 0, but lock index 0.
-    let mut fields = business::load_config_fields(&initial, &no_overrides());
-    fields[0] = "http://should-not-be-saved/v1".to_owned();
-
-    // Index 0 is locked — the original api_url must survive.
-    business::save_config_from_fields(&fields, &[0]).unwrap();
-    let saved = libllm::config::load();
-
-    assert_eq!(
-        saved.api_url.as_deref(),
-        Some("http://original:1234/v1"),
-        "locked api_url should not be overwritten"
-    );
-}

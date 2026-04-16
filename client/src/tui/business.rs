@@ -225,7 +225,6 @@ pub fn load_config_fields(
             .template
             .as_deref()
             .or(cfg.instruct_preset.as_deref())
-            .or(cfg.template.as_deref())
             .unwrap_or("Mistral V3-Tekken")
             .to_owned(),
         // [4] Reasoning preset
@@ -353,7 +352,6 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
         } else {
             non_empty(&fields[0])
         },
-        template: None,
         template_preset: non_empty(&fields[2]),
         instruct_preset: if locked.contains(&3) {
             existing.instruct_preset
@@ -361,8 +359,6 @@ pub fn save_config_from_fields(fields: &[String], locked: &[usize]) -> anyhow::R
             non_empty(&fields[3])
         },
         reasoning_preset: reasoning_value,
-        user_name: None,
-        user_persona: None,
         worldbooks: existing.worldbooks,
         sampling: libllm::sampling::SamplingOverrides {
             temperature: if locked.contains(&6) {
@@ -421,7 +417,6 @@ pub(super) fn apply_config(app: &mut App) {
         .template
         .as_deref()
         .or(cfg.instruct_preset.as_deref())
-        .or(cfg.template.as_deref())
         .unwrap_or("Mistral V3-Tekken");
     app.instruct_preset = libllm::preset::resolve_instruct_preset(preset_name);
     app.stop_tokens = app.instruct_preset.stop_tokens();

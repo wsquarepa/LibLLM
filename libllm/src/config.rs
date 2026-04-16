@@ -23,18 +23,12 @@ thread_local! {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub api_url: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub template: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub template_preset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub instruct_preset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reasoning_preset: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub user_name: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub user_persona: Option<String>,
     #[serde(default)]
     pub sampling: SamplingOverrides,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]

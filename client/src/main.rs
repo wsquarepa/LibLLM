@@ -154,7 +154,6 @@ async fn main() -> Result<()> {
         .template
         .as_deref()
         .or(cfg.instruct_preset.as_deref())
-        .or(cfg.template.as_deref())
         .unwrap_or("Mistral V3-Tekken");
     let instruct_preset = preset::resolve_instruct_preset(preset_name);
     let template_preset_name = cfg.template_preset.as_deref().unwrap_or("Default");

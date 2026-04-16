@@ -108,3 +108,48 @@ fn parse_continue_without_message_errors() {
     let result = Args::try_parse_from(["libllm", "-d", "./data", "--continue", "uuid"]);
     assert!(result.is_err(), "--continue without -m should be rejected");
 }
+
+#[test]
+fn parse_recover_without_subcommand() {
+    let args = Args::try_parse_from(["libllm", "recover"]).unwrap();
+    match args.command {
+        Some(Command::Recover { command }) => assert!(command.is_none()),
+        _ => panic!("expected Command::Recover"),
+    }
+}
+
+#[test]
+fn parse_recover_with_list_subcommand() {
+    let args = Args::try_parse_from(["libllm", "recover", "list"]).unwrap();
+    match args.command {
+        Some(Command::Recover { command: Some(_) }) => {}
+        _ => panic!("expected Command::Recover with Some(RecoverCommand::List)"),
+    }
+}
+
+#[test]
+fn parse_update_without_branch() {
+    let args = Args::try_parse_from(["libllm", "update"]).unwrap();
+    match args.command {
+        Some(Command::Update { branch, yes }) => {
+            assert!(branch.is_none());
+            assert!(!yes);
+        }
+        _ => panic!("expected Command::Update"),
+    }
+}
+
+#[test]
+fn parse_update_with_branch() {
+    let args = Args::try_parse_from(["libllm", "update", "feat/foo"]).unwrap();
+    match args.command {
+        Some(Command::Update { branch, .. }) => assert_eq!(branch.as_deref(), Some("feat/foo")),
+        _ => panic!("expected Command::Update"),
+    }
+}
+
+#[test]
+fn parse_update_list_flag_rejected() {
+    let result = Args::try_parse_from(["libllm", "update", "--list"]);
+    assert!(result.is_err(), "--list should no longer be accepted");
+}

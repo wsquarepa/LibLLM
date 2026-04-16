@@ -26,12 +26,17 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-pub fn run(data_dir: &Path, passkey: Option<&str>, command: &RecoverCommand) -> Result<()> {
+pub fn run(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    command: Option<&RecoverCommand>,
+) -> Result<()> {
     let subcommand = match command {
-        RecoverCommand::List => "list",
-        RecoverCommand::Verify { .. } => "verify",
-        RecoverCommand::Restore { .. } => "restore",
-        RecoverCommand::RebuildIndex => "rebuild_index",
+        Some(RecoverCommand::List) => "list",
+        Some(RecoverCommand::Verify { .. }) => "verify",
+        Some(RecoverCommand::Restore { .. }) => "restore",
+        Some(RecoverCommand::RebuildIndex) => "rebuild_index",
+        None => "interactive",
     };
     debug_log::log_kv(
         "recover.run",
@@ -43,11 +48,16 @@ pub fn run(data_dir: &Path, passkey: Option<&str>, command: &RecoverCommand) -> 
         ],
     );
     match command {
-        RecoverCommand::List => cmd_list(data_dir),
-        RecoverCommand::Verify { full } => cmd_verify(data_dir, passkey, *full),
-        RecoverCommand::Restore { id, yes } => cmd_restore(data_dir, passkey, id, *yes),
-        RecoverCommand::RebuildIndex => cmd_rebuild_index(data_dir, passkey),
+        Some(RecoverCommand::List) => cmd_list(data_dir),
+        Some(RecoverCommand::Verify { full }) => cmd_verify(data_dir, passkey, *full),
+        Some(RecoverCommand::Restore { id, yes }) => cmd_restore(data_dir, passkey, id, *yes),
+        Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
+        None => run_interactive(data_dir, passkey, crate::interactive::is_interactive()),
     }
+}
+
+fn run_interactive(_data_dir: &Path, _passkey: Option<&str>, _interactive: bool) -> Result<()> {
+    anyhow::bail!("interactive recover not yet implemented")
 }
 
 fn cmd_list(data_dir: &Path) -> Result<()> {

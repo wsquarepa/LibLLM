@@ -453,6 +453,7 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     Ok(confirmed)
 }
 
+#[allow(dead_code)]
 async fn list_branches(client: &reqwest::Client) -> Result<()> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let resp = client
@@ -519,7 +520,7 @@ async fn list_branches(client: &reqwest::Client) -> Result<()> {
     }
 }
 
-pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
+pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
     if CHANNEL == "unknown" {
         debug_log::log_kv(
             "update.run",
@@ -538,15 +539,10 @@ pub async fn run(branch: Option<String>, list: bool, yes: bool) -> Result<()> {
             debug_log::field("phase", "start"),
             debug_log::field("channel", CHANNEL),
             debug_log::field("target", branch.as_deref().unwrap_or("stable")),
-            debug_log::field("list", list),
         ],
     );
 
     let client = build_client()?;
-
-    if list {
-        return list_branches(&client).await;
-    }
 
     let target = branch.as_deref().unwrap_or("stable");
     if CHANNEL != target {

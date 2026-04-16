@@ -49,14 +49,29 @@ This downloads the latest stable binary for your platform and installs it to `~/
 ### Update
 
 ```sh
-libllm update                    # update stable (or switch to stable)
+libllm update                    # interactive picker (TTY) or update stable (non-TTY)
+libllm update stable             # update stable explicitly
 libllm update feature/branch     # switch to a branch build
-libllm update --list             # browse available branch builds
+libllm update -y feature/branch  # skip the channel-switch confirmation
 ```
+
+The bare `libllm update` opens an arrow-key picker when stdin and stderr are both TTYs. In non-interactive shells (pipes, CI, agent sessions) it updates to `stable` directly, preserving scriptable behavior.
 
 Switching between channels shows a confirmation prompt since branch builds may introduce data format changes. Use `--yes` / `-y` to skip the prompt.
 
 Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
+
+### Recover
+
+```sh
+libllm recover                   # interactive menu (TTY) or subcommand help (non-TTY)
+libllm recover list              # list backup points
+libllm recover restore <id>      # restore a specific backup
+libllm recover verify [--full]   # verify backup chain integrity
+libllm recover rebuild-index     # rebuild backup index from disk
+```
+
+The bare `libllm recover` opens an action menu on a TTY. In non-interactive shells it prints the subcommand help to stdout and exits `0`, so wrappers and agents get discoverable output.
 
 ### From release
 
@@ -237,14 +252,12 @@ libllm -d ./data --passkey mypasskey
 ### Subcommands
 
 ```sh
-# Update to the latest stable build
+# Update to the latest stable build (interactive picker on TTY, stable on non-TTY)
 libllm update
 
-# Switch to a branch build
+# Update stable explicitly or switch to a branch build
+libllm update stable
 libllm update feature/branch
-
-# List available branch builds
-libllm update --list
 
 # Edit a character card or worldbook in $EDITOR
 libllm edit character <name>

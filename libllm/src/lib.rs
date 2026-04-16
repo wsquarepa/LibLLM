@@ -14,6 +14,7 @@ pub mod persona;
 pub mod preset;
 pub mod sampling;
 pub mod session;
+pub mod summarize;
 pub mod system_prompt;
 pub mod template;
 pub mod worldinfo;

@@ -53,6 +53,58 @@ pub struct Config {
     pub theme_colors: Option<ThemeColorOverrides>,
     #[serde(default)]
     pub backup: BackupConfig,
+    #[serde(default)]
+    pub summarization: SummarizationConfig,
+}
+
+const DEFAULT_SUMMARIZATION_PROMPT: &str =
+    "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
+
+const DEFAULT_CONTEXT_SIZE: usize = 8192;
+
+const DEFAULT_TRIGGER_THRESHOLD: usize = 5;
+
+fn default_summarization_enabled() -> bool {
+    true
+}
+
+fn default_context_size() -> usize {
+    DEFAULT_CONTEXT_SIZE
+}
+
+fn default_trigger_threshold() -> usize {
+    DEFAULT_TRIGGER_THRESHOLD
+}
+
+fn default_summarization_prompt() -> String {
+    DEFAULT_SUMMARIZATION_PROMPT.to_owned()
+}
+
+/// Auto-summarization settings, nested under `[summarization]` in config.toml.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SummarizationConfig {
+    #[serde(default = "default_summarization_enabled")]
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub api_url: Option<String>,
+    #[serde(default = "default_context_size")]
+    pub context_size: usize,
+    #[serde(default = "default_trigger_threshold")]
+    pub trigger_threshold: usize,
+    #[serde(default = "default_summarization_prompt")]
+    pub prompt: String,
+}
+
+impl Default for SummarizationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            api_url: None,
+            context_size: DEFAULT_CONTEXT_SIZE,
+            trigger_threshold: DEFAULT_TRIGGER_THRESHOLD,
+            prompt: DEFAULT_SUMMARIZATION_PROMPT.to_owned(),
+        }
+    }
 }
 
 /// Backup retention and rebase policy settings, nested under `[backup]` in config.toml.
@@ -122,6 +174,7 @@ pub struct ThemeColorOverrides {
     pub command_picker_bg: Option<String>,
     pub streaming_indicator: Option<String>,
     pub api_unavailable: Option<String>,
+    pub summary_indicator: Option<String>,
 }
 
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";

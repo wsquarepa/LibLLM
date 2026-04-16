@@ -61,6 +61,7 @@ pub enum Role {
     User,
     Assistant,
     System,
+    Summary,
 }
 
 impl fmt::Display for Role {
@@ -69,6 +70,7 @@ impl fmt::Display for Role {
             Self::User => f.write_str("user"),
             Self::Assistant => f.write_str("assistant"),
             Self::System => f.write_str("system"),
+            Self::Summary => f.write_str("summary"),
         }
     }
 }
@@ -81,6 +83,7 @@ impl std::str::FromStr for Role {
             "user" => Ok(Self::User),
             "assistant" => Ok(Self::Assistant),
             "system" => Ok(Self::System),
+            "summary" => Ok(Self::Summary),
             _ => anyhow::bail!("unknown role: {s}"),
         }
     }

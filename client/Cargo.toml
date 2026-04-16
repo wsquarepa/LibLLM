@@ -25,3 +25,4 @@ chrono = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 libllm = { path = "../libllm", features = ["test-support"] }
 tempfile = "3.27.0"
+toml = "1.1.0"

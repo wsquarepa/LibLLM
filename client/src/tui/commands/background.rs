@@ -182,5 +182,8 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 }
             }
         }
+        BackgroundEvent::ServerContextSize(size) => {
+            app.context_mgr.set_token_limit(size);
+        }
     }
 }

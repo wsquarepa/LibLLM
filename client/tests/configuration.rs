@@ -154,6 +154,38 @@ fn config_ensure_dirs_creates_data_directory() {
 }
 
 // ---------------------------------------------------------------------------
+// Summarization config tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn summarization_config_defaults() {
+    let config: libllm::config::Config = toml::from_str("").unwrap();
+    assert!(config.summarization.enabled);
+    assert_eq!(config.summarization.context_size, 8192);
+    assert_eq!(config.summarization.trigger_threshold, 5);
+    assert!(config.summarization.api_url.is_none());
+    assert!(!config.summarization.prompt.is_empty());
+}
+
+#[test]
+fn summarization_config_custom() {
+    let toml_str = r#"
+[summarization]
+enabled = false
+api_url = "http://other:8080/v1"
+context_size = 16384
+trigger_threshold = 10
+prompt = "Custom prompt"
+"#;
+    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    assert!(!config.summarization.enabled);
+    assert_eq!(config.summarization.api_url.as_deref(), Some("http://other:8080/v1"));
+    assert_eq!(config.summarization.context_size, 16384);
+    assert_eq!(config.summarization.trigger_threshold, 10);
+    assert_eq!(config.summarization.prompt, "Custom prompt");
+}
+
+// ---------------------------------------------------------------------------
 // Migration tests
 // ---------------------------------------------------------------------------
 

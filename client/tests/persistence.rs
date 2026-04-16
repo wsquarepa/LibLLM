@@ -179,3 +179,12 @@ fn session_set_message_content() {
     let messages = loaded.tree.branch_path();
     assert_eq!(messages[1].content, "edited reply");
 }
+
+#[test]
+fn role_summary_round_trip() {
+    let role = Role::Summary;
+    let serialized = role.to_string();
+    assert_eq!(serialized, "summary");
+    let deserialized: Role = serialized.parse().unwrap();
+    assert_eq!(deserialized, role);
+}

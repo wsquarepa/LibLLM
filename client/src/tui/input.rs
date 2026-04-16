@@ -287,10 +287,30 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         KeyCode::Enter => {
             if let Some(node_id) = app.nav_cursor {
                 if let Some(node) = app.session.tree.node(node_id) {
-                    let content = node.message.content.clone();
-                    app.raw_edit_node = Some(node_id);
-                    super::dialog_handler::open_edit_dialog_with(app, &content);
-                    app.focus = super::Focus::EditDialog;
+                    let branch_ids = app.session.tree.branch_path_ids();
+                    let node_idx = branch_ids.iter().position(|&id| id == node_id);
+                    let has_later_summary = node_idx.map_or(false, |idx| {
+                        branch_ids[idx + 1..].iter().any(|&id| {
+                            app.session
+                                .tree
+                                .node(id)
+                                .map(|n| n.message.role == Role::Summary)
+                                .unwrap_or(false)
+                        })
+                    });
+
+                    if has_later_summary && node.message.role != Role::Summary {
+                        app.set_status(
+                            "Cannot edit before a summary. Branch from this message instead."
+                                .to_owned(),
+                            StatusLevel::Warning,
+                        );
+                    } else {
+                        let content = node.message.content.clone();
+                        app.raw_edit_node = Some(node_id);
+                        super::dialog_handler::open_edit_dialog_with(app, &content);
+                        app.focus = super::Focus::EditDialog;
+                    }
                 }
             }
             None

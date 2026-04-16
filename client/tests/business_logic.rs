@@ -8,6 +8,45 @@ use libllm::config::Config;
 use libllm::sampling::SamplingOverrides;
 use libllm::session::{Message, MessageTree, Role, Session};
 
+// ---------------------------------------------------------------------------
+// Summarizer and summary-aware context integration tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn summarizer_excludes_summary_messages() {
+    use libllm::summarize::Summarizer;
+
+    let msgs = vec![
+        Message::new(Role::Summary, "Should not appear".to_owned()),
+        Message::new(Role::User, "Should appear".to_owned()),
+    ];
+    let refs: Vec<&_> = msgs.iter().collect();
+    let prompt = Summarizer::format_prompt("Instruction", &refs);
+    assert!(!prompt.contains("Should not appear"));
+    assert!(prompt.contains("Should appear"));
+}
+
+#[test]
+fn summary_aware_path_with_context_manager() {
+    use libllm::context::ContextManager;
+
+    let ctx = ContextManager::new(8192);
+    let msgs = vec![
+        Message::new(Role::User, "old msg 1".to_owned()),
+        Message::new(Role::Assistant, "old reply 1".to_owned()),
+        Message::new(Role::Summary, "Summary of 2 earlier messages".to_owned()),
+        Message::new(Role::User, "new msg".to_owned()),
+        Message::new(Role::Assistant, "new reply".to_owned()),
+    ];
+    let refs: Vec<&_> = msgs.iter().collect();
+    let aware = ctx.summary_aware_path(&refs);
+
+    assert_eq!(aware.len(), 3);
+    assert_eq!(aware[0].role, Role::Summary);
+    assert_eq!(aware[1].content, "new msg");
+    assert_eq!(aware[2].content, "new reply");
+}
+
 fn no_overrides() -> CliOverrides {
     CliOverrides {
         api_url: None,
@@ -16,6 +55,7 @@ fn no_overrides() -> CliOverrides {
         sampling: common::empty_overrides(),
         system_prompt: None,
         persona: None,
+        no_summarize: false,
     }
 }
 

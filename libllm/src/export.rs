@@ -9,7 +9,7 @@ pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) 
         let role_label = match msg.role {
             Role::User => user_name,
             Role::Assistant => char_name,
-            Role::System => "System",
+            Role::System | Role::Summary => "System",
         };
         let content = template::apply_template_vars(&msg.content, char_name, user_name);
         out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
@@ -23,17 +23,17 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
         let role_label = match msg.role {
             Role::User => user_name,
             Role::Assistant => char_name,
-            Role::System => "System",
+            Role::System | Role::Summary => "System",
         };
         let content = template::apply_template_vars(&msg.content, char_name, user_name);
         let formatted = html_format_content(&content);
         let class = match msg.role {
             Role::User => "user",
             Role::Assistant => "assistant",
-            Role::System => "system",
+            Role::System | Role::Summary => "system",
         };
         let tag = match msg.role {
-            Role::System => "em",
+            Role::System | Role::Summary => "em",
             _ => "span",
         };
         body.push_str(&format!(
@@ -295,7 +295,7 @@ pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> 
         let name = match msg.role {
             Role::User => user_name,
             Role::Assistant => char_name,
-            Role::System => "System",
+            Role::System | Role::Summary => "System",
         };
         let entry = serde_json::json!({
             "name": name,

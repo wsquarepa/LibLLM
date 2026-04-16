@@ -63,6 +63,7 @@ pub(super) enum DeleteContext {
     SystemPrompt { name: String },
     Worldbook { name: String },
     Preset { kind: dialogs::preset::PresetKind },
+    ThemeResetColors,
 }
 
 #[derive(Clone, Copy)]

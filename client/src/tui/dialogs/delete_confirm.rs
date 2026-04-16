@@ -126,6 +126,18 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                     super::preset::refresh_preset_list(app);
                     app.focus = Focus::PresetPickerDialog;
                 }
+                DeleteContext::ThemeResetColors => {
+                    if let Some(dialog) = app.theme_dialog.as_mut() {
+                        let count = dialog.sections().len();
+                        for section_idx in 1..count {
+                            let labels_len = dialog.sections()[section_idx].labels.len();
+                            for field_idx in 0..labels_len {
+                                dialog.set_value(section_idx, field_idx, String::new());
+                            }
+                        }
+                    }
+                    app.focus = Focus::ThemeDialog;
+                }
             }
         }
         ConfirmResult::Cancelled => {
@@ -137,6 +149,7 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                 DeleteContext::SystemPrompt { .. } => Focus::SystemPromptDialog,
                 DeleteContext::Worldbook { .. } => Focus::WorldbookDialog,
                 DeleteContext::Preset { .. } => Focus::PresetPickerDialog,
+                DeleteContext::ThemeResetColors => Focus::ThemeDialog,
             };
         }
         ConfirmResult::Pending => {}

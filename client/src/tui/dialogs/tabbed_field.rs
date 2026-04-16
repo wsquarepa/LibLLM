@@ -941,6 +941,20 @@ mod tests {
     }
 
     #[test]
+    fn reset_via_sections_mut_clears_values() {
+        let mut s1 = make_section("A", &["x"]);
+        s1.values[0] = "#ff0000".to_owned();
+        let sections = vec![s1];
+        let mut d = TabbedFieldDialog::new(" test ", sections);
+        for section in d.sections_mut() {
+            for v in section.values.iter_mut() {
+                v.clear();
+            }
+        }
+        assert_eq!(d.sections()[0].values[0], "");
+    }
+
+    #[test]
     fn theme_color_lookup_returns_expected() {
         let theme = Theme::dark();
         assert_eq!(theme_color_by_label(&theme, "user_message"), Color::Green);

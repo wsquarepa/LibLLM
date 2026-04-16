@@ -176,6 +176,24 @@ pub(super) fn handle_field_dialog_key(
                 open_base_theme_picker(app);
             }
             dialogs::TabbedFieldAction::OpenSelector { .. } => {}
+            dialogs::TabbedFieldAction::InvokeAction { section: 0, field: 2 } => {
+                app.delete_confirm_filename = "all color overrides".to_owned();
+                app.delete_confirm_selected = 1;
+                app.delete_context = DeleteContext::ThemeResetColors;
+                app.focus = Focus::DeleteConfirmDialog;
+            }
+            dialogs::TabbedFieldAction::InvokeAction { section: 0, field: 3 } => {
+                if let Some(dialog) = app.theme_dialog.as_mut() {
+                    for section in dialog.sections_mut() {
+                        section.values = section.original_values.clone();
+                    }
+                }
+                app.config = libllm::config::load();
+                app.theme = crate::tui::theme::resolve_theme(&app.config);
+                app.invalidate_chat_cache();
+                app.theme_dialog = None;
+                app.focus = Focus::Input;
+            }
             dialogs::TabbedFieldAction::InvokeAction { .. } => {}
         }
         return None;

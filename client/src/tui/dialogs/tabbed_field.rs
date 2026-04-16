@@ -116,6 +116,10 @@ impl<'a> TabbedFieldDialog<'a> {
         self.sections[section].color_preview_fields.contains(&field)
     }
 
+    fn is_separator(&self, section: usize, field: usize) -> bool {
+        self.sections[section].separator_fields.contains(&field)
+    }
+
     fn validation_for(&self, section: usize, field: usize) -> Option<FieldValidation> {
         self.sections[section]
             .validated_fields

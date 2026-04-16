@@ -78,8 +78,128 @@ fn print_recover_help() -> Result<()> {
     Ok(())
 }
 
-fn run_interactive_menu(_data_dir: &Path, _passkey: Option<&str>) -> Result<()> {
-    anyhow::bail!("interactive recover not yet implemented")
+fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
+    const ITEMS: &[&str] = &[
+        "Restore from backup",
+        "Verify backups",
+        "Verify backups (full content check)",
+        "Rebuild backup index",
+        "Quit",
+    ];
+
+    loop {
+        let choice = crate::interactive::select("What would you like to do?", ITEMS)?;
+        let Some(index) = choice else {
+            debug_log::log_kv(
+                "recover.interactive",
+                &[
+                    debug_log::field("phase", "exit"),
+                    debug_log::field("reason", "cancelled"),
+                ],
+            );
+            return Ok(());
+        };
+
+        debug_log::log_kv(
+            "recover.interactive",
+            &[
+                debug_log::field("phase", "action_selected"),
+                debug_log::field("action", ITEMS[index]),
+            ],
+        );
+
+        match index {
+            0 => {
+                if let Err(err) = interactive_restore(data_dir, passkey) {
+                    eprintln!("error: {err}");
+                }
+            }
+            1 => {
+                if let Err(err) = cmd_verify(data_dir, passkey, false) {
+                    eprintln!("error: {err}");
+                }
+            }
+            2 => {
+                if let Err(err) = cmd_verify(data_dir, passkey, true) {
+                    eprintln!("error: {err}");
+                }
+            }
+            3 => {
+                if let Err(err) = cmd_rebuild_index(data_dir, passkey) {
+                    eprintln!("error: {err}");
+                }
+            }
+            4 => {
+                debug_log::log_kv(
+                    "recover.interactive",
+                    &[
+                        debug_log::field("phase", "exit"),
+                        debug_log::field("reason", "quit"),
+                    ],
+                );
+                return Ok(());
+            }
+            _ => unreachable!("select returned an out-of-range index"),
+        }
+
+        println!();
+    }
+}
+
+fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
+    let index_path = data_dir.join("backups").join("index.json");
+    let index = load_index(&index_path)?;
+
+    if index.entries.is_empty() {
+        println!("No backup points found.");
+        return Ok(());
+    }
+
+    let rows: Vec<String> = index
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{:<20} {:<6} {:<12} {:<10} {}",
+                entry.id,
+                entry.entry_type,
+                format_size(entry.plaintext_size),
+                if entry.encrypted { "encrypted" } else { "plain" },
+                entry.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
+            )
+        })
+        .collect();
+
+    let Some(chosen_index) = crate::interactive::select("Select a backup to restore", &rows)? else {
+        return Ok(());
+    };
+
+    let entry = &index.entries[chosen_index];
+
+    let prompt = format!(
+        "Restore to '{}'? This overwrites the live database.",
+        entry.id
+    );
+    let Some(true) = crate::interactive::confirm(&prompt, false)? else {
+        println!("Cancelled.");
+        return Ok(());
+    };
+
+    debug_log::timed_result(
+        "recover.restore",
+        &[
+            debug_log::field("id", entry.id.as_str()),
+            debug_log::field("entry_type", entry.entry_type.to_string()),
+            debug_log::field("plaintext_size", entry.plaintext_size),
+            debug_log::field("stored_size", entry.stored_size),
+            debug_log::field("encrypted", entry.encrypted),
+            debug_log::field("source", "interactive"),
+        ],
+        || restore_to_point(data_dir, &entry.id, passkey).map_err(anyhow::Error::from),
+    )?;
+
+    println!("Restore to '{}' completed successfully.", entry.id);
+    Ok(())
 }
 
 fn cmd_list(data_dir: &Path) -> Result<()> {

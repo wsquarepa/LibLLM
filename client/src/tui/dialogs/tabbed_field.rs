@@ -1,7 +1,7 @@
 //! Tabbed multi-section field-editor dialog used by /config and /theme.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
@@ -10,7 +10,7 @@ use tui_textarea::TextArea;
 
 use super::is_flash_active;
 use super::validation::FieldValidation;
-use crate::tui::render::{clear_centered, dialog_block, render_hints_below_dialog};
+use crate::tui::render::{centered_rect, clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::theme::{Theme, parse_color};
 
 pub struct TabSection {
@@ -559,6 +559,78 @@ impl<'a> TabbedFieldDialog<'a> {
         parse_color(value).unwrap_or(theme.status_error_bg)
     }
 
+    pub fn handle_mouse_click(
+        &mut self,
+        terminal_area: Rect,
+        screen_col: u16,
+        screen_row: u16,
+    ) -> bool {
+        let (w, h) = self.dialog_dimensions(terminal_area);
+        let dialog = centered_rect(w, h, terminal_area);
+        let pos = Position::new(screen_col, screen_row);
+        if !dialog.contains(pos) {
+            return false;
+        }
+
+        if let Some(ref mut editor) = self.editor {
+            editor.input(crossterm::event::Event::Mouse(
+                crossterm::event::MouseEvent {
+                    kind: crossterm::event::MouseEventKind::Down(
+                        crossterm::event::MouseButton::Left,
+                    ),
+                    column: screen_col,
+                    row: screen_row,
+                    modifiers: crossterm::event::KeyModifiers::NONE,
+                },
+            ));
+            return true;
+        }
+
+        if self.editing {
+            return true;
+        }
+
+        let tab_bar_y = dialog.y + 2;
+        if screen_row == tab_bar_y {
+            if let Some(target) = self.hit_test_tab_bar(dialog.x + 2, screen_col) {
+                self.current_tab = target;
+            }
+            return true;
+        }
+
+        let fields_start_y = dialog.y + 4;
+        if screen_row >= fields_start_y {
+            let inner_row = (screen_row - fields_start_y) as usize;
+            let section = &mut self.sections[self.current_tab];
+            let mut visible_idx: usize = 0;
+            for i in 0..section.labels.len() {
+                if section.separator_fields.contains(&i) {
+                    visible_idx += 1;
+                    continue;
+                }
+                if visible_idx == inner_row {
+                    section.selected = i;
+                    return true;
+                }
+                visible_idx += 1;
+            }
+        }
+        true
+    }
+
+    fn hit_test_tab_bar(&self, start_col: u16, click_col: u16) -> Option<usize> {
+        let mut cursor = start_col;
+        for (i, section) in self.sections.iter().enumerate() {
+            let label_width = section.title.len() as u16 + 4;
+            let end = cursor + label_width;
+            if click_col >= cursor && click_col < end {
+                return Some(i);
+            }
+            cursor = end + 1;
+        }
+        None
+    }
+
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let editor = self.editor.as_ref().unwrap();
         let tab = self.current_tab;
@@ -865,5 +937,38 @@ mod tests {
         let theme = Theme::dark();
         assert_eq!(theme_color_by_label(&theme, "user_message"), Color::Green);
         assert_eq!(theme_color_by_label(&theme, "unknown"), Color::Reset);
+    }
+
+    #[test]
+    fn mouse_click_on_tab_bar_switches_section() {
+        let sections = vec![
+            make_section("A", &["x"]),
+            make_section("B", &["y"]),
+            make_section("C", &["z"]),
+        ];
+        let mut d = TabbedFieldDialog::new(" test ", sections);
+        let area = Rect::new(0, 0, 80, 20);
+        let (w, h) = d.dialog_dimensions(area);
+        let dialog_x = (area.width.saturating_sub(w)) / 2;
+        let dialog_y = (area.height.saturating_sub(h)) / 2;
+        let tab_bar_y = dialog_y + 2;
+        let b_col = dialog_x + 2 + "[ A ] ".len() as u16 + 2;
+        let handled = d.handle_mouse_click(area, b_col, tab_bar_y);
+        assert!(handled);
+        assert_eq!(d.current_tab(), 1);
+    }
+
+    #[test]
+    fn mouse_click_on_field_row_selects_field() {
+        let sections = vec![make_section("A", &["first", "second", "third"])];
+        let mut d = TabbedFieldDialog::new(" test ", sections);
+        let area = Rect::new(0, 0, 80, 20);
+        let (w, h) = d.dialog_dimensions(area);
+        let dialog_x = (area.width.saturating_sub(w)) / 2;
+        let dialog_y = (area.height.saturating_sub(h)) / 2;
+        let fields_start_y = dialog_y + 4;
+        let handled = d.handle_mouse_click(area, dialog_x + 5, fields_start_y + 1);
+        assert!(handled);
+        assert_eq!(d.sections[0].selected, 1);
     }
 }

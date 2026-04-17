@@ -74,7 +74,17 @@ All colors in `tui/render.rs` must read from `app.theme` -- no hardcoded color c
 
 ### Diagnostics authoring
 
-When modifying instrumented paths (startup, session I/O, rendering), maintain diagnostics coverage with `debug_log::log_kv()`, `debug_log::timed_kv()`, or `debug_log::timed_result()`. Timing data feeds the `--timings` report; do not write inline elapsed lines to the debug log.
+Emit structured events with `tracing::trace!`, `tracing::debug!`, `tracing::info!`, `tracing::warn!`, or `tracing::error!`. Pick levels using the `libllm::diagnostics` rubric:
+
+- `TRACE` — per-frame or per-keystroke events (render, input, layout).
+- `DEBUG` — state transitions, config reads, background task lifecycle.
+- `INFO` — DB operations, migrations, session save/load, API summaries.
+- `WARN` — retries, degraded fallbacks, recoverable problems.
+- `ERROR` — unrecoverable failures.
+
+For timed blocks, use `tracing::info_span!("name", field = value).entered()` or the `libllm::timed_result!` macro (which records `elapsed_ms` and `result=ok|error` automatically). Span close feeds the `--timings` report; do not write elapsed fields manually.
+
+Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (requires `--debug`) or `LIBLLM_LOG` (ignored unless `--debug` is set). Both take `env_logger`-style directives, e.g. `info,libllm::db=debug,client::tui::render=off`.
 
 ### Conversation tree
 

@@ -46,7 +46,9 @@ Never silence compiler warnings with `#[allow(...)]` attributes, `#![allow(...)]
 - Unused import → delete it.
 - Unused variable → delete it or use it.
 
-If a warning genuinely cannot be fixed at the source (extremely rare, e.g., third-party macro output), flag it before using a suppression pragma. Silently suppressing warnings is strictly prohibited.
+The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; `cargo clippy --workspace --all-targets` fails if any `#[allow(...)]` is present. The `clippy_passes_workspace_wide` test in `client/tests/lints.rs` runs clippy under `cargo test --workspace`, so the gate is part of the normal test cycle.
+
+`#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `client/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
 
 ### OnceLock constraint
 

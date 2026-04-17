@@ -135,9 +135,23 @@ pub fn parse_backup_filename(filename: &str) -> Option<(String, BackupType)> {
     Some((id.to_string(), backup_type))
 }
 
+/// Returns true when `name` is safe to use as a backup filename inside the backups directory.
+///
+/// Rejects empty strings, path separators, parent-directory references, and absolute paths so
+/// that `Path::join(&name)` cannot escape the backups directory regardless of the value.
+pub fn is_safe_backup_filename(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && name != "."
+        && name != ".."
+        && !std::path::Path::new(name).is_absolute()
+}
+
 /// Loads a `BackupIndex` from the given path.
 ///
 /// Returns an empty index with version=1 when the file does not exist.
+/// Returns an error if any entry contains an unsafe filename (absolute path, `..`, separators).
 pub fn load_index(path: &Path) -> Result<BackupIndex> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
@@ -148,8 +162,19 @@ pub fn load_index(path: &Path) -> Result<BackupIndex> {
         }
     };
 
-    serde_json::from_slice(&data)
-        .with_context(|| format!("failed to parse index file: {}", path.display()))
+    let index: BackupIndex = serde_json::from_slice(&data)
+        .with_context(|| format!("failed to parse index file: {}", path.display()))?;
+
+    for entry in &index.entries {
+        if !is_safe_backup_filename(&entry.filename) {
+            anyhow::bail!(
+                "backup index contains unsafe filename: {}",
+                entry.filename
+            );
+        }
+    }
+
+    Ok(index)
 }
 
 /// Persists a `BackupIndex` to the given path using an atomic write.
@@ -299,6 +324,41 @@ mod tests {
         let index = load_index(&path).unwrap();
         assert_eq!(index.version, 1);
         assert!(index.entries.is_empty());
+    }
+
+    #[test]
+    fn is_safe_backup_filename_accepts_valid_name() {
+        assert!(is_safe_backup_filename("20260414T073656Z-base.bak"));
+        assert!(is_safe_backup_filename("20260414T073656Z-diff.bak"));
+    }
+
+    #[test]
+    fn is_safe_backup_filename_rejects_unsafe_names() {
+        assert!(!is_safe_backup_filename(""));
+        assert!(!is_safe_backup_filename("."));
+        assert!(!is_safe_backup_filename(".."));
+        assert!(!is_safe_backup_filename("../evil"));
+        assert!(!is_safe_backup_filename("/etc/passwd"));
+        assert!(!is_safe_backup_filename("sub/dir"));
+        assert!(!is_safe_backup_filename("back\\slash"));
+    }
+
+    #[test]
+    fn load_index_rejects_unsafe_filename_in_entry() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("index.json");
+
+        let mut index = BackupIndex::new();
+        let mut entry = make_base_entry("20260414T153000Z");
+        entry.filename = "../evil.bak".to_string();
+        index.entries.push(entry);
+
+        save_index(&path, &index).unwrap();
+
+        let result = load_index(&path);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("unsafe filename"), "unexpected error: {msg}");
     }
 
     #[test]

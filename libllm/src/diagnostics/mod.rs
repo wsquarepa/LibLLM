@@ -260,7 +260,7 @@ fn format_wall_clock(ts: time::OffsetDateTime) -> String {
 }
 
 /// Wraps a block in a span at the given level, recording `elapsed_ms` and
-/// `result=ok|error` on completion. Replaces the legacy `debug_log::timed_result` helper.
+/// `result=ok|error` on completion.
 #[macro_export]
 macro_rules! timed_result {
     ($level:expr, $name:expr, $($field_key:ident = $field_value:expr),* ; $body:block) => {{

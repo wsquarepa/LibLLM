@@ -18,9 +18,10 @@ const BACKUP_CONTEXT: &str = "libllm-backup-v1";
 /// Derives a backup-specific encryption key from a passkey and salt.
 ///
 /// Combines the salt with the context string "libllm-backup-v1" via blake3 to produce
-/// a domain-separated 16-byte salt, then runs Argon2id with memory=65536, iterations=3,
-/// parallelism=1, output=32. The resulting key is intentionally distinct from the DB key
-/// produced by `libllm::crypto::derive_key` even when given the same passkey and salt.
+/// a domain-separated 16-byte salt, then runs Argon2id with the parameters returned by
+/// [`libllm::crypto::argon2_params`]. The resulting key is intentionally distinct from
+/// the DB key produced by `libllm::crypto::derive_key` even when given the same passkey
+/// and salt.
 pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
     let derived_salt: [u8; 16] = {
         let mut hasher = blake3::Hasher::new();
@@ -32,9 +33,11 @@ pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
         out
     };
 
-    let params = argon2::Params::new(65536, 3, 1, Some(32))
-        .map_err(|e| anyhow::anyhow!("invalid argon2 params: {e}"))?;
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        argon2::Version::V0x13,
+        libllm::crypto::argon2_params(),
+    );
 
     let mut key_bytes = [0u8; 32];
     argon2

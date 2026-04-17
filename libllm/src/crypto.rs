@@ -11,6 +11,34 @@ use crate::debug_log;
 
 const SALT_LEN: usize = 16;
 
+#[cfg(not(any(test, feature = "test-support")))]
+const ARGON2_MEM_KIB: u32 = 65536;
+#[cfg(not(any(test, feature = "test-support")))]
+const ARGON2_ITERATIONS: u32 = 3;
+
+#[cfg(any(test, feature = "test-support"))]
+const ARGON2_MEM_KIB: u32 = 8;
+#[cfg(any(test, feature = "test-support"))]
+const ARGON2_ITERATIONS: u32 = 1;
+
+const ARGON2_PARALLELISM: u32 = 1;
+const ARGON2_OUTPUT_LEN: usize = 32;
+
+/// Returns the Argon2id parameters shared by every LibLLM key derivation.
+///
+/// Production: `m_cost=65536 KiB, t_cost=3, p_cost=1, output=32`. Under `cfg(test)`
+/// or the `test-support` feature, reduced to `m_cost=8, t_cost=1, p_cost=1` so the
+/// test suite does not pay a multi-second KDF per encrypted-database open.
+pub fn argon2_params() -> argon2::Params {
+    argon2::Params::new(
+        ARGON2_MEM_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+        Some(ARGON2_OUTPUT_LEN),
+    )
+    .expect("argon2 parameters are valid by construction")
+}
+
 fn write_restricted(path: &Path, data: &[u8]) -> Result<()> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -130,22 +158,23 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
 
 /// Derives a 32-byte database encryption key from a passkey and 16-byte salt using Argon2id.
 ///
-/// Parameters: memory=65536, iterations=3, parallelism=1, output=32.
+/// Parameters come from [`argon2_params`]; see its docs for production vs. test values.
 pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
     debug_log::timed_result(
         "crypto.derive",
         &[
-            debug_log::field("mem_kib", 65536),
-            debug_log::field("iterations", 3),
-            debug_log::field("parallelism", 1),
-            debug_log::field("output_bytes", 32),
+            debug_log::field("mem_kib", ARGON2_MEM_KIB),
+            debug_log::field("iterations", ARGON2_ITERATIONS),
+            debug_log::field("parallelism", ARGON2_PARALLELISM),
+            debug_log::field("output_bytes", ARGON2_OUTPUT_LEN),
             debug_log::field("salt_bytes", SALT_LEN),
         ],
         || {
-            let params = argon2::Params::new(65536, 3, 1, Some(32))
-                .map_err(|e| anyhow::anyhow!("invalid argon2 params: {e}"))?;
-            let argon2 =
-                Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+            let argon2 = Argon2::new(
+                argon2::Algorithm::Argon2id,
+                argon2::Version::V0x13,
+                argon2_params(),
+            );
 
             let mut key_bytes = [0u8; 32];
             argon2
@@ -279,4 +308,11 @@ mod tests {
         assert!(hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
     }
 
+    #[test]
+    fn argon2_params_use_reduced_values_under_cfg_test() {
+        let params = argon2_params();
+        assert_eq!(params.m_cost(), 8, "m_cost should be reduced under cfg(test)");
+        assert_eq!(params.t_cost(), 1, "t_cost should be reduced under cfg(test)");
+        assert_eq!(params.p_cost(), 1, "p_cost should be reduced under cfg(test)");
+    }
 }

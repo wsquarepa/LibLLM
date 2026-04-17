@@ -20,6 +20,7 @@ rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl",
 tempfile = "3"
 
 [dev-dependencies]
+libllm = { path = "../libllm", features = ["test-support"] }
 tempfile = "3"
 
 [lints]

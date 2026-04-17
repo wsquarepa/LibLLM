@@ -25,7 +25,7 @@ After the background task completes, read the output file to check for errors an
 
 ### Test suites
 
-Integration tests live in `client/tests/` across nine files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `import_subcommand`, `lints`, `persistence`, `recover_subcommand`. Unit tests live in `libllm/src/db/` sub-modules and in `client/src/cli/db/{parser,format}.rs`. Shared helpers are in `client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
+Integration tests live in `client/tests/` across eight files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `import_subcommand`, `persistence`, `recover_subcommand`. Unit tests live in `libllm/src/db/` sub-modules and in `client/src/cli/db/{parser,format}.rs`. Shared helpers are in `client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
 
 **Subprocess integration tests:** Three test binaries (`db_subcommand`, `import_subcommand`, `recover_subcommand`) spawn the compiled `client` binary via `common::client_bin()` to exercise the CLI surface end-to-end (exit codes, stderr/stdout split, env-var passkey, `--no-encrypt` data dirs). Use this pattern when the contract being tested is the CLI itself — argument parsing, exit codes, confirmation prompts, multi-process safety. Use `.output()` (not `.status()`) so stderr is captured in failure messages. The `update` subcommand is deliberately not subprocess-tested because it depends on network access; the `edit` subcommand would need an `$EDITOR` mock and is also currently uncovered at this level.
 
@@ -48,7 +48,7 @@ Never silence compiler warnings with `#[allow(...)]` attributes, `#![allow(...)]
 - Unused import → delete it.
 - Unused variable → delete it or use it.
 
-The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; `cargo clippy --workspace --all-targets` fails if any `#[allow(...)]` is present. The `clippy_passes_workspace_wide` test in `client/tests/lints.rs` runs clippy under `cargo test --workspace`, so the gate is part of the normal test cycle.
+The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; `cargo clippy --workspace --all-targets` fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,build}.yml` runs this command on every PR and push; run it locally before pushing.
 
 `#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `client/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
 

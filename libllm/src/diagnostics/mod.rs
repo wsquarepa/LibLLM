@@ -48,10 +48,10 @@ impl Drop for DiagnosticsGuard {
             use std::io::Write;
             let _ = file.flush();
         }
-        if let Some(finalize) = state.timing_layer_finalizer.as_ref() {
-            if let Err(err) = finalize() {
-                eprintln!("Warning: failed to write timings report: {err}");
-            }
+        if let Some(finalize) = state.timing_layer_finalizer.as_ref()
+            && let Err(err) = finalize()
+        {
+            eprintln!("Warning: failed to write timings report: {err}");
         }
     }
 }

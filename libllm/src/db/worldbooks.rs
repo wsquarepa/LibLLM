@@ -3,18 +3,17 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::debug_log;
 use crate::session::now_iso8601;
 use crate::worldinfo::WorldBook;
 
 pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {
-    debug_log::timed_result(
+    let entry_count = book.entries.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.worldbook.insert",
-        &[
-            debug_log::field("slug", slug),
-            debug_log::field("entry_count", book.entries.len()),
-        ],
-        || {
+        slug = slug,
+        entry_count = entry_count
+        ; {
             let now = now_iso8601();
             let entries = serde_json::to_string(&book.entries)
                 .context("failed to serialize worldbook entries")?;
@@ -24,70 +23,53 @@ pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
             )
             .context("failed to insert worldbook")?;
             Ok(())
-        },
+        }
     )
 }
 
 pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
-    debug_log::timed_result(
-        "db.worldbook.load",
-        &[debug_log::field("slug", slug)],
-        || {
-            let book = conn
-                .query_row(
-                    "SELECT name, entries FROM worldbooks WHERE slug = ?1",
-                    params![slug],
-                    |row| {
-                        let name: String = row.get(0)?;
-                        let entries_json: String = row.get(1)?;
-                        Ok((name, entries_json))
-                    },
-                )
-                .with_context(|| format!("worldbook not found: {slug}"))
-                .and_then(|(name, entries_json)| {
-                    let entries = serde_json::from_str(&entries_json)
-                        .context("failed to deserialize worldbook entries")?;
-                    Ok(WorldBook { name, entries })
-                })?;
-            debug_log::log_kv(
-                "db.worldbook.load",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("entry_count", book.entries.len()),
-                ],
-            );
-            Ok(book)
-        },
-    )
+    crate::timed_result!(tracing::Level::INFO, "db.worldbook.load", slug = slug ; {
+        let book = conn
+            .query_row(
+                "SELECT name, entries FROM worldbooks WHERE slug = ?1",
+                params![slug],
+                |row| {
+                    let name: String = row.get(0)?;
+                    let entries_json: String = row.get(1)?;
+                    Ok((name, entries_json))
+                },
+            )
+            .with_context(|| format!("worldbook not found: {slug}"))
+            .and_then(|(name, entries_json)| {
+                let entries = serde_json::from_str(&entries_json)
+                    .context("failed to deserialize worldbook entries")?;
+                Ok(WorldBook { name, entries })
+            })?;
+        tracing::info!(slug = slug, entry_count = book.entries.len(), "db.worldbook.load");
+        Ok(book)
+    })
 }
 
 pub fn list_worldbooks(conn: &Connection) -> Result<Vec<(String, String)>> {
-    debug_log::timed_result("db.worldbook.list", &[], || {
+    crate::timed_result!(tracing::Level::INFO, "db.worldbook.list", ; {
         let entries = super::query_slug_name_pairs(
             conn,
             "SELECT slug, name FROM worldbooks ORDER BY name",
             "failed to list worldbooks",
         )?;
-        debug_log::log_kv(
-            "db.worldbook.list",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("count", entries.len()),
-            ],
-        );
+        tracing::info!(count = entries.len(), "db.worldbook.list");
         Ok(entries)
     })
 }
 
 pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {
-    debug_log::timed_result(
+    let entry_count = book.entries.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.worldbook.update",
-        &[
-            debug_log::field("slug", slug),
-            debug_log::field("entry_count", book.entries.len()),
-        ],
-        || {
+        slug = slug,
+        entry_count = entry_count
+        ; {
             let now = now_iso8601();
             let entries = serde_json::to_string(&book.entries)
                 .context("failed to serialize worldbook entries")?;
@@ -97,44 +79,26 @@ pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
                     params![book.name, entries, now, slug],
                 )
                 .context("failed to update worldbook")?;
-            debug_log::log_kv(
-                "db.worldbook.update",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("affected", affected),
-                ],
-            );
+            tracing::info!(slug = slug, affected = affected, "db.worldbook.update");
             if affected == 0 {
                 anyhow::bail!("worldbook not found: {slug}");
             }
             Ok(())
-        },
+        }
     )
 }
 
 pub fn delete_worldbook(conn: &Connection, slug: &str) -> Result<()> {
-    debug_log::timed_result(
-        "db.worldbook.delete",
-        &[debug_log::field("slug", slug)],
-        || {
-            let affected = conn
-                .execute("DELETE FROM worldbooks WHERE slug = ?1", params![slug])
-                .context("failed to delete worldbook")?;
-            debug_log::log_kv(
-                "db.worldbook.delete",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("affected", affected),
-                ],
-            );
-            if affected == 0 {
-                anyhow::bail!("worldbook not found: {slug}");
-            }
-            Ok(())
-        },
-    )
+    crate::timed_result!(tracing::Level::INFO, "db.worldbook.delete", slug = slug ; {
+        let affected = conn
+            .execute("DELETE FROM worldbooks WHERE slug = ?1", params![slug])
+            .context("failed to delete worldbook")?;
+        tracing::info!(slug = slug, affected = affected, "db.worldbook.delete");
+        if affected == 0 {
+            anyhow::bail!("worldbook not found: {slug}");
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

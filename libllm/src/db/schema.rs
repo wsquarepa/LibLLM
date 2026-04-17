@@ -3,12 +3,10 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-use crate::debug_log;
-
 pub const CURRENT_VERSION: i64 = 1;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
-    debug_log::timed_result("db.migrate", &[], || {
+    crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL
@@ -34,21 +32,19 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             applied += 1;
         }
 
-        debug_log::log_kv(
+        tracing::info!(
+            phase = "summary",
+            from_version = version,
+            to_version = CURRENT_VERSION,
+            applied = applied,
             "db.migrate",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("from_version", version),
-                debug_log::field("to_version", CURRENT_VERSION),
-                debug_log::field("applied", applied),
-            ],
         );
         Ok(())
     })
 }
 
 fn migrate_v1(conn: &Connection) -> Result<()> {
-    debug_log::timed_result("db.migrate", &[debug_log::field("phase", "v1")], || {
+    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v1" ; {
         conn.execute_batch(
         "CREATE TABLE sessions (
             id TEXT PRIMARY KEY NOT NULL,

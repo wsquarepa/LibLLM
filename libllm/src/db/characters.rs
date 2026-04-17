@@ -4,17 +4,16 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
 use crate::character::CharacterCard;
-use crate::debug_log;
 use crate::session::now_iso8601;
 
 pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> Result<()> {
-    debug_log::timed_result(
+    let alternate_greetings_count = card.alternate_greetings.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.character.insert",
-        &[
-            debug_log::field("slug", slug),
-            debug_log::field("alternate_greetings_count", card.alternate_greetings.len()),
-        ],
-        || {
+        slug = slug,
+        alternate_greetings_count = alternate_greetings_count
+        ; {
             let now = now_iso8601();
             let alternate_greetings =
                 serde_json::to_string(&card.alternate_greetings)
@@ -39,45 +38,27 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
             )
             .context("failed to insert character")?;
             Ok(())
-        },
+        }
     )
 }
 
 pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
-    debug_log::timed_result(
-        "db.character.load",
-        &[debug_log::field("slug", slug)],
-        || {
-            conn.query_row(
-                "SELECT name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, alternate_greetings
-                 FROM characters WHERE slug = ?1",
-                params![slug],
-                |row| {
-                    let name: String = row.get(0)?;
-                    let description: String = row.get(1)?;
-                    let personality: String = row.get(2)?;
-                    let scenario: String = row.get(3)?;
-                    let first_mes: String = row.get(4)?;
-                    let mes_example: String = row.get(5)?;
-                    let system_prompt: String = row.get(6)?;
-                    let post_history_instructions: String = row.get(7)?;
-                    let alternate_greetings_json: String = row.get(8)?;
-                    Ok((
-                        name,
-                        description,
-                        personality,
-                        scenario,
-                        first_mes,
-                        mes_example,
-                        system_prompt,
-                        post_history_instructions,
-                        alternate_greetings_json,
-                    ))
-                },
-            )
-            .with_context(|| format!("character not found: {slug}"))
-            .and_then(
-                |(
+    crate::timed_result!(tracing::Level::INFO, "db.character.load", slug = slug ; {
+        conn.query_row(
+            "SELECT name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, alternate_greetings
+             FROM characters WHERE slug = ?1",
+            params![slug],
+            |row| {
+                let name: String = row.get(0)?;
+                let description: String = row.get(1)?;
+                let personality: String = row.get(2)?;
+                let scenario: String = row.get(3)?;
+                let first_mes: String = row.get(4)?;
+                let mes_example: String = row.get(5)?;
+                let system_prompt: String = row.get(6)?;
+                let post_history_instructions: String = row.get(7)?;
+                let alternate_greetings_json: String = row.get(8)?;
+                Ok((
                     name,
                     description,
                     personality,
@@ -87,53 +68,61 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                     system_prompt,
                     post_history_instructions,
                     alternate_greetings_json,
-                )| {
-                    let alternate_greetings: Vec<String> =
-                        serde_json::from_str(&alternate_greetings_json)
-                            .context("failed to deserialize alternate_greetings")?;
-                    Ok(CharacterCard {
-                        name,
-                        description,
-                        personality,
-                        scenario,
-                        first_mes,
-                        mes_example,
-                        system_prompt,
-                        post_history_instructions,
-                        alternate_greetings,
-                    })
-                },
-            )
-        },
-    )
+                ))
+            },
+        )
+        .with_context(|| format!("character not found: {slug}"))
+        .and_then(
+            |(
+                name,
+                description,
+                personality,
+                scenario,
+                first_mes,
+                mes_example,
+                system_prompt,
+                post_history_instructions,
+                alternate_greetings_json,
+            )| {
+                let alternate_greetings: Vec<String> =
+                    serde_json::from_str(&alternate_greetings_json)
+                        .context("failed to deserialize alternate_greetings")?;
+                Ok(CharacterCard {
+                    name,
+                    description,
+                    personality,
+                    scenario,
+                    first_mes,
+                    mes_example,
+                    system_prompt,
+                    post_history_instructions,
+                    alternate_greetings,
+                })
+            },
+        )
+    })
 }
 
 pub fn list_characters(conn: &Connection) -> Result<Vec<(String, String)>> {
-    debug_log::timed_result("db.character.list", &[], || {
+    crate::timed_result!(tracing::Level::INFO, "db.character.list", ; {
         let entries = super::query_slug_name_pairs(
             conn,
             "SELECT slug, name FROM characters ORDER BY name",
             "failed to list characters",
         )?;
-        debug_log::log_kv(
-            "db.character.list",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("count", entries.len()),
-            ],
-        );
+        tracing::info!(count = entries.len(), "db.character.list");
         Ok(entries)
     })
 }
 
 pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> Result<()> {
-    debug_log::timed_result(
+    let alternate_greetings_count = card.alternate_greetings.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.character.update",
-        &[
-            debug_log::field("slug", slug),
-            debug_log::field("alternate_greetings_count", card.alternate_greetings.len()),
-        ],
-        || {
+        slug = slug,
+        alternate_greetings_count = alternate_greetings_count
+        ; {
             let now = now_iso8601();
             let alternate_greetings =
                 serde_json::to_string(&card.alternate_greetings)
@@ -156,44 +145,26 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
                     ],
                 )
                 .context("failed to update character")?;
-            debug_log::log_kv(
-                "db.character.update",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("affected", affected),
-                ],
-            );
+            tracing::info!(slug = slug, affected = affected, "db.character.update");
             if affected == 0 {
                 anyhow::bail!("character not found: {slug}");
             }
             Ok(())
-        },
+        }
     )
 }
 
 pub fn delete_character(conn: &Connection, slug: &str) -> Result<()> {
-    debug_log::timed_result(
-        "db.character.delete",
-        &[debug_log::field("slug", slug)],
-        || {
-            let affected = conn
-                .execute("DELETE FROM characters WHERE slug = ?1", params![slug])
-                .context("failed to delete character")?;
-            debug_log::log_kv(
-                "db.character.delete",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("affected", affected),
-                ],
-            );
-            if affected == 0 {
-                anyhow::bail!("character not found: {slug}");
-            }
-            Ok(())
-        },
-    )
+    crate::timed_result!(tracing::Level::INFO, "db.character.delete", slug = slug ; {
+        let affected = conn
+            .execute("DELETE FROM characters WHERE slug = ?1", params![slug])
+            .context("failed to delete character")?;
+        tracing::info!(slug = slug, affected = affected, "db.character.delete");
+        if affected == 0 {
+            anyhow::bail!("character not found: {slug}");
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

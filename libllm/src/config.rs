@@ -402,27 +402,14 @@ fn old_config_path() -> Option<PathBuf> {
 pub(crate) fn migrate_config() {
     let new_path = config_path();
     if new_path.exists() {
-        crate::debug_log::log_kv(
-            "config.migrate",
-            &[
-                crate::debug_log::field("result", "skipped"),
-                crate::debug_log::field("reason", "already_exists"),
-                crate::debug_log::field("path", new_path.display()),
-            ],
-        );
+        tracing::info!(result = "skipped", reason = "already_exists", path = %new_path.display(), "config.migrate");
         return;
     }
 
     let old_path = match old_config_path() {
         Some(p) if p.exists() => p,
         _ => {
-            crate::debug_log::log_kv(
-                "config.migrate",
-                &[
-                    crate::debug_log::field("result", "skipped"),
-                    crate::debug_log::field("reason", "no_legacy_config"),
-                ],
-            );
+            tracing::info!(result = "skipped", reason = "no_legacy_config", "config.migrate");
             return;
         }
     };
@@ -434,24 +421,10 @@ pub(crate) fn migrate_config() {
     }
 
     if std::fs::rename(&old_path, &new_path).is_ok() {
-        crate::debug_log::log_kv(
-            "config.migrate",
-            &[
-                crate::debug_log::field("result", "ok"),
-                crate::debug_log::field("from", old_path.display()),
-                crate::debug_log::field("to", new_path.display()),
-            ],
-        );
+        tracing::info!(result = "ok", from = %old_path.display(), to = %new_path.display(), "config.migrate");
         eprintln!("Config migrated to {}", new_path.display());
     } else {
-        crate::debug_log::log_kv(
-            "config.migrate",
-            &[
-                crate::debug_log::field("result", "error"),
-                crate::debug_log::field("from", old_path.display()),
-                crate::debug_log::field("to", new_path.display()),
-            ],
-        );
+        tracing::error!(result = "error", from = %old_path.display(), to = %new_path.display(), "config.migrate");
     }
 }
 
@@ -465,43 +438,17 @@ pub fn load() -> Config {
     match std::fs::read_to_string(&path) {
         Ok(contents) => {
             let read_elapsed_ms = read_start.elapsed().as_secs_f64() * 1000.0;
-            crate::debug_log::log_kv(
-                "config.load",
-                &[
-                    crate::debug_log::field("phase", "read"),
-                    crate::debug_log::field("result", "ok"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field("bytes", contents.len()),
-                    crate::debug_log::field("elapsed_ms", format!("{read_elapsed_ms:.3}")),
-                ],
-            );
+            tracing::info!(phase = "read", result = "ok", path = %path.display(), bytes = contents.len(), elapsed_ms = read_elapsed_ms, "config.load");
             let parse_start = Instant::now();
             match toml::from_str(&contents) {
                 Ok(cfg) => {
                     let parse_elapsed_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-                    crate::debug_log::log_kv(
-                        "config.load",
-                        &[
-                            crate::debug_log::field("phase", "parse"),
-                            crate::debug_log::field("result", "ok"),
-                            crate::debug_log::field("path", path.display()),
-                            crate::debug_log::field("elapsed_ms", format!("{parse_elapsed_ms:.3}")),
-                        ],
-                    );
+                    tracing::info!(phase = "parse", result = "ok", path = %path.display(), elapsed_ms = parse_elapsed_ms, "config.load");
                     cfg
                 }
                 Err(e) => {
                     let parse_elapsed_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-                    crate::debug_log::log_kv(
-                        "config.load",
-                        &[
-                            crate::debug_log::field("phase", "parse"),
-                            crate::debug_log::field("result", "error"),
-                            crate::debug_log::field("path", path.display()),
-                            crate::debug_log::field("elapsed_ms", format!("{parse_elapsed_ms:.3}")),
-                            crate::debug_log::field("error", &e),
-                        ],
-                    );
+                    tracing::error!(phase = "parse", result = "error", path = %path.display(), elapsed_ms = parse_elapsed_ms, error = %e, "config.load");
                     eprintln!("Warning: failed to parse {}: {e}", path.display());
                     Config::default()
                 }
@@ -509,29 +456,12 @@ pub fn load() -> Config {
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             let read_elapsed_ms = read_start.elapsed().as_secs_f64() * 1000.0;
-            crate::debug_log::log_kv(
-                "config.load",
-                &[
-                    crate::debug_log::field("phase", "read"),
-                    crate::debug_log::field("result", "missing"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field("elapsed_ms", format!("{read_elapsed_ms:.3}")),
-                ],
-            );
+            tracing::info!(phase = "read", result = "missing", path = %path.display(), elapsed_ms = read_elapsed_ms, "config.load");
             Config::default()
         }
         Err(err) => {
             let read_elapsed_ms = read_start.elapsed().as_secs_f64() * 1000.0;
-            crate::debug_log::log_kv(
-                "config.load",
-                &[
-                    crate::debug_log::field("phase", "read"),
-                    crate::debug_log::field("result", "error"),
-                    crate::debug_log::field("path", path.display()),
-                    crate::debug_log::field("elapsed_ms", format!("{read_elapsed_ms:.3}")),
-                    crate::debug_log::field("error", err),
-                ],
-            );
+            tracing::error!(phase = "read", result = "error", path = %path.display(), elapsed_ms = read_elapsed_ms, error = %err, "config.load");
             Config::default()
         }
     }
@@ -602,26 +532,17 @@ pub fn save(cfg: &Config) -> Result<()> {
     let serialize_start = Instant::now();
     let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
     let serialize_elapsed_ms = serialize_start.elapsed().as_secs_f64() * 1000.0;
-    crate::debug_log::log_kv(
+    let path_str = path.display().to_string();
+    tracing::info!(phase = "serialize", result = "ok", path = path_str.as_str(), bytes = toml_str.len(), elapsed_ms = serialize_elapsed_ms, "config.save");
+    crate::timed_result!(
+        tracing::Level::INFO,
         "config.save",
-        &[
-            crate::debug_log::field("phase", "serialize"),
-            crate::debug_log::field("result", "ok"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", toml_str.len()),
-            crate::debug_log::field("elapsed_ms", format!("{serialize_elapsed_ms:.3}")),
-        ],
-    );
-    crate::debug_log::timed_result(
-        "config.save",
-        &[
-            crate::debug_log::field("phase", "write"),
-            crate::debug_log::field("path", path.display()),
-            crate::debug_log::field("bytes", toml_str.len()),
-        ],
-        || {
+        phase = "write",
+        path = path_str.as_str(),
+        bytes = toml_str.len()
+        ; {
             crate::crypto::write_atomic(&path, toml_str.as_bytes())
                 .context(format!("failed to write config: {}", path.display()))
-        },
+        }
     )
 }

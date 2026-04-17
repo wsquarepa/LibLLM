@@ -1,42 +1,28 @@
 //! Session and character export to Markdown and JSON formats.
 
-use crate::debug_log;
 use crate::session::{self, Message, Role};
 use crate::template;
 
 pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) -> String {
-    debug_log::timed_kv(
-        "export.markdown",
-        &[debug_log::field("message_count", messages.len())],
-        || {
-            let mut out = String::new();
-            for msg in messages {
-                let role_label = match msg.role {
-                    Role::User => user_name,
-                    Role::Assistant => char_name,
-                    Role::System | Role::Summary => "System",
-                };
-                let content = template::apply_template_vars(&msg.content, char_name, user_name);
-                out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
-            }
-            debug_log::log_kv(
-                "export.markdown",
-                &[
-                    debug_log::field("phase", "done"),
-                    debug_log::field("output_bytes", out.len()),
-                ],
-            );
-            out
-        },
-    )
+    let _span = tracing::info_span!("export.markdown", message_count = messages.len()).entered();
+    let mut out = String::new();
+    for msg in messages {
+        let role_label = match msg.role {
+            Role::User => user_name,
+            Role::Assistant => char_name,
+            Role::System | Role::Summary => "System",
+        };
+        let content = template::apply_template_vars(&msg.content, char_name, user_name);
+        out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
+    }
+    tracing::info!(phase = "done", output_bytes = out.len(), "export.markdown");
+    out
 }
 
 pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> String {
-    debug_log::timed_kv(
-        "export.html",
-        &[debug_log::field("message_count", messages.len())],
-        || {
-            let mut body = String::new();
+    let _span = tracing::info_span!("export.html", message_count = messages.len()).entered();
+    {
+        let mut body = String::new();
             for msg in messages {
                 let role_label = match msg.role {
                     Role::User => user_name,
@@ -224,16 +210,9 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
 </html>
 "#
             );
-            debug_log::log_kv(
-                "export.html",
-                &[
-                    debug_log::field("phase", "done"),
-                    debug_log::field("output_bytes", out.len()),
-                ],
-            );
-            out
-        },
-    )
+        tracing::info!(phase = "done", output_bytes = out.len(), "export.html");
+        out
+    }
 }
 
 fn html_escape(s: &str) -> String {
@@ -309,48 +288,37 @@ pub fn html_format_content(content: &str) -> String {
 }
 
 pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> String {
-    debug_log::timed_kv(
-        "export.jsonl",
-        &[debug_log::field("message_count", messages.len())],
-        || {
-            let mut lines = Vec::new();
+    let _span = tracing::info_span!("export.jsonl", message_count = messages.len()).entered();
+    let mut lines = Vec::new();
 
-            let header = serde_json::json!({
-                "user_name": user_name,
-                "character_name": char_name,
-                "create_date": session::now_compact(),
-            });
-            lines.push(serde_json::to_string(&header).unwrap_or_default());
+    let header = serde_json::json!({
+        "user_name": user_name,
+        "character_name": char_name,
+        "create_date": session::now_compact(),
+    });
+    lines.push(serde_json::to_string(&header).unwrap_or_default());
 
-            for msg in messages {
-                let content = template::apply_template_vars(&msg.content, char_name, user_name);
-                let name = match msg.role {
-                    Role::User => user_name,
-                    Role::Assistant => char_name,
-                    Role::System | Role::Summary => "System",
-                };
-                let entry = serde_json::json!({
-                    "name": name,
-                    "is_user": msg.role == Role::User,
-                    "is_system": msg.role == Role::System,
-                    "mes": content,
-                    "send_date": msg.timestamp,
-                });
-                lines.push(serde_json::to_string(&entry).unwrap_or_default());
-            }
+    for msg in messages {
+        let content = template::apply_template_vars(&msg.content, char_name, user_name);
+        let name = match msg.role {
+            Role::User => user_name,
+            Role::Assistant => char_name,
+            Role::System | Role::Summary => "System",
+        };
+        let entry = serde_json::json!({
+            "name": name,
+            "is_user": msg.role == Role::User,
+            "is_system": msg.role == Role::System,
+            "mes": content,
+            "send_date": msg.timestamp,
+        });
+        lines.push(serde_json::to_string(&entry).unwrap_or_default());
+    }
 
-            let mut result = lines.join("\n");
-            result.push('\n');
-            debug_log::log_kv(
-                "export.jsonl",
-                &[
-                    debug_log::field("phase", "done"),
-                    debug_log::field("output_bytes", result.len()),
-                ],
-            );
-            result
-        },
-    )
+    let mut result = lines.join("\n");
+    result.push('\n');
+    tracing::info!(phase = "done", output_bytes = result.len(), "export.jsonl");
+    result
 }
 
 #[cfg(test)]

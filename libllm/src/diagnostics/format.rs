@@ -91,7 +91,7 @@ fn format_target(raw: &str) -> String {
         let pad = TARGET_WIDTH - stripped.chars().count();
         let mut out = String::with_capacity(TARGET_WIDTH);
         out.push_str(stripped);
-        out.extend(std::iter::repeat(' ').take(pad));
+        out.extend(std::iter::repeat_n(' ', pad));
         out
     } else {
         let mut out: String = stripped.chars().take(TARGET_WIDTH - 1).collect();

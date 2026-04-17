@@ -8,7 +8,6 @@ use rusqlite::Connection;
 
 use crate::character::CharacterCard;
 use crate::crypto::DerivedKey;
-use crate::debug_log;
 use crate::persona::PersonaFile;
 use crate::session::{Node, NodeId, Session};
 use crate::system_prompt::SystemPromptFile;
@@ -41,13 +40,11 @@ pub fn suppress_sqlcipher_log() {
         let result = Connection::open_in_memory()
             .and_then(|conn| conn.execute_batch("PRAGMA cipher_log = off;"));
         if let Err(err) = result {
-            debug_log::log_kv(
+            tracing::warn!(
+                phase = "suppress",
+                status = "error",
+                error = %err,
                 "sqlcipher.log",
-                &[
-                    debug_log::field("phase", "suppress"),
-                    debug_log::field("status", "error"),
-                    debug_log::field("error", err),
-                ],
             );
         }
     });
@@ -79,13 +76,13 @@ impl Database {
     pub fn open(path: &Path, key: Option<&DerivedKey>) -> Result<Self> {
         suppress_sqlcipher_log();
         let encrypted = key.is_some();
-        debug_log::timed_result(
+        let path_str = path.display().to_string();
+        crate::timed_result!(
+            tracing::Level::INFO,
             "db.open",
-            &[
-                debug_log::field("path", path.display()),
-                debug_log::field("encrypted", encrypted),
-            ],
-            || {
+            path = path_str.as_str(),
+            encrypted = encrypted
+            ; {
                 let conn = Connection::open(path)
                     .with_context(|| format!("failed to open database: {}", path.display()))?;
 
@@ -103,7 +100,7 @@ impl Database {
                 schema::run_migrations(&conn)?;
 
                 Ok(Self { conn })
-            },
+            }
         )
     }
 
@@ -234,7 +231,7 @@ impl Database {
     }
 
     pub fn rekey(&self, new_key: &DerivedKey) -> Result<()> {
-        debug_log::timed_result("db.rekey", &[], || {
+        crate::timed_result!(tracing::Level::INFO, "db.rekey", ; {
             let hex_key = new_key.hex();
             self.conn
                 .execute_batch(&format!("PRAGMA rekey = \"x'{}'\";", hex_key))

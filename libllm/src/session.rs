@@ -194,14 +194,12 @@ impl MessageTree {
         let hits = counter.get() + 1;
         counter.set(hits);
         if hits.is_power_of_two() {
-            crate::debug_log::log_kv(
+            tracing::debug!(
+                phase = "hit",
+                accessor = accessor,
+                hits = hits,
+                rebuilds = self.runtime.debug.rebuild_count,
                 "session.cache",
-                &[
-                    crate::debug_log::field("phase", "hit"),
-                    crate::debug_log::field("accessor", accessor),
-                    crate::debug_log::field("hits", hits),
-                    crate::debug_log::field("rebuilds", self.runtime.debug.rebuild_count),
-                ],
             );
         }
     }
@@ -269,36 +267,21 @@ impl MessageTree {
             self.runtime.debug.rebuild_count += 1;
             self.runtime.debug.total_rebuild_us += elapsed_us;
             self.runtime.debug.last_rebuild_us = elapsed_us;
-            crate::debug_log::log_kv(
+            let elapsed_ms = elapsed_us as f64 / 1000.0;
+            let total_elapsed_ms = self.runtime.debug.total_rebuild_us as f64 / 1000.0;
+            tracing::debug!(
+                phase = "rebuild",
+                rebuilds = self.runtime.debug.rebuild_count,
+                elapsed_ms = elapsed_ms,
+                total_elapsed_ms = total_elapsed_ms,
+                node_count = self.nodes.len(),
+                branch_count = self.runtime.branch_ids.len(),
+                user_branch_count = self.runtime.user_branch_ids.len(),
+                branch_hits = self.runtime.debug.branch_hits.get(),
+                user_branch_hits = self.runtime.debug.user_branch_hits.get(),
+                deepest_hits = self.runtime.debug.deepest_hits.get(),
+                first_preview_hits = self.runtime.debug.first_preview_hits.get(),
                 "session.cache",
-                &[
-                    crate::debug_log::field("phase", "rebuild"),
-                    crate::debug_log::field("rebuilds", self.runtime.debug.rebuild_count),
-                    crate::debug_log::field(
-                        "elapsed_ms",
-                        format!("{:.3}", elapsed_us as f64 / 1000.0),
-                    ),
-                    crate::debug_log::field(
-                        "total_elapsed_ms",
-                        format!("{:.3}", self.runtime.debug.total_rebuild_us as f64 / 1000.0),
-                    ),
-                    crate::debug_log::field("node_count", self.nodes.len()),
-                    crate::debug_log::field("branch_count", self.runtime.branch_ids.len()),
-                    crate::debug_log::field(
-                        "user_branch_count",
-                        self.runtime.user_branch_ids.len(),
-                    ),
-                    crate::debug_log::field("branch_hits", self.runtime.debug.branch_hits.get()),
-                    crate::debug_log::field(
-                        "user_branch_hits",
-                        self.runtime.debug.user_branch_hits.get(),
-                    ),
-                    crate::debug_log::field("deepest_hits", self.runtime.debug.deepest_hits.get()),
-                    crate::debug_log::field(
-                        "first_preview_hits",
-                        self.runtime.debug.first_preview_hits.get(),
-                    ),
-                ],
             );
         }
     }

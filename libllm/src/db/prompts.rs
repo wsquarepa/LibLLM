@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::debug_log;
 use crate::session::now_iso8601;
 use crate::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
@@ -19,14 +18,14 @@ pub fn insert_prompt(
     prompt: &SystemPromptFile,
     builtin: bool,
 ) -> Result<()> {
-    debug_log::timed_result(
+    let content_bytes = prompt.content.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.prompt.insert",
-        &[
-            debug_log::field("slug", slug),
-            debug_log::field("builtin", builtin),
-            debug_log::field("content_bytes", prompt.content.len()),
-        ],
-        || {
+        slug = slug,
+        builtin = builtin,
+        content_bytes = content_bytes
+        ; {
             let now = now_iso8601();
             conn.execute(
                 "INSERT INTO system_prompts (slug, name, content, builtin, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -34,31 +33,27 @@ pub fn insert_prompt(
             )
             .context("failed to insert system prompt")?;
             Ok(())
-        },
+        }
     )
 }
 
 pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
-    debug_log::timed_result(
-        "db.prompt.load",
-        &[debug_log::field("slug", slug)],
-        || {
-            conn.query_row(
-                "SELECT name, content FROM system_prompts WHERE slug = ?1",
-                params![slug],
-                |row| {
-                    let name: String = row.get(0)?;
-                    let content: String = row.get(1)?;
-                    Ok(SystemPromptFile { name, content })
-                },
-            )
-            .with_context(|| format!("system prompt not found: {slug}"))
-        },
-    )
+    crate::timed_result!(tracing::Level::INFO, "db.prompt.load", slug = slug ; {
+        conn.query_row(
+            "SELECT name, content FROM system_prompts WHERE slug = ?1",
+            params![slug],
+            |row| {
+                let name: String = row.get(0)?;
+                let content: String = row.get(1)?;
+                Ok(SystemPromptFile { name, content })
+            },
+        )
+        .with_context(|| format!("system prompt not found: {slug}"))
+    })
 }
 
 pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
-    debug_log::timed_result("db.prompt.list", &[], || {
+    crate::timed_result!(tracing::Level::INFO, "db.prompt.list", ; {
         let mut stmt = conn
             .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
             .context("failed to prepare list_prompts query")?;
@@ -81,26 +76,19 @@ pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
             entries.push(row.context("failed to read system prompt row")?);
         }
         let builtin_count = entries.iter().filter(|e| e.builtin).count();
-        debug_log::log_kv(
-            "db.prompt.list",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("count", entries.len()),
-                debug_log::field("builtin_count", builtin_count),
-            ],
-        );
+        tracing::info!(count = entries.len(), builtin_count = builtin_count, "db.prompt.list");
         Ok(entries)
     })
 }
 
 pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -> Result<()> {
-    debug_log::timed_result(
+    let content_bytes = prompt.content.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.prompt.update",
-        &[
-            debug_log::field("slug", slug),
-            debug_log::field("content_bytes", prompt.content.len()),
-        ],
-        || {
+        slug = slug,
+        content_bytes = content_bytes
+        ; {
             let now = now_iso8601();
             let affected = conn
                 .execute(
@@ -108,48 +96,30 @@ pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -
                     params![prompt.name, prompt.content, now, slug],
                 )
                 .context("failed to update system prompt")?;
-            debug_log::log_kv(
-                "db.prompt.update",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("affected", affected),
-                ],
-            );
+            tracing::info!(slug = slug, affected = affected, "db.prompt.update");
             if affected == 0 {
                 anyhow::bail!("system prompt not found: {slug}");
             }
             Ok(())
-        },
+        }
     )
 }
 
 pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
-    debug_log::timed_result(
-        "db.prompt.delete",
-        &[debug_log::field("slug", slug)],
-        || {
-            let affected = conn
-                .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
-                .context("failed to delete system prompt")?;
-            debug_log::log_kv(
-                "db.prompt.delete",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("slug", slug),
-                    debug_log::field("affected", affected),
-                ],
-            );
-            if affected == 0 {
-                anyhow::bail!("system prompt not found: {slug}");
-            }
-            Ok(())
-        },
-    )
+    crate::timed_result!(tracing::Level::INFO, "db.prompt.delete", slug = slug ; {
+        let affected = conn
+            .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
+            .context("failed to delete system prompt")?;
+        tracing::info!(slug = slug, affected = affected, "db.prompt.delete");
+        if affected == 0 {
+            anyhow::bail!("system prompt not found: {slug}");
+        }
+        Ok(())
+    })
 }
 
 pub fn ensure_builtins(conn: &Connection) -> Result<()> {
-    debug_log::timed_result("db.prompt.ensure_builtins", &[], || {
+    crate::timed_result!(tracing::Level::INFO, "db.prompt.ensure_builtins", ; {
         let mut inserted = 0usize;
         let mut existed = 0usize;
         for slug in [BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY] {
@@ -172,14 +142,7 @@ pub fn ensure_builtins(conn: &Connection) -> Result<()> {
                 existed += 1;
             }
         }
-        debug_log::log_kv(
-            "db.prompt.ensure_builtins",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("inserted", inserted),
-                debug_log::field("existed", existed),
-            ],
-        );
+        tracing::info!(inserted = inserted, existed = existed, "db.prompt.ensure_builtins");
         Ok(())
     })
 }

@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::debug_log;
 use crate::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
 
 pub struct SessionListEntry {
@@ -77,38 +76,40 @@ fn write_session_rows(conn: &Connection, id: &str, session: &Session) -> Result<
 }
 
 pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
-    debug_log::timed_result(
+    let node_count = session.tree.node_count();
+    let worldbook_count = session.worldbooks.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.session.insert",
-        &[
-            debug_log::field("session_id", id),
-            debug_log::field("node_count", session.tree.node_count()),
-            debug_log::field("worldbook_count", session.worldbooks.len()),
-        ],
-        || {
+        session_id = id,
+        node_count = node_count,
+        worldbook_count = worldbook_count
+        ; {
             let sp = conn.savepoint().context("failed to begin savepoint")?;
             write_session_rows(&sp, id, session)?;
             sp.commit().context("failed to commit session insert")?;
             Ok(())
-        },
+        }
     )
 }
 
 pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
-    debug_log::timed_result(
+    let node_count = session.tree.node_count();
+    let worldbook_count = session.worldbooks.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.session.save",
-        &[
-            debug_log::field("session_id", id),
-            debug_log::field("node_count", session.tree.node_count()),
-            debug_log::field("worldbook_count", session.worldbooks.len()),
-        ],
-        || {
+        session_id = id,
+        node_count = node_count,
+        worldbook_count = worldbook_count
+        ; {
             let sp = conn.savepoint().context("failed to begin savepoint")?;
             sp.execute("DELETE FROM sessions WHERE id = ?1", params![id])
                 .context("failed to clear session")?;
             write_session_rows(&sp, id, session)?;
             sp.commit().context("failed to commit session save")?;
             Ok(())
-        },
+        }
     )
 }
 
@@ -120,22 +121,12 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
             |row| row.get(0),
         )
         .context("failed to check session existence")?;
-    debug_log::log_kv(
-        "db.session.exists",
-        &[
-            debug_log::field("session_id", id),
-            debug_log::field("result", "ok"),
-            debug_log::field("found", count > 0),
-        ],
-    );
+    tracing::info!(session_id = id, result = "ok", found = count > 0, "db.session.exists");
     Ok(count > 0)
 }
 
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
-    debug_log::timed_result(
-        "db.session.load",
-        &[debug_log::field("session_id", id)],
-        || {
+    crate::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
             let (model, template, system_prompt, character, persona, head_id): (
                 Option<String>,
                 Option<String>,
@@ -237,12 +228,11 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 worldbooks,
                 persona,
             })
-        },
-    )
+    })
 }
 
 pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
-    debug_log::timed_result("db.session.list", &[], || {
+    crate::timed_result!(tracing::Level::INFO, "db.session.list", ; {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.display_name, s.updated_at,
@@ -278,51 +268,36 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
         for row in rows {
             entries.push(row.context("failed to read session row")?);
         }
-        debug_log::log_kv(
-            "db.session.list",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("session_count", entries.len()),
-            ],
-        );
+        tracing::info!(session_count = entries.len(), "db.session.list");
         Ok(entries)
     })
 }
 
 pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
-    debug_log::timed_result(
-        "db.session.delete",
-        &[debug_log::field("session_id", id)],
-        || {
-            let affected = conn
-                .execute("DELETE FROM sessions WHERE id = ?1", params![id])
-                .context("failed to delete session")?;
-            debug_log::log_kv(
-                "db.session.delete",
-                &[
-                    debug_log::field("phase", "summary"),
-                    debug_log::field("session_id", id),
-                    debug_log::field("affected", affected),
-                ],
-            );
-            if affected == 0 {
-                anyhow::bail!("session not found: {id}");
-            }
-            Ok(())
-        },
-    )
+    crate::timed_result!(tracing::Level::INFO, "db.session.delete", session_id = id ; {
+        let affected = conn
+            .execute("DELETE FROM sessions WHERE id = ?1", params![id])
+            .context("failed to delete session")?;
+        tracing::info!(session_id = id, affected = affected, "db.session.delete");
+        if affected == 0 {
+            anyhow::bail!("session not found: {id}");
+        }
+        Ok(())
+    })
 }
 
 pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Result<()> {
-    debug_log::timed_result(
+    let node_id = node.id;
+    let role = node.message.role.to_string();
+    let content_bytes = node.message.content.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
         "db.message.upsert",
-        &[
-            debug_log::field("session_id", session_id),
-            debug_log::field("node_id", node.id),
-            debug_log::field("role", node.message.role.to_string()),
-            debug_log::field("content_bytes", node.message.content.len()),
-        ],
-        || {
+        session_id = session_id,
+        node_id = node_id,
+        role = role,
+        content_bytes = content_bytes
+        ; {
             conn.execute(
                 "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -338,12 +313,13 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
             )
             .context("failed to upsert message")?;
             Ok(())
-        },
+        }
     )
 }
 
 pub fn update_head(conn: &Connection, session_id: &str, head_id: Option<NodeId>) -> Result<()> {
     let now = now_iso8601();
+    let head_id_display = head_id.map(|h| h.to_string()).unwrap_or_else(|| "none".to_owned());
     let result = conn
         .execute(
             "UPDATE sessions SET head_id = ?1, updated_at = ?2 WHERE id = ?3",
@@ -351,25 +327,18 @@ pub fn update_head(conn: &Connection, session_id: &str, head_id: Option<NodeId>)
         )
         .context("failed to update session head");
     match &result {
-        Ok(affected) => debug_log::log_kv(
-            "db.session.head",
-            &[
-                debug_log::field("session_id", session_id),
-                debug_log::field(
-                    "head_id",
-                    head_id.map(|h| h.to_string()).unwrap_or_else(|| "none".to_owned()),
-                ),
-                debug_log::field("result", "ok"),
-                debug_log::field("affected", *affected),
-            ],
+        Ok(affected) => tracing::info!(
+            session_id = session_id,
+            head_id = head_id_display,
+            result = "ok",
+            affected = affected,
+            "db.session.head"
         ),
-        Err(err) => debug_log::log_kv(
-            "db.session.head",
-            &[
-                debug_log::field("session_id", session_id),
-                debug_log::field("result", "error"),
-                debug_log::field("error", err),
-            ],
+        Err(err) => tracing::error!(
+            session_id = session_id,
+            result = "error",
+            error = %err,
+            "db.session.head"
         ),
     }
     result.map(|_| ())
@@ -388,25 +357,21 @@ pub fn update_preferred_child(
         )
         .context("failed to update preferred_child");
     match &result {
-        Ok(affected) => debug_log::log_kv(
-            "db.session.preferred_child",
-            &[
-                debug_log::field("session_id", session_id),
-                debug_log::field("parent_id", parent_id),
-                debug_log::field("child_id", child_id),
-                debug_log::field("result", "ok"),
-                debug_log::field("affected", *affected),
-            ],
+        Ok(affected) => tracing::info!(
+            session_id = session_id,
+            parent_id = parent_id,
+            child_id = child_id,
+            result = "ok",
+            affected = affected,
+            "db.session.preferred_child"
         ),
-        Err(err) => debug_log::log_kv(
-            "db.session.preferred_child",
-            &[
-                debug_log::field("session_id", session_id),
-                debug_log::field("parent_id", parent_id),
-                debug_log::field("child_id", child_id),
-                debug_log::field("result", "error"),
-                debug_log::field("error", err),
-            ],
+        Err(err) => tracing::error!(
+            session_id = session_id,
+            parent_id = parent_id,
+            child_id = child_id,
+            result = "error",
+            error = %err,
+            "db.session.preferred_child"
         ),
     }
     result.map(|_| ())

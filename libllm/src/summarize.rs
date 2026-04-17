@@ -3,7 +3,6 @@
 use std::time::Instant;
 
 use crate::client::ApiClient;
-use crate::debug_log;
 use crate::sampling::SamplingParams;
 use crate::session::{Message, Role};
 use anyhow::Result;
@@ -73,35 +72,29 @@ impl Summarizer {
         token_budget: usize,
     ) -> Result<String> {
         let start = Instant::now();
-        debug_log::log_kv(
-            "summarize.run",
-            &[
-                debug_log::field("phase", "start"),
-                debug_log::field("input_message_count", messages.len()),
-                debug_log::field("token_budget", token_budget),
-            ],
+        tracing::info!(
+            phase = "start",
+            input_message_count = messages.len(),
+            token_budget = token_budget,
+            "summarize.run"
         );
 
         let trimmed = Self::shed_to_fit(messages, token_budget);
         let dropped = messages.len() - trimmed.len();
-        debug_log::log_kv(
-            "summarize.run",
-            &[
-                debug_log::field("phase", "trim"),
-                debug_log::field("input_message_count", messages.len()),
-                debug_log::field("trimmed_message_count", trimmed.len()),
-                debug_log::field("dropped", dropped),
-            ],
+        tracing::info!(
+            phase = "trim",
+            input_message_count = messages.len(),
+            trimmed_message_count = trimmed.len(),
+            dropped = dropped,
+            "summarize.run"
         );
 
         let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed);
-        debug_log::log_kv(
-            "summarize.run",
-            &[
-                debug_log::field("phase", "prompt"),
-                debug_log::field("prompt_bytes", prompt.len()),
-                debug_log::field("estimated_tokens", prompt.len() / 4),
-            ],
+        tracing::info!(
+            phase = "prompt",
+            prompt_bytes = prompt.len(),
+            estimated_tokens = prompt.len() / 4,
+            "summarize.run"
         );
 
         let sampling = SamplingParams {
@@ -113,23 +106,19 @@ impl Summarizer {
         let result = self.client.complete(&prompt, &[], &sampling).await;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         match &result {
-            Ok(summary) => debug_log::log_kv(
-                "summarize.run",
-                &[
-                    debug_log::field("phase", "done"),
-                    debug_log::field("result", "ok"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("summary_bytes", summary.len()),
-                ],
+            Ok(summary) => tracing::info!(
+                phase = "done",
+                result = "ok",
+                elapsed_ms = elapsed_ms,
+                summary_bytes = summary.len(),
+                "summarize.run"
             ),
-            Err(err) => debug_log::log_kv(
-                "summarize.run",
-                &[
-                    debug_log::field("phase", "done"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("error", err),
-                ],
+            Err(err) => tracing::error!(
+                phase = "done",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                error = %err,
+                "summarize.run"
             ),
         }
         result

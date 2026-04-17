@@ -7,8 +7,6 @@ use anyhow::{Context, Result, bail};
 use argon2::Argon2;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::debug_log;
-
 const SALT_LEN: usize = 16;
 
 #[cfg(not(any(test, feature = "test-support")))]
@@ -80,16 +78,14 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
     match std::fs::read(path) {
         Ok(data) => {
             if data.len() != SALT_LEN {
-                debug_log::log_kv(
+                tracing::error!(
+                    phase = "load",
+                    result = "error",
+                    reason = "invalid_length",
+                    path = %path.display(),
+                    bytes = data.len(),
+                    expected = SALT_LEN,
                     "crypto.salt",
-                    &[
-                        debug_log::field("phase", "load"),
-                        debug_log::field("result", "error"),
-                        debug_log::field("reason", "invalid_length"),
-                        debug_log::field("path", path.display()),
-                        debug_log::field("bytes", data.len()),
-                        debug_log::field("expected", SALT_LEN),
-                    ],
                 );
                 bail!(
                     "invalid salt file length for {}: expected {SALT_LEN} bytes, got {}",
@@ -99,27 +95,23 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
             }
             let mut salt = [0u8; SALT_LEN];
             salt.copy_from_slice(&data);
-            debug_log::log_kv(
+            tracing::info!(
+                phase = "load",
+                result = "ok",
+                path = %path.display(),
+                bytes = SALT_LEN,
                 "crypto.salt",
-                &[
-                    debug_log::field("phase", "load"),
-                    debug_log::field("result", "ok"),
-                    debug_log::field("path", path.display()),
-                    debug_log::field("bytes", SALT_LEN),
-                ],
             );
             return Ok(salt);
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => {
-            debug_log::log_kv(
+            tracing::error!(
+                phase = "load",
+                result = "error",
+                path = %path.display(),
+                error = %err,
                 "crypto.salt",
-                &[
-                    debug_log::field("phase", "load"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("path", path.display()),
-                    debug_log::field("error", &err),
-                ],
             );
             return Err(err).context(format!("failed to read salt file: {}", path.display()));
         }
@@ -131,25 +123,21 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
     }
     match write_restricted(path, &salt) {
         Ok(()) => {
-            debug_log::log_kv(
+            tracing::info!(
+                phase = "create",
+                result = "ok",
+                path = %path.display(),
                 "crypto.salt",
-                &[
-                    debug_log::field("phase", "create"),
-                    debug_log::field("result", "ok"),
-                    debug_log::field("path", path.display()),
-                ],
             );
             Ok(salt)
         }
         Err(err) => {
-            debug_log::log_kv(
+            tracing::error!(
+                phase = "create",
+                result = "error",
+                path = %path.display(),
+                error = %err,
                 "crypto.salt",
-                &[
-                    debug_log::field("phase", "create"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("path", path.display()),
-                    debug_log::field("error", &err),
-                ],
             );
             Err(err)
         }
@@ -160,16 +148,15 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
 ///
 /// Parameters come from [`argon2_params`]; see its docs for production vs. test values.
 pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
-    debug_log::timed_result(
+    crate::timed_result!(
+        tracing::Level::INFO,
         "crypto.derive",
-        &[
-            debug_log::field("mem_kib", ARGON2_MEM_KIB),
-            debug_log::field("iterations", ARGON2_ITERATIONS),
-            debug_log::field("parallelism", ARGON2_PARALLELISM),
-            debug_log::field("output_bytes", ARGON2_OUTPUT_LEN),
-            debug_log::field("salt_bytes", SALT_LEN),
-        ],
-        || {
+        mem_kib = ARGON2_MEM_KIB,
+        iterations = ARGON2_ITERATIONS,
+        parallelism = ARGON2_PARALLELISM,
+        output_bytes = ARGON2_OUTPUT_LEN,
+        salt_bytes = SALT_LEN
+        ; {
             let argon2 = Argon2::new(
                 argon2::Algorithm::Argon2id,
                 argon2::Version::V0x13,
@@ -182,7 +169,7 @@ pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
                 .map_err(|e| anyhow::anyhow!("key derivation failed: {e}"))?;
 
             Ok(DerivedKey { bytes: key_bytes })
-        },
+        }
     )
 }
 
@@ -205,13 +192,13 @@ fn temp_write_path(path: &Path) -> Result<PathBuf> {
 pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     let temp_path = temp_write_path(path)?;
 
-    let write_result = debug_log::timed_result(
+    let path_str = path.display().to_string();
+    let write_result = crate::timed_result!(
+        tracing::Level::INFO,
         "crypto.write_atomic",
-        &[
-            debug_log::field("path", path.display()),
-            debug_log::field("bytes", data.len()),
-        ],
-        || -> Result<()> {
+        path = path_str.as_str(),
+        bytes = data.len()
+        ; {
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create_new(true);
 
@@ -237,21 +224,17 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
                 "failed to replace file atomically: {}",
                 path.display()
             ))
-        },
+        }
     );
 
     if write_result.is_err() {
         let cleanup = std::fs::remove_file(&temp_path);
-        debug_log::log_kv(
+        let cleanup_result = if cleanup.is_ok() { "ok" } else { "error" };
+        tracing::info!(
+            phase = "cleanup",
+            result = cleanup_result,
+            path = %temp_path.display(),
             "crypto.write_atomic",
-            &[
-                debug_log::field("phase", "cleanup"),
-                debug_log::field(
-                    "result",
-                    if cleanup.is_ok() { "ok" } else { "error" },
-                ),
-                debug_log::field("path", temp_path.display()),
-            ],
         );
     }
 

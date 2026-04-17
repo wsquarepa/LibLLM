@@ -429,6 +429,7 @@ dependencies = [
  "time",
  "tokio",
  "toml",
+ "tracing",
  "tui-textarea-2",
  "uuid",
 ]

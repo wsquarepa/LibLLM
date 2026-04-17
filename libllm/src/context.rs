@@ -1,6 +1,5 @@
 //! Context window management and token budget allocation.
 
-use crate::debug_log;
 use crate::session::{Message, Role};
 
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
@@ -25,13 +24,11 @@ impl ContextManager {
     pub fn set_token_limit(&mut self, limit: usize) {
         let previous = self.token_limit;
         self.token_limit = limit;
-        debug_log::log_kv(
+        tracing::info!(
+            phase = "set",
+            previous = previous,
+            token_limit = limit,
             "context.limit",
-            &[
-                debug_log::field("phase", "set"),
-                debug_log::field("previous", previous),
-                debug_log::field("token_limit", limit),
-            ],
         );
     }
 
@@ -73,17 +70,15 @@ impl ContextManager {
             }
         }
 
-        debug_log::log_kv(
+        tracing::info!(
+            phase = "truncate",
+            result = "ok",
+            input_message_count = messages.len(),
+            kept = messages.len() - skip,
+            dropped = skip,
+            estimated_tokens = total,
+            token_limit = self.token_limit,
             "context.truncate",
-            &[
-                debug_log::field("phase", "truncate"),
-                debug_log::field("result", "ok"),
-                debug_log::field("input_message_count", messages.len()),
-                debug_log::field("kept", messages.len() - skip),
-                debug_log::field("dropped", skip),
-                debug_log::field("estimated_tokens", total),
-                debug_log::field("token_limit", self.token_limit),
-            ],
         );
         &messages[skip..]
     }
@@ -103,13 +98,11 @@ impl ContextManager {
             Some(idx) => messages[idx..].to_vec(),
             None => messages.to_vec(),
         };
-        debug_log::log_kv(
+        tracing::info!(
+            summary_found = last_summary_idx.is_some(),
+            input_message_count = messages.len(),
+            kept_after_boundary = result.len(),
             "context.summary_boundary",
-            &[
-                debug_log::field("summary_found", last_summary_idx.is_some()),
-                debug_log::field("input_message_count", messages.len()),
-                debug_log::field("kept_after_boundary", result.len()),
-            ],
         );
         result
     }

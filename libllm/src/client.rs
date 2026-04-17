@@ -9,7 +9,6 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use crate::debug_log;
 use crate::sampling::SamplingParams;
 
 /// HTTP client for the llama.cpp `/completions` and `/models` endpoints.
@@ -81,23 +80,19 @@ impl ApiClient {
 
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         match &result {
-            Ok(name) => debug_log::log_kv(
-                "client.models",
-                &[
-                    debug_log::field("phase", "request"),
-                    debug_log::field("result", "ok"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("model_name_bytes", name.len()),
-                ],
+            Ok(name) => tracing::info!(
+                phase = "request",
+                result = "ok",
+                elapsed_ms = elapsed_ms,
+                model_name_bytes = name.len(),
+                "client.models"
             ),
-            Err(err) => debug_log::log_kv(
-                "client.models",
-                &[
-                    debug_log::field("phase", "request"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("error", err),
-                ],
+            Err(err) => tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                error = %err,
+                "client.models"
             ),
         }
 
@@ -157,28 +152,24 @@ impl ApiClient {
         sender: &mpsc::Sender<StreamToken>,
     ) -> Result<String> {
         let start = Instant::now();
-        debug_log::log_kv(
-            "client.stream",
-            &[
-                debug_log::field("phase", "start"),
-                debug_log::field("prompt_bytes", prompt.len()),
-                debug_log::field("stop_token_count", stop_tokens.len()),
-                debug_log::field("max_tokens", sampling.max_tokens),
-                debug_log::field("temperature", sampling.temperature),
-            ],
+        tracing::info!(
+            phase = "start",
+            prompt_bytes = prompt.len(),
+            stop_token_count = stop_tokens.len(),
+            max_tokens = sampling.max_tokens,
+            temperature = sampling.temperature,
+            "client.stream"
         );
         let resp = match self.start_completion(prompt, stop_tokens, sampling).await {
             Ok(resp) => resp,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                debug_log::log_kv(
-                    "client.stream",
-                    &[
-                        debug_log::field("phase", "done"),
-                        debug_log::field("result", "error"),
-                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                        debug_log::field("error", &err),
-                    ],
+                tracing::error!(
+                    phase = "done",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.stream"
                 );
                 return Err(err);
             }
@@ -194,16 +185,14 @@ impl ApiClient {
                 Ok(chunk) => chunk,
                 Err(err) => {
                     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                    debug_log::log_kv(
-                        "client.stream",
-                        &[
-                            debug_log::field("phase", "done"),
-                            debug_log::field("result", "error"),
-                            debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                            debug_log::field("response_bytes", full_response.len()),
-                            debug_log::field("token_chunks", token_chunks),
-                            debug_log::field("error", &err),
-                        ],
+                    tracing::error!(
+                        phase = "done",
+                        result = "error",
+                        elapsed_ms = elapsed_ms,
+                        response_bytes = full_response.len(),
+                        token_chunks = token_chunks,
+                        error = %err,
+                        "client.stream"
                     );
                     return Err(err);
                 }
@@ -219,16 +208,14 @@ impl ApiClient {
                     token_chunks += 1;
                     if sender.send(StreamToken::Token(text)).await.is_err() {
                         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                        debug_log::log_kv(
-                            "client.stream",
-                            &[
-                                debug_log::field("phase", "done"),
-                                debug_log::field("result", "ok"),
-                                debug_log::field("reason", "receiver_dropped"),
-                                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                                debug_log::field("response_bytes", full_response.len()),
-                                debug_log::field("token_chunks", token_chunks),
-                            ],
+                        tracing::info!(
+                            phase = "done",
+                            result = "ok",
+                            reason = "receiver_dropped",
+                            elapsed_ms = elapsed_ms,
+                            response_bytes = full_response.len(),
+                            token_chunks = token_chunks,
+                            "client.stream"
                         );
                         return Ok(full_response);
                     }
@@ -242,15 +229,13 @@ impl ApiClient {
         }
 
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        debug_log::log_kv(
-            "client.stream",
-            &[
-                debug_log::field("phase", "done"),
-                debug_log::field("result", "ok"),
-                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                debug_log::field("response_bytes", full_response.len()),
-                debug_log::field("token_chunks", token_chunks),
-            ],
+        tracing::info!(
+            phase = "done",
+            result = "ok",
+            elapsed_ms = elapsed_ms,
+            response_bytes = full_response.len(),
+            token_chunks = token_chunks,
+            "client.stream"
         );
         Ok(full_response)
     }
@@ -278,15 +263,13 @@ impl ApiClient {
         });
 
         let start = Instant::now();
-        debug_log::log_kv(
-            "client.complete",
-            &[
-                debug_log::field("phase", "start"),
-                debug_log::field("prompt_bytes", prompt.len()),
-                debug_log::field("stop_token_count", stop_tokens.len()),
-                debug_log::field("max_tokens", sampling.max_tokens),
-                debug_log::field("temperature", sampling.temperature),
-            ],
+        tracing::info!(
+            phase = "start",
+            prompt_bytes = prompt.len(),
+            stop_token_count = stop_tokens.len(),
+            max_tokens = sampling.max_tokens,
+            temperature = sampling.temperature,
+            "client.complete"
         );
         let send_result = self
             .client
@@ -299,14 +282,12 @@ impl ApiClient {
             Ok(resp) => resp,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                debug_log::log_kv(
-                    "client.complete",
-                    &[
-                        debug_log::field("phase", "done"),
-                        debug_log::field("result", "error"),
-                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                        debug_log::field("error", &err),
-                    ],
+                tracing::error!(
+                    phase = "done",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.complete"
                 );
                 return Err(err);
             }
@@ -316,15 +297,13 @@ impl ApiClient {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-            debug_log::log_kv(
-                "client.complete",
-                &[
-                    debug_log::field("phase", "done"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("status", status.as_u16()),
-                    debug_log::field("body_bytes", text.len()),
-                ],
+            tracing::error!(
+                phase = "done",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                status = status.as_u16(),
+                body_bytes = text.len(),
+                "client.complete"
             );
             anyhow::bail!("API returned {status}: {text}");
         }
@@ -337,28 +316,24 @@ impl ApiClient {
             Ok(json) => json,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                debug_log::log_kv(
-                    "client.complete",
-                    &[
-                        debug_log::field("phase", "done"),
-                        debug_log::field("result", "error"),
-                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                        debug_log::field("error", &err),
-                    ],
+                tracing::error!(
+                    phase = "done",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.complete"
                 );
                 return Err(err);
             }
         };
         let content = json["content"].as_str().unwrap_or_default().to_owned();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        debug_log::log_kv(
-            "client.complete",
-            &[
-                debug_log::field("phase", "done"),
-                debug_log::field("result", "ok"),
-                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                debug_log::field("response_bytes", content.len()),
-            ],
+        tracing::info!(
+            phase = "done",
+            result = "ok",
+            elapsed_ms = elapsed_ms,
+            response_bytes = content.len(),
+            "client.complete"
         );
         Ok(content)
     }
@@ -372,14 +347,12 @@ impl ApiClient {
             Ok(resp) => resp,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                debug_log::log_kv(
-                    "client.props",
-                    &[
-                        debug_log::field("phase", "request"),
-                        debug_log::field("result", "error"),
-                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                        debug_log::field("error", err),
-                    ],
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.props"
                 );
                 return None;
             }
@@ -387,14 +360,12 @@ impl ApiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-            debug_log::log_kv(
-                "client.props",
-                &[
-                    debug_log::field("phase", "request"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("status", status.as_u16()),
-                ],
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                status = status.as_u16(),
+                "client.props"
             );
             return None;
         }
@@ -402,14 +373,12 @@ impl ApiClient {
             Ok(json) => json,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                debug_log::log_kv(
-                    "client.props",
-                    &[
-                        debug_log::field("phase", "request"),
-                        debug_log::field("result", "error"),
-                        debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                        debug_log::field("error", err),
-                    ],
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.props"
                 );
                 return None;
             }
@@ -419,22 +388,18 @@ impl ApiClient {
             .map(|n| n as usize);
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         match n_ctx {
-            Some(size) => debug_log::log_kv(
-                "client.props",
-                &[
-                    debug_log::field("phase", "request"),
-                    debug_log::field("result", "ok"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    debug_log::field("n_ctx", size),
-                ],
+            Some(size) => tracing::info!(
+                phase = "request",
+                result = "ok",
+                elapsed_ms = elapsed_ms,
+                n_ctx = size,
+                "client.props"
             ),
-            None => debug_log::log_kv(
-                "client.props",
-                &[
-                    debug_log::field("phase", "request"),
-                    debug_log::field("result", "missing"),
-                    debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                ],
+            None => tracing::info!(
+                phase = "request",
+                result = "missing",
+                elapsed_ms = elapsed_ms,
+                "client.props"
             ),
         }
         n_ctx
@@ -476,14 +441,12 @@ impl ApiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            debug_log::log_kv(
-                "client.stream",
-                &[
-                    debug_log::field("phase", "start"),
-                    debug_log::field("result", "error"),
-                    debug_log::field("status", status.as_u16()),
-                    debug_log::field("body_bytes", text.len()),
-                ],
+            tracing::error!(
+                phase = "start",
+                result = "error",
+                status = status.as_u16(),
+                body_bytes = text.len(),
+                "client.stream"
             );
             anyhow::bail!("API returned {status}: {text}");
         }

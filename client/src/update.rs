@@ -121,9 +121,11 @@ pub fn build_client() -> Result<reqwest::Client> {
 }
 
 fn parse_release_hash(body: &str) -> Option<&str> {
-    let after_tick = body.strip_prefix("Commit `")?;
-    let end = after_tick.find('`')?;
-    Some(&after_tick[..end])
+    let start = body.find("- [")?;
+    let after = &body[start + "- [".len()..];
+    let end = after.find("](")?;
+    let hash = &after[..end];
+    (hash.len() >= 7 && hash.chars().all(|c| c.is_ascii_hexdigit())).then_some(hash)
 }
 
 fn current_exe_path() -> Result<std::path::PathBuf> {
@@ -480,5 +482,30 @@ mod tests {
         assert_eq!(result[1].name, "c");
         assert_eq!(result[2].name, "a");
         assert_eq!(result[3].name, "b");
+    }
+
+    #[test]
+    fn parse_release_hash_reads_first_bulleted_link() {
+        let body = "Changes this release:\n\n\
+                    - [f7be246](https://github.com/x/y/commit/f7be2465) feat: thing\n\
+                    - [acfc73e](https://github.com/x/y/commit/acfc73ef) chore: other\n";
+        assert_eq!(parse_release_hash(body), Some("f7be246"));
+    }
+
+    #[test]
+    fn parse_release_hash_rejects_non_hex_bracket_content() {
+        let body = "- [not-a-hash](https://example.com) nope\n";
+        assert_eq!(parse_release_hash(body), None);
+    }
+
+    #[test]
+    fn parse_release_hash_returns_none_for_old_commit_prefix_format() {
+        let body = "Commit `abcdef1` at `2026-01-01`\n\n```\nmsg\n```\n";
+        assert_eq!(parse_release_hash(body), None);
+    }
+
+    #[test]
+    fn parse_release_hash_returns_none_for_empty_body() {
+        assert_eq!(parse_release_hash(""), None);
     }
 }

@@ -1,5 +1,7 @@
 //! User-defined macro expansion with positional argument substitution.
 
+const MAX_MACRO_PLACEHOLDER_RANGE: usize = 256;
+
 #[derive(Debug, PartialEq)]
 pub(super) enum Placeholder {
     All,
@@ -55,6 +57,12 @@ pub(super) fn parse_placeholder(content: &str) -> Result<Placeholder, String> {
         if a > b {
             return Err(format!("Invalid range: {a}...{b} (start > end)"));
         }
+        if b - a + 1 > MAX_MACRO_PLACEHOLDER_RANGE {
+            return Err(format!(
+                "Range {a}...{b} spans {} indices, exceeding the limit of {MAX_MACRO_PLACEHOLDER_RANGE}",
+                b - a + 1
+            ));
+        }
         return Ok(Placeholder::Range(a, b));
     }
 
@@ -72,6 +80,12 @@ pub(super) fn parse_placeholder(content: &str) -> Result<Placeholder, String> {
         }
         if a > b {
             return Err(format!("Invalid range: {a}..{b} (start > end)"));
+        }
+        if b - a + 1 > MAX_MACRO_PLACEHOLDER_RANGE {
+            return Err(format!(
+                "Range {a}..{b} spans {} indices, exceeding the limit of {MAX_MACRO_PLACEHOLDER_RANGE}",
+                b - a + 1
+            ));
         }
         return Ok(Placeholder::Range(a, b));
     }
@@ -173,6 +187,12 @@ pub(super) fn validate_placeholders(items: &[ScanItem]) -> Result<(), String> {
         if end != usize::MAX {
             max_idx = max_idx.max(end);
         }
+    }
+
+    if max_idx > MAX_MACRO_PLACEHOLDER_RANGE {
+        return Err(format!(
+            "Highest placeholder index {max_idx} exceeds the limit of {MAX_MACRO_PLACEHOLDER_RANGE}"
+        ));
     }
 
     for idx in 1..=max_idx {
@@ -383,6 +403,26 @@ mod tests {
         let result = expand_macro("{{1}} {{3}}", "a b c");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Gap at index 2"));
+    }
+
+    #[test]
+    fn range_exceeding_cap_errors() {
+        let result = expand_macro("{{1..1000000000}}", "a");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("exceeding the limit"));
+    }
+
+    #[test]
+    fn range_at_cap_boundary_ok() {
+        let result = expand_macro("{{1..256}}", "a b c");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn single_index_exceeding_cap_errors() {
+        let result = expand_macro("{{257}}", "a");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("exceeds the limit"));
     }
 
     #[test]

@@ -210,6 +210,10 @@ pub struct Args {
     #[arg(long)]
     pub debug: Option<PathBuf>,
 
+    /// EnvFilter directive for the debug log (e.g. "info,libllm::db=debug"). Requires --debug.
+    #[arg(long, requires = "debug")]
+    pub log_filter: Option<String>,
+
     /// Write a timings report to ./timings.log or an optional custom path
     #[arg(long, num_args = 0..=1, default_missing_value = "./timings.log")]
     pub timings: Option<PathBuf>,

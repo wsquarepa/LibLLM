@@ -320,3 +320,28 @@ fn empty_theme_override_drops_to_none() {
     let saved = libllm::config::load();
     assert!(saved.theme_colors.is_none());
 }
+
+#[test]
+fn log_filter_without_debug_is_a_parse_error() {
+    use clap::Parser;
+    let result = client::cli::Args::try_parse_from(["libllm", "--log-filter", "info"]);
+    assert!(result.is_err(), "expected parse failure but parsing succeeded");
+    let err = result.err().unwrap().to_string();
+    assert!(
+        err.contains("--debug") || err.contains("debug"),
+        "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn log_filter_with_debug_parses() {
+    use clap::Parser;
+    let result = client::cli::Args::try_parse_from([
+        "libllm",
+        "--debug",
+        "/tmp/x.log",
+        "--log-filter",
+        "info",
+    ]);
+    assert!(result.is_ok(), "expected parse success but got an error");
+}

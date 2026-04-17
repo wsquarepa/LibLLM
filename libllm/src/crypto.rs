@@ -22,6 +22,22 @@ const ARGON2_ITERATIONS: u32 = 1;
 const ARGON2_PARALLELISM: u32 = 1;
 const ARGON2_OUTPUT_LEN: usize = 32;
 
+/// Tightens the permissions on `path` to 0600 (owner read/write only).
+///
+/// On non-Unix platforms this is a no-op that always returns `Ok(())`.
+pub fn chmod_0600(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}
+
 /// Returns the Argon2id parameters shared by every LibLLM key derivation.
 ///
 /// Production: `m_cost=65536 KiB, t_cost=3, p_cost=1, output=32`. Under `cfg(test)`

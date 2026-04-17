@@ -86,6 +86,9 @@ impl Database {
                 let conn = Connection::open(path)
                     .with_context(|| format!("failed to open database: {}", path.display()))?;
 
+                crate::crypto::chmod_0600(path)
+                    .with_context(|| format!("failed to restrict permissions: {}", path.display()))?;
+
                 if let Some(key) = key {
                     let hex_key = key.hex();
                     conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
@@ -94,6 +97,28 @@ impl Database {
 
                 conn.execute_batch("PRAGMA journal_mode = WAL;")
                     .context("failed to enable WAL mode")?;
+
+                let path_wal = {
+                    let mut s = path.as_os_str().to_owned();
+                    s.push("-wal");
+                    std::path::PathBuf::from(s)
+                };
+                let path_shm = {
+                    let mut s = path.as_os_str().to_owned();
+                    s.push("-shm");
+                    std::path::PathBuf::from(s)
+                };
+                if path_wal.exists() {
+                    crate::crypto::chmod_0600(&path_wal).with_context(|| {
+                        format!("failed to restrict permissions: {}", path_wal.display())
+                    })?;
+                }
+                if path_shm.exists() {
+                    crate::crypto::chmod_0600(&path_shm).with_context(|| {
+                        format!("failed to restrict permissions: {}", path_shm.display())
+                    })?;
+                }
+
                 conn.execute_batch("PRAGMA foreign_keys = ON;")
                     .context("failed to enable foreign keys")?;
 
@@ -430,5 +455,23 @@ mod tests {
                 .unwrap();
             assert_eq!(id, "plain-session-id");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_restricts_database_file_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("perms.db");
+
+        let _db = Database::open(&db_path, None).unwrap();
+
+        let mode = std::fs::metadata(&db_path).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "database file must be owner read/write only"
+        );
     }
 }

@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use libllm::crypto::chmod_0600;
 use libllm::db::Database;
 
 use super::exit;
@@ -43,6 +44,8 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
             tmp_str.replace('\'', "''")
         );
         db.execute_batch(&script)?;
+        chmod_0600(&tmp_path)
+            .with_context(|| format!("failed to restrict permissions: {}", tmp_path.display()))?;
         Ok(())
     })();
 
@@ -55,6 +58,8 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
                     path.display()
                 )
             })?;
+            chmod_0600(path)
+                .with_context(|| format!("failed to restrict permissions: {}", path.display()))?;
             eprintln!("Wrote decrypted database to {}", path.display());
             Ok(())
         }

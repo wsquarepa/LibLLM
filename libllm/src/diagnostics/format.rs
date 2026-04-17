@@ -14,13 +14,13 @@ use tracing_subscriber::layer::Context;
 const TARGET_WIDTH: usize = 28;
 const STRIP_PREFIXES: &[&str] = &["libllm::", "client::"];
 
-pub struct FileLayer {
+pub(super) struct FileLayer {
     start: Instant,
     file: Mutex<File>,
 }
 
 impl FileLayer {
-    pub fn new(start: Instant, file: File) -> Self {
+    pub(super) fn new(start: Instant, file: File) -> Self {
         Self { start, file: Mutex::new(file) }
     }
 
@@ -72,13 +72,13 @@ fn format_offset(secs: u64, millis: u32) -> String {
     format!("+{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
 }
 
-fn format_level(level: &tracing::Level) -> String {
+fn format_level(level: &tracing::Level) -> &'static str {
     match *level {
-        tracing::Level::TRACE => "TRACE".to_owned(),
-        tracing::Level::DEBUG => "DEBUG".to_owned(),
-        tracing::Level::INFO => "INFO ".to_owned(),
-        tracing::Level::WARN => "WARN ".to_owned(),
-        tracing::Level::ERROR => "ERROR".to_owned(),
+        tracing::Level::TRACE => "TRACE",
+        tracing::Level::DEBUG => "DEBUG",
+        tracing::Level::INFO => "INFO ",
+        tracing::Level::WARN => "WARN ",
+        tracing::Level::ERROR => "ERROR",
     }
 }
 
@@ -87,11 +87,11 @@ fn format_target(raw: &str) -> String {
         .iter()
         .find_map(|p| raw.strip_prefix(p))
         .unwrap_or(raw);
-    if stripped.chars().count() <= TARGET_WIDTH {
-        let pad = TARGET_WIDTH - stripped.chars().count();
+    let stripped_len = stripped.chars().count();
+    if stripped_len <= TARGET_WIDTH {
         let mut out = String::with_capacity(TARGET_WIDTH);
         out.push_str(stripped);
-        out.extend(std::iter::repeat_n(' ', pad));
+        out.extend(std::iter::repeat_n(' ', TARGET_WIDTH - stripped_len));
         out
     } else {
         let mut out: String = stripped.chars().take(TARGET_WIDTH - 1).collect();

@@ -1,11 +1,11 @@
 //! Tracing subscriber assembly and `EnvFilter` resolution.
 
-pub struct ResolvedFilter {
+pub(super) struct ResolvedFilter {
     pub directive: String,
     pub source: &'static str,
 }
 
-pub fn resolve_filter(
+pub(super) fn resolve_filter(
     flag: Option<&str>,
     env: Option<&str>,
     debug_opted_in: bool,

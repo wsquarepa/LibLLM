@@ -2,27 +2,31 @@
 
 mod banner;
 mod format;
+mod io_helpers;
 mod subscriber;
 mod sysinfo_snapshot;
 mod timings;
 
-pub use banner::{render, BannerContext, BuildInfo, RuntimeInfo};
-pub use format::FileLayer;
-pub use subscriber::{resolve_filter, ResolvedFilter};
-pub use sysinfo_snapshot::{SystemInfo, TerminalInfo, collect_system, collect_terminal};
-pub use timings::{TimingCollector, TimingLayer};
+pub use banner::BuildInfo;
 
 use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
-use time::UtcOffset;
 use time::macros::format_description;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+use banner::{BannerContext, RuntimeInfo, render};
+use format::FileLayer;
+use io_helpers::{create_output_file, local_now};
+use subscriber::resolve_filter;
+use sysinfo_snapshot::{collect_system, collect_terminal};
+use timings::{TimingCollector, TimingLayer};
 
 const TEMP_LOG_PREFIX: &str = "libllm-debug-";
 
@@ -45,7 +49,6 @@ impl Drop for DiagnosticsGuard {
     fn drop(&mut self) {
         let Some(state) = DIAGNOSTICS.get() else { return };
         if let Ok(mut file) = state.debug_file.lock() {
-            use std::io::Write;
             let _ = file.flush();
         }
         if let Some(finalize) = state.timing_layer_finalizer.as_ref()
@@ -67,12 +70,16 @@ pub struct InitParams<'a> {
 }
 
 pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
+    if DIAGNOSTICS.get().is_some() {
+        anyhow::bail!("diagnostics already initialized");
+    }
+
     let debug_opted_in = params.debug_override.is_some();
     let filter = resolve_filter(params.filter_flag, params.filter_env, debug_opted_in);
 
     let (debug_path, mut debug_file) = open_debug_file(params.debug_override)?;
 
-    let wall_clock = format_wall_clock(time::OffsetDateTime::now_utc());
+    let wall_clock = format_wall_clock(local_now());
     let system = collect_system();
     let terminal = collect_terminal();
     let executable = std::env::current_exe()
@@ -103,7 +110,6 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
         runtime: &runtime,
         wall_clock: &wall_clock,
     });
-    use std::io::Write;
     debug_file
         .write_all(banner_text.as_bytes())
         .with_context(|| format!("failed to write banner to {}", debug_path.display()))?;
@@ -118,7 +124,7 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
                 path.to_path_buf(),
                 params.run_mode,
             )));
-            let layer = TimingLayer::new(Arc::clone(&collector), debug_path.clone());
+            let layer = TimingLayer::new(Arc::clone(&collector));
             let finalizer_path = debug_path.clone();
             let finalizer: Box<dyn Fn() -> Result<()> + Send + Sync> = Box::new(move || {
                 let mut c = collector.lock().unwrap_or_else(|p| p.into_inner());
@@ -132,12 +138,6 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
     let env_filter = EnvFilter::try_new(&filter.directive)
         .with_context(|| format!("invalid filter directive: {}", filter.directive))?;
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(file_layer)
-        .with(timing_layer)
-        .init();
-
     let state = DiagnosticsState {
         debug_path: debug_path.clone(),
         debug_file: Mutex::new(debug_file),
@@ -146,6 +146,12 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
     DIAGNOSTICS
         .set(state)
         .map_err(|_| anyhow!("diagnostics already initialized"))?;
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(file_layer)
+        .with(timing_layer)
+        .init();
 
     tracing::info!(
         version = params.build.version,
@@ -186,7 +192,6 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
         anyhow::bail!("diagnostics are not initialized");
     };
     if let Ok(mut file) = state.debug_file.lock() {
-        use std::io::Write;
         let _ = file.flush();
     }
     let mut source = File::open(&state.debug_path).with_context(|| {
@@ -203,7 +208,6 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to create {}", path.display()))?;
     std::io::copy(&mut source, &mut destination)
         .with_context(|| format!("failed to copy debug log to {}", path.display()))?;
-    use std::io::Write;
     destination.flush()?;
     Ok(())
 }
@@ -230,33 +234,11 @@ fn open_debug_file(debug_override: Option<&Path>) -> Result<(PathBuf, File)> {
     }
 }
 
-fn create_output_file(path: &Path, create_new: bool, truncate: bool) -> std::io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true);
-    if create_new {
-        options.create_new(true);
-    }
-    if truncate {
-        options.truncate(true);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)
-}
-
 fn format_wall_clock(ts: time::OffsetDateTime) -> String {
-    let local = match UtcOffset::current_local_offset() {
-        Ok(offset) => ts.to_offset(offset),
-        Err(_) => ts,
-    };
-    local
-        .format(format_description!(
-            "[year]-[month]-[day] [hour]:[minute]:[second]"
-        ))
-        .unwrap_or_else(|_| "1970-01-01 00:00:00".to_owned())
+    ts.format(format_description!(
+        "[year]-[month]-[day] [hour]:[minute]:[second]"
+    ))
+    .unwrap_or_else(|_| "1970-01-01 00:00:00".to_owned())
 }
 
 /// Wraps a block in a span at the given level, recording `elapsed_ms` and

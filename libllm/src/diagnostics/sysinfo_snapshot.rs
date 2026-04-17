@@ -1,6 +1,6 @@
 //! Deterministic `SystemInfo` / `TerminalInfo` snapshots consumed by the banner.
 
-use sysinfo::{RefreshKind, System};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 pub struct SystemInfo {
     pub host: String,
@@ -22,9 +22,11 @@ pub struct TerminalInfo {
     pub locale: String,
 }
 
-pub fn collect_system() -> SystemInfo {
-    let mut system = System::new_with_specifics(RefreshKind::everything());
-    system.refresh_all();
+pub(super) fn collect_system() -> SystemInfo {
+    let kind = RefreshKind::nothing()
+        .with_cpu(CpuRefreshKind::nothing())
+        .with_memory(MemoryRefreshKind::nothing().with_ram());
+    let system = System::new_with_specifics(kind);
     let cpu_brand = system
         .cpus()
         .first()
@@ -43,7 +45,7 @@ pub fn collect_system() -> SystemInfo {
     }
 }
 
-pub fn collect_terminal() -> TerminalInfo {
+pub(super) fn collect_terminal() -> TerminalInfo {
     let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".to_owned());
     let (columns, rows) = terminal_size();
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "unknown".to_owned());

@@ -13,7 +13,7 @@ pub struct BuildInfo {
     pub dirty: bool,
 }
 
-pub struct RuntimeInfo {
+pub(super) struct RuntimeInfo {
     pub run_mode: String,
     pub pid: u32,
     pub executable: String,
@@ -25,7 +25,7 @@ pub struct RuntimeInfo {
     pub filter_source: String,
 }
 
-pub struct BannerContext<'a> {
+pub(super) struct BannerContext<'a> {
     pub build: &'a BuildInfo,
     pub system: &'a SystemInfo,
     pub terminal: &'a TerminalInfo,
@@ -33,7 +33,7 @@ pub struct BannerContext<'a> {
     pub wall_clock: &'a str,
 }
 
-pub fn render(ctx: &BannerContext<'_>) -> String {
+pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     let mut out = String::with_capacity(2048);
     let border = "=".repeat(80);
     let subborder = "-".repeat(80);

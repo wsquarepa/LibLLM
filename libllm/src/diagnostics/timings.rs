@@ -1,20 +1,20 @@
 //! Tracing layer that records span close times and renders the `--timings` report.
 
 use std::cmp::Ordering;
-use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use time::UtcOffset;
 use time::macros::format_description;
 use tracing::Subscriber;
 use tracing::span::{Attributes, Id};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context as LayerContext;
 use tracing_subscriber::registry::LookupSpan;
+
+use super::io_helpers::{create_output_file, local_now};
 
 const DEFAULT_TIMESTAMP: &str = "1970-01-01 00:00:00.000 +00:00";
 
@@ -29,7 +29,7 @@ impl OwnedField {
     }
 }
 
-pub struct TimingCollector {
+pub(super) struct TimingCollector {
     path: PathBuf,
     run_mode: String,
     start_instant: Instant,
@@ -54,7 +54,7 @@ struct TimingAggregate {
 }
 
 impl TimingCollector {
-    pub fn new(path: PathBuf, run_mode: &str) -> Self {
+    pub(super) fn new(path: PathBuf, run_mode: &str) -> Self {
         Self {
             path,
             run_mode: run_mode.to_owned(),
@@ -70,7 +70,7 @@ impl TimingCollector {
         self.samples.push(TimingSample { operation, elapsed_ms, result, fields });
     }
 
-    pub fn write_report(&mut self, debug_path: &Path) -> Result<()> {
+    pub(super) fn write_report(&mut self, debug_path: &Path) -> Result<()> {
         let end_wall = local_now();
         let run_duration_ms = self.start_instant.elapsed().as_secs_f64() * 1000.0;
         let mut file = create_output_file(&self.path, false, true).with_context(|| {
@@ -154,19 +154,13 @@ impl TimingCollector {
     }
 }
 
-pub struct TimingLayer {
+pub(super) struct TimingLayer {
     collector: Arc<Mutex<TimingCollector>>,
-    debug_path: PathBuf,
 }
 
 impl TimingLayer {
-    pub fn new(collector: Arc<Mutex<TimingCollector>>, debug_path: PathBuf) -> Self {
-        Self { collector, debug_path }
-    }
-
-    pub fn finalize(&self) -> Result<()> {
-        let mut collector = self.collector.lock().unwrap_or_else(|p| p.into_inner());
-        collector.write_report(&self.debug_path)
+    pub(super) fn new(collector: Arc<Mutex<TimingCollector>>) -> Self {
+        Self { collector }
     }
 }
 
@@ -260,36 +254,11 @@ fn truncate(value: &str, max_len: usize) -> String {
     value.chars().take(max_len).collect()
 }
 
-fn local_now() -> time::OffsetDateTime {
-    let now = time::OffsetDateTime::now_utc();
-    match UtcOffset::current_local_offset() {
-        Ok(offset) => now.to_offset(offset),
-        Err(_) => now,
-    }
-}
-
 fn format_timestamp(ts: time::OffsetDateTime) -> String {
     ts.format(format_description!(
         "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3] [offset_hour sign:mandatory]:[offset_minute]"
     ))
     .unwrap_or_else(|_| DEFAULT_TIMESTAMP.to_owned())
-}
-
-fn create_output_file(path: &Path, create_new: bool, truncate: bool) -> std::io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true);
-    if create_new {
-        options.create_new(true);
-    }
-    if truncate {
-        options.truncate(true);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)
 }
 
 #[cfg(test)]

@@ -39,8 +39,7 @@ impl<'a> Cursor<'a> {
         self.bytes.get(self.idx + offset).copied()
     }
 
-    /// Advance one position, mutating state. Returns true if a top-level `;`
-    /// was just consumed.
+    /// Returns true if a top-level `;` was just consumed.
     fn step(&mut self) -> bool {
         let Some(byte) = self.peek(0) else {
             return false;
@@ -196,6 +195,16 @@ mod tests {
     #[test]
     fn incomplete_inside_parens() {
         assert!(!is_statement_complete("SELECT (1; 2)"));
+    }
+
+    #[test]
+    fn complete_after_double_quoted_identifier() {
+        assert!(is_statement_complete(r#"SELECT "col;name" FROM t;"#));
+    }
+
+    #[test]
+    fn incomplete_inside_double_quoted_identifier() {
+        assert!(!is_statement_complete(r#"SELECT "col;name"#));
     }
 
     #[test]

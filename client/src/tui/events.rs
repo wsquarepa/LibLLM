@@ -12,7 +12,8 @@ use libllm::client::StreamToken;
 use super::types::*;
 use super::{clipboard, commands, dialogs, input, render};
 use super::dialog_handler::{
-    cancel_generation, configure_textarea, handle_field_dialog_key, DialogKind,
+    cancel_generation, configure_textarea, handle_field_dialog_key, live_apply_theme_dialog,
+    DialogKind,
 };
 
 pub(super) fn handle_event(
@@ -539,9 +540,10 @@ fn handle_base_theme_picker_key(key: KeyEvent, app: &mut App) -> Option<Action> 
                 .cloned()
                 .unwrap_or_default();
             if let Some(ref mut dialog) = app.theme_dialog {
-                dialog.sections_mut()[0].values[0] = chosen;
+                dialog.set_value(0, 0, chosen);
             }
             app.focus = Focus::ThemeDialog;
+            live_apply_theme_dialog(app);
         }
         KeyCode::Esc => {
             app.focus = Focus::ThemeDialog;

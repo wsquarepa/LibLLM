@@ -923,6 +923,26 @@ mod tests {
     }
 
     #[test]
+    fn set_value_flips_value_changed_flag() {
+        let sections = vec![make_section("A", &["base_theme"])];
+        let mut d = TabbedFieldDialog::new(" test ", sections);
+        assert!(!d.take_value_changed());
+        d.set_value(0, 0, "dark".to_owned());
+        assert!(d.take_value_changed());
+        assert_eq!(d.sections()[0].values[0], "dark");
+    }
+
+    #[test]
+    fn set_value_no_change_does_not_flip_flag() {
+        let mut section = make_section("A", &["base_theme"]);
+        section.values[0] = "dark".to_owned();
+        let mut d = TabbedFieldDialog::new(" test ", vec![section]);
+        assert!(!d.take_value_changed());
+        d.set_value(0, 0, "dark".to_owned());
+        assert!(!d.take_value_changed());
+    }
+
+    #[test]
     fn esc_at_top_level_closes() {
         let sections = vec![make_section("A", &["x"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);

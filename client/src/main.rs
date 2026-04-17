@@ -3,7 +3,7 @@ use libllm::client::ApiClient;
 use libllm::config;
 use libllm::crypto;
 use libllm::db::Database;
-use libllm::debug_log;
+use libllm::diagnostics;
 use libllm::migration;
 use libllm::preset;
 use libllm::sampling;
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.cleanup {
-        let summary = debug_log::cleanup_temp_logs()?;
+        let summary = diagnostics::cleanup_temp_logs()?;
         println!(
             "Removed {} temporary debug log(s); {} removal(s) failed.",
             summary.removed, summary.failed
@@ -82,23 +82,31 @@ async fn main() -> Result<()> {
         }
     }
 
-    let diagnostics_needed =
-        args.debug.is_some() || args.timings.is_some() || config::load().debug_log;
-    let _diagnostics = if diagnostics_needed {
-        Some(debug_log::init(
-            args.debug.as_deref(),
-            args.timings.as_deref(),
-            infer_run_mode(&args),
-            &build_run_fields(&args),
-        )?)
-    } else {
-        None
+    let cli_args_joined = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
+    let build = diagnostics::BuildInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        profile: if cfg!(debug_assertions) { "debug" } else { "release" },
+        channel: env!("LIBLLM_CHANNEL"),
+        branch: env!("LIBLLM_GIT_BRANCH"),
+        commit: env!("LIBLLM_COMMIT"),
+        dirty: !env!("LIBLLM_GIT_DIRTY").is_empty(),
     };
+    let filter_env = std::env::var("LIBLLM_LOG").ok();
+    let _diagnostics = diagnostics::init(diagnostics::InitParams {
+        debug_override: args.debug.as_deref(),
+        timings_path: args.timings.as_deref(),
+        run_mode: infer_run_mode(&args),
+        cli_args: cli_args_joined,
+        build,
+        filter_flag: args.log_filter.as_deref(),
+        filter_env: filter_env.as_deref(),
+    })?;
 
-    debug_log::timed_result(
+    libllm::timed_result!(
+        tracing::Level::INFO,
         "startup.phase",
-        &[debug_log::field("phase", "ensure_dirs")],
-        config::ensure_dirs,
+        phase = "ensure_dirs" ;
+        { config::ensure_dirs() }
     )?;
 
     if let Some(cli::Command::Update { branch, yes }) = &args.command {
@@ -133,11 +141,10 @@ async fn main() -> Result<()> {
         return edit::handle_edit_command(kind, name, &db);
     }
 
-    let cfg = debug_log::timed_kv(
-        "startup.phase",
-        &[debug_log::field("phase", "config_load")],
-        config::load,
-    );
+    let cfg = {
+        let _span = tracing::info_span!("startup.phase", phase = "config_load").entered();
+        config::load()
+    };
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
     let tls_skip_verify = if args.tls_skip_verify {
@@ -169,10 +176,11 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode, mut db) = debug_log::timed_result(
+    let (mut session, mut save_mode, mut db) = libllm::timed_result!(
+        tracing::Level::INFO,
         "startup.phase",
-        &[debug_log::field("phase", "resolve_session")],
-        || resolve_session(&args),
+        phase = "resolve_session" ;
+        { resolve_session(&args) }
     )?;
 
     session.template = Some(instruct_preset.name.clone());
@@ -196,13 +204,12 @@ async fn main() -> Result<()> {
         }
 
         if let Some(ref char_arg) = args.character {
-            let card = debug_log::timed_result(
+            let card = libllm::timed_result!(
+                tracing::Level::INFO,
                 "startup.phase",
-                &[
-                    debug_log::field("phase", "resolve_character"),
-                    debug_log::field("character", char_arg),
-                ],
-                || resolve_character(char_arg, db.as_ref()),
+                phase = "resolve_character",
+                character = char_arg.as_str() ;
+                { resolve_character(char_arg, db.as_ref()) }
             )?;
             session.system_prompt = Some(character::build_system_prompt(
                 &card,
@@ -262,13 +269,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    debug_log::log_kv(
-        "startup.phase",
-        &[
-            debug_log::field("phase", "tui_handoff"),
-            debug_log::field("mode", "interactive"),
-        ],
-    );
+    tracing::info!(phase = "tui_handoff", mode = "interactive", "startup.phase");
     let cli_overrides = args.cli_overrides();
     let resolved_passkey = tui::run(
         client,
@@ -303,41 +304,6 @@ fn infer_run_mode(args: &Args) -> &'static str {
     } else {
         "tui"
     }
-}
-
-fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
-    let mut fields = vec![
-        debug_log::field("has_message", args.message.is_some()),
-        debug_log::field("message_from_stdin", args.message.as_deref() == Some("-")),
-        debug_log::field("has_data_dir", args.data.is_some()),
-        debug_log::field("has_continue", args.continue_session.is_some()),
-        debug_log::field("no_encrypt", args.no_encrypt),
-        debug_log::field("has_passkey_arg", args.passkey.is_some()),
-        debug_log::field("has_system_prompt_arg", args.system_prompt.is_some()),
-        debug_log::field("has_character_arg", args.character.is_some()),
-        debug_log::field("has_persona_arg", args.persona.is_some()),
-        debug_log::field("has_api_url_arg", args.api_url.is_some()),
-        debug_log::field("has_template_arg", args.template.is_some()),
-        debug_log::field("timings_enabled", args.timings.is_some()),
-        debug_log::field("tls_skip_verify", args.tls_skip_verify),
-    ];
-
-    if let Some(command) = &args.command {
-        let command_name = match command {
-            cli::Command::Edit { .. } => "edit",
-            cli::Command::Import { .. } => "import",
-            cli::Command::Recover { .. } => "recover",
-            cli::Command::Update { .. } => "update",
-            cli::Command::Db { .. } => "db",
-        };
-        fields.push(debug_log::field("command", command_name));
-        if let cli::Command::Edit { kind, name } = command {
-            fields.push(debug_log::field("edit_kind", kind));
-            fields.push(debug_log::field("edit_name", name));
-        }
-    }
-
-    fields
 }
 
 fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Database>)> {

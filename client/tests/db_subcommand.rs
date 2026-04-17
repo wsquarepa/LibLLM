@@ -309,6 +309,106 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
 }
 
 #[test]
+fn sql_read_only_rejects_update() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "UPDATE personas SET name = 'X' WHERE slug = 'alice';",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(!output.status.success(), "expected failure exit code");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("readonly") || stderr.contains("read-only"),
+        "expected readonly error, got: {stderr}"
+    );
+}
+
+#[test]
+fn sql_write_allows_update() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    let db_path = data_dir.join("data.db");
+    seed_plain_db(&db_path);
+
+    let status = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "--write",
+            "UPDATE personas SET name = 'AliceX' WHERE slug = 'alice';",
+        ])
+        .status()
+        .expect("spawn client");
+    assert!(status.success(), "exit status: {status:?}");
+
+    let db = Database::open(&db_path, None).expect("open db");
+    let loaded = db.load_persona("alice").expect("load alice");
+    assert_eq!(loaded.name, "AliceX");
+}
+
+#[test]
+fn sql_rejects_multi_statement() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "SELECT 1; SELECT 2;",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("single statement"),
+        "expected single-statement error, got: {stderr}"
+    );
+}
+
+#[test]
+fn sql_emits_csv_format() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "--format",
+            "csv",
+            "SELECT slug, name FROM personas ORDER BY slug;",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "slug,name\nalice,Alice\n");
+}
+
+#[test]
 fn dump_round_trip_encrypted() {
     let dir = common::temp_dir();
     let data_dir = dir.path();

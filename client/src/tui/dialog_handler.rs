@@ -63,6 +63,7 @@ pub(super) fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
 
 pub(super) enum DialogKind {
     Config,
+    Theme,
     PresetEditor,
     PersonaEditor,
     CharacterEditor,
@@ -75,8 +76,135 @@ pub(super) fn handle_field_dialog_key(
     app: &mut App,
     kind: DialogKind,
 ) -> Option<Action> {
+    if matches!(kind, DialogKind::Config) {
+        let Some(dialog) = app.config_dialog.as_mut() else {
+            return None;
+        };
+        let action = dialog.handle_key(key);
+        if let Some(msg) = dialog.clipboard_warning.take() {
+            app.set_status(msg, StatusLevel::Warning);
+        }
+        match action {
+            dialogs::TabbedFieldAction::Continue => {}
+            dialogs::TabbedFieldAction::Close => {
+                let (has_changes, sections) = {
+                    let dialog = app.config_dialog.as_ref().unwrap();
+                    let has_changes = dialog.has_changes();
+                    let sections: Vec<Vec<String>> = dialog
+                        .sections()
+                        .iter()
+                        .map(|s| s.values.clone())
+                        .collect();
+                    (has_changes, sections)
+                };
+                if !has_changes {
+                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                    app.config_dialog = None;
+                } else {
+                    let existing = libllm::config::load();
+                    if let Err(e) = business::apply_tabbed_config_fields(
+                        &sections,
+                        existing,
+                        &app.cli_overrides,
+                    ) {
+                        app.set_status(
+                            format!("Failed to save config: {e}"),
+                            StatusLevel::Error,
+                        );
+                    } else {
+                        business::apply_config(app);
+                        app.set_status("Config saved.".to_owned(), StatusLevel::Info);
+                    }
+                    app.config_dialog = None;
+                }
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 1 } => {
+                crate::tui::dialogs::preset::open_preset_picker(
+                    app,
+                    crate::tui::dialogs::preset::PresetKind::Template,
+                );
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 2 } => {
+                crate::tui::dialogs::preset::open_preset_picker(
+                    app,
+                    crate::tui::dialogs::preset::PresetKind::Instruct,
+                );
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 3 } => {
+                crate::tui::dialogs::preset::open_preset_picker(
+                    app,
+                    crate::tui::dialogs::preset::PresetKind::Reasoning,
+                );
+            }
+            dialogs::TabbedFieldAction::OpenSelector { .. } => {}
+            dialogs::TabbedFieldAction::InvokeAction { .. } => {}
+        }
+        return None;
+    }
+
+    if matches!(kind, DialogKind::Theme) {
+        let Some(dialog) = app.theme_dialog.as_mut() else {
+            return None;
+        };
+        let action = dialog.handle_key(key);
+        let value_changed = dialog.take_value_changed();
+        if value_changed {
+            live_apply_theme_dialog(app);
+        }
+        match action {
+            dialogs::TabbedFieldAction::Continue => {}
+            dialogs::TabbedFieldAction::Close => {
+                let sections: Vec<Vec<String>> = app
+                    .theme_dialog
+                    .as_ref()
+                    .unwrap()
+                    .sections()
+                    .iter()
+                    .map(|s| s.values.clone())
+                    .collect();
+                let existing = libllm::config::load();
+                if let Err(e) = business::apply_theme_color_sections(&sections, existing) {
+                    app.set_status(
+                        format!("Failed to save theme: {e}"),
+                        StatusLevel::Error,
+                    );
+                } else {
+                    app.config = libllm::config::load();
+                    app.theme = crate::tui::theme::resolve_theme(&app.config);
+                    app.invalidate_chat_cache();
+                }
+                app.theme_dialog = None;
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 0 } => {
+                open_base_theme_picker(app);
+            }
+            dialogs::TabbedFieldAction::OpenSelector { .. } => {}
+            dialogs::TabbedFieldAction::InvokeAction { section: 0, field: 2 } => {
+                app.delete_confirm_filename = "all color overrides".to_owned();
+                app.delete_confirm_selected = 1;
+                app.delete_context = DeleteContext::ThemeResetColors;
+                app.focus = Focus::DeleteConfirmDialog;
+            }
+            dialogs::TabbedFieldAction::InvokeAction { section: 0, field: 3 } => {
+                if let Some(dialog) = app.theme_dialog.as_mut() {
+                    for section in dialog.sections_mut() {
+                        section.values = section.original_values.clone();
+                    }
+                }
+                app.config = libllm::config::load();
+                app.theme = crate::tui::theme::resolve_theme(&app.config);
+                app.invalidate_chat_cache();
+                app.theme_dialog = None;
+                app.focus = Focus::Input;
+            }
+            dialogs::TabbedFieldAction::InvokeAction { .. } => {}
+        }
+        return None;
+    }
+
     let dialog = match kind {
-        DialogKind::Config => app.config_dialog.as_mut(),
+        DialogKind::Config => unreachable!(),
+        DialogKind::Theme => unreachable!(),
         DialogKind::PresetEditor => app.preset_editor.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
@@ -106,54 +234,11 @@ pub(super) fn handle_field_dialog_key(
 
     match result {
         dialogs::FieldDialogAction::Continue => None,
-        dialogs::FieldDialogAction::OpenSelector(field_index) => {
-            if matches!(kind, DialogKind::Config) {
-                match field_index {
-                    2 => dialogs::preset::open_preset_picker(
-                        app,
-                        dialogs::preset::PresetKind::Template,
-                    ),
-                    3 => dialogs::preset::open_preset_picker(
-                        app,
-                        dialogs::preset::PresetKind::Instruct,
-                    ),
-                    4 => dialogs::preset::open_preset_picker(
-                        app,
-                        dialogs::preset::PresetKind::Reasoning,
-                    ),
-                    _ => {}
-                }
-            }
-            None
-        }
+        dialogs::FieldDialogAction::OpenSelector(_field_index) => None,
         dialogs::FieldDialogAction::Close => {
             match kind {
-                DialogKind::Config => {
-                    let dialog = app.config_dialog.as_ref().unwrap();
-                    if !dialog.has_changes() {
-                        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                        app.config_dialog = None;
-                    } else {
-                        let values = &dialog.values;
-                        let locked = business::config_locked_fields(&app.cli_overrides);
-                        match business::save_config_from_fields(values, &locked) {
-                            Ok(()) => {
-                                business::apply_config(app);
-                                app.set_status(
-                                    "Configuration saved.".to_owned(),
-                                    StatusLevel::Info,
-                                );
-                            }
-                            Err(e) => {
-                                app.set_status(
-                                    format!("Failed to save config: {e}"),
-                                    StatusLevel::Error,
-                                );
-                            }
-                        }
-                        app.config_dialog = None;
-                    }
-                }
+                DialogKind::Config => unreachable!(),
+                DialogKind::Theme => unreachable!(),
                 DialogKind::PresetEditor => {
                     if !app.preset_editor.as_ref().unwrap().has_changes() {
                         app.set_status("No changes found.".to_owned(), StatusLevel::Info);
@@ -194,7 +279,7 @@ pub(super) fn handle_field_dialog_key(
                     }
                     app.preset_editor = None;
                     app.focus = Focus::PresetPickerDialog;
-                    return None;
+                    None
                 }
                 DialogKind::PersonaEditor => {
                     let is_cli_locked = app.cli_overrides.persona.is_some();
@@ -268,7 +353,7 @@ pub(super) fn handle_field_dialog_key(
                         maintenance::reload_persona_picker(app);
                         app.focus = Focus::PersonaDialog;
                     }
-                    return None;
+                    None
                 }
                 DialogKind::SystemPromptEditor => {
                     if app.system_editor_read_only {
@@ -355,7 +440,7 @@ pub(super) fn handle_field_dialog_key(
 
                     app.system_prompt_editor = None;
                     app.focus = app.system_editor_return_focus;
-                    return None;
+                    None
                 }
                 DialogKind::CharacterEditor => {
                     if !app.character_editor.as_ref().unwrap().has_changes() {
@@ -448,7 +533,7 @@ pub(super) fn handle_field_dialog_key(
                     }
                     app.character_editor = None;
                     app.focus = Focus::CharacterDialog;
-                    return None;
+                    None
                 }
                 DialogKind::WorldbookEntryEditor => {
                     if !app.worldbook_entry_editor.as_ref().unwrap().has_changes() {
@@ -466,11 +551,46 @@ pub(super) fn handle_field_dialog_key(
                     }
                     app.worldbook_entry_editor = None;
                     app.focus = Focus::WorldbookEditorDialog;
-                    return None;
+                    None
                 }
             }
-            app.focus = Focus::Input;
-            None
         }
     }
+}
+
+pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {
+    let Some(dialog) = app.theme_dialog.as_ref() else {
+        return;
+    };
+    let sections: Vec<Vec<String>> = dialog
+        .sections()
+        .iter()
+        .map(|s| s.values.clone())
+        .collect();
+    let base_theme = sections[0][0].clone();
+    let mut preview = app.config.clone();
+    preview.theme = Some(base_theme);
+    let overrides = business::build_theme_color_overrides(&sections);
+    preview.theme_colors = Some(overrides);
+    let new_theme = crate::tui::theme::resolve_theme(&preview);
+    if new_theme != app.theme {
+        app.theme = new_theme;
+        app.invalidate_chat_cache();
+    }
+}
+
+pub(super) fn open_base_theme_picker(app: &mut App) {
+    let names: Vec<String> = crate::tui::theme::Theme::available_themes()
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    let current = app
+        .theme_dialog
+        .as_ref()
+        .map(|d| d.sections()[0].values[0].clone())
+        .unwrap_or_default();
+    let selected = names.iter().position(|n| *n == current).unwrap_or(0);
+    app.base_theme_picker_names = names;
+    app.base_theme_picker_selected = selected;
+    app.focus = Focus::BaseThemePickerDialog;
 }

@@ -15,16 +15,18 @@ pub mod worldbook;
 mod builders;
 mod crypto;
 mod mouse;
+mod tabbed_field;
 mod validation;
 
 pub use builders::{
     open_character_editor, open_config_editor, open_entry_editor, open_entry_editor_non_selective,
     open_instruct_editor, open_persona_editor, open_reasoning_editor, open_system_prompt_editor,
-    open_template_editor,
+    open_template_editor, open_theme_editor,
 };
+pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub(in crate::tui) use builders::{
     DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
-    LIST_DIALOG_WIDTH,
+    LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;
@@ -93,6 +95,50 @@ pub(in crate::tui) fn is_flash_active(flash: Option<std::time::Instant>) -> bool
 
 const MULTILINE_WIDTH_PERCENT: u16 = 70;
 const MULTILINE_HEIGHT_PERCENT: u16 = 60;
+
+pub(in crate::tui) fn byte_pos_at_char(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
+}
+
+pub(in crate::tui) fn render_multiline_editor(
+    f: &mut ratatui::Frame,
+    dialog: ratatui::layout::Rect,
+    area: ratatui::layout::Rect,
+    editor: &tui_textarea::TextArea<'_>,
+    label: &str,
+    title: &'static str,
+) {
+    let inner = ratatui::layout::Rect {
+        x: dialog.x + 1,
+        y: dialog.y + 1,
+        width: dialog.width.saturating_sub(2),
+        height: dialog.height.saturating_sub(2),
+    };
+    let title_line = ratatui::text::Line::from(ratatui::text::Span::styled(
+        format!("  Editing: {label}"),
+        ratatui::style::Style::default()
+            .fg(ratatui::style::Color::Yellow)
+            .add_modifier(ratatui::style::Modifier::BOLD),
+    ));
+    let header = ratatui::widgets::Paragraph::new(ratatui::text::Text::from(vec![
+        ratatui::text::Line::from(""),
+        title_line,
+    ]));
+    let header_area = ratatui::layout::Rect { height: 2, ..inner };
+    f.render_widget(header, header_area);
+    let editor_area = ratatui::layout::Rect {
+        x: inner.x + 1,
+        y: inner.y + 2,
+        width: inner.width.saturating_sub(2),
+        height: inner.height.saturating_sub(3),
+    };
+    f.render_widget(editor, editor_area);
+    f.render_widget(crate::tui::render::dialog_block(title, ratatui::style::Color::Yellow), dialog);
+    crate::tui::render::render_hints_below_dialog(f, dialog, area, &[ratatui::text::Line::from("Esc: done editing")]);
+}
 
 const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
 const FIELD_DIALOG_EDITOR_EXTRA: u16 = 8;
@@ -187,16 +233,6 @@ impl<'a> FieldDialog<'a> {
 
     fn with_validated_fields(mut self, fields: Vec<(usize, FieldValidation)>) -> Self {
         self.validated_fields = fields;
-        self
-    }
-
-    fn with_separator_fields(mut self, fields: &'static [usize]) -> Self {
-        self.separator_fields = fields;
-        self
-    }
-
-    fn with_selector_fields(mut self, fields: &'static [usize]) -> Self {
-        self.selector_fields = fields;
         self
     }
 
@@ -404,36 +440,7 @@ impl<'a> FieldDialog<'a> {
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let editor = self.editor.as_ref().unwrap();
         let label = self.labels[self.selected];
-
-        let inner = Rect {
-            x: dialog.x + 1,
-            y: dialog.y + 1,
-            width: dialog.width.saturating_sub(2),
-            height: dialog.height.saturating_sub(2),
-        };
-
-        let title_line = Line::from(Span::styled(
-            format!("  Editing: {label}"),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ));
-
-        let header = Paragraph::new(Text::from(vec![Line::from(""), title_line]));
-        let header_area = Rect { height: 2, ..inner };
-        f.render_widget(header, header_area);
-
-        let editor_area = Rect {
-            x: inner.x + 1,
-            y: inner.y + 2,
-            width: inner.width.saturating_sub(2),
-            height: inner.height.saturating_sub(3),
-        };
-        f.render_widget(editor, editor_area);
-
-        f.render_widget(dialog_block(self.title, Color::Yellow), dialog);
-
-        render_hints_below_dialog(f, dialog, area, &[Line::from("Esc: done editing")]);
+        render_multiline_editor(f, dialog, area, editor, label, self.title);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FieldDialogAction {
@@ -467,11 +474,7 @@ impl<'a> FieldDialog<'a> {
                         .map(|v| v.accepts_char(&self.values[self.selected], c))
                         .unwrap_or(true);
                     if accept {
-                        let byte_pos = self.values[self.selected]
-                            .char_indices()
-                            .nth(self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.values[self.selected].len());
+                        let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
                         self.values[self.selected].insert(byte_pos, c);
                         self.cursor_pos += 1;
                     } else {
@@ -481,22 +484,14 @@ impl<'a> FieldDialog<'a> {
                 KeyCode::Backspace => {
                     if self.cursor_pos > 0 {
                         self.cursor_pos -= 1;
-                        let byte_pos = self.values[self.selected]
-                            .char_indices()
-                            .nth(self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.values[self.selected].len());
+                        let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
                         self.values[self.selected].remove(byte_pos);
                     }
                 }
                 KeyCode::Delete => {
                     let char_count = self.values[self.selected].chars().count();
                     if self.cursor_pos < char_count {
-                        let byte_pos = self.values[self.selected]
-                            .char_indices()
-                            .nth(self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.values[self.selected].len());
+                        let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
                         self.values[self.selected].remove(byte_pos);
                     }
                 }

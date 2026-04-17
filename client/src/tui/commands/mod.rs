@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use libllm::client::StreamToken;
 use libllm::session::{self, Message, Role, SaveMode};
 
-use super::business::{self, load_config_fields, refresh_sidebar};
+use super::business::{self, refresh_sidebar};
 use super::{App, Focus, StatusLevel, dialogs};
 
 pub(super) fn handle_slash_command(
@@ -219,11 +219,10 @@ fn cmd_system(app: &mut App) {
 }
 
 fn cmd_config(app: &mut App) {
-    let locked = business::config_locked_fields(&app.cli_overrides);
-    app.config_dialog = Some(dialogs::open_config_editor(
-        load_config_fields(&libllm::config::load(), &app.cli_overrides),
-        locked,
-    ));
+    let cfg = libllm::config::load();
+    let sections = business::load_tabbed_config_sections(&cfg, &app.cli_overrides);
+    let locked = business::config_locked_fields_by_section(&app.cli_overrides);
+    app.config_dialog = Some(dialogs::open_config_editor(sections, locked));
     app.focus = Focus::ConfigDialog;
 }
 
@@ -354,12 +353,9 @@ fn cmd_passkey(app: &mut App) {
 fn cmd_theme(app: &mut App, arg: &str) {
     let arg = arg.trim();
     if arg.is_empty() {
-        let current = app.config.theme.as_deref().unwrap_or("dark");
-        let available = super::theme::Theme::available_themes().join(", ");
-        app.set_status(
-            format!("Current theme: {current}. Available: {available}"),
-            StatusLevel::Info,
-        );
+        let cfg = libllm::config::load();
+        app.theme_dialog = Some(dialogs::open_theme_editor(&cfg));
+        app.focus = Focus::ThemeDialog;
         return;
     }
 

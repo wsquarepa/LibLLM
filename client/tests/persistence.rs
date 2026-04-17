@@ -1,5 +1,4 @@
-// Each test binary only uses a subset of shared helpers; allow unused ones.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
 mod common;
 
 use libllm::crypto;

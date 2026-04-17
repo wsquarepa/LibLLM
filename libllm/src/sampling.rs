@@ -29,7 +29,7 @@ impl Default for SamplingParams {
 }
 
 /// Optional per-field overrides from CLI flags or config, merged onto `SamplingParams` defaults.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SamplingOverrides {
     pub temperature: Option<f64>,
     pub top_k: Option<i64>,

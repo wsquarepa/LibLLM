@@ -408,11 +408,6 @@ pub fn log_kv(category: &str, fields: &[Field<'_>]) {
     }
 }
 
-#[allow(dead_code)]
-pub fn timed<T>(category: &str, label: &str, f: impl FnOnce() -> T) -> T {
-    timed_kv(category, &[Field::new("label", label)], f)
-}
-
 /// Executes `f`, measures its wall-clock duration, and records a timing sample with the given fields.
 pub fn timed_kv<T>(category: &str, fields: &[Field<'_>], f: impl FnOnce() -> T) -> T {
     let start = Instant::now();

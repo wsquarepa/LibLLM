@@ -151,6 +151,12 @@ fn handle_key(
     if app.focus == Focus::ConfigDialog {
         return handle_field_dialog_key(key, app, DialogKind::Config);
     }
+    if app.focus == Focus::ThemeDialog {
+        return handle_field_dialog_key(key, app, DialogKind::Theme);
+    }
+    if app.focus == Focus::BaseThemePickerDialog {
+        return handle_base_theme_picker_key(key, app);
+    }
     if app.focus == Focus::PersonaDialog {
         return dialogs::persona::handle_persona_dialog_key(key, app);
     }
@@ -475,4 +481,36 @@ pub(super) fn move_textarea_cursor_to_mouse(
 
 pub(super) fn is_dialog_focus(focus: Focus) -> bool {
     !matches!(focus, Focus::Input | Focus::Chat | Focus::Sidebar)
+}
+
+fn handle_base_theme_picker_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    match key.code {
+        KeyCode::Up => {
+            if app.base_theme_picker_selected > 0 {
+                app.base_theme_picker_selected -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let count = app.base_theme_picker_names.len();
+            if count > 0 && app.base_theme_picker_selected + 1 < count {
+                app.base_theme_picker_selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            let chosen = app
+                .base_theme_picker_names
+                .get(app.base_theme_picker_selected)
+                .cloned()
+                .unwrap_or_default();
+            if let Some(ref mut dialog) = app.theme_dialog {
+                dialog.sections_mut()[0].values[0] = chosen;
+            }
+            app.focus = Focus::ThemeDialog;
+        }
+        KeyCode::Esc => {
+            app.focus = Focus::ThemeDialog;
+        }
+        _ => {}
+    }
+    None
 }

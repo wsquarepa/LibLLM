@@ -133,6 +133,25 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 }
             }
         }
+        crate::tui::Focus::ThemeDialog => {
+            if let Some(ref mut d) = app.theme_dialog {
+                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+                    app.focus = crate::tui::Focus::Input;
+                }
+            }
+        }
+        crate::tui::Focus::BaseThemePickerDialog => {
+            match hit_test_list_dialog(
+                terminal_area,
+                app.base_theme_picker_names.len(),
+                mouse.column,
+                mouse.row,
+            ) {
+                ListDialogHit::Item(i) => app.base_theme_picker_selected = i,
+                ListDialogHit::Outside => app.focus = crate::tui::Focus::ThemeDialog,
+                ListDialogHit::Inside => {}
+            }
+        }
         crate::tui::Focus::PresetEditorDialog => {
             if let Some(ref mut d) = app.preset_editor {
                 if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {

@@ -1,5 +1,4 @@
-// Each test binary only uses a subset of shared helpers; allow unused ones.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
 mod common;
 
 use client::validation;
@@ -22,12 +21,9 @@ fn config_default_values() {
     let cfg = Config::default();
     assert!(cfg.api_url.is_none());
     assert_eq!(cfg.api_url(), "http://localhost:5001/v1");
-    assert!(cfg.template.is_none());
     assert!(cfg.template_preset.is_none());
     assert!(cfg.instruct_preset.is_none());
     assert!(cfg.reasoning_preset.is_none());
-    assert!(cfg.user_name.is_none());
-    assert!(cfg.user_persona.is_none());
     assert!(cfg.sampling.temperature.is_none());
     assert!(cfg.sampling.top_k.is_none());
     assert!(cfg.sampling.top_p.is_none());
@@ -80,39 +76,6 @@ fn config_save_load_roundtrip() {
     assert_eq!(loaded.default_persona.as_deref(), Some("tester"));
     assert_eq!(loaded.sampling.temperature, Some(0.7));
     assert_eq!(loaded.sampling.top_k, Some(40));
-}
-
-#[test]
-fn config_toml_skips_legacy_fields() {
-    let dir = setup_data_dir();
-    let root = dir.path();
-    let _key = common::test_key(root);
-
-    let mut cfg = Config::default();
-    cfg.template = Some("llama2".to_owned());
-    cfg.user_name = Some("Alice".to_owned());
-    cfg.user_persona = Some("A curious developer".to_owned());
-    cfg.api_url = Some("http://legacy-test.local/v1".to_owned());
-
-    config::save(&cfg).unwrap();
-
-    let raw_toml = common::read_file(&config::config_path());
-    assert!(
-        !raw_toml.contains("template"),
-        "template should be skip_serializing but found in TOML: {raw_toml}"
-    );
-    assert!(
-        !raw_toml.contains("user_name"),
-        "user_name should be skip_serializing but found in TOML: {raw_toml}"
-    );
-    assert!(
-        !raw_toml.contains("user_persona"),
-        "user_persona should be skip_serializing but found in TOML: {raw_toml}"
-    );
-    assert!(
-        raw_toml.contains("api_url"),
-        "api_url should be present in TOML: {raw_toml}"
-    );
 }
 
 #[test]
@@ -294,4 +257,66 @@ fn is_libllm_data_dir_detects_config_toml() {
     let dir = common::temp_dir();
     std::fs::write(dir.path().join("config.toml"), "").unwrap();
     assert!(validation::is_libllm_data_dir(dir.path()));
+}
+
+#[test]
+fn theme_editor_covers_all_color_override_fields() {
+    let config = libllm::config::Config::default();
+    let dialog = client::tui::dialogs::open_theme_editor(&config);
+    assert_eq!(dialog.sections().len(), 5, "expected 5 theme tabs");
+    let color_field_count: usize = dialog
+        .sections()
+        .iter()
+        .skip(1)
+        .map(|s| s.labels.len())
+        .sum();
+    assert_eq!(color_field_count, 26, "tabs 2-5 must cover all 26 ThemeColorOverrides fields");
+}
+
+#[test]
+fn theme_overrides_apply_round_trip() {
+    let dir = common::temp_dir();
+    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm::config::ensure_dirs().unwrap();
+
+    let sections = vec![
+        vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["#ff0000".to_owned(), "".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["".to_owned(); 10],
+        vec!["".to_owned(); 8],
+        vec!["".to_owned(); 3],
+    ];
+
+    let cfg = libllm::config::Config::default();
+    client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
+
+    let saved = libllm::config::load();
+    let overrides = saved.theme_colors.expect("expected overrides to persist");
+    assert_eq!(overrides.user_message.as_deref(), Some("#ff0000"));
+    assert!(overrides.assistant_message_fg.is_none());
+}
+
+#[test]
+fn empty_theme_override_drops_to_none() {
+    let dir = common::temp_dir();
+    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm::config::ensure_dirs().unwrap();
+
+    let mut cfg = libllm::config::Config::default();
+    cfg.theme_colors = Some(libllm::config::ThemeColorOverrides {
+        user_message: Some("#ff0000".to_owned()),
+        ..Default::default()
+    });
+
+    let sections = vec![
+        vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["".to_owned(), "".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec!["".to_owned(); 10],
+        vec!["".to_owned(); 8],
+        vec!["".to_owned(); 3],
+    ];
+
+    client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
+    let saved = libllm::config::load();
+    assert!(saved.theme_colors.is_none());
 }

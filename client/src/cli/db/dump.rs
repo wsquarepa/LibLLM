@@ -29,11 +29,14 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
 
     let result = (|| -> Result<()> {
         let db = Database::open(&ctx.db_path, ctx.key.as_ref())?;
+        let tmp_str = tmp_path
+            .to_str()
+            .context("tmp path contains non-UTF-8 bytes; SQLCipher ATTACH requires a valid string path")?;
         let script = format!(
             "ATTACH DATABASE '{}' AS plain KEY '';\n\
              SELECT sqlcipher_export('plain');\n\
              DETACH DATABASE plain;",
-            tmp_path.display().to_string().replace('\'', "''")
+            tmp_str.replace('\'', "''")
         );
         db.execute_batch(&script)?;
         Ok(())

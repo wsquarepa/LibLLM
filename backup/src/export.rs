@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use libllm::crypto::DerivedKey;
+use zeroize::Zeroizing;
 
 /// Export a SQLite database (possibly encrypted with SQLCipher) to plaintext bytes.
 ///
@@ -16,7 +17,11 @@ pub fn export_plaintext_db(db_path: &Path, key: Option<&DerivedKey>) -> Result<V
     let src = rusqlite::Connection::open(db_path)?;
 
     if let Some(derived_key) = key {
-        src.execute_batch(&format!("PRAGMA key = \"x'{}'\";", derived_key.hex()))?;
+        let pragma = Zeroizing::new(format!(
+            "PRAGMA key = \"x'{}'\";",
+            &*derived_key.hex()
+        ));
+        src.execute_batch(&pragma)?;
         src.query_row("SELECT count(*) FROM sqlite_master;", [], |_| Ok(()))?;
     }
 
@@ -63,7 +68,7 @@ mod tests {
     fn create_encrypted_db(dir: &TempDir, key: &DerivedKey) -> std::path::PathBuf {
         let db_path = dir.path().join("encrypted.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key.hex())).unwrap();
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", &*key.hex())).unwrap();
         conn.execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);").unwrap();
         conn.execute_batch("INSERT INTO items (name) VALUES ('secret');").unwrap();
         db_path

@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use zeroize::Zeroizing;
 
 use crate::index::{BackupEntry, load_index};
 
@@ -123,14 +124,15 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
             let src = rusqlite::Connection::open(&temp_plain_path)
                 .context("failed to open plaintext temp db")?;
             let key_hex = db_key.hex();
-            src.execute_batch(&format!(
+            let attach_sql = Zeroizing::new(format!(
                 "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\
                  SELECT sqlcipher_export('encrypted');\
                  DETACH DATABASE encrypted;",
                 db_path.display().to_string().replace('\'', "''"),
-                key_hex,
-            ))
-            .context("failed to export plaintext database as encrypted")?;
+                &*key_hex,
+            ));
+            src.execute_batch(&attach_sql)
+                .context("failed to export plaintext database as encrypted")?;
         }
     }
 

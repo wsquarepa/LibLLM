@@ -25,7 +25,7 @@ fn setup_encrypted_db(dir: &Path, passkey: &str) -> std::path::PathBuf {
     let key = libllm::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = dir.join("data.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()))
         .unwrap();
     conn.execute_batch(
         "CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL);",
@@ -48,7 +48,7 @@ fn insert_note_encrypted(db_path: &Path, content: &str, passkey: &str) {
     let salt = libllm::crypto::load_or_create_salt(&salt_path).unwrap();
     let key = libllm::crypto::derive_key(passkey, &salt).unwrap();
     let conn = rusqlite::Connection::open(db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()))
         .unwrap();
     conn.execute("INSERT INTO notes (content) VALUES (?1)", [content])
         .unwrap();
@@ -65,7 +65,7 @@ fn count_notes_encrypted(db_path: &Path, passkey: &str) -> i64 {
     let salt = libllm::crypto::load_or_create_salt(&salt_path).unwrap();
     let key = libllm::crypto::derive_key(passkey, &salt).unwrap();
     let conn = rusqlite::Connection::open(db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()))
         .unwrap();
     conn.query_row("SELECT count(*) FROM notes", [], |row| row.get(0))
         .unwrap()
@@ -120,7 +120,7 @@ fn full_backup_restore_cycle_encrypted() {
 
     let db_path = dir.path().join("data.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", db_key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*db_key.hex()))
         .unwrap();
     conn.execute_batch(
         "CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL);",

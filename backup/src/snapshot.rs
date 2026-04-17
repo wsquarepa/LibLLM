@@ -88,8 +88,9 @@ fn unique_backup_id(
 ) -> (String, String, std::path::PathBuf) {
     let base_id = generate_backup_id();
     let base_filename = backup_filename(&base_id, backup_type);
-    if !backups_dir.join(&base_filename).exists() {
-        return (base_id, base_filename, backups_dir.join(base_filename));
+    let base_path = backups_dir.join(&base_filename);
+    if !base_path.exists() {
+        return (base_id, base_filename, base_path);
     }
 
     loop {

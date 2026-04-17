@@ -143,8 +143,24 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
         }
         BackgroundEvent::ServerContextSize(size) => {
-            tracing::info!(n_ctx = size, "api.context_size");
-            app.context_mgr.set_token_limit(size);
+            const MIN_SERVER_CONTEXT_SIZE: usize = 1024;
+            if size < MIN_SERVER_CONTEXT_SIZE {
+                tracing::warn!(
+                    n_ctx = size,
+                    min = MIN_SERVER_CONTEXT_SIZE,
+                    "api.context_size_ignored"
+                );
+            } else {
+                let local_limit = app.context_mgr.token_limit();
+                if size > local_limit {
+                    tracing::warn!(
+                        server_n_ctx = size,
+                        local_limit = local_limit,
+                        "api.context_size_clamped"
+                    );
+                }
+                app.context_mgr.set_token_limit(size.min(local_limit));
+            }
         }
     }
 }

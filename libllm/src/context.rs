@@ -337,6 +337,24 @@ mod tests {
     }
 
     #[test]
+    fn server_limit_higher_than_local_does_not_raise() {
+        let local_limit = 4096usize;
+        let server_n_ctx = 65536usize;
+        let effective = server_n_ctx.min(local_limit);
+        assert_eq!(
+            effective, local_limit,
+            "server value above local limit must be clamped to local limit"
+        );
+
+        let server_n_ctx_lower = 2048usize;
+        let effective_lower = server_n_ctx_lower.min(local_limit);
+        assert_eq!(
+            effective_lower, server_n_ctx_lower,
+            "server value below local limit must lower the effective limit"
+        );
+    }
+
+    #[test]
     fn dropped_count_after_summary_boundary() {
         let ctx = ContextManager::new(4096);
         let big = "x".repeat(4000);

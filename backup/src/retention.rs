@@ -203,8 +203,11 @@ mod tests {
         let config = default_config();
         let now = Utc::now();
 
-        // Two entries on the same calendar day, in the daily tier (between keep_all and keep_daily).
-        let day_15_ago = now - Duration::days(15);
+        let day_15_ago = (now - Duration::days(15))
+            .date_naive()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc();
         let day_15_ago_later = day_15_ago + Duration::hours(2);
 
         let mut index = BackupIndex::new();

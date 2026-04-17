@@ -45,6 +45,7 @@ pub struct TabbedFieldDialog<'a> {
     editing: bool,
     cursor_pos: usize,
     editor: Option<TextArea<'a>>,
+    value_changed: bool,
     pub reject_flash: Option<Instant>,
     pub clipboard_warning: Option<String>,
 }
@@ -58,9 +59,14 @@ impl<'a> TabbedFieldDialog<'a> {
             editing: false,
             cursor_pos: 0,
             editor: None,
+            value_changed: false,
             reject_flash: None,
             clipboard_warning: None,
         }
+    }
+
+    pub fn take_value_changed(&mut self) -> bool {
+        std::mem::replace(&mut self.value_changed, false)
     }
 
     pub fn current_tab(&self) -> usize {
@@ -76,7 +82,10 @@ impl<'a> TabbedFieldDialog<'a> {
     }
 
     pub fn set_value(&mut self, section: usize, field: usize, value: String) {
-        self.sections[section].values[field] = value;
+        if self.sections[section].values[field] != value {
+            self.sections[section].values[field] = value;
+            self.value_changed = true;
+        }
     }
 
     pub fn has_changes(&self) -> bool {
@@ -148,6 +157,7 @@ impl<'a> TabbedFieldDialog<'a> {
         } else {
             "true".to_owned()
         };
+        self.value_changed = true;
     }
 
     fn open_multiline_editor(&mut self) {
@@ -209,7 +219,10 @@ impl<'a> TabbedFieldDialog<'a> {
                     let content = editor.lines().join("\n");
                     let tab = self.current_tab;
                     let idx = self.sections[tab].selected;
-                    self.sections[tab].values[idx] = content;
+                    if self.sections[tab].values[idx] != content {
+                        self.sections[tab].values[idx] = content;
+                        self.value_changed = true;
+                    }
                     self.editor = None;
                 }
                 _ => {
@@ -249,6 +262,7 @@ impl<'a> TabbedFieldDialog<'a> {
                         let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                         self.sections[tab].values[idx].insert(byte_pos, c);
                         self.cursor_pos += 1;
+                        self.value_changed = true;
                     } else {
                         self.reject_flash = Some(Instant::now());
                     }
@@ -258,6 +272,7 @@ impl<'a> TabbedFieldDialog<'a> {
                         self.cursor_pos -= 1;
                         let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                         self.sections[tab].values[idx].remove(byte_pos);
+                        self.value_changed = true;
                     }
                 }
                 KeyCode::Delete => {
@@ -265,6 +280,7 @@ impl<'a> TabbedFieldDialog<'a> {
                     if self.cursor_pos < char_count {
                         let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                         self.sections[tab].values[idx].remove(byte_pos);
+                        self.value_changed = true;
                     }
                 }
                 KeyCode::Left => {
@@ -326,8 +342,12 @@ impl<'a> TabbedFieldDialog<'a> {
             KeyCode::Delete => {
                 let tab = self.current_tab;
                 let idx = self.sections[tab].selected;
-                if self.is_color_preview(tab, idx) && !self.is_locked(tab, idx) {
+                if self.is_color_preview(tab, idx)
+                    && !self.is_locked(tab, idx)
+                    && !self.sections[tab].values[idx].is_empty()
+                {
                     self.sections[tab].values[idx].clear();
+                    self.value_changed = true;
                 }
             }
             KeyCode::Esc => {

@@ -147,7 +147,10 @@ pub(super) fn handle_field_dialog_key(
             return None;
         };
         let action = dialog.handle_key(key);
-        live_apply_theme_dialog(app);
+        let value_changed = dialog.take_value_changed();
+        if value_changed {
+            live_apply_theme_dialog(app);
+        }
         match action {
             dialogs::TabbedFieldAction::Continue => {}
             dialogs::TabbedFieldAction::Close => {
@@ -555,7 +558,7 @@ pub(super) fn handle_field_dialog_key(
     }
 }
 
-fn live_apply_theme_dialog(app: &mut App) {
+pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {
     let Some(dialog) = app.theme_dialog.as_ref() else {
         return;
     };

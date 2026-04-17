@@ -136,6 +136,7 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                             }
                         }
                     }
+                    crate::tui::dialog_handler::live_apply_theme_dialog(app);
                     app.focus = Focus::ThemeDialog;
                 }
             }

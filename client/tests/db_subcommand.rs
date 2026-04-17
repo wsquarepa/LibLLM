@@ -1,7 +1,8 @@
 #[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
 mod common;
 
-use std::process::Command;
+use std::io::Write as _;
+use std::process::{Command, Stdio};
 
 use libllm::db::Database;
 use libllm::persona::PersonaFile;
@@ -449,4 +450,101 @@ fn dump_round_trip_encrypted() {
     let dumped = Database::open(&dump_path, None).expect("open dump as plain");
     let personas = dumped.list_personas().expect("list");
     assert_eq!(personas, vec![("bob".to_owned(), "Bob".to_owned())]);
+}
+
+#[test]
+fn shell_runs_scripted_select() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let mut child = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "shell",
+            "--private",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn shell");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        writeln!(stdin, ".mode pipe").unwrap();
+        writeln!(stdin, ".headers off").unwrap();
+        writeln!(stdin, "SELECT slug FROM personas;").unwrap();
+        writeln!(stdin, ".quit").unwrap();
+    }
+    let output = child.wait_with_output().expect("wait");
+    assert!(output.status.success(), "exit: {:?} stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("alice"), "stdout: {stdout}");
+}
+
+#[test]
+fn shell_history_respects_ignorespace() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let mut child = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "shell",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn shell");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        writeln!(stdin, "SELECT 1;").unwrap();
+        writeln!(stdin, " SELECT 2;").unwrap();
+        writeln!(stdin, ".quit").unwrap();
+    }
+    let _ = child.wait_with_output().expect("wait");
+
+    let history = std::fs::read_to_string(data_dir.join(".db_shell_history"))
+        .expect("history file should exist");
+    assert!(history.contains("SELECT 1;"));
+    assert!(!history.contains("SELECT 2;"), "leading-space line must be excluded");
+}
+
+#[test]
+fn shell_private_mode_writes_no_history() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let mut child = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "shell",
+            "--private",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn shell");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        writeln!(stdin, "SELECT 1;").unwrap();
+        writeln!(stdin, ".quit").unwrap();
+    }
+    let _ = child.wait_with_output().expect("wait");
+
+    let history_path = data_dir.join(".db_shell_history");
+    assert!(!history_path.exists(), "private mode must not write a history file");
 }

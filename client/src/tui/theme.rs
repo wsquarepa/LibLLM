@@ -2,7 +2,7 @@
 
 use ratatui::style::Color;
 
-use libllm::config::{Config, ThemeColorOverrides};
+use libllm::config::{ColorLabel, Config, ThemeColorOverrides};
 
 #[derive(PartialEq)]
 pub struct Theme {
@@ -106,41 +106,76 @@ impl Theme {
     }
 
     pub fn apply_overrides(&mut self, overrides: &ThemeColorOverrides) {
-        macro_rules! apply {
-            ($field:ident) => {
-                if let Some(ref s) = overrides.$field {
-                    if let Some(c) = parse_color(s) {
-                        self.$field = c;
-                    }
+        for label in ColorLabel::ALL {
+            if let Some(s) = overrides.get(label) {
+                if let Some(c) = parse_color(s) {
+                    self.set_color(label, c);
                 }
-            };
+            }
         }
-        apply!(user_message);
-        apply!(assistant_message_fg);
-        apply!(assistant_message_bg);
-        apply!(system_message);
-        apply!(border_focused);
-        apply!(border_unfocused);
-        apply!(status_bar_fg);
-        apply!(status_bar_bg);
-        apply!(status_error_fg);
-        apply!(status_error_bg);
-        apply!(status_info_fg);
-        apply!(status_info_bg);
-        apply!(status_warning_fg);
-        apply!(status_warning_bg);
-        apply!(dialogue);
-        apply!(nav_cursor_fg);
-        apply!(nav_cursor_bg);
-        apply!(hover_bg);
-        apply!(dimmed);
-        apply!(sidebar_highlight_fg);
-        apply!(sidebar_highlight_bg);
-        apply!(command_picker_fg);
-        apply!(command_picker_bg);
-        apply!(streaming_indicator);
-        apply!(api_unavailable);
-        apply!(summary_indicator);
+    }
+
+    pub fn color_at(&self, label: ColorLabel) -> Color {
+        match label {
+            ColorLabel::UserMessage => self.user_message,
+            ColorLabel::AssistantMessageFg => self.assistant_message_fg,
+            ColorLabel::AssistantMessageBg => self.assistant_message_bg,
+            ColorLabel::SystemMessage => self.system_message,
+            ColorLabel::Dialogue => self.dialogue,
+            ColorLabel::BorderFocused => self.border_focused,
+            ColorLabel::BorderUnfocused => self.border_unfocused,
+            ColorLabel::StatusBarFg => self.status_bar_fg,
+            ColorLabel::StatusBarBg => self.status_bar_bg,
+            ColorLabel::StatusErrorFg => self.status_error_fg,
+            ColorLabel::StatusErrorBg => self.status_error_bg,
+            ColorLabel::StatusInfoFg => self.status_info_fg,
+            ColorLabel::StatusInfoBg => self.status_info_bg,
+            ColorLabel::StatusWarningFg => self.status_warning_fg,
+            ColorLabel::StatusWarningBg => self.status_warning_bg,
+            ColorLabel::NavCursorFg => self.nav_cursor_fg,
+            ColorLabel::NavCursorBg => self.nav_cursor_bg,
+            ColorLabel::HoverBg => self.hover_bg,
+            ColorLabel::SidebarHighlightFg => self.sidebar_highlight_fg,
+            ColorLabel::SidebarHighlightBg => self.sidebar_highlight_bg,
+            ColorLabel::Dimmed => self.dimmed,
+            ColorLabel::CommandPickerFg => self.command_picker_fg,
+            ColorLabel::CommandPickerBg => self.command_picker_bg,
+            ColorLabel::StreamingIndicator => self.streaming_indicator,
+            ColorLabel::ApiUnavailable => self.api_unavailable,
+            ColorLabel::SummaryIndicator => self.summary_indicator,
+        }
+    }
+
+    fn set_color(&mut self, label: ColorLabel, color: Color) {
+        let slot = match label {
+            ColorLabel::UserMessage => &mut self.user_message,
+            ColorLabel::AssistantMessageFg => &mut self.assistant_message_fg,
+            ColorLabel::AssistantMessageBg => &mut self.assistant_message_bg,
+            ColorLabel::SystemMessage => &mut self.system_message,
+            ColorLabel::Dialogue => &mut self.dialogue,
+            ColorLabel::BorderFocused => &mut self.border_focused,
+            ColorLabel::BorderUnfocused => &mut self.border_unfocused,
+            ColorLabel::StatusBarFg => &mut self.status_bar_fg,
+            ColorLabel::StatusBarBg => &mut self.status_bar_bg,
+            ColorLabel::StatusErrorFg => &mut self.status_error_fg,
+            ColorLabel::StatusErrorBg => &mut self.status_error_bg,
+            ColorLabel::StatusInfoFg => &mut self.status_info_fg,
+            ColorLabel::StatusInfoBg => &mut self.status_info_bg,
+            ColorLabel::StatusWarningFg => &mut self.status_warning_fg,
+            ColorLabel::StatusWarningBg => &mut self.status_warning_bg,
+            ColorLabel::NavCursorFg => &mut self.nav_cursor_fg,
+            ColorLabel::NavCursorBg => &mut self.nav_cursor_bg,
+            ColorLabel::HoverBg => &mut self.hover_bg,
+            ColorLabel::SidebarHighlightFg => &mut self.sidebar_highlight_fg,
+            ColorLabel::SidebarHighlightBg => &mut self.sidebar_highlight_bg,
+            ColorLabel::Dimmed => &mut self.dimmed,
+            ColorLabel::CommandPickerFg => &mut self.command_picker_fg,
+            ColorLabel::CommandPickerBg => &mut self.command_picker_bg,
+            ColorLabel::StreamingIndicator => &mut self.streaming_indicator,
+            ColorLabel::ApiUnavailable => &mut self.api_unavailable,
+            ColorLabel::SummaryIndicator => &mut self.summary_indicator,
+        };
+        *slot = color;
     }
 
     pub fn available_themes() -> &'static [&'static str] {

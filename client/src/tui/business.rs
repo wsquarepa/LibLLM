@@ -508,34 +508,14 @@ pub(super) fn apply_config(app: &mut App) {
 }
 
 pub fn build_theme_color_overrides(sections: &[Vec<String>]) -> libllm::config::ThemeColorOverrides {
-    libllm::config::ThemeColorOverrides {
-        user_message: non_empty(&sections[1][0]),
-        assistant_message_fg: non_empty(&sections[1][1]),
-        assistant_message_bg: non_empty(&sections[1][2]),
-        system_message: non_empty(&sections[1][3]),
-        dialogue: non_empty(&sections[1][4]),
-        border_focused: non_empty(&sections[2][0]),
-        border_unfocused: non_empty(&sections[2][1]),
-        status_bar_fg: non_empty(&sections[2][2]),
-        status_bar_bg: non_empty(&sections[2][3]),
-        status_error_fg: non_empty(&sections[2][4]),
-        status_error_bg: non_empty(&sections[2][5]),
-        status_info_fg: non_empty(&sections[2][6]),
-        status_info_bg: non_empty(&sections[2][7]),
-        status_warning_fg: non_empty(&sections[2][8]),
-        status_warning_bg: non_empty(&sections[2][9]),
-        nav_cursor_fg: non_empty(&sections[3][0]),
-        nav_cursor_bg: non_empty(&sections[3][1]),
-        hover_bg: non_empty(&sections[3][2]),
-        sidebar_highlight_fg: non_empty(&sections[3][3]),
-        sidebar_highlight_bg: non_empty(&sections[3][4]),
-        dimmed: non_empty(&sections[3][5]),
-        command_picker_fg: non_empty(&sections[3][6]),
-        command_picker_bg: non_empty(&sections[3][7]),
-        streaming_indicator: non_empty(&sections[4][0]),
-        api_unavailable: non_empty(&sections[4][1]),
-        summary_indicator: non_empty(&sections[4][2]),
+    let mut overrides = libllm::config::ThemeColorOverrides::default();
+    for (tab_offset, labels) in crate::tui::dialogs::THEME_COLOR_TAB_LAYOUT.iter().enumerate() {
+        let section_idx = tab_offset + 1;
+        for (field_idx, label) in labels.iter().enumerate() {
+            overrides.set(*label, non_empty(&sections[section_idx][field_idx]));
+        }
     }
+    overrides
 }
 
 pub fn apply_theme_color_sections(
@@ -543,43 +523,11 @@ pub fn apply_theme_color_sections(
     existing: libllm::config::Config,
 ) -> anyhow::Result<()> {
     let base_theme = sections[0][0].clone();
-
     let overrides = build_theme_color_overrides(sections);
-
-    let any_set = [
-        &overrides.user_message,
-        &overrides.assistant_message_fg,
-        &overrides.assistant_message_bg,
-        &overrides.system_message,
-        &overrides.dialogue,
-        &overrides.border_focused,
-        &overrides.border_unfocused,
-        &overrides.status_bar_fg,
-        &overrides.status_bar_bg,
-        &overrides.status_error_fg,
-        &overrides.status_error_bg,
-        &overrides.status_info_fg,
-        &overrides.status_info_bg,
-        &overrides.status_warning_fg,
-        &overrides.status_warning_bg,
-        &overrides.nav_cursor_fg,
-        &overrides.nav_cursor_bg,
-        &overrides.hover_bg,
-        &overrides.sidebar_highlight_fg,
-        &overrides.sidebar_highlight_bg,
-        &overrides.dimmed,
-        &overrides.command_picker_fg,
-        &overrides.command_picker_bg,
-        &overrides.streaming_indicator,
-        &overrides.api_unavailable,
-        &overrides.summary_indicator,
-    ]
-    .iter()
-    .any(|o| o.is_some());
 
     let cfg = libllm::config::Config {
         theme: Some(base_theme),
-        theme_colors: if any_set { Some(overrides) } else { None },
+        theme_colors: if overrides.any_set() { Some(overrides) } else { None },
         ..existing
     };
 

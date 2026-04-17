@@ -297,45 +297,86 @@ const THEME_TAB_SELECTOR: &[usize] = &[0];
 const THEME_TAB_SEPARATOR: &[usize] = &[1];
 const THEME_TAB_ACTIONS: &[usize] = &[2, 3];
 
+pub(in crate::tui) const THEME_COLOR_TAB_LAYOUT: &[&[libllm::config::ColorLabel]] = &[
+    MESSAGES_LABEL_IDS,
+    BORDERS_STATUS_LABEL_IDS,
+    UI_LABEL_IDS,
+    INDICATORS_LABEL_IDS,
+];
+
+const MESSAGES_LABEL_IDS: &[libllm::config::ColorLabel] = &[
+    libllm::config::ColorLabel::UserMessage,
+    libllm::config::ColorLabel::AssistantMessageFg,
+    libllm::config::ColorLabel::AssistantMessageBg,
+    libllm::config::ColorLabel::SystemMessage,
+    libllm::config::ColorLabel::Dialogue,
+];
 const MESSAGES_LABELS: &[&str] = &[
-    "user_message",
-    "assistant_message_fg",
-    "assistant_message_bg",
-    "system_message",
-    "dialogue",
+    libllm::config::ColorLabel::UserMessage.name(),
+    libllm::config::ColorLabel::AssistantMessageFg.name(),
+    libllm::config::ColorLabel::AssistantMessageBg.name(),
+    libllm::config::ColorLabel::SystemMessage.name(),
+    libllm::config::ColorLabel::Dialogue.name(),
 ];
 const MESSAGES_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4];
 
+const BORDERS_STATUS_LABEL_IDS: &[libllm::config::ColorLabel] = &[
+    libllm::config::ColorLabel::BorderFocused,
+    libllm::config::ColorLabel::BorderUnfocused,
+    libllm::config::ColorLabel::StatusBarFg,
+    libllm::config::ColorLabel::StatusBarBg,
+    libllm::config::ColorLabel::StatusErrorFg,
+    libllm::config::ColorLabel::StatusErrorBg,
+    libllm::config::ColorLabel::StatusInfoFg,
+    libllm::config::ColorLabel::StatusInfoBg,
+    libllm::config::ColorLabel::StatusWarningFg,
+    libllm::config::ColorLabel::StatusWarningBg,
+];
 const BORDERS_STATUS_LABELS: &[&str] = &[
-    "border_focused",
-    "border_unfocused",
-    "status_bar_fg",
-    "status_bar_bg",
-    "status_error_fg",
-    "status_error_bg",
-    "status_info_fg",
-    "status_info_bg",
-    "status_warning_fg",
-    "status_warning_bg",
+    libllm::config::ColorLabel::BorderFocused.name(),
+    libllm::config::ColorLabel::BorderUnfocused.name(),
+    libllm::config::ColorLabel::StatusBarFg.name(),
+    libllm::config::ColorLabel::StatusBarBg.name(),
+    libllm::config::ColorLabel::StatusErrorFg.name(),
+    libllm::config::ColorLabel::StatusErrorBg.name(),
+    libllm::config::ColorLabel::StatusInfoFg.name(),
+    libllm::config::ColorLabel::StatusInfoBg.name(),
+    libllm::config::ColorLabel::StatusWarningFg.name(),
+    libllm::config::ColorLabel::StatusWarningBg.name(),
 ];
 const BORDERS_STATUS_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
+const UI_LABEL_IDS: &[libllm::config::ColorLabel] = &[
+    libllm::config::ColorLabel::NavCursorFg,
+    libllm::config::ColorLabel::NavCursorBg,
+    libllm::config::ColorLabel::HoverBg,
+    libllm::config::ColorLabel::SidebarHighlightFg,
+    libllm::config::ColorLabel::SidebarHighlightBg,
+    libllm::config::ColorLabel::Dimmed,
+    libllm::config::ColorLabel::CommandPickerFg,
+    libllm::config::ColorLabel::CommandPickerBg,
+];
 const UI_LABELS: &[&str] = &[
-    "nav_cursor_fg",
-    "nav_cursor_bg",
-    "hover_bg",
-    "sidebar_highlight_fg",
-    "sidebar_highlight_bg",
-    "dimmed",
-    "command_picker_fg",
-    "command_picker_bg",
+    libllm::config::ColorLabel::NavCursorFg.name(),
+    libllm::config::ColorLabel::NavCursorBg.name(),
+    libllm::config::ColorLabel::HoverBg.name(),
+    libllm::config::ColorLabel::SidebarHighlightFg.name(),
+    libllm::config::ColorLabel::SidebarHighlightBg.name(),
+    libllm::config::ColorLabel::Dimmed.name(),
+    libllm::config::ColorLabel::CommandPickerFg.name(),
+    libllm::config::ColorLabel::CommandPickerBg.name(),
 ];
 const UI_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7];
 
+const INDICATORS_LABEL_IDS: &[libllm::config::ColorLabel] = &[
+    libllm::config::ColorLabel::StreamingIndicator,
+    libllm::config::ColorLabel::ApiUnavailable,
+    libllm::config::ColorLabel::SummaryIndicator,
+];
 const INDICATORS_LABELS: &[&str] = &[
-    "streaming_indicator",
-    "api_unavailable",
-    "summary_indicator",
+    libllm::config::ColorLabel::StreamingIndicator.name(),
+    libllm::config::ColorLabel::ApiUnavailable.name(),
+    libllm::config::ColorLabel::SummaryIndicator.name(),
 ];
 const INDICATORS_COLOR_FIELDS: &[usize] = &[0, 1, 2];
 
@@ -372,9 +413,9 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
         selected: 0,
     };
 
-    let messages_vals: Vec<String> = MESSAGES_LABELS
+    let messages_vals: Vec<String> = MESSAGES_LABEL_IDS
         .iter()
-        .map(|l| override_value(&overrides, l))
+        .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
     let messages = TabSection {
         title: "Messages",
@@ -394,9 +435,9 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
         selected: 0,
     };
 
-    let borders_vals: Vec<String> = BORDERS_STATUS_LABELS
+    let borders_vals: Vec<String> = BORDERS_STATUS_LABEL_IDS
         .iter()
-        .map(|l| override_value(&overrides, l))
+        .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
     let borders_status = TabSection {
         title: "Borders & Status",
@@ -416,9 +457,9 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
         selected: 0,
     };
 
-    let ui_vals: Vec<String> = UI_LABELS
+    let ui_vals: Vec<String> = UI_LABEL_IDS
         .iter()
-        .map(|l| override_value(&overrides, l))
+        .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
     let ui_tab = TabSection {
         title: "UI",
@@ -438,9 +479,9 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
         selected: 0,
     };
 
-    let ind_vals: Vec<String> = INDICATORS_LABELS
+    let ind_vals: Vec<String> = INDICATORS_LABEL_IDS
         .iter()
-        .map(|l| override_value(&overrides, l))
+        .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
     let indicators = TabSection {
         title: "Indicators",
@@ -470,34 +511,3 @@ fn color_validations(count: usize) -> Vec<(usize, FieldValidation)> {
     (0..count).map(|i| (i, FieldValidation::Color)).collect()
 }
 
-fn override_value(overrides: &libllm::config::ThemeColorOverrides, label: &str) -> String {
-    match label {
-        "user_message" => overrides.user_message.clone().unwrap_or_default(),
-        "assistant_message_fg" => overrides.assistant_message_fg.clone().unwrap_or_default(),
-        "assistant_message_bg" => overrides.assistant_message_bg.clone().unwrap_or_default(),
-        "system_message" => overrides.system_message.clone().unwrap_or_default(),
-        "dialogue" => overrides.dialogue.clone().unwrap_or_default(),
-        "border_focused" => overrides.border_focused.clone().unwrap_or_default(),
-        "border_unfocused" => overrides.border_unfocused.clone().unwrap_or_default(),
-        "status_bar_fg" => overrides.status_bar_fg.clone().unwrap_or_default(),
-        "status_bar_bg" => overrides.status_bar_bg.clone().unwrap_or_default(),
-        "status_error_fg" => overrides.status_error_fg.clone().unwrap_or_default(),
-        "status_error_bg" => overrides.status_error_bg.clone().unwrap_or_default(),
-        "status_info_fg" => overrides.status_info_fg.clone().unwrap_or_default(),
-        "status_info_bg" => overrides.status_info_bg.clone().unwrap_or_default(),
-        "status_warning_fg" => overrides.status_warning_fg.clone().unwrap_or_default(),
-        "status_warning_bg" => overrides.status_warning_bg.clone().unwrap_or_default(),
-        "nav_cursor_fg" => overrides.nav_cursor_fg.clone().unwrap_or_default(),
-        "nav_cursor_bg" => overrides.nav_cursor_bg.clone().unwrap_or_default(),
-        "hover_bg" => overrides.hover_bg.clone().unwrap_or_default(),
-        "sidebar_highlight_fg" => overrides.sidebar_highlight_fg.clone().unwrap_or_default(),
-        "sidebar_highlight_bg" => overrides.sidebar_highlight_bg.clone().unwrap_or_default(),
-        "dimmed" => overrides.dimmed.clone().unwrap_or_default(),
-        "command_picker_fg" => overrides.command_picker_fg.clone().unwrap_or_default(),
-        "command_picker_bg" => overrides.command_picker_bg.clone().unwrap_or_default(),
-        "streaming_indicator" => overrides.streaming_indicator.clone().unwrap_or_default(),
-        "api_unavailable" => overrides.api_unavailable.clone().unwrap_or_default(),
-        "summary_indicator" => overrides.summary_indicator.clone().unwrap_or_default(),
-        _ => String::new(),
-    }
-}

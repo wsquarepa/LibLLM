@@ -492,35 +492,9 @@ impl<'a> TabbedFieldDialog<'a> {
 
         if is_color {
             let swatch_color = if value.is_empty() {
-                match label {
-                    "user_message" => theme.user_message,
-                    "assistant_message_fg" => theme.assistant_message_fg,
-                    "assistant_message_bg" => theme.assistant_message_bg,
-                    "system_message" => theme.system_message,
-                    "border_focused" => theme.border_focused,
-                    "border_unfocused" => theme.border_unfocused,
-                    "status_bar_fg" => theme.status_bar_fg,
-                    "status_bar_bg" => theme.status_bar_bg,
-                    "status_error_fg" => theme.status_error_fg,
-                    "status_error_bg" => theme.status_error_bg,
-                    "status_info_fg" => theme.status_info_fg,
-                    "status_info_bg" => theme.status_info_bg,
-                    "status_warning_fg" => theme.status_warning_fg,
-                    "status_warning_bg" => theme.status_warning_bg,
-                    "dialogue" => theme.dialogue,
-                    "nav_cursor_fg" => theme.nav_cursor_fg,
-                    "nav_cursor_bg" => theme.nav_cursor_bg,
-                    "hover_bg" => theme.hover_bg,
-                    "dimmed" => theme.dimmed,
-                    "sidebar_highlight_fg" => theme.sidebar_highlight_fg,
-                    "sidebar_highlight_bg" => theme.sidebar_highlight_bg,
-                    "command_picker_fg" => theme.command_picker_fg,
-                    "command_picker_bg" => theme.command_picker_bg,
-                    "streaming_indicator" => theme.streaming_indicator,
-                    "api_unavailable" => theme.api_unavailable,
-                    "summary_indicator" => theme.summary_indicator,
-                    _ => Color::Reset,
-                }
+                libllm::config::ColorLabel::from_name(label)
+                    .map(|l| theme.color_at(l))
+                    .unwrap_or(Color::Reset)
             } else {
                 parse_color(value).unwrap_or(theme.status_error_bg)
             };

@@ -171,6 +171,172 @@ pub struct ThemeColorOverrides {
     pub summary_indicator: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorLabel {
+    UserMessage,
+    AssistantMessageFg,
+    AssistantMessageBg,
+    SystemMessage,
+    Dialogue,
+    BorderFocused,
+    BorderUnfocused,
+    StatusBarFg,
+    StatusBarBg,
+    StatusErrorFg,
+    StatusErrorBg,
+    StatusInfoFg,
+    StatusInfoBg,
+    StatusWarningFg,
+    StatusWarningBg,
+    NavCursorFg,
+    NavCursorBg,
+    HoverBg,
+    SidebarHighlightFg,
+    SidebarHighlightBg,
+    Dimmed,
+    CommandPickerFg,
+    CommandPickerBg,
+    StreamingIndicator,
+    ApiUnavailable,
+    SummaryIndicator,
+}
+
+impl ColorLabel {
+    pub const ALL: [ColorLabel; 26] = [
+        Self::UserMessage,
+        Self::AssistantMessageFg,
+        Self::AssistantMessageBg,
+        Self::SystemMessage,
+        Self::Dialogue,
+        Self::BorderFocused,
+        Self::BorderUnfocused,
+        Self::StatusBarFg,
+        Self::StatusBarBg,
+        Self::StatusErrorFg,
+        Self::StatusErrorBg,
+        Self::StatusInfoFg,
+        Self::StatusInfoBg,
+        Self::StatusWarningFg,
+        Self::StatusWarningBg,
+        Self::NavCursorFg,
+        Self::NavCursorBg,
+        Self::HoverBg,
+        Self::SidebarHighlightFg,
+        Self::SidebarHighlightBg,
+        Self::Dimmed,
+        Self::CommandPickerFg,
+        Self::CommandPickerBg,
+        Self::StreamingIndicator,
+        Self::ApiUnavailable,
+        Self::SummaryIndicator,
+    ];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::UserMessage => "user_message",
+            Self::AssistantMessageFg => "assistant_message_fg",
+            Self::AssistantMessageBg => "assistant_message_bg",
+            Self::SystemMessage => "system_message",
+            Self::Dialogue => "dialogue",
+            Self::BorderFocused => "border_focused",
+            Self::BorderUnfocused => "border_unfocused",
+            Self::StatusBarFg => "status_bar_fg",
+            Self::StatusBarBg => "status_bar_bg",
+            Self::StatusErrorFg => "status_error_fg",
+            Self::StatusErrorBg => "status_error_bg",
+            Self::StatusInfoFg => "status_info_fg",
+            Self::StatusInfoBg => "status_info_bg",
+            Self::StatusWarningFg => "status_warning_fg",
+            Self::StatusWarningBg => "status_warning_bg",
+            Self::NavCursorFg => "nav_cursor_fg",
+            Self::NavCursorBg => "nav_cursor_bg",
+            Self::HoverBg => "hover_bg",
+            Self::SidebarHighlightFg => "sidebar_highlight_fg",
+            Self::SidebarHighlightBg => "sidebar_highlight_bg",
+            Self::Dimmed => "dimmed",
+            Self::CommandPickerFg => "command_picker_fg",
+            Self::CommandPickerBg => "command_picker_bg",
+            Self::StreamingIndicator => "streaming_indicator",
+            Self::ApiUnavailable => "api_unavailable",
+            Self::SummaryIndicator => "summary_indicator",
+        }
+    }
+
+    pub fn from_name(label: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|l| l.name() == label)
+    }
+}
+
+impl ThemeColorOverrides {
+    pub fn get(&self, label: ColorLabel) -> Option<&str> {
+        let slot = match label {
+            ColorLabel::UserMessage => &self.user_message,
+            ColorLabel::AssistantMessageFg => &self.assistant_message_fg,
+            ColorLabel::AssistantMessageBg => &self.assistant_message_bg,
+            ColorLabel::SystemMessage => &self.system_message,
+            ColorLabel::Dialogue => &self.dialogue,
+            ColorLabel::BorderFocused => &self.border_focused,
+            ColorLabel::BorderUnfocused => &self.border_unfocused,
+            ColorLabel::StatusBarFg => &self.status_bar_fg,
+            ColorLabel::StatusBarBg => &self.status_bar_bg,
+            ColorLabel::StatusErrorFg => &self.status_error_fg,
+            ColorLabel::StatusErrorBg => &self.status_error_bg,
+            ColorLabel::StatusInfoFg => &self.status_info_fg,
+            ColorLabel::StatusInfoBg => &self.status_info_bg,
+            ColorLabel::StatusWarningFg => &self.status_warning_fg,
+            ColorLabel::StatusWarningBg => &self.status_warning_bg,
+            ColorLabel::NavCursorFg => &self.nav_cursor_fg,
+            ColorLabel::NavCursorBg => &self.nav_cursor_bg,
+            ColorLabel::HoverBg => &self.hover_bg,
+            ColorLabel::SidebarHighlightFg => &self.sidebar_highlight_fg,
+            ColorLabel::SidebarHighlightBg => &self.sidebar_highlight_bg,
+            ColorLabel::Dimmed => &self.dimmed,
+            ColorLabel::CommandPickerFg => &self.command_picker_fg,
+            ColorLabel::CommandPickerBg => &self.command_picker_bg,
+            ColorLabel::StreamingIndicator => &self.streaming_indicator,
+            ColorLabel::ApiUnavailable => &self.api_unavailable,
+            ColorLabel::SummaryIndicator => &self.summary_indicator,
+        };
+        slot.as_deref()
+    }
+
+    pub fn set(&mut self, label: ColorLabel, value: Option<String>) {
+        let slot = match label {
+            ColorLabel::UserMessage => &mut self.user_message,
+            ColorLabel::AssistantMessageFg => &mut self.assistant_message_fg,
+            ColorLabel::AssistantMessageBg => &mut self.assistant_message_bg,
+            ColorLabel::SystemMessage => &mut self.system_message,
+            ColorLabel::Dialogue => &mut self.dialogue,
+            ColorLabel::BorderFocused => &mut self.border_focused,
+            ColorLabel::BorderUnfocused => &mut self.border_unfocused,
+            ColorLabel::StatusBarFg => &mut self.status_bar_fg,
+            ColorLabel::StatusBarBg => &mut self.status_bar_bg,
+            ColorLabel::StatusErrorFg => &mut self.status_error_fg,
+            ColorLabel::StatusErrorBg => &mut self.status_error_bg,
+            ColorLabel::StatusInfoFg => &mut self.status_info_fg,
+            ColorLabel::StatusInfoBg => &mut self.status_info_bg,
+            ColorLabel::StatusWarningFg => &mut self.status_warning_fg,
+            ColorLabel::StatusWarningBg => &mut self.status_warning_bg,
+            ColorLabel::NavCursorFg => &mut self.nav_cursor_fg,
+            ColorLabel::NavCursorBg => &mut self.nav_cursor_bg,
+            ColorLabel::HoverBg => &mut self.hover_bg,
+            ColorLabel::SidebarHighlightFg => &mut self.sidebar_highlight_fg,
+            ColorLabel::SidebarHighlightBg => &mut self.sidebar_highlight_bg,
+            ColorLabel::Dimmed => &mut self.dimmed,
+            ColorLabel::CommandPickerFg => &mut self.command_picker_fg,
+            ColorLabel::CommandPickerBg => &mut self.command_picker_bg,
+            ColorLabel::StreamingIndicator => &mut self.streaming_indicator,
+            ColorLabel::ApiUnavailable => &mut self.api_unavailable,
+            ColorLabel::SummaryIndicator => &mut self.summary_indicator,
+        };
+        *slot = value;
+    }
+
+    pub fn any_set(&self) -> bool {
+        ColorLabel::ALL.iter().any(|l| self.get(*l).is_some())
+    }
+}
+
 const DEFAULT_API_URL: &str = "http://localhost:5001/v1";
 
 impl Config {

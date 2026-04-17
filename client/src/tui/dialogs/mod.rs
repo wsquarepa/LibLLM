@@ -26,7 +26,7 @@ pub use builders::{
 pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub(in crate::tui) use builders::{
     DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
-    LIST_DIALOG_WIDTH,
+    LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;

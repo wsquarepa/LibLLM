@@ -72,8 +72,16 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
 
     let wal = ctx.db_path.with_extension("db-wal");
     let shm = ctx.db_path.with_extension("db-shm");
-    let _ = std::fs::remove_file(&wal);
-    let _ = std::fs::remove_file(&shm);
+    for sidecar in [&wal, &shm] {
+        if sidecar.exists()
+            && let Err(err) = std::fs::remove_file(sidecar)
+        {
+            eprintln!(
+                "warning: failed to remove stale sidecar {}: {err}",
+                sidecar.display()
+            );
+        }
+    }
 
     eprintln!("Imported {} into {}", path.display(), ctx.db_path.display());
     Ok(())
@@ -83,7 +91,7 @@ fn read_schema_version(path: &Path) -> Result<i64> {
     let conn = rusqlite::Connection::open(path)
         .with_context(|| format!("failed to open plaintext file: {}", path.display()))?;
     conn.query_row(
-        "SELECT MAX(version) FROM schema_version",
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
         [],
         |row| row.get::<_, i64>(0),
     )

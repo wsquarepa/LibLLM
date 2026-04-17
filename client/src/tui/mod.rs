@@ -22,8 +22,9 @@ use futures_util::StreamExt;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
@@ -641,10 +642,6 @@ fn render_base_theme_picker(
     app: &App,
     area: ratatui::layout::Rect,
 ) {
-    use ratatui::style::{Color, Modifier, Style};
-    use ratatui::text::{Line, Span, Text};
-    use ratatui::widgets::Paragraph;
-
     let names = &app.base_theme_picker_names;
     let count = names.len();
     let dialog = render::clear_centered(

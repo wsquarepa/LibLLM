@@ -246,11 +246,7 @@ impl<'a> TabbedFieldDialog<'a> {
                         .map(|v| v.accepts_char(&self.sections[tab].values[idx], c))
                         .unwrap_or(true);
                     if accept {
-                        let byte_pos = self.sections[tab].values[idx]
-                            .char_indices()
-                            .nth(self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.sections[tab].values[idx].len());
+                        let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                         self.sections[tab].values[idx].insert(byte_pos, c);
                         self.cursor_pos += 1;
                     } else {
@@ -260,22 +256,14 @@ impl<'a> TabbedFieldDialog<'a> {
                 KeyCode::Backspace => {
                     if self.cursor_pos > 0 {
                         self.cursor_pos -= 1;
-                        let byte_pos = self.sections[tab].values[idx]
-                            .char_indices()
-                            .nth(self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.sections[tab].values[idx].len());
+                        let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                         self.sections[tab].values[idx].remove(byte_pos);
                     }
                 }
                 KeyCode::Delete => {
                     let char_count = self.sections[tab].values[idx].chars().count();
                     if self.cursor_pos < char_count {
-                        let byte_pos = self.sections[tab].values[idx]
-                            .char_indices()
-                            .nth(self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.sections[tab].values[idx].len());
+                        let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                         self.sections[tab].values[idx].remove(byte_pos);
                     }
                 }
@@ -503,9 +491,41 @@ impl<'a> TabbedFieldDialog<'a> {
             vec![Span::styled(format!("  {label:<22}"), label_style)];
 
         if is_color {
-            let swatch_color = self.resolve_swatch_color(value, theme, label);
+            let swatch_color = if value.is_empty() {
+                match label {
+                    "user_message" => theme.user_message,
+                    "assistant_message_fg" => theme.assistant_message_fg,
+                    "assistant_message_bg" => theme.assistant_message_bg,
+                    "system_message" => theme.system_message,
+                    "border_focused" => theme.border_focused,
+                    "border_unfocused" => theme.border_unfocused,
+                    "status_bar_fg" => theme.status_bar_fg,
+                    "status_bar_bg" => theme.status_bar_bg,
+                    "status_error_fg" => theme.status_error_fg,
+                    "status_error_bg" => theme.status_error_bg,
+                    "status_info_fg" => theme.status_info_fg,
+                    "status_info_bg" => theme.status_info_bg,
+                    "status_warning_fg" => theme.status_warning_fg,
+                    "status_warning_bg" => theme.status_warning_bg,
+                    "dialogue" => theme.dialogue,
+                    "nav_cursor_fg" => theme.nav_cursor_fg,
+                    "nav_cursor_bg" => theme.nav_cursor_bg,
+                    "hover_bg" => theme.hover_bg,
+                    "dimmed" => theme.dimmed,
+                    "sidebar_highlight_fg" => theme.sidebar_highlight_fg,
+                    "sidebar_highlight_bg" => theme.sidebar_highlight_bg,
+                    "command_picker_fg" => theme.command_picker_fg,
+                    "command_picker_bg" => theme.command_picker_bg,
+                    "streaming_indicator" => theme.streaming_indicator,
+                    "api_unavailable" => theme.api_unavailable,
+                    "summary_indicator" => theme.summary_indicator,
+                    _ => Color::Reset,
+                }
+            } else {
+                parse_color(value).unwrap_or(theme.status_error_bg)
+            };
             let swatch_style = Style::default().fg(swatch_color);
-            spans.push(Span::styled("████".to_owned(), swatch_style));
+            spans.push(Span::styled("████", swatch_style));
             spans.push(Span::raw(" "));
         }
 
@@ -516,7 +536,7 @@ impl<'a> TabbedFieldDialog<'a> {
                 section.placeholder_text.unwrap_or("")
             };
             spans.push(Span::styled(
-                ph_text.to_owned(),
+                ph_text,
                 Style::default().fg(Color::DarkGray),
             ));
         } else if show_cursor {
@@ -554,13 +574,6 @@ impl<'a> TabbedFieldDialog<'a> {
         }
 
         Line::from(spans)
-    }
-
-    fn resolve_swatch_color(&self, value: &str, theme: &Theme, label: &str) -> Color {
-        if value.is_empty() {
-            return theme_color_by_label(theme, label);
-        }
-        parse_color(value).unwrap_or(theme.status_error_bg)
     }
 
     pub fn handle_mouse_click(
@@ -640,62 +653,7 @@ impl<'a> TabbedFieldDialog<'a> {
         let tab = self.current_tab;
         let idx = self.sections[tab].selected;
         let label = self.sections[tab].labels[idx];
-        let inner = Rect {
-            x: dialog.x + 1,
-            y: dialog.y + 1,
-            width: dialog.width.saturating_sub(2),
-            height: dialog.height.saturating_sub(2),
-        };
-        let title_line = Line::from(Span::styled(
-            format!("  Editing: {label}"),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ));
-        let header = Paragraph::new(Text::from(vec![Line::from(""), title_line]));
-        let header_area = Rect { height: 2, ..inner };
-        f.render_widget(header, header_area);
-        let editor_area = Rect {
-            x: inner.x + 1,
-            y: inner.y + 2,
-            width: inner.width.saturating_sub(2),
-            height: inner.height.saturating_sub(3),
-        };
-        f.render_widget(editor, editor_area);
-        f.render_widget(dialog_block(self.title, Color::Yellow), dialog);
-        render_hints_below_dialog(f, dialog, area, &[Line::from("Esc: done editing")]);
-    }
-}
-
-fn theme_color_by_label(theme: &Theme, label: &str) -> Color {
-    match label {
-        "user_message" => theme.user_message,
-        "assistant_message_fg" => theme.assistant_message_fg,
-        "assistant_message_bg" => theme.assistant_message_bg,
-        "system_message" => theme.system_message,
-        "border_focused" => theme.border_focused,
-        "border_unfocused" => theme.border_unfocused,
-        "status_bar_fg" => theme.status_bar_fg,
-        "status_bar_bg" => theme.status_bar_bg,
-        "status_error_fg" => theme.status_error_fg,
-        "status_error_bg" => theme.status_error_bg,
-        "status_info_fg" => theme.status_info_fg,
-        "status_info_bg" => theme.status_info_bg,
-        "status_warning_fg" => theme.status_warning_fg,
-        "status_warning_bg" => theme.status_warning_bg,
-        "dialogue" => theme.dialogue,
-        "nav_cursor_fg" => theme.nav_cursor_fg,
-        "nav_cursor_bg" => theme.nav_cursor_bg,
-        "hover_bg" => theme.hover_bg,
-        "dimmed" => theme.dimmed,
-        "sidebar_highlight_fg" => theme.sidebar_highlight_fg,
-        "sidebar_highlight_bg" => theme.sidebar_highlight_bg,
-        "command_picker_fg" => theme.command_picker_fg,
-        "command_picker_bg" => theme.command_picker_bg,
-        "streaming_indicator" => theme.streaming_indicator,
-        "api_unavailable" => theme.api_unavailable,
-        "summary_indicator" => theme.summary_indicator,
-        _ => Color::Reset,
+        super::render_multiline_editor(f, dialog, area, editor, label, self.title);
     }
 }
 
@@ -948,13 +906,6 @@ mod tests {
             }
         }
         assert_eq!(d.sections()[0].values[0], "");
-    }
-
-    #[test]
-    fn theme_color_lookup_returns_expected() {
-        let theme = Theme::dark();
-        assert_eq!(theme_color_by_label(&theme, "user_message"), Color::Green);
-        assert_eq!(theme_color_by_label(&theme, "unknown"), Color::Reset);
     }
 
     #[test]

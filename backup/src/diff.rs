@@ -1,9 +1,15 @@
 //! Binary diff and zstd compression for incremental backup payloads.
 
-use anyhow::Result;
-use std::io::Cursor;
+use anyhow::{Context, Result};
+use std::io::{Cursor, Read};
 
 const ZSTD_COMPRESSION_LEVEL: i32 = 3;
+
+/// Hard ceiling on decompressed backup payload size.
+///
+/// Covers real SQLite databases comfortably while preventing crafted payloads
+/// from exhausting memory via unbounded decompression.
+pub const MAX_DECOMPRESSED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Computes a bsdiff binary patch from `old` to `new`.
 pub fn compute_diff(old: &[u8], new: &[u8]) -> Result<Vec<u8>> {
@@ -27,9 +33,27 @@ pub fn compress(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Decompresses zstd-compressed data back to its original form.
+///
+/// Rejects payloads that decompress beyond `MAX_DECOMPRESSED_BYTES` to prevent
+/// zip-bomb attacks via crafted backup entries.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
-    let decompressed = zstd::decode_all(data)?;
-    Ok(decompressed)
+    decompress_with_cap(data, MAX_DECOMPRESSED_BYTES)
+}
+
+fn decompress_with_cap(data: &[u8], cap: u64) -> Result<Vec<u8>> {
+    let mut decoder = zstd::stream::Decoder::new(data)
+        .context("failed to initialize zstd decoder")?;
+    let mut out = Vec::new();
+    let read = (&mut decoder)
+        .take(cap + 1)
+        .read_to_end(&mut out)
+        .context("failed to decompress backup payload")?;
+    anyhow::ensure!(
+        read as u64 <= cap,
+        "decompressed backup payload exceeds {} byte cap",
+        cap
+    );
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -77,5 +101,17 @@ mod tests {
         let compressed = compress(&repetitive).unwrap();
 
         assert!(compressed.len() < repetitive.len());
+    }
+
+    #[test]
+    fn decompress_rejects_payload_exceeding_cap() {
+        let repetitive: Vec<u8> = b"aaaaaaaaaaaaaaaa".iter().cycle().take(1_024).copied().collect();
+        let compressed = compress(&repetitive).unwrap();
+
+        let result = decompress_with_cap(&compressed, 512);
+
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("exceeds"), "unexpected error: {msg}");
     }
 }

@@ -470,8 +470,34 @@ fn try_backup(
         return;
     }
 
+    if passkey.is_none() && data_dir.join(".salt").exists() {
+        return;
+    }
+
     if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, config) {
         eprintln!("Warning: backup failed: {err}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_backup_skips_when_encrypted_and_no_passkey() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path();
+
+        std::fs::write(data_dir.join("data.db"), b"not a real database").expect("write data.db");
+        std::fs::write(data_dir.join(".salt"), b"salt-bytes").expect("write .salt");
+
+        let config = libllm::config::BackupConfig::default();
+        try_backup(data_dir, None, &config);
+
+        assert!(
+            !data_dir.join("backups").exists(),
+            "try_backup must not touch an encrypted database without a passkey",
+        );
     }
 }
 

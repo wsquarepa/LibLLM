@@ -21,19 +21,9 @@ fn post_passkey_focus(app: &App) -> Focus {
 pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
     match event {
         BackgroundEvent::KeyDerived(key, db_path) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "ok"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                    ],
-                );
+            if let Some(unlock_dbg) = app.unlock_debug.take() {
+                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
+                tracing::info!(phase = "ui_complete", kind = unlock_dbg.kind, result = "ok", elapsed_ms = elapsed_ms.as_str(), "unlock.phase");
             }
             match Database::open(&db_path, Some(&key)) {
                 Ok(db) => {
@@ -61,39 +51,18 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
         }
         BackgroundEvent::KeyDeriveFailed(err) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "error"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                        libllm::debug_log::field("error", &err),
-                    ],
-                );
+            if let Some(unlock_dbg) = app.unlock_debug.take() {
+                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
+                tracing::warn!(phase = "ui_complete", kind = unlock_dbg.kind, result = "error", elapsed_ms = elapsed_ms.as_str(), error = %err, "unlock.phase");
             }
             app.passkey_deriving = false;
             app.passkey_error = format!("Failed: {err}");
             app.resolved_passkey = None;
         }
         BackgroundEvent::PasskeySet(new_key) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "ok"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                    ],
-                );
+            if let Some(unlock_dbg) = app.unlock_debug.take() {
+                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
+                tracing::info!(phase = "ui_complete", kind = unlock_dbg.kind, result = "ok", elapsed_ms = elapsed_ms.as_str(), "unlock.phase");
             }
             app.set_passkey_deriving = false;
             app.invalidate_worldbook_cache();
@@ -147,45 +116,22 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
         }
         BackgroundEvent::PasskeySetFailed(err) => {
-            if let Some(debug) = app.unlock_debug.take() {
-                libllm::debug_log::log_kv(
-                    "unlock.phase",
-                    &[
-                        libllm::debug_log::field("phase", "ui_complete"),
-                        libllm::debug_log::field("kind", debug.kind),
-                        libllm::debug_log::field("result", "error"),
-                        libllm::debug_log::field(
-                            "elapsed_ms",
-                            format!("{:.3}", debug.started_at.elapsed().as_secs_f64() * 1000.0),
-                        ),
-                        libllm::debug_log::field("error", &err),
-                    ],
-                );
+            if let Some(unlock_dbg) = app.unlock_debug.take() {
+                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
+                tracing::warn!(phase = "ui_complete", kind = unlock_dbg.kind, result = "error", elapsed_ms = elapsed_ms.as_str(), error = %err, "unlock.phase");
             }
             app.set_passkey_deriving = false;
             app.set_passkey_error = format!("Failed: {err}");
         }
         BackgroundEvent::ModelFetched(Ok(name)) => {
-            libllm::debug_log::log_kv(
-                "api.model",
-                &[
-                    libllm::debug_log::field("result", "ok"),
-                    libllm::debug_log::field("name", &name),
-                ],
-            );
+            tracing::info!(result = "ok", name = %name, "api.model");
             app.model_name = Some(name);
             if app.focus == Focus::LoadingDialog {
                 app.focus = Focus::Input;
             }
         }
         BackgroundEvent::ModelFetched(Err(err)) => {
-            libllm::debug_log::log_kv(
-                "api.model",
-                &[
-                    libllm::debug_log::field("result", "error"),
-                    libllm::debug_log::field("error", &err),
-                ],
-            );
+            tracing::error!(result = "error", error = %err, "api.model");
             app.model_name = Some("Backend connection failure".to_owned());
             app.api_available = false;
             app.api_error = err;
@@ -197,10 +143,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
         }
         BackgroundEvent::ServerContextSize(size) => {
-            libllm::debug_log::log_kv(
-                "api.context_size",
-                &[libllm::debug_log::field("n_ctx", size)],
-            );
+            tracing::info!(n_ctx = size, "api.context_size");
             app.context_mgr.set_token_limit(size);
         }
     }

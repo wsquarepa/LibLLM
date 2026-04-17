@@ -19,29 +19,16 @@ pub(in crate::tui::commands) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::
         .is_none_or(|cache| cache.enabled_names != enabled_names);
 
     if cache_stale {
-        let books = libllm::debug_log::timed_kv(
-            "worldbook.runtime",
-            &[
-                libllm::debug_log::field("phase", "load"),
-                libllm::debug_log::field("cache", "miss"),
-                libllm::debug_log::field("enabled_count", enabled_names.len()),
-            ],
-            || business::load_runtime_worldbooks(&enabled_names, app.db.as_ref()),
-        );
+        let books = {
+            let _span = tracing::debug_span!("worldbook.runtime", phase = "load", cache = "miss", enabled_count = enabled_names.len()).entered();
+            business::load_runtime_worldbooks(&enabled_names, app.db.as_ref())
+        };
         app.worldbook_cache = Some(WorldbookCache {
             enabled_names,
             books,
         });
     } else if let Some(cache) = app.worldbook_cache.as_ref() {
-        libllm::debug_log::log_kv(
-            "worldbook.runtime",
-            &[
-                libllm::debug_log::field("phase", "load"),
-                libllm::debug_log::field("cache", "hit"),
-                libllm::debug_log::field("enabled_count", enabled_names.len()),
-                libllm::debug_log::field("book_count", cache.books.len()),
-            ],
-        );
+        tracing::debug!(phase = "load", cache = "hit", enabled_count = enabled_names.len(), book_count = cache.books.len(), "worldbook.runtime");
     }
 
     app.worldbook_cache.as_ref().unwrap().books.clone()
@@ -51,23 +38,11 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
     if app.summary_receiver.is_some() {
         app.is_summarizing = true;
         app.message_queue.push(content.to_owned());
-        libllm::debug_log::log_kv(
-            "stream.start",
-            &[
-                libllm::debug_log::field("phase", "queued_for_summary"),
-                libllm::debug_log::field("queue_len", app.message_queue.len()),
-            ],
-        );
+        tracing::debug!(phase = "queued_for_summary", queue_len = app.message_queue.len(), "stream.start");
         return;
     }
     if app.model_name.is_none() {
-        libllm::debug_log::log_kv(
-            "stream.start",
-            &[
-                libllm::debug_log::field("phase", "blocked"),
-                libllm::debug_log::field("reason", "model_pending"),
-            ],
-        );
+        tracing::debug!(phase = "blocked", reason = "model_pending", "stream.start");
         app.set_status(
             "Connecting to API server...".to_owned(),
             StatusLevel::Warning,
@@ -75,13 +50,7 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
         return;
     }
     if !app.api_available {
-        libllm::debug_log::log_kv(
-            "stream.start",
-            &[
-                libllm::debug_log::field("phase", "blocked"),
-                libllm::debug_log::field("reason", "api_unavailable"),
-            ],
-        );
+        tracing::debug!(phase = "blocked", reason = "api_unavailable", "stream.start");
         app.set_status(
             "Cannot send: API server is not available".to_owned(),
             StatusLevel::Error,
@@ -121,19 +90,17 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
     let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();
 
-    libllm::debug_log::log_kv(
-        "stream.start",
-        &[
-            libllm::debug_log::field("phase", "dispatch"),
-            libllm::debug_log::field("branch_len", branch_path.len()),
-            libllm::debug_log::field("summary_aware_len", context_messages.len()),
-            libllm::debug_log::field("truncated_len", truncated.len()),
-            libllm::debug_log::field("worldbook_count", worldbooks.len()),
-            libllm::debug_log::field("has_system_prompt", effective_prompt.is_some()),
-            libllm::debug_log::field("stop_token_count", stop_tokens.len()),
-            libllm::debug_log::field("prompt_bytes", prompt.len()),
-            libllm::debug_log::field("continuation", false),
-        ],
+    tracing::info!(
+        phase = "dispatch",
+        branch_len = branch_path.len(),
+        summary_aware_len = context_messages.len(),
+        truncated_len = truncated.len(),
+        worldbook_count = worldbooks.len(),
+        has_system_prompt = effective_prompt.is_some(),
+        stop_token_count = stop_tokens.len(),
+        prompt_bytes = prompt.len(),
+        continuation = false,
+        "stream.start"
     );
 
     let client = app.client.clone();
@@ -173,15 +140,7 @@ pub(in crate::tui) fn handle_stream_token(
                     .tree
                     .push(Some(head), Message::new(Role::Assistant, full_response));
             }
-            libllm::debug_log::log_kv(
-                "stream.done",
-                &[
-                    libllm::debug_log::field("result", "ok"),
-                    libllm::debug_log::field("bytes", response_bytes),
-                    libllm::debug_log::field("is_continuation", is_continuation),
-                    libllm::debug_log::field("node_id", head),
-                ],
-            );
+            tracing::info!(result = "ok", bytes = response_bytes, is_continuation, node_id = head, "stream.done");
             app.mark_session_dirty(SaveTrigger::StreamDone, true);
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
@@ -205,18 +164,13 @@ pub(in crate::tui) fn handle_stream_token(
                         .collect();
 
                     if !messages_to_summarize.is_empty() {
-                        libllm::debug_log::log_kv(
-                            "stream.summary.schedule",
-                            &[
-                                libllm::debug_log::field("result", "scheduled"),
-                                libllm::debug_log::field("dropped", dropped),
-                                libllm::debug_log::field("trigger_threshold", trigger_threshold),
-                                libllm::debug_log::field("summary_boundary", summary_boundary),
-                                libllm::debug_log::field(
-                                    "messages_to_summarize",
-                                    messages_to_summarize.len(),
-                                ),
-                            ],
+                        tracing::info!(
+                            result = "scheduled",
+                            dropped,
+                            trigger_threshold,
+                            summary_boundary,
+                            messages_to_summarize = messages_to_summarize.len(),
+                            "stream.summary.schedule"
                         );
                         let summarize_api_url = app
                             .config
@@ -256,14 +210,7 @@ pub(in crate::tui) fn handle_stream_token(
             }
         }
         StreamToken::Error(err) => {
-            libllm::debug_log::log_kv(
-                "stream.done",
-                &[
-                    libllm::debug_log::field("result", "error"),
-                    libllm::debug_log::field("is_continuation", app.is_continuation),
-                    libllm::debug_log::field("error", &err),
-                ],
-            );
+            tracing::error!(result = "error", is_continuation = app.is_continuation, error = %err, "stream.done");
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.is_continuation = false;

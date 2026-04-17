@@ -51,11 +51,10 @@ pub async fn run(
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
 ) -> Result<Option<String>> {
-    let sidebar_sessions = libllm::debug_log::timed_kv(
-        "startup.phase",
-        &[libllm::debug_log::field("phase", "sidebar_discovery")],
-        || business::discover_sidebar_sessions(&save_mode, db.as_ref()),
-    );
+    let sidebar_sessions = {
+        let _span = tracing::info_span!("startup.phase", phase = "sidebar_discovery").entered();
+        business::discover_sidebar_sessions(&save_mode, db.as_ref())
+    };
 
     let mut textarea = TextArea::default();
     textarea.set_block(
@@ -237,26 +236,24 @@ pub async fn run(
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut needs_redraw = false;
 
-    libllm::debug_log::timed_result(
-        "startup.phase",
-        &[libllm::debug_log::field("phase", "first_draw")],
-        || terminal.draw(|f| render_frame(f, &mut app)),
-    )?;
-    libllm::debug_log::timed_kv(
-        "startup.phase",
-        &[libllm::debug_log::field("phase", "maintenance_schedule")],
-        || maintenance::spawn_startup_maintenance(&app.save_mode, &app),
-    );
+    libllm::timed_result!(tracing::Level::INFO, "startup.phase", phase = "first_draw" ; {
+        terminal.draw(|f| render_frame(f, &mut app))
+    })?;
+    {
+        let _span = tracing::info_span!("startup.phase", phase = "maintenance_schedule").entered();
+        maintenance::spawn_startup_maintenance(&app.save_mode, &app)
+    };
 
     loop {
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
                 let is_mouse_move = matches!(&event, Event::Mouse(m) if matches!(m.kind, MouseEventKind::Moved));
-                libllm::debug_log::timed_kv("event", &[libllm::debug_log::field("phase", "handle")], || {
+                {
+                    let _span = tracing::trace_span!("event", phase = "handle").entered();
                     if let Some(action) = events::handle_event(event, &mut app, bg_tx.clone()) {
                         events::process_action(action, &mut app, token_tx.clone());
                     }
-                });
+                }
                 if is_mouse_move {
                     needs_redraw = true;
                 } else {
@@ -265,7 +262,7 @@ pub async fn run(
                 }
             }
             Some(stream_token) = token_rx.recv() => {
-                libllm::debug_log::timed_result("stream", &[libllm::debug_log::field("phase", "token")], || {
+                libllm::timed_result!(tracing::Level::TRACE, "stream", phase = "token" ; {
                     commands::handle_stream_token(stream_token, &mut app, token_tx.clone())
                 })?;
                 needs_redraw = true;
@@ -376,25 +373,22 @@ pub async fn run(
 fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let _frame_start = std::time::Instant::now();
 
-    let (outer, columns, right_split) = libllm::debug_log::timed_kv(
-        "layout",
-        &[libllm::debug_log::field("phase", "splits")],
-        || {
-            let outer = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(5), Constraint::Length(1)])
-                .split(f.area());
-            let columns = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
-                .split(outer[0]);
-            let right_split = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
-                .split(columns[1]);
-            (outer, columns, right_split)
-        },
-    );
+    let (outer, columns, right_split) = {
+        let _span = tracing::trace_span!("layout", phase = "splits").entered();
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(5), Constraint::Length(1)])
+            .split(f.area());
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(30)])
+            .split(outer[0]);
+        let right_split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(INPUT_HEIGHT)])
+            .split(columns[1]);
+        (outer, columns, right_split)
+    };
 
     let status_area = outer[1];
     let sidebar_area = columns[0];
@@ -408,13 +402,10 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     });
 
     let session_count = app.sidebar_sessions.len();
-    libllm::debug_log::timed_kv(
-        "sidebar",
-        &[libllm::debug_log::field("session_count", session_count)],
-        || {
-            render::render_sidebar(f, app, sidebar_area);
-        },
-    );
+    {
+        let _span = tracing::trace_span!("sidebar", session_count).entered();
+        render::render_sidebar(f, app, sidebar_area);
+    }
 
     let input_focused = app.focus == Focus::Input;
     let border = render::border_style(input_focused, &app.theme);
@@ -446,37 +437,28 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
 
-    let mut max_scroll = 0u16;
+    let max_scroll;
     let mut cache = app.chat_content_cache.take();
     {
         let branch_ids = app.session.tree.current_branch_ids();
         let branch_info = app.session.tree.current_deepest_branch_info();
         let msg_count = branch_ids.len();
-        libllm::debug_log::log_kv(
-            "chat.branch",
-            &[libllm::debug_log::field("node_count", msg_count)],
-        );
-        libllm::debug_log::timed_kv(
-            "chat",
-            &[
-                libllm::debug_log::field("message_count", msg_count),
-                libllm::debug_log::field("scroll_dirty", scroll_dirty),
-            ],
-            || {
-                max_scroll = render::render_chat(
-                    f,
-                    app,
-                    messages_area,
-                    &mut chat_scroll,
-                    branch_ids,
-                    scroll_dirty,
-                    &mut cache,
-                );
-                if let Some(queue_rect) = queue_area {
-                    render::render_message_queue(f, app, queue_rect);
-                }
-            },
-        );
+        tracing::trace!(node_count = msg_count, "chat.branch");
+        {
+            let _span = tracing::trace_span!("chat", message_count = msg_count, scroll_dirty).entered();
+            max_scroll = render::render_chat(
+                f,
+                app,
+                messages_area,
+                &mut chat_scroll,
+                branch_ids,
+                scroll_dirty,
+                &mut cache,
+            );
+            if let Some(queue_rect) = queue_area {
+                render::render_message_queue(f, app, queue_rect);
+            }
+        }
 
         let token_count = *app.cached_token_count.get_or_insert_with(|| {
             ContextManager::estimate_tokens_for_messages(
@@ -486,9 +468,10 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             )
         });
 
-        libllm::debug_log::timed_kv("status", &[libllm::debug_log::field("phase", "bar")], || {
+        {
+            let _span = tracing::trace_span!("status", phase = "bar").entered();
             render::render_status_bar(f, app, status_area, branch_info, token_count);
-        });
+        }
     }
     app.chat_content_cache = cache;
     app.chat_scroll = chat_scroll;
@@ -496,13 +479,10 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.last_scroll_state = current_scroll_state;
 
     if app.focus == Focus::Input && input::input_has_command_picker(app) {
-        libllm::debug_log::timed_kv(
-            "picker",
-            &[libllm::debug_log::field("phase", "command_picker")],
-            || {
-                render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
-            },
-        );
+        {
+            let _span = tracing::trace_span!("picker", phase = "command_picker").entered();
+            render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
+        }
     }
 
     let dialog_name = match app.focus {
@@ -533,19 +513,12 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     };
 
     if let Some(name) = dialog_name {
-        libllm::debug_log::timed_kv("dialog", &[libllm::debug_log::field("name", name)], || {
-            render_dialog(f, app);
-        });
+        let _span = tracing::trace_span!("dialog", name).entered();
+        render_dialog(f, app);
     }
 
     let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
-    libllm::debug_log::log_kv(
-        "frame",
-        &[
-            libllm::debug_log::field("phase", "frame"),
-            libllm::debug_log::field("elapsed_ms", format!("{frame_ms:.3}")),
-        ],
-    );
+    tracing::trace!(phase = "frame", elapsed_ms = format!("{frame_ms:.3}"), "frame");
 }
 
 fn render_dialog(f: &mut ratatui::Frame, app: &App) {

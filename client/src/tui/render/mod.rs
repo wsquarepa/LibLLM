@@ -194,14 +194,12 @@ pub fn render_chat(
     });
 
     if !cache_valid {
-        libllm::debug_log::log_kv(
+        tracing::trace!(
+            result = "miss",
+            action = "rebuild",
+            message_count = branch_ids.len(),
+            width = area.width,
             "chat.cache",
-            &[
-                libllm::debug_log::field("result", "miss"),
-                libllm::debug_log::field("action", "rebuild"),
-                libllm::debug_log::field("message_count", branch_ids.len()),
-                libllm::debug_log::field("width", area.width),
-            ],
         );
         let entries: Vec<CachedMessageLines> = branch_ids
             .iter()
@@ -297,13 +295,11 @@ pub fn render_chat(
             entries,
         });
     } else {
-        libllm::debug_log::log_kv(
+        tracing::trace!(
+            result = "hit",
+            message_count = branch_ids.len(),
+            width = area.width,
             "chat.cache",
-            &[
-                libllm::debug_log::field("result", "hit"),
-                libllm::debug_log::field("message_count", branch_ids.len()),
-                libllm::debug_log::field("width", area.width),
-            ],
         );
     }
 
@@ -395,50 +391,30 @@ pub fn render_chat(
     let max_scroll = content_height.saturating_sub(visible_height);
 
     if scroll_dirty {
-        libllm::debug_log::timed_kv(
-            "scroll",
-            &[
-                libllm::debug_log::field("phase", "adjust"),
-                libllm::debug_log::field("dirty", scroll_dirty),
-                libllm::debug_log::field("auto", app.auto_scroll),
-            ],
-            || {
-                if app.auto_scroll {
-                    libllm::debug_log::log_kv(
-                        "chat.measure",
-                        &[
-                            libllm::debug_log::field("content_height", content_height),
-                            libllm::debug_log::field("visible_height", visible_height),
-                        ],
-                    );
+        {
+            let _span = tracing::trace_span!("scroll", phase = "adjust", dirty = scroll_dirty, auto = app.auto_scroll).entered();
+            if app.auto_scroll {
+                tracing::trace!(content_height, visible_height, "chat.measure");
+                *chat_scroll = max_scroll;
+            } else if let Some(cursor_line_idx) = nav_cursor_line {
+                let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
 
-                    *chat_scroll = max_scroll;
-                } else if let Some(cursor_line_idx) = nav_cursor_line {
-                    let wrapped_offset = measure_wrapped_offset(&lines, cursor_line_idx, area);
-
-                    if wrapped_offset < *chat_scroll {
-                        *chat_scroll = if wrapped_offset <= visible_height {
-                            0
-                        } else {
-                            wrapped_offset
-                        };
+                if wrapped_offset < *chat_scroll {
+                    *chat_scroll = if wrapped_offset <= visible_height {
+                        0
                     } else {
-                        let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
-                        let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
-                        if wrapped_end > *chat_scroll + visible_height {
-                            *chat_scroll = wrapped_offset;
-                        }
+                        wrapped_offset
+                    };
+                } else {
+                    let end_idx = nav_cursor_end.unwrap_or(cursor_line_idx + 1);
+                    let wrapped_end = measure_wrapped_offset(&lines, end_idx, area);
+                    if wrapped_end > *chat_scroll + visible_height {
+                        *chat_scroll = wrapped_offset;
                     }
                 }
-            },
-        );
-        libllm::debug_log::log_kv(
-            "scroll",
-            &[
-                libllm::debug_log::field("phase", "value"),
-                libllm::debug_log::field("value", *chat_scroll),
-            ],
-        );
+            }
+        }
+        tracing::trace!(phase = "value", value = *chat_scroll, "scroll");
     }
 
     *chat_scroll = (*chat_scroll).min(max_scroll);

@@ -4,18 +4,8 @@ use libllm::crypto::DerivedKey;
 use crate::tui::BackgroundEvent;
 
 fn log_phase(kind: &str, phase: &str, result: &str, elapsed: std::time::Duration) {
-    libllm::debug_log::log_kv(
-        "unlock.phase",
-        &[
-            libllm::debug_log::field("kind", kind),
-            libllm::debug_log::field("phase", phase),
-            libllm::debug_log::field("result", result),
-            libllm::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
-            ),
-        ],
-    );
+    let elapsed_ms = format!("{:.3}", elapsed.as_secs_f64() * 1000.0);
+    tracing::info!(kind, phase, result, elapsed_ms, "unlock.phase");
 }
 
 pub(super) fn log_phase_with_path(
@@ -25,19 +15,9 @@ pub(super) fn log_phase_with_path(
     elapsed: std::time::Duration,
     path: std::path::Display<'_>,
 ) {
-    libllm::debug_log::log_kv(
-        "unlock.phase",
-        &[
-            libllm::debug_log::field("kind", kind),
-            libllm::debug_log::field("phase", phase),
-            libllm::debug_log::field("result", result),
-            libllm::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
-            ),
-            libllm::debug_log::field("path", path),
-        ],
-    );
+    let elapsed_ms = format!("{:.3}", elapsed.as_secs_f64() * 1000.0);
+    let path = path.to_string();
+    tracing::info!(kind, phase, result, elapsed_ms, path, "unlock.phase");
 }
 
 fn log_phase_with_error(
@@ -46,19 +26,8 @@ fn log_phase_with_error(
     elapsed: std::time::Duration,
     error: &anyhow::Error,
 ) {
-    libllm::debug_log::log_kv(
-        "unlock.phase",
-        &[
-            libllm::debug_log::field("kind", kind),
-            libllm::debug_log::field("phase", phase),
-            libllm::debug_log::field("result", "error"),
-            libllm::debug_log::field(
-                "elapsed_ms",
-                format!("{:.3}", elapsed.as_secs_f64() * 1000.0),
-            ),
-            libllm::debug_log::field("error", error),
-        ],
-    );
+    let elapsed_ms = format!("{:.3}", elapsed.as_secs_f64() * 1000.0);
+    tracing::warn!(kind, phase, result = "error", elapsed_ms, error = %error, "unlock.phase");
 }
 
 pub(in crate::tui) fn derive_key_blocking<F>(

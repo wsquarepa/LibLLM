@@ -6,7 +6,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use clap::CommandFactory;
-use libllm::debug_log;
 
 use backup::index::{BackupEntry, BackupIndex, BackupType, load_index, parse_backup_filename, save_index};
 use backup::verify::verify_chain;
@@ -49,16 +48,7 @@ pub fn run_with_interactivity(
         None if interactive => "interactive",
         None => "help",
     };
-    debug_log::log_kv(
-        "recover.run",
-        &[
-            debug_log::field("phase", "start"),
-            debug_log::field("subcommand", subcommand),
-            debug_log::field("data_dir", data_dir.display()),
-            debug_log::field("has_passkey", passkey.is_some()),
-            debug_log::field("interactive", interactive),
-        ],
-    );
+    tracing::info!(phase = "start", subcommand = subcommand, data_dir = %data_dir.display(), has_passkey = passkey.is_some(), interactive = interactive, "recover.run");
     match command {
         Some(RecoverCommand::List) => cmd_list(data_dir),
         Some(RecoverCommand::Verify { full }) => cmd_verify(data_dir, passkey, *full),
@@ -79,10 +69,7 @@ fn print_recover_help() -> Result<()> {
 }
 
 fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
-    debug_log::log_kv(
-        "recover.interactive",
-        &[debug_log::field("phase", "start")],
-    );
+    tracing::debug!(phase = "start", "recover.interactive");
     const ITEMS: &[&str] = &[
         "Restore from backup",
         "Verify backups",
@@ -94,23 +81,11 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     loop {
         let choice = crate::interactive::select("What would you like to do?", ITEMS)?;
         let Some(index) = choice else {
-            debug_log::log_kv(
-                "recover.interactive",
-                &[
-                    debug_log::field("phase", "exit"),
-                    debug_log::field("reason", "cancelled"),
-                ],
-            );
+            tracing::debug!(phase = "exit", reason = "cancelled", "recover.interactive");
             return Ok(());
         };
 
-        debug_log::log_kv(
-            "recover.interactive",
-            &[
-                debug_log::field("phase", "action_selected"),
-                debug_log::field("action", ITEMS[index]),
-            ],
-        );
+        tracing::debug!(phase = "action_selected", action = ITEMS[index], "recover.interactive");
 
         match index {
             0 => {
@@ -134,13 +109,7 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
                 }
             }
             4 => {
-                debug_log::log_kv(
-                    "recover.interactive",
-                    &[
-                        debug_log::field("phase", "exit"),
-                        debug_log::field("reason", "quit"),
-                    ],
-                );
+                tracing::debug!(phase = "exit", reason = "quit", "recover.interactive");
                 return Ok(());
             }
             _ => unreachable!("select returned an out-of-range index"),
@@ -190,17 +159,17 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         return Ok(());
     };
 
-    debug_log::timed_result(
+    let entry_type_str = entry.entry_type.to_string();
+    libllm::timed_result!(
+        tracing::Level::INFO,
         "recover.restore",
-        &[
-            debug_log::field("id", entry.id.as_str()),
-            debug_log::field("entry_type", entry.entry_type.to_string()),
-            debug_log::field("plaintext_size", entry.plaintext_size),
-            debug_log::field("stored_size", entry.stored_size),
-            debug_log::field("encrypted", entry.encrypted),
-            debug_log::field("source", "interactive"),
-        ],
-        || restore_to_point(data_dir, &entry.id, passkey).map_err(anyhow::Error::from),
+        id = entry.id.as_str(),
+        entry_type = entry_type_str.as_str(),
+        plaintext_size = entry.plaintext_size,
+        stored_size = entry.stored_size,
+        encrypted = entry.encrypted,
+        source = "interactive" ;
+        { restore_to_point(data_dir, &entry.id, passkey).map_err(anyhow::Error::from) }
     )?;
 
     println!("Restore to '{}' completed successfully.", entry.id);
@@ -210,13 +179,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 fn cmd_list(data_dir: &Path) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
     let index = load_index(&index_path)?;
-    debug_log::log_kv(
-        "recover.list",
-        &[
-            debug_log::field("result", "ok"),
-            debug_log::field("entry_count", index.entries.len()),
-        ],
-    );
+    tracing::info!(result = "ok", entry_count = index.entries.len(), "recover.list");
 
     if index.entries.is_empty() {
         println!("No backup points found.");
@@ -245,23 +208,13 @@ fn cmd_list(data_dir: &Path) -> Result<()> {
 }
 
 fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> {
-    let result = debug_log::timed_result(
+    let result = libllm::timed_result!(
+        tracing::Level::INFO,
         "recover.verify",
-        &[debug_log::field("full", full)],
-        || verify_chain(data_dir, passkey, full).map_err(anyhow::Error::from),
+        full = full ;
+        { verify_chain(data_dir, passkey, full).map_err(anyhow::Error::from) }
     )?;
-    debug_log::log_kv(
-        "recover.verify",
-        &[
-            debug_log::field("phase", "summary"),
-            debug_log::field("checked_count", result.checked_count),
-            debug_log::field("error_count", result.errors.len()),
-            debug_log::field(
-                "result",
-                if result.errors.is_empty() { "ok" } else { "error" },
-            ),
-        ],
-    );
+    tracing::info!(phase = "summary", checked_count = result.checked_count, error_count = result.errors.len(), result = if result.errors.is_empty() { "ok" } else { "error" }, "recover.verify");
 
     println!("Checked {} backup(s).", result.checked_count);
 
@@ -301,45 +254,39 @@ fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> R
 
         if input.trim().to_lowercase() != "y" {
             println!("Aborted.");
-            debug_log::log_kv(
-                "recover.restore",
-                &[
-                    debug_log::field("phase", "aborted"),
-                    debug_log::field("id", id),
-                    debug_log::field("result", "skipped"),
-                ],
-            );
+            tracing::info!(phase = "aborted", id = id, result = "skipped", "recover.restore");
             return Ok(());
         }
     }
 
-    debug_log::timed_result(
+    let entry_type_str = entry.entry_type.to_string();
+    libllm::timed_result!(
+        tracing::Level::INFO,
         "recover.restore",
-        &[
-            debug_log::field("id", id),
-            debug_log::field("entry_type", entry.entry_type.to_string()),
-            debug_log::field("plaintext_size", entry.plaintext_size),
-            debug_log::field("stored_size", entry.stored_size),
-            debug_log::field("encrypted", entry.encrypted),
-        ],
-        || restore_to_point(data_dir, id, passkey).map_err(anyhow::Error::from),
+        id = id,
+        entry_type = entry_type_str.as_str(),
+        plaintext_size = entry.plaintext_size,
+        stored_size = entry.stored_size,
+        encrypted = entry.encrypted ;
+        { restore_to_point(data_dir, id, passkey).map_err(anyhow::Error::from) }
     )?;
     println!("Restore to '{id}' completed successfully.");
     Ok(())
 }
 
 fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
-    debug_log::timed_result("recover.rebuild_index", &[], || {
+    libllm::timed_result!(tracing::Level::INFO, "recover.rebuild_index", ; {
         let backups_dir = data_dir.join("backups");
 
         if !backups_dir.exists() {
             bail!("backups directory does not exist: {}", backups_dir.display());
         }
 
-        let backup_key = debug_log::timed_result(
+        let backup_key = libllm::timed_result!(
+            tracing::Level::INFO,
             "recover.resolve_backup_key",
-            &[debug_log::field("has_passkey", passkey.is_some())],
-            || backup::crypto::resolve_backup_key(data_dir, passkey).map_err(anyhow::Error::from),
+            has_passkey = passkey.is_some() ;
+            { backup::crypto::resolve_backup_key(data_dir, passkey).map_err(anyhow::Error::from) }
         )?;
 
         struct FileInfo {
@@ -429,16 +376,7 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             .filter(|e| matches!(e.entry_type, BackupType::Diff))
             .count();
         let encrypted_any = entries.iter().any(|e| e.encrypted);
-        debug_log::log_kv(
-            "recover.rebuild_index",
-            &[
-                debug_log::field("phase", "summary"),
-                debug_log::field("file_count", files.len()),
-                debug_log::field("base_count", base_count),
-                debug_log::field("diff_count", diff_count),
-                debug_log::field("encrypted", encrypted_any),
-            ],
-        );
+        tracing::info!(phase = "summary", file_count = files.len(), base_count = base_count, diff_count = diff_count, encrypted = encrypted_any, "recover.rebuild_index");
 
         let rebuilt = BackupIndex { version: 1, entries };
         let index_path = backups_dir.join("index.json");

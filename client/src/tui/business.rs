@@ -108,24 +108,18 @@ pub fn load_runtime_worldbooks(
     enabled: &[String],
     db: Option<&Database>,
 ) -> Vec<RuntimeWorldBook> {
-    libllm::debug_log::timed_kv(
-        "worldbook.runtime",
-        &[
-            libllm::debug_log::field("phase", "hydrate"),
-            libllm::debug_log::field("enabled_count", enabled.len()),
-        ],
-        || {
-            let Some(db) = db else { return Vec::new() };
-            enabled
-                .iter()
-                .filter_map(|wb_name| {
-                    db.load_worldbook(wb_name)
-                        .ok()
-                        .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
-                })
-                .collect()
-        },
-    )
+    {
+        let _span = tracing::info_span!("worldbook.runtime", phase = "hydrate", enabled_count = enabled.len()).entered();
+        let Some(db) = db else { return Vec::new() };
+        enabled
+            .iter()
+            .filter_map(|wb_name| {
+                db.load_worldbook(wb_name)
+                    .ok()
+                    .map(|wb| RuntimeWorldBook::from_worldbook(&wb))
+            })
+            .collect()
+    }
 }
 
 /// Scans all loaded worldbooks against recent messages and injects activated entries as system
@@ -718,13 +712,9 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) ->
         SaveMode::None => "none",
         SaveMode::PendingPasskey { .. } => "pending_passkey",
     };
-    let mut sessions = libllm::debug_log::timed_kv(
-        "startup.phase",
-        &[
-            libllm::debug_log::field("phase", "sidebar_population"),
-            libllm::debug_log::field("mode", mode),
-        ],
-        || match save_mode {
+    let mut sessions = {
+        let _span = tracing::info_span!("startup.phase", phase = "sidebar_population", mode).entered();
+        match save_mode {
             SaveMode::Database { .. } => {
                 let Some(db) = db else { return Vec::new() };
                 match db.list_sessions() {
@@ -747,8 +737,8 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) ->
                 }
             }
             SaveMode::None | SaveMode::PendingPasskey { .. } => Vec::new(),
-        },
-    );
+        }
+    };
     sessions.insert(0, new_chat_entry());
     prepare_sidebar_entries(&mut sessions);
     sessions

@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use libllm::character;
 use libllm::db::Database;
-use libllm::debug_log;
 
 pub enum ImportType {
     Character,
@@ -83,14 +82,14 @@ pub fn import_single_file(
         ImportType::SystemPrompt => "prompt",
     };
     let file_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    debug_log::timed_result(
+    let path_str = path.display().to_string();
+    libllm::timed_result!(
+        tracing::Level::INFO,
         "import.file",
-        &[
-            debug_log::field("kind", kind),
-            debug_log::field("path", path.display()),
-            debug_log::field("bytes", file_bytes),
-        ],
-        || match import_type {
+        kind = kind,
+        path = path_str.as_str(),
+        bytes = file_bytes ;
+        { match import_type {
             ImportType::Character => {
                 let card = character::import_card(path)?;
                 let slug = character::slugify(&card.name);
@@ -147,7 +146,7 @@ pub fn import_single_file(
                 db.insert_prompt(&slug, &prompt, false)?;
                 Ok(format!("Imported system prompt: \"{}\" ({})", name, slug))
             }
-        },
+        } }
     )
 }
 
@@ -211,14 +210,7 @@ pub fn handle_import_command(
         anyhow::bail!("No files specified. Usage: libllm import <file>...");
     }
 
-    debug_log::log_kv(
-        "import.run",
-        &[
-            debug_log::field("phase", "start"),
-            debug_log::field("file_count", files.len()),
-            debug_log::field("explicit_kind", kind.is_some()),
-        ],
-    );
+    tracing::info!(phase = "start", file_count = files.len(), explicit_kind = kind.is_some(), "import.run");
 
     let mut had_errors = false;
     let mut success_count = 0usize;
@@ -227,28 +219,14 @@ pub fn handle_import_command(
     for file in files {
         if !file.exists() {
             eprintln!("Error: {}: file not found", file.display());
-            debug_log::log_kv(
-                "import.file",
-                &[
-                    debug_log::field("result", "error"),
-                    debug_log::field("reason", "not_found"),
-                    debug_log::field("path", file.display()),
-                ],
-            );
+            tracing::warn!(result = "error", reason = "not_found", path = %file.display(), "import.file");
             had_errors = true;
             error_count += 1;
             continue;
         }
         if !file.is_file() {
             eprintln!("Error: {}: not a regular file", file.display());
-            debug_log::log_kv(
-                "import.file",
-                &[
-                    debug_log::field("result", "error"),
-                    debug_log::field("reason", "not_a_file"),
-                    debug_log::field("path", file.display()),
-                ],
-            );
+            tracing::warn!(result = "error", reason = "not_a_file", path = %file.display(), "import.file");
             had_errors = true;
             error_count += 1;
             continue;
@@ -268,30 +246,14 @@ pub fn handle_import_command(
             },
             Err(e) => {
                 eprintln!("Error: {e}");
-                debug_log::log_kv(
-                    "import.detect",
-                    &[
-                        debug_log::field("result", "error"),
-                        debug_log::field("path", file.display()),
-                        debug_log::field("error", &e),
-                    ],
-                );
+                tracing::warn!(result = "error", path = %file.display(), err = %e, "import.detect");
                 had_errors = true;
                 error_count += 1;
             }
         }
     }
 
-    debug_log::log_kv(
-        "import.run",
-        &[
-            debug_log::field("phase", "complete"),
-            debug_log::field("file_count", files.len()),
-            debug_log::field("success_count", success_count),
-            debug_log::field("error_count", error_count),
-            debug_log::field("result", if had_errors { "error" } else { "ok" }),
-        ],
-    );
+    tracing::info!(phase = "complete", file_count = files.len(), success_count = success_count, error_count = error_count, result = if had_errors { "error" } else { "ok" }, "import.run");
 
     if had_errors {
         anyhow::bail!("Some imports failed.");

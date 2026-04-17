@@ -12,13 +12,7 @@ pub(super) fn spawn_startup_maintenance(
         SaveMode::Database { .. } => {
             if let Some(ref db) = app.db {
                 if let Err(e) = db.ensure_builtin_prompts() {
-                    libllm::debug_log::log_kv(
-                        "maintenance.warning",
-                        &[
-                            libllm::debug_log::field("phase", "ensure_builtins"),
-                            libllm::debug_log::field("error", &e),
-                        ],
-                    );
+                    tracing::warn!(phase = "ensure_builtins", error = %e, "maintenance.warning");
                 }
             }
         }

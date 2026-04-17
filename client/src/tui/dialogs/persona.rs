@@ -95,13 +95,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
                     let mut cfg = libllm::config::load();
                     cfg.default_persona = Some(slug.clone());
                     if let Err(e) = libllm::config::save(&cfg) {
-                        libllm::debug_log::log_kv(
-                            "config.default_persona",
-                            &[
-                                libllm::debug_log::field("result", "error"),
-                                libllm::debug_log::field("error", &e),
-                            ],
-                        );
+                        tracing::warn!(result = "error", error = %e, "config.default_persona");
                     }
 
                     app.set_status(

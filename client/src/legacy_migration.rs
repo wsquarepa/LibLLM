@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use std::io::{self, IsTerminal, Write};
 use libllm::config;
-use libllm::debug_log;
 use crate::update;
 
 const LEGACY_DIRS: [&str; 5] = ["sessions", "characters", "worldinfo", "system", "personas"];
@@ -14,15 +13,7 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
     let db_exists = db_path.exists();
 
     if db_exists {
-        debug_log::log_kv(
-            "legacy.migration",
-            &[
-                debug_log::field("phase", "check"),
-                debug_log::field("result", "skipped"),
-                debug_log::field("reason", "db_present"),
-                debug_log::field("db_exists", true),
-            ],
-        );
+        tracing::debug!(phase = "check", result = "skipped", reason = "db_present", db_exists = true, "legacy.migration");
         return Ok(());
     }
 
@@ -38,25 +29,10 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         .count();
     let has_legacy = legacy_dirs_found > 0;
 
-    debug_log::log_kv(
-        "legacy.migration",
-        &[
-            debug_log::field("phase", "check"),
-            debug_log::field("db_exists", db_exists),
-            debug_log::field("has_legacy", has_legacy),
-            debug_log::field("legacy_dirs_found", legacy_dirs_found),
-        ],
-    );
+    tracing::debug!(phase = "check", db_exists = db_exists, has_legacy = has_legacy, legacy_dirs_found = legacy_dirs_found, "legacy.migration");
 
     if !has_legacy {
-        debug_log::log_kv(
-            "legacy.migration",
-            &[
-                debug_log::field("phase", "skipped"),
-                debug_log::field("result", "skipped"),
-                debug_log::field("reason", "no_legacy_data"),
-            ],
-        );
+        tracing::debug!(phase = "skipped", result = "skipped", reason = "no_legacy_data", "legacy.migration");
         return Ok(());
     }
 
@@ -77,14 +53,7 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         .map(|d| d.join(migrate_name))
         .filter(|p| p.exists());
 
-    debug_log::log_kv(
-        "legacy.migration",
-        &[
-            debug_log::field("phase", "locate_utility"),
-            debug_log::field("found", migrate_path.is_some()),
-            debug_log::field("channel", update::CHANNEL),
-        ],
-    );
+    tracing::debug!(phase = "locate_utility", found = migrate_path.is_some(), channel = update::CHANNEL, "legacy.migration");
 
     let (migrate_path, was_downloaded) = if let Some(path) = migrate_path {
         (path, false)
@@ -115,16 +84,7 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         let mut answer = String::new();
         stdin.read_line(&mut answer)?;
         let accepted = answer.trim().is_empty() || answer.trim().eq_ignore_ascii_case("y");
-        debug_log::log_kv(
-            "legacy.migration",
-            &[
-                debug_log::field("phase", "prompt_download"),
-                debug_log::field(
-                    "result",
-                    if accepted { "accepted" } else { "declined" },
-                ),
-            ],
-        );
+        tracing::debug!(phase = "prompt_download", result = if accepted { "accepted" } else { "declined" }, "legacy.migration");
         if !accepted {
             anyhow::bail!("Migration required. Cannot continue without migrating data.");
         }
@@ -149,42 +109,23 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         cmd.arg("--passkey").arg(passkey);
     }
 
-    let status = debug_log::timed_result(
+    let migrate_path_str = migrate_path.display().to_string();
+    let status = libllm::timed_result!(
+        tracing::Level::INFO,
         "legacy.migration.run",
-        &[
-            debug_log::field("path", migrate_path.display()),
-            debug_log::field("no_encrypt", no_encrypt),
-            debug_log::field("has_passkey", passkey.is_some()),
-        ],
-        || cmd.status().context("failed to run migration utility"),
+        path = migrate_path_str.as_str(),
+        no_encrypt = no_encrypt,
+        has_passkey = passkey.is_some() ;
+        { cmd.status().context("failed to run migration utility") }
     )?;
 
     if was_downloaded {
         let removed = std::fs::remove_file(&migrate_path).is_ok();
-        debug_log::log_kv(
-            "legacy.migration",
-            &[
-                debug_log::field("phase", "cleanup"),
-                debug_log::field("was_downloaded", true),
-                debug_log::field("removed", removed),
-            ],
-        );
+        tracing::debug!(phase = "cleanup", was_downloaded = true, removed = removed, "legacy.migration");
     }
 
-    debug_log::log_kv(
-        "legacy.migration.run",
-        &[
-            debug_log::field("phase", "exit"),
-            debug_log::field(
-                "exit_code",
-                status.code().map(|c| c.to_string()).unwrap_or_else(|| "none".to_owned()),
-            ),
-            debug_log::field(
-                "result",
-                if status.success() { "ok" } else { "error" },
-            ),
-        ],
-    );
+    let exit_code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "none".to_owned());
+    tracing::info!(phase = "exit", exit_code = exit_code.as_str(), result = if status.success() { "ok" } else { "error" }, "legacy.migration.run");
 
     if !status.success() {
         anyhow::bail!(
@@ -234,15 +175,7 @@ async fn download_migrate_binary(dest: &std::path::Path) -> Result<()> {
     if !resp.status().is_success() {
         let status = resp.status();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        debug_log::log_kv(
-            "legacy.migration.download",
-            &[
-                debug_log::field("asset", &asset.name),
-                debug_log::field("result", "error"),
-                debug_log::field("status", status.as_u16()),
-                debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-            ],
-        );
+        tracing::warn!(asset = asset.name.as_str(), result = "error", status = status.as_u16(), elapsed_ms = elapsed_ms, "legacy.migration.download");
         anyhow::bail!("download failed with status {status}");
     }
 
@@ -257,16 +190,7 @@ async fn download_migrate_binary(dest: &std::path::Path) -> Result<()> {
     }
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    debug_log::log_kv(
-        "legacy.migration.download",
-        &[
-            debug_log::field("asset", &asset.name),
-            debug_log::field("result", "ok"),
-            debug_log::field("bytes", bytes.len()),
-            debug_log::field("dest", dest.display()),
-            debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-        ],
-    );
+    tracing::info!(asset = asset.name.as_str(), result = "ok", bytes = bytes.len(), dest = %dest.display(), elapsed_ms = elapsed_ms, "legacy.migration.download");
 
     eprintln!("Saved to {}", dest.display());
     Ok(())

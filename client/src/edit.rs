@@ -5,7 +5,6 @@ use std::io::Write;
 use libllm::character;
 use libllm::config;
 use libllm::db::Database;
-use libllm::debug_log;
 
 pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> {
     let slug = character::slugify(name);
@@ -14,14 +13,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
         "worldbook" | "book" | "wb" => "worldbook",
         _ => "unknown",
     };
-    debug_log::log_kv(
-        "edit.run",
-        &[
-            debug_log::field("phase", "start"),
-            debug_log::field("kind", normalized_kind),
-            debug_log::field("slug", &slug),
-        ],
-    );
+    tracing::debug!(phase = "start", kind = normalized_kind, slug = slug.as_str(), "edit.run");
 
     let json_content = match kind {
         "character" | "char" => {
@@ -48,68 +40,32 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
     let mut file = opts.open(&temp_path)?;
     file.write_all(json_content.as_bytes())?;
     drop(file);
-    debug_log::log_kv(
-        "edit.temp_file",
-        &[
-            debug_log::field("phase", "write"),
-            debug_log::field("result", "ok"),
-            debug_log::field("path", temp_path.display()),
-            debug_log::field("bytes", json_content.len()),
-        ],
-    );
+    tracing::debug!(phase = "write", result = "ok", path = %temp_path.display(), bytes = json_content.len(), "edit.temp_file");
 
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_owned());
-    let status = debug_log::timed_result(
+    let status = libllm::timed_result!(
+        tracing::Level::INFO,
         "edit.editor",
-        &[debug_log::field("editor", &editor)],
-        || {
+        editor = editor.as_str() ;
+        {
             std::process::Command::new(&editor)
                 .arg(&temp_path)
                 .status()
                 .map_err(anyhow::Error::from)
-        },
+        }
     )?;
 
     if !status.success() {
-        debug_log::log_kv(
-            "edit.editor",
-            &[
-                debug_log::field("phase", "exit"),
-                debug_log::field("result", "error"),
-                debug_log::field(
-                    "exit_code",
-                    status.code().map(|c| c.to_string()).unwrap_or_else(|| "none".to_owned()),
-                ),
-            ],
-        );
+        let exit_code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "none".to_owned());
+        tracing::warn!(phase = "exit", result = "error", exit_code = exit_code.as_str(), "edit.editor");
         let cleanup = std::fs::remove_file(&temp_path);
-        debug_log::log_kv(
-            "edit.temp_file",
-            &[
-                debug_log::field("phase", "cleanup"),
-                debug_log::field(
-                    "result",
-                    if cleanup.is_ok() { "ok" } else { "error" },
-                ),
-                debug_log::field("path", temp_path.display()),
-            ],
-        );
+        tracing::debug!(phase = "cleanup", result = if cleanup.is_ok() { "ok" } else { "error" }, path = %temp_path.display(), "edit.temp_file");
         anyhow::bail!("Editor exited with non-zero status");
     }
 
     let edited = std::fs::read_to_string(&temp_path)?;
     let cleanup = std::fs::remove_file(&temp_path);
-    debug_log::log_kv(
-        "edit.temp_file",
-        &[
-            debug_log::field("phase", "cleanup"),
-            debug_log::field(
-                "result",
-                if cleanup.is_ok() { "ok" } else { "error" },
-            ),
-            debug_log::field("path", temp_path.display()),
-        ],
-    );
+    tracing::debug!(phase = "cleanup", result = if cleanup.is_ok() { "ok" } else { "error" }, path = %temp_path.display(), "edit.temp_file");
 
     match kind {
         "character" | "char" => {
@@ -126,18 +82,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
                 db.insert_character(&new_slug, &card)?;
                 "insert"
             };
-            debug_log::log_kv(
-                "edit.save",
-                &[
-                    debug_log::field("kind", "character"),
-                    debug_log::field("slug", &slug),
-                    debug_log::field("new_slug", &new_slug),
-                    debug_log::field("renamed", new_slug != slug),
-                    debug_log::field("operation", operation),
-                    debug_log::field("bytes", edited.len()),
-                    debug_log::field("result", "ok"),
-                ],
-            );
+            tracing::info!(kind = "character", slug = slug.as_str(), new_slug = new_slug.as_str(), renamed = new_slug != slug, operation = operation, bytes = edited.len(), result = "ok", "edit.save");
             eprintln!("Saved character: {}", card.name);
         }
         "worldbook" | "book" | "wb" => {
@@ -154,18 +99,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
                 db.insert_worldbook(&new_slug, &wb)?;
                 "insert"
             };
-            debug_log::log_kv(
-                "edit.save",
-                &[
-                    debug_log::field("kind", "worldbook"),
-                    debug_log::field("slug", &slug),
-                    debug_log::field("new_slug", &new_slug),
-                    debug_log::field("renamed", new_slug != slug),
-                    debug_log::field("operation", operation),
-                    debug_log::field("bytes", edited.len()),
-                    debug_log::field("result", "ok"),
-                ],
-            );
+            tracing::info!(kind = "worldbook", slug = slug.as_str(), new_slug = new_slug.as_str(), renamed = new_slug != slug, operation = operation, bytes = edited.len(), result = "ok", "edit.save");
             eprintln!("Saved worldbook: {}", wb.name);
         }
         _ => unreachable!(),

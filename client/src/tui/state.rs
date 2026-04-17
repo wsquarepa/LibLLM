@@ -107,14 +107,12 @@ impl App<'_> {
         if self.autosave_debug.dirty_since.is_none() {
             self.autosave_debug.dirty_since = Some(std::time::Instant::now());
         }
-        libllm::debug_log::log_kv(
+        tracing::debug!(
+            phase = "schedule",
+            trigger = trigger.as_str(),
+            persistable = self.can_persist_session(),
+            session_dirty = self.session_dirty,
             "autosave",
-            &[
-                libllm::debug_log::field("phase", "schedule"),
-                libllm::debug_log::field("trigger", trigger.as_str()),
-                libllm::debug_log::field("persistable", self.can_persist_session()),
-                libllm::debug_log::field("session_dirty", self.session_dirty),
-            ],
         );
     }
 
@@ -127,15 +125,13 @@ impl App<'_> {
 
     pub(super) fn flush_session_save(&mut self, trigger: SaveTrigger) -> Result<()> {
         if !self.session_dirty || !self.can_persist_session() {
-            libllm::debug_log::log_kv(
+            tracing::debug!(
+                phase = "flush",
+                trigger = trigger.as_str(),
+                result = "skipped",
+                session_dirty = self.session_dirty,
+                persistable = self.can_persist_session(),
                 "autosave",
-                &[
-                    libllm::debug_log::field("phase", "flush"),
-                    libllm::debug_log::field("trigger", trigger.as_str()),
-                    libllm::debug_log::field("result", "skipped"),
-                    libllm::debug_log::field("session_dirty", self.session_dirty),
-                    libllm::debug_log::field("persistable", self.can_persist_session()),
-                ],
             );
             return Ok(());
         }
@@ -150,29 +146,21 @@ impl App<'_> {
         let result = self.session.maybe_save(&self.save_mode, self.db.as_mut());
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
+        let elapsed_ms_str = format!("{elapsed_ms:.3}");
+        let dirty_elapsed_ms_str = dirty_elapsed_ms.map(|ms| format!("{ms:.3}"));
         match result {
             Ok(()) => {
                 self.autosave_debug.save_count += 1;
-                let mut fields = vec![
-                    libllm::debug_log::field("phase", "flush"),
-                    libllm::debug_log::field("trigger", trigger.as_str()),
-                    libllm::debug_log::field("result", "ok"),
-                    libllm::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                ];
-                if let Some(ref sid) = session_id {
-                    fields.push(libllm::debug_log::field("session_id", sid));
-                }
-                if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
-                    fields.push(libllm::debug_log::field(
-                        "dirty_elapsed_ms",
-                        format!("{dirty_elapsed_ms:.3}"),
-                    ));
-                }
-                fields.push(libllm::debug_log::field(
-                    "save_count",
-                    self.autosave_debug.save_count,
-                ));
-                libllm::debug_log::log_kv("autosave", &fields);
+                tracing::debug!(
+                    phase = "flush",
+                    trigger = trigger.as_str(),
+                    result = "ok",
+                    elapsed_ms = elapsed_ms_str,
+                    session_id = session_id.as_deref(),
+                    dirty_elapsed_ms = dirty_elapsed_ms_str.as_deref(),
+                    save_count = self.autosave_debug.save_count,
+                    "autosave",
+                );
                 self.discard_pending_session_save();
                 Ok(())
             }
@@ -180,28 +168,18 @@ impl App<'_> {
                 self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_RETRY_DELAY);
                 self.pending_save_trigger = Some(SaveTrigger::Retry);
                 self.autosave_debug.retry_count += 1;
-                let mut fields = vec![
-                    libllm::debug_log::field("phase", "flush"),
-                    libllm::debug_log::field("trigger", trigger.as_str()),
-                    libllm::debug_log::field("result", "error"),
-                    libllm::debug_log::field("elapsed_ms", format!("{elapsed_ms:.3}")),
-                    libllm::debug_log::field("retry_delay_ms", AUTOSAVE_RETRY_DELAY.as_millis()),
-                    libllm::debug_log::field("error", &err),
-                ];
-                if let Some(ref sid) = session_id {
-                    fields.push(libllm::debug_log::field("session_id", sid));
-                }
-                if let Some(dirty_elapsed_ms) = dirty_elapsed_ms {
-                    fields.push(libllm::debug_log::field(
-                        "dirty_elapsed_ms",
-                        format!("{dirty_elapsed_ms:.3}"),
-                    ));
-                }
-                fields.push(libllm::debug_log::field(
-                    "retry_count",
-                    self.autosave_debug.retry_count,
-                ));
-                libllm::debug_log::log_kv("autosave", &fields);
+                tracing::warn!(
+                    phase = "flush",
+                    trigger = trigger.as_str(),
+                    result = "error",
+                    elapsed_ms = elapsed_ms_str,
+                    retry_delay_ms = AUTOSAVE_RETRY_DELAY.as_millis(),
+                    error = %err,
+                    session_id = session_id.as_deref(),
+                    dirty_elapsed_ms = dirty_elapsed_ms_str.as_deref(),
+                    retry_count = self.autosave_debug.retry_count,
+                    "autosave",
+                );
                 Err(err)
             }
         }

@@ -326,7 +326,7 @@ impl ApiClient {
                 return Err(err);
             }
         };
-        let content = json["content"].as_str().unwrap_or_default().to_owned();
+        let content = json["choices"][0]["text"].as_str().unwrap_or_default().to_owned();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         tracing::info!(
             phase = "done",

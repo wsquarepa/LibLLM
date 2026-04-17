@@ -1,6 +1,7 @@
 //! SQLite/SQLCipher database layer with CRUD operations for all persistent entities.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -23,6 +24,34 @@ mod worldbooks;
 pub use prompts::PromptListEntry;
 pub use schema::CURRENT_VERSION;
 pub use sessions::SessionListEntry;
+
+static CIPHER_LOG_SUPPRESSED: OnceLock<()> = OnceLock::new();
+
+/// Silence SQLCipher's default stderr diagnostics for this process.
+///
+/// SQLCipher writes ERROR/WARN-level messages (e.g. `hmac check failed` on
+/// wrong-passkey attempts) to `stderr` through its own log sink, independent
+/// of SQLite's `sqlite3_log` callback. In the TUI that corrupts the screen.
+/// The log target is a process-wide static, so a single `PRAGMA cipher_log`
+/// on any connection silences every subsequent SQLCipher operation.
+///
+/// Idempotent; only the first call performs the PRAGMA.
+pub fn suppress_sqlcipher_log() {
+    CIPHER_LOG_SUPPRESSED.get_or_init(|| {
+        let result = Connection::open_in_memory()
+            .and_then(|conn| conn.execute_batch("PRAGMA cipher_log = off;"));
+        if let Err(err) = result {
+            debug_log::log_kv(
+                "sqlcipher.log",
+                &[
+                    debug_log::field("phase", "suppress"),
+                    debug_log::field("status", "error"),
+                    debug_log::field("error", err),
+                ],
+            );
+        }
+    });
+}
 
 fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Result<Vec<(String, String)>> {
     let err_owned = err_context.to_owned();
@@ -48,6 +77,7 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &Path, key: Option<&DerivedKey>) -> Result<Self> {
+        suppress_sqlcipher_log();
         let encrypted = key.is_some();
         debug_log::timed_result(
             "db.open",

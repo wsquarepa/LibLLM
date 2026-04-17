@@ -25,6 +25,7 @@ pub struct DbContext {
 }
 
 pub fn dispatch(args: &Args, command: &DbSubcommand) -> Result<()> {
+    libllm::db::suppress_sqlcipher_log();
     let ctx = resolve_context(args)?;
     match command {
         DbSubcommand::Sql {

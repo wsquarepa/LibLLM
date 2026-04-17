@@ -206,10 +206,6 @@ impl MessageTree {
         }
     }
 
-    #[cfg(not(debug_assertions))]
-    #[allow(dead_code)]
-    fn bump_cache_hit(&self, _: &'static str, _: &()) {}
-
     fn validate_preferred_children(&mut self) {
         let nodes = &self.nodes;
         self.preferred_child.retain(|&parent_id, child_id| {

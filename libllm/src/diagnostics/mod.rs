@@ -38,8 +38,8 @@ pub struct CleanupSummary {
 pub struct DiagnosticsGuard;
 
 struct DiagnosticsState {
-    debug_path: PathBuf,
-    debug_file: Mutex<File>,
+    debug_path: Option<PathBuf>,
+    debug_file: Option<Mutex<File>>,
     timing_layer_finalizer: Option<Box<dyn Fn() -> Result<()> + Send + Sync>>,
 }
 
@@ -48,7 +48,9 @@ static DIAGNOSTICS: OnceLock<DiagnosticsState> = OnceLock::new();
 impl Drop for DiagnosticsGuard {
     fn drop(&mut self) {
         let Some(state) = DIAGNOSTICS.get() else { return };
-        if let Ok(mut file) = state.debug_file.lock() {
+        if let Some(file) = state.debug_file.as_ref()
+            && let Ok(mut file) = file.lock()
+        {
             let _ = file.flush();
         }
         if let Some(finalize) = state.timing_layer_finalizer.as_ref()
@@ -77,7 +79,17 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
     let debug_opted_in = params.debug_override.is_some();
     let filter = resolve_filter(params.filter_flag, params.filter_env, debug_opted_in);
 
-    let (debug_path, mut debug_file) = open_debug_file(params.debug_override)?;
+    let needs_log_file = params.debug_override.is_some() || params.timings_path.is_some();
+    let log_file_result = if needs_log_file {
+        Some(open_debug_file(params.debug_override)?)
+    } else {
+        None
+    };
+
+    let debug_log_path_display = log_file_result
+        .as_ref()
+        .map(|(p, _)| p.display().to_string())
+        .unwrap_or_else(|| "disabled".to_owned());
 
     let wall_clock = format_wall_clock(local_now());
     let system = collect_system();
@@ -94,7 +106,7 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
         executable,
         working_dir,
         cli_args: params.cli_args,
-        debug_log_path: debug_path.display().to_string(),
+        debug_log_path: debug_log_path_display,
         timings_path: params
             .timings_path
             .map(|p| p.display().to_string())
@@ -103,20 +115,24 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
         filter_source: filter.source.to_owned(),
     };
 
-    let banner_text = render(&BannerContext {
-        build: &params.build,
-        system: &system,
-        terminal: &terminal,
-        runtime: &runtime,
-        wall_clock: &wall_clock,
-    });
-    debug_file
-        .write_all(banner_text.as_bytes())
-        .with_context(|| format!("failed to write banner to {}", debug_path.display()))?;
-    debug_file.flush()?;
-
     let start = Instant::now();
-    let file_layer = FileLayer::new(start, debug_file.try_clone()?);
+    let (debug_path, debug_file, file_layer) = match log_file_result {
+        Some((path, mut file)) => {
+            let banner_text = render(&BannerContext {
+                build: &params.build,
+                system: &system,
+                terminal: &terminal,
+                runtime: &runtime,
+                wall_clock: &wall_clock,
+            });
+            file.write_all(banner_text.as_bytes())
+                .with_context(|| format!("failed to write banner to {}", path.display()))?;
+            file.flush()?;
+            let layer = FileLayer::new(start, file.try_clone()?);
+            (Some(path), Some(file), Some(layer))
+        }
+        None => (None, None, None),
+    };
 
     let (timing_layer, timing_finalizer) = match params.timings_path {
         Some(path) => {
@@ -125,7 +141,7 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
                 params.run_mode,
             )));
             let layer = TimingLayer::new(Arc::clone(&collector));
-            let finalizer_path = debug_path.clone();
+            let finalizer_path = debug_path.clone().unwrap_or_default();
             let finalizer: Box<dyn Fn() -> Result<()> + Send + Sync> = Box::new(move || {
                 let mut c = collector.lock().unwrap_or_else(|p| p.into_inner());
                 c.write_report(&finalizer_path)
@@ -139,8 +155,8 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
         .with_context(|| format!("invalid filter directive: {}", filter.directive))?;
 
     let state = DiagnosticsState {
-        debug_path: debug_path.clone(),
-        debug_file: Mutex::new(debug_file),
+        debug_path,
+        debug_file: debug_file.map(Mutex::new),
         timing_layer_finalizer: timing_finalizer,
     };
     DIAGNOSTICS
@@ -191,14 +207,16 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
     let Some(state) = DIAGNOSTICS.get() else {
         anyhow::bail!("diagnostics are not initialized");
     };
-    if let Ok(mut file) = state.debug_file.lock() {
+    let Some(ref debug_path) = state.debug_path else {
+        anyhow::bail!("no debug log file is active (run with --debug or --timings to enable)");
+    };
+    if let Some(ref file) = state.debug_file
+        && let Ok(mut file) = file.lock()
+    {
         let _ = file.flush();
     }
-    let mut source = File::open(&state.debug_path).with_context(|| {
-        format!(
-            "failed to open active debug log at {}",
-            state.debug_path.display()
-        )
+    let mut source = File::open(debug_path).with_context(|| {
+        format!("failed to open active debug log at {}", debug_path.display())
     })?;
     let mut destination = OpenOptions::new()
         .write(true)
@@ -209,6 +227,8 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
     std::io::copy(&mut source, &mut destination)
         .with_context(|| format!("failed to copy debug log to {}", path.display()))?;
     destination.flush()?;
+    crate::crypto::chmod_0600(path)
+        .with_context(|| format!("failed to set permissions on {}", path.display()))?;
     Ok(())
 }
 

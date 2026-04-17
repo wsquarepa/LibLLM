@@ -28,6 +28,7 @@ use session::{Message, Role, SaveMode};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    libllm::crypto_provider::install_default_crypto_provider();
     let args = Args::parse();
 
     if args.cleanup {

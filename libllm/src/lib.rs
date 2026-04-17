@@ -7,6 +7,7 @@ pub mod commands;
 pub mod config;
 pub mod context;
 pub mod crypto;
+pub mod crypto_provider;
 pub mod debug_log;
 pub mod export;
 pub mod migration;

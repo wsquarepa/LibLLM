@@ -44,6 +44,7 @@ impl ApiClient {
     ///
     /// When `tls_skip_verify` is true, TLS certificate validation is disabled.
     pub fn new(base_url: &str, tls_skip_verify: bool) -> Self {
+        crate::crypto_provider::install_default_crypto_provider();
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(tls_skip_verify)
             .build()

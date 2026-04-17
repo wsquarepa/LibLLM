@@ -96,6 +96,7 @@ fn github_token() -> Option<String> {
 }
 
 pub fn build_client() -> Result<reqwest::Client> {
+    libllm::crypto_provider::install_default_crypto_provider();
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT,

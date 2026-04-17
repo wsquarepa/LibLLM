@@ -15,7 +15,8 @@ time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 argon2 = "0.5"
 rand = "0.9"
 zeroize = { version = "1.8.2", features = ["derive"] }
-reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls", "charset", "http2", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls-no-provider", "charset", "http2", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
 sysinfo = "0.38"

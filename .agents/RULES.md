@@ -17,6 +17,12 @@ cargo test --workspace
 
 CI runs `cargo test --workspace` on all pushes and PRs. Run tests locally before submitting changes.
 
+### Builds take time -- run them in the background
+
+`cargo build --workspace` and `cargo test --workspace` typically take 1 to 5+ minutes on a cold build. Do **not** run them synchronously in the foreground -- start them with `run_in_background: true` (or equivalent), then wait patiently for the completion notification before proceeding. Never poll, re-run, or kick off a second build while one is in flight; duplicate builds burn CPU and block the first one on lock contention.
+
+After the background task completes, read the output file to check for errors and warnings. A clean run produces no `error:` or `warning:` lines.
+
 ### Test suites
 
 Integration tests live in `client/tests/` across six files: `core_data`, `content_management`, `request_pipeline`, `infrastructure`, `tui_business`, `smoke`. Unit tests live in `libllm/src/db/` sub-modules. Shared helpers are in `client/tests/common/mod.rs`.

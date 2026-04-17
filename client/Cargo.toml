@@ -27,3 +27,6 @@ chrono = { version = "0.4", features = ["serde"] }
 libllm = { path = "../libllm", features = ["test-support"] }
 tempfile = "3.27.0"
 toml = "1.1.0"
+
+[lints]
+workspace = true

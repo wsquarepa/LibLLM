@@ -195,7 +195,7 @@ pub fn resolve_theme(config: &Config) -> Theme {
 pub fn parse_color(s: &str) -> Option<Color> {
     let s = s.trim();
     if let Some(hex) = s.strip_prefix('#') {
-        if hex.len() == 6 {
+        if hex.is_ascii() && hex.len() == 6 {
             let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
             let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
             let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
@@ -267,6 +267,13 @@ mod tests {
         assert_eq!(parse_color("#12345"), None);
         assert_eq!(parse_color("indexed(abc)"), None);
         assert_eq!(parse_color(""), None);
+    }
+
+    #[test]
+    fn parse_color_non_ascii_hex_returns_none() {
+        // "àáâ" encodes as 6 UTF-8 bytes but contains 3 non-ASCII chars.
+        // Byte-index slicing would panic; the ASCII guard must reject it.
+        assert_eq!(parse_color("#àáâ"), None);
     }
 
     #[test]

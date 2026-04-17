@@ -21,6 +21,7 @@ mod sessions;
 mod worldbooks;
 
 pub use prompts::PromptListEntry;
+pub use schema::CURRENT_VERSION;
 pub use sessions::SessionListEntry;
 
 fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Result<Vec<(String, String)>> {
@@ -32,6 +33,12 @@ fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Res
         })
         .with_context(|| err_owned.clone())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
+}
+
+/// Result set returned by `Database::execute_query`.
+pub struct QueryRows {
+    pub headers: Vec<String>,
+    pub rows: Vec<Vec<rusqlite::types::Value>>,
 }
 
 /// Handle to an open SQLite/SQLCipher database with methods for all persistent entity operations.
@@ -209,6 +216,51 @@ impl Database {
     pub fn session_exists(&self, id: &str) -> Result<bool> {
         sessions::session_exists(&self.conn, id)
     }
+
+    /// Execute a single SQL statement that returns rows.
+    /// Errors propagate the underlying rusqlite error verbatim, including
+    /// `attempt to write a readonly database` when called on a connection
+    /// opened with `PRAGMA query_only = ON`.
+    pub fn execute_query(&self, sql: &str) -> Result<QueryRows> {
+        let mut stmt = self.conn.prepare(sql).context("failed to prepare query")?;
+        let headers: Vec<String> = stmt.column_names().into_iter().map(str::to_owned).collect();
+        let column_count = headers.len();
+        let mut rows = Vec::new();
+        let mut cursor = stmt.query([]).context("failed to execute query")?;
+        while let Some(row) = cursor.next().context("failed to read row")? {
+            let mut values = Vec::with_capacity(column_count);
+            for idx in 0..column_count {
+                values.push(row.get::<_, rusqlite::types::Value>(idx)?);
+            }
+            rows.push(values);
+        }
+        Ok(QueryRows { headers, rows })
+    }
+
+    /// Execute a single SQL statement that does not return rows.
+    /// Returns the number of affected rows.
+    pub fn execute_statement(&self, sql: &str) -> Result<usize> {
+        self.conn
+            .execute(sql, [])
+            .context("failed to execute statement")
+    }
+
+    /// Number of rows affected by the most recent INSERT/UPDATE/DELETE
+    /// on this connection. Returns 0 for statements that did not modify rows
+    /// (including SELECT, PRAGMA, schema changes, or no statement at all).
+    pub fn changes(&self) -> u64 {
+        self.conn.changes()
+    }
+
+    /// Run one or more SQL statements, discarding any returned rows.
+    /// Use for pragma-like operations and SQLCipher control statements
+    /// (ATTACH ... KEY, SELECT sqlcipher_export, DETACH) where the result
+    /// set is unused but the side effect is needed.
+    pub fn execute_batch(&self, sql: &str) -> Result<()> {
+        self.conn
+            .execute_batch(sql)
+            .context("failed to execute batch")
+    }
 }
 
 #[cfg(test)]
@@ -222,6 +274,50 @@ mod tests {
         let salt_path = dir.path().join(".salt");
         let salt = load_or_create_salt(&salt_path).unwrap();
         derive_key("test-passkey", &salt).unwrap()
+    }
+
+    #[test]
+    fn execute_query_returns_rows_and_headers() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("plain.db");
+        let db = Database::open(&db_path, None).unwrap();
+
+        db.execute_statement(
+            "INSERT INTO personas (slug, name, persona, created_at, updated_at) \
+             VALUES ('alice', 'Alice', 'curious', '2026-04-17T00:00:00Z', '2026-04-17T00:00:00Z')",
+        )
+        .unwrap();
+
+        let rows = db
+            .execute_query("SELECT slug, name FROM personas ORDER BY slug")
+            .unwrap();
+
+        assert_eq!(rows.headers, vec!["slug".to_owned(), "name".to_owned()]);
+        assert_eq!(rows.rows.len(), 1);
+        let first = &rows.rows[0];
+        assert_eq!(first.len(), 2);
+        match (&first[0], &first[1]) {
+            (rusqlite::types::Value::Text(s), rusqlite::types::Value::Text(n)) => {
+                assert_eq!(s, "alice");
+                assert_eq!(n, "Alice");
+            }
+            other => panic!("unexpected row values: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execute_statement_returns_affected_row_count() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("plain.db");
+        let db = Database::open(&db_path, None).unwrap();
+
+        let inserted = db
+            .execute_statement(
+                "INSERT INTO personas (slug, name, persona, created_at, updated_at) \
+                 VALUES ('bob', 'Bob', 'wise', '2026-04-17T00:00:00Z', '2026-04-17T00:00:00Z')",
+            )
+            .unwrap();
+        assert_eq!(inserted, 1);
     }
 
     #[test]
@@ -239,7 +335,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, super::schema::CURRENT_VERSION);
     }
 
     #[test]

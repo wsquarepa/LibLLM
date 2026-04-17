@@ -5,6 +5,8 @@ use rusqlite::Connection;
 
 use crate::debug_log;
 
+pub const CURRENT_VERSION: i64 = 1;
+
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     debug_log::timed_result("db.migrate", &[], || {
         conn.execute_batch(
@@ -23,10 +25,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             .context("failed to read schema version")?;
 
         let mut applied = 0usize;
-        if version < 1 {
+        if version < CURRENT_VERSION {
             migrate_v1(conn)?;
-            conn.execute_batch("INSERT INTO schema_version (version) VALUES (1);")
-                .context("failed to record schema version 1")?;
+            conn.execute_batch(&format!(
+                "INSERT INTO schema_version (version) VALUES ({CURRENT_VERSION});"
+            ))
+            .context("failed to record schema version")?;
             applied += 1;
         }
 
@@ -35,7 +39,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             &[
                 debug_log::field("phase", "summary"),
                 debug_log::field("from_version", version),
-                debug_log::field("to_version", 1),
+                debug_log::field("to_version", CURRENT_VERSION),
                 debug_log::field("applied", applied),
             ],
         );
@@ -143,7 +147,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, super::CURRENT_VERSION);
     }
 
     #[test]

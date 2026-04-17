@@ -113,6 +113,10 @@ async fn main() -> Result<()> {
         return recover::run(&data_dir, args.passkey.as_deref(), command.as_ref());
     }
 
+    if let Some(cli::Command::Db { command }) = &args.command {
+        return cli::db::dispatch(&args, command);
+    }
+
     migration::migrate_config_path();
 
     legacy_migration::check_and_run_migration(args.no_encrypt, args.passkey.as_deref()).await?;
@@ -290,6 +294,7 @@ fn infer_run_mode(args: &Args) -> &'static str {
             cli::Command::Import { .. } => "import_subcommand",
             cli::Command::Recover { .. } => "recover_subcommand",
             cli::Command::Update { .. } => "update_subcommand",
+            cli::Command::Db { .. } => "db_subcommand",
         }
     } else if args.message.is_some() {
         "single_message"
@@ -321,6 +326,7 @@ fn build_run_fields(args: &Args) -> Vec<debug_log::Field<'static>> {
             cli::Command::Import { .. } => "import",
             cli::Command::Recover { .. } => "recover",
             cli::Command::Update { .. } => "update",
+            cli::Command::Db { .. } => "db",
         };
         fields.push(debug_log::field("command", command_name));
         if let cli::Command::Edit { kind, name } = command {

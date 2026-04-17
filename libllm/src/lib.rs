@@ -8,7 +8,7 @@ pub mod config;
 pub mod context;
 pub mod crypto;
 pub mod crypto_provider;
-pub mod debug_log;
+pub mod diagnostics;
 pub mod export;
 pub mod migration;
 pub mod persona;

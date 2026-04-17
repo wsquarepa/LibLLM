@@ -20,6 +20,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 futures-util = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 sysinfo = "0.38"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [dev-dependencies]

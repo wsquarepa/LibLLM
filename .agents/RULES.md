@@ -25,7 +25,7 @@ After the background task completes, read the output file to check for errors an
 
 ### Test suites
 
-Integration tests live in `client/tests/` across six files: `core_data`, `content_management`, `request_pipeline`, `infrastructure`, `tui_business`, `smoke`. Unit tests live in `libllm/src/db/` sub-modules. Shared helpers are in `client/tests/common/mod.rs`.
+Integration tests live in `client/tests/` across seven files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `lints`, `persistence`. Unit tests live in `libllm/src/db/` sub-modules and in `client/src/cli/db/{parser,format}.rs`. Shared helpers are in `client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
 
 ### Verifying test results
 
@@ -52,7 +52,7 @@ The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "de
 
 ### OnceLock constraint
 
-`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `client/tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.
+`config::set_data_dir()` uses `OnceLock` and can only be called once per process. Each integration-test binary is a separate process, so the rule applies per-binary. Within a binary, the first call should use `.unwrap()` (it owns the OnceLock); subsequent calls in other tests of the same binary must use `.ok()` to tolerate "already set" without failing. Tests in unrelated binaries can each own their own first call. When in doubt, pass an explicit path through your call chain instead of relying on `data_dir()`.
 
 ## Architecture Gotchas
 
@@ -60,7 +60,7 @@ These are non-obvious patterns that cannot be inferred from a quick code read.
 
 ### CLI Override System
 
-CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (in `client/src/cli.rs`). Overridden fields display in red in the `/config` dialog and cannot be edited. The `-r` flag forces `/system` read-only; `-p` forces `/persona` read-only. Both show content in red.
+CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (in `client/src/cli/mod.rs`). Overridden fields display in red in the `/config` dialog and cannot be edited. The `-r` flag forces `/system` read-only; `-p` forces `/persona` read-only. Both show content in red.
 
 ### Statusbar
 
@@ -77,3 +77,15 @@ When modifying instrumented paths (startup, session I/O, rendering), maintain di
 ### Conversation tree
 
 Messages form a tree (`MessageTree` in `libllm/src/session.rs`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
+
+### `libllm db` subcommand group
+
+`client/src/cli/db/` exposes `db {sql, shell, dump, import}` for direct database inspection and editing through the existing decryption pipeline. Read the README's "Direct database access" section for user-facing semantics. Implementation gotchas:
+
+- `sql` and `shell` open with `PRAGMA query_only = ON` and only lift it when launched with `--write`. All SQL routes through `Database::execute_query` plus `Database::changes()` for the affected-row count when there are no result columns — this handles `INSERT ... RETURNING`, bare `VALUES`, and comment-leading SQL uniformly. Do not reintroduce a leading-keyword heuristic.
+- `import` always invokes `backup::snapshot::create_snapshot` before swapping the database file. There is no `--no-backup` flag; this is intentional. The pre-swap backup is the recovery story for any failure between `build_replacement` and `fs::rename`.
+- `dump` and `import` both call `wal_liveness_check` (in `cli/db/mod.rs`) which probes for `SQLITE_BUSY` via `BEGIN IMMEDIATE; ROLLBACK;` to refuse if another LibLLM process holds the database. The check early-returns when the database file does not exist (otherwise `Connection::open` would silently create an empty file).
+- Tmp-path computation in `dump` appends `.tmp` to the user's path (it does not use `Path::with_extension`, which would replace any existing `.tmp` and collide with the destination).
+- Schema-version compatibility is gated on `libllm::db::CURRENT_VERSION` (re-exported from `db::schema`); the `schema` module itself stays private. If you bump the schema version, update the constant — the import gate and the migration runner both read it.
+- Standard exit codes shared across the group: `1` generic, `2` user declined, `3` schema-version mismatch, `4` WAL-liveness failure (constants in `cli/db/mod.rs::exit`).
+- The shell uses `rustyline` with a `DotCommandOutcome::{Continue, Quit}` enum (NOT `std::process::exit`) so `save_history` runs on clean exit. A statement whose first input line begins with whitespace is excluded from both on-disk and in-memory history (bash `HISTCONTROL=ignorespace`).

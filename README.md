@@ -32,6 +32,7 @@ Built for power users who run local models and want a fast, private chat interfa
 - [Configuration](#configuration)
 - [Data directory](#data-directory)
 - [Encryption](#encryption)
+- [Direct database access](#direct-database-access)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
@@ -269,6 +270,12 @@ libllm import card.png                         # PNG character card
 libllm import --type persona persona.txt       # .txt requires --type
 libllm import --type prompt system.txt
 libllm import card.json lore.json card2.png    # batch import
+
+# Direct database access (alias: `database`). See "Direct database access" below.
+libllm db sql "SELECT slug, name FROM personas;"
+libllm db shell                                # interactive REPL
+libllm db dump backup.db                       # decrypted SQLite copy
+libllm db import edited.db                     # replace contents from a plaintext file
 ```
 
 ### CLI override behavior
@@ -460,6 +467,86 @@ The passkey can be changed at any time via `/passkey`, which uses SQLCipher's `P
 
 To opt out of encryption, use `--data -d <path> --no-encrypt` for an unencrypted SQLite database. The `--no-encrypt` and `--passkey` flags require `--data/-d` to be specified. When using `--data` with an existing directory, the encryption mode must match: `--passkey` is rejected on unencrypted directories, and `--no-encrypt` is rejected on encrypted ones.
 
+## Direct database access
+
+The `libllm db` subcommand group (alias `database`) opens the encrypted database through the normal decryption pipeline and exposes four operations: a one-shot SQL runner, an interactive REPL, a decrypted dump, and a replace-from-plaintext import. Useful when something looks wrong in the TUI (e.g., an imported persona that you cannot edit or delete) and you want to inspect or surgically edit the database without nuking your data.
+
+All four subcommands inherit the standard data-resolution flags: `-d/--data`, `--passkey`/`LIBLLM_PASSKEY`/interactive prompt, and `--no-encrypt`.
+
+### `libllm db sql [--write] [--format <fmt>] <query>`
+
+Run a single SQL statement and print the result.
+
+- Read-only by default. Pass `--write` to allow `INSERT`/`UPDATE`/`DELETE` (and `... RETURNING` clauses).
+- `--format` selects the output renderer: `table` (default), `pipe`, `csv`, `json`.
+- Multi-statement input is rejected; use `db shell` or `.read` for scripts.
+
+```sh
+libllm db sql "SELECT slug, name FROM personas ORDER BY slug;"
+libllm db sql --format csv "SELECT slug, name FROM characters;"
+libllm db sql --write "DELETE FROM personas WHERE slug = 'broken-slug';"
+```
+
+### `libllm db shell [--write] [--private]`
+
+Interactive SQL REPL with line editing, history, Ctrl+R reverse search, multi-line input, and dot-commands.
+
+- Read-only by default. Pass `--write` to allow `.write on` to lift the gate within the session.
+- History is persisted to `<data_dir>/.db_shell_history` unless `--private` is passed.
+- A statement whose first input line begins with whitespace is excluded from history (bash `HISTCONTROL=ignorespace`). Use this to run sensitive queries without recording them.
+
+Dot-commands inside the shell:
+
+| Command | Description |
+|---|---|
+| `.help` | List all dot-commands |
+| `.quit`, `.exit` | Exit cleanly (history is saved) |
+| `.tables` | List all tables |
+| `.schema [name]` | Show DDL for one table or all |
+| `.read <file>` | Execute SQL from a file (first error aborts the file) |
+| `.write on\|off` | Toggle the mutation gate (requires `--write` to enable) |
+| `.mode <fmt>` | Output format: `table`, `pipe`, `csv`, `json` |
+| `.headers on\|off` | Toggle column headers in output |
+| `.timer on\|off` | Print elapsed wall time per statement |
+
+### `libllm db dump [--yes|-y] <path>`
+
+Write a fully decrypted SQLite database to `<path>`. The file is a normal plaintext SQLite database openable with `sqlite3` or any other client. Atomic via temp-file + rename. Refuses to overwrite an existing `<path>` without `--yes`.
+
+```sh
+libllm db dump ./snapshot.db
+sqlite3 ./snapshot.db "SELECT * FROM personas;"   # inspect with your favorite tool
+```
+
+### `libllm db import [--yes|-y] <path>`
+
+Replace the encrypted database with the contents of a plaintext SQLite file at `<path>`. Intended workflow: `dump` → edit the plaintext copy → `import`.
+
+Safety properties (all enforced, none configurable):
+
+- A backup of the live database is created via the `backup` crate before any modification. Recover with `libllm recover restore <id>` if anything goes wrong.
+- Aborts if the plaintext file's `schema_version` does not match the binary's expected version.
+- Refuses to run if another LibLLM process is using the database (TUI session, etc.).
+- Confirmation prompt unless `--yes`.
+
+```sh
+libllm db dump ./edit.db
+sqlite3 ./edit.db "DELETE FROM personas WHERE slug = 'stuck';"
+libllm db import --yes ./edit.db
+```
+
+### Exit codes
+
+`libllm db` subcommands use a small set of codes for scripting:
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Generic error (open, file I/O, SQL, backup) |
+| 2 | User declined a confirmation prompt |
+| 3 | Schema-version mismatch on `import` |
+| 4 | WAL liveness check failed (another process holds the database) |
+
 ## Troubleshooting
 
 ### Cannot connect to API
@@ -478,6 +565,10 @@ There is no passkey recovery. If you forget your passkey, the encrypted database
 
 Sessions are tied to the encryption passkey. If you enter the wrong passkey, the database cannot be opened and sessions will not appear. Re-launch with the correct passkey.
 
+### A persona, character, or session is stuck and the TUI cannot edit or delete it
+
+Use [`libllm db`](#direct-database-access) to inspect the row directly (e.g., `libllm db sql "SELECT * FROM personas WHERE slug = 'stuck';"`) and fix it with `libllm db sql --write` or via the `db shell` REPL. `db import` always takes a backup first, so a mistake is recoverable via `libllm recover restore <id>`.
+
 ### TLS / self-signed certificate errors
 
 Use `--tls-skip-verify` to bypass certificate verification when connecting to a server with a self-signed certificate.
@@ -493,7 +584,7 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-The project is a Cargo workspace with three crates (`libllm`, `client`, `backup`). Tests include unit tests in `libllm` and six integration test suites in `client/tests/`.
+The project is a Cargo workspace with three crates (`libllm`, `client`, `backup`). Tests include unit tests in `libllm` and seven integration test suites in `client/tests/`.
 
 ## License
 

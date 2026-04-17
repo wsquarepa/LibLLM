@@ -196,7 +196,7 @@ fn handle_dot_command(state: &mut ShellState, line: &str) -> Result<DotCommandOu
         ".mode" => {
             let value = arg.context(".mode requires a format name")?;
             let format = Format::parse(value)
-                .with_context(|| format!("unknown mode: {value}"))?;
+                .with_context(|| format!("unknown mode: {value} (expected: table, pipe, csv, json)"))?;
             state.format = format;
             Ok(DotCommandOutcome::Continue)
         }

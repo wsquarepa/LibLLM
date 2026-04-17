@@ -246,7 +246,7 @@ mod tests {
     fn table_with_headers() {
         let (headers, rows) = fixture();
         let out = TableFormatter.format(&headers, &rows, true);
-        let expected = "id  name   note\n--  -----  ----\n1   Alice  NULL\n2   Bo,b   hi\n\n";
+        let expected = "id  name   note\n--  -----  ----\n1   Alice  NULL\n2   Bo,b   hi\n \n";
         assert_eq!(out, expected);
     }
 
@@ -265,6 +265,36 @@ mod tests {
     }
 
     #[test]
+    fn csv_doubles_embedded_quotes() {
+        let headers = vec!["v".to_owned()];
+        let rows = vec![vec![Value::Text("say \"hi\"".to_owned())]];
+        let out = CsvFormatter.format(&headers, &rows, false);
+        assert_eq!(out, "\"say \"\"hi\"\"\"\n");
+    }
+
+    #[test]
+    fn pipe_handles_real_and_blob() {
+        let headers = vec!["r".to_owned(), "b".to_owned()];
+        let rows = vec![vec![
+            Value::Real(2.5),
+            Value::Blob(vec![0x00, 0x01, 0x02]),
+        ]];
+        let out = PipeFormatter.format(&headers, &rows, false);
+        assert_eq!(out, "2.5|<blob:3 bytes>\n");
+    }
+
+    #[test]
+    fn json_handles_real_and_blob() {
+        let headers = vec!["r".to_owned(), "b".to_owned()];
+        let rows = vec![vec![
+            Value::Real(2.5),
+            Value::Blob(vec![0x00, 0x01, 0x02]),
+        ]];
+        let out = JsonFormatter.format(&headers, &rows, true);
+        assert_eq!(out, "[{\"r\":2.5,\"b\":\"<blob:3 bytes>\"}]\n");
+    }
+
+    #[test]
     fn json_objects_with_headers() {
         let (headers, rows) = fixture();
         let out = JsonFormatter.format(&headers, &rows, true);
@@ -279,6 +309,27 @@ mod tests {
         let (headers, rows) = fixture();
         let out = JsonFormatter.format(&headers, &rows, false);
         assert_eq!(out, "[[1,\"Alice\",null],[2,\"Bo,b\",\"hi\\n\"]]\n");
+    }
+
+    #[test]
+    fn table_without_headers() {
+        let (headers, rows) = fixture();
+        let out = TableFormatter.format(&headers, &rows, false);
+        assert_eq!(out, "1  Alice  NULL\n2  Bo,b   hi\n \n");
+    }
+
+    #[test]
+    fn pipe_without_headers() {
+        let (headers, rows) = fixture();
+        let out = PipeFormatter.format(&headers, &rows, false);
+        assert_eq!(out, "1|Alice|NULL\n2|Bo,b|hi\n\n");
+    }
+
+    #[test]
+    fn csv_without_headers() {
+        let (headers, rows) = fixture();
+        let out = CsvFormatter.format(&headers, &rows, false);
+        assert_eq!(out, "1,Alice,NULL\n2,\"Bo,b\",\"hi\n\"\n");
     }
 
     #[test]

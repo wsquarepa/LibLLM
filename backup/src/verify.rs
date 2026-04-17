@@ -77,6 +77,15 @@ pub fn verify_chain(
         return Ok(result);
     }
 
+    if backup_key.is_none() && index.entries.iter().any(|e| e.encrypted) {
+        result.errors.push(
+            "cannot replay encrypted backup chain without a passkey: \
+             re-run the verify command with --passkey (or set LIBLLM_PASSKEY)"
+                .to_string(),
+        );
+        return Ok(result);
+    }
+
     for entry in &index.entries {
         let Some(chain) = index.chain_to(&entry.id) else {
             continue;

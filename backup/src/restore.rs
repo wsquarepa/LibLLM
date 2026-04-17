@@ -16,6 +16,15 @@ pub(crate) fn replay_chain(
     chain: &[&BackupEntry],
     backup_key: &Option<[u8; 32]>,
 ) -> Result<Vec<u8>> {
+    if backup_key.is_none()
+        && let Some(encrypted) = chain.iter().find(|e| e.encrypted)
+    {
+        bail!(
+            "backup entry {} is encrypted but no passkey was provided",
+            encrypted.id
+        );
+    }
+
     let base_entry = chain[0];
     let base_bytes = std::fs::read(backups_dir.join(&base_entry.filename))
         .with_context(|| format!("failed to read base backup: {}", base_entry.filename))?;

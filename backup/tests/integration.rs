@@ -286,6 +286,96 @@ fn verify_full_replay_detects_corruption() {
 }
 
 #[test]
+fn verify_full_replay_encrypted_chain_with_passkey_passes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = BackupConfig::default();
+    let db_path = setup_encrypted_db(dir.path(), "test-passkey");
+
+    snapshot::create_snapshot(dir.path(), Some("test-passkey"), &config).unwrap();
+
+    std::thread::sleep(Duration::from_secs(1));
+    insert_note_encrypted(&db_path, "second note", "test-passkey");
+    snapshot::create_snapshot(dir.path(), Some("test-passkey"), &config).unwrap();
+
+    std::thread::sleep(Duration::from_secs(1));
+    insert_note_encrypted(&db_path, "third note", "test-passkey");
+    snapshot::create_snapshot(dir.path(), Some("test-passkey"), &config).unwrap();
+
+    let index_path = dir.path().join("backups").join("index.json");
+    let idx = index::load_index(&index_path).unwrap();
+    assert_eq!(idx.entries.len(), 3);
+    assert!(idx.entries.iter().all(|e| e.encrypted));
+    assert_eq!(idx.entries[0].entry_type, BackupType::Base);
+    assert_eq!(idx.entries[1].entry_type, BackupType::Diff);
+    assert_eq!(idx.entries[2].entry_type, BackupType::Diff);
+
+    let result = verify::verify_chain(dir.path(), Some("test-passkey"), true).unwrap();
+    assert!(
+        result.errors.is_empty(),
+        "expected no errors on encrypted full-replay with correct passkey, got: {:?}",
+        result.errors
+    );
+    assert_eq!(result.checked_count, 3);
+}
+
+#[test]
+fn verify_full_replay_encrypted_chain_without_passkey_reports_single_clear_error() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = BackupConfig::default();
+    let db_path = setup_encrypted_db(dir.path(), "test-passkey");
+
+    snapshot::create_snapshot(dir.path(), Some("test-passkey"), &config).unwrap();
+
+    std::thread::sleep(Duration::from_secs(1));
+    insert_note_encrypted(&db_path, "second note", "test-passkey");
+    snapshot::create_snapshot(dir.path(), Some("test-passkey"), &config).unwrap();
+
+    // Full replay without a passkey must not feed ciphertext into zstd; it must report
+    // one actionable error naming the passkey requirement rather than N zstd failures.
+    let result = verify::verify_chain(dir.path(), None, true).unwrap();
+    assert_eq!(
+        result.errors.len(),
+        1,
+        "expected exactly one error, got: {:?}",
+        result.errors
+    );
+    let message = &result.errors[0];
+    assert!(
+        message.contains("passkey"),
+        "expected error to mention passkey, got: {message}"
+    );
+    assert!(
+        !message.contains("Unknown frame descriptor"),
+        "must not surface raw zstd error: {message}"
+    );
+}
+
+#[test]
+fn restore_encrypted_chain_without_passkey_fails_with_clear_error() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = BackupConfig::default();
+    setup_encrypted_db(dir.path(), "test-passkey");
+
+    snapshot::create_snapshot(dir.path(), Some("test-passkey"), &config).unwrap();
+
+    let index_path = dir.path().join("backups").join("index.json");
+    let idx = index::load_index(&index_path).unwrap();
+    let id = idx.entries[0].id.clone();
+
+    let err = restore::restore_to_point(dir.path(), &id, None)
+        .expect_err("restore without passkey on encrypted chain must fail");
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("encrypted") && message.contains("passkey"),
+        "expected explicit encryption/passkey error, got: {message}"
+    );
+    assert!(
+        !message.contains("Unknown frame descriptor"),
+        "must not surface raw zstd error: {message}"
+    );
+}
+
+#[test]
 fn rebase_threshold_triggers_new_base() {
     let dir = tempfile::TempDir::new().unwrap();
     let db_path = setup_db(dir.path());

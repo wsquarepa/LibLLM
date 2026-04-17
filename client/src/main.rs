@@ -111,7 +111,8 @@ async fn main() -> Result<()> {
             .as_deref()
             .map(std::path::Path::to_path_buf)
             .unwrap_or_else(config::data_dir);
-        return recover::run(&data_dir, args.passkey.as_deref(), command.as_ref());
+        let passkey = resolve_recover_passkey(&args, &data_dir)?;
+        return recover::run(&data_dir, passkey.as_deref(), command.as_ref());
     }
 
     if let Some(cli::Command::Db { command }) = &args.command {
@@ -397,6 +398,36 @@ fn resolve_character(
     }
 
     anyhow::bail!("Character not found: {char_arg}");
+}
+
+/// Resolves the passkey to use for the `recover` subcommand.
+///
+/// Returns `None` for plaintext data directories (`--no-encrypt` or no `.salt` file),
+/// honours `--passkey` / `LIBLLM_PASSKEY` when present, and otherwise prompts on the
+/// controlling terminal. Fails with a clear message when the directory is encrypted
+/// but no passkey can be obtained (non-interactive invocation without the flag/env var).
+fn resolve_recover_passkey(args: &Args, data_dir: &std::path::Path) -> Result<Option<String>> {
+    if args.no_encrypt {
+        return Ok(None);
+    }
+    if let Some(pk) = &args.passkey {
+        return Ok(Some(pk.clone()));
+    }
+    if !data_dir.join(".salt").exists() {
+        return Ok(None);
+    }
+    if !client::interactive::is_interactive() {
+        anyhow::bail!(
+            "data directory is encrypted but no passkey was provided; \
+             pass --passkey or set LIBLLM_PASSKEY"
+        );
+    }
+    eprint!("Passkey: ");
+    let entered = rpassword::read_password().context("failed to read interactive passkey")?;
+    if entered.is_empty() {
+        anyhow::bail!("no passkey provided");
+    }
+    Ok(Some(entered))
 }
 
 fn resolve_edit_db(args: &Args) -> Result<Database> {

@@ -16,7 +16,7 @@ use crate::worldinfo::WorldBook;
 mod characters;
 mod personas;
 mod prompts;
-mod schema;
+pub mod schema;
 mod sessions;
 mod worldbooks;
 

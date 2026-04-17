@@ -147,7 +147,24 @@ fn handle_key(
             Focus::SystemPromptEditorDialog => app.system_prompt_editor.is_some(),
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
-            _ => true,
+            Focus::EditConfirmDialog => app.edit_editor.is_some(),
+            Focus::Input
+            | Focus::Chat
+            | Focus::Sidebar
+            | Focus::PasskeyDialog
+            | Focus::SetPasskeyDialog
+            | Focus::BaseThemePickerDialog
+            | Focus::PresetPickerDialog
+            | Focus::PersonaDialog
+            | Focus::CharacterDialog
+            | Focus::WorldbookDialog
+            | Focus::WorldbookEditorDialog
+            | Focus::WorldbookEntryDeleteDialog
+            | Focus::SystemPromptDialog
+            | Focus::BranchDialog
+            | Focus::DeleteConfirmDialog
+            | Focus::ApiErrorDialog
+            | Focus::LoadingDialog => true,
         };
         debug_assert!(
             invariant_ok,

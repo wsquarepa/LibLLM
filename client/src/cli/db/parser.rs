@@ -127,20 +127,46 @@ pub fn is_statement_complete(buf: &str) -> bool {
     false
 }
 
+/// True iff the slice contains only ASCII whitespace, SQL line comments (`--`),
+/// and SQL block comments (`/* ... */`). Any code-mode byte that is not
+/// whitespace or a comment-start sequence causes an early false.
+fn is_whitespace_or_comment_only(buf: &str) -> bool {
+    let mut cursor = Cursor::new(buf);
+    while cursor.idx < cursor.bytes.len() {
+        if cursor.state == LexState::Code {
+            let byte = cursor.bytes[cursor.idx];
+            if byte.is_ascii_whitespace() {
+                cursor.idx += 1;
+                continue;
+            }
+            if byte == b'-' && cursor.peek(1) == Some(b'-') {
+                cursor.state = LexState::LineComment;
+                cursor.idx += 2;
+                continue;
+            }
+            if byte == b'/' && cursor.peek(1) == Some(b'*') {
+                cursor.state = LexState::BlockComment;
+                cursor.idx += 2;
+                continue;
+            }
+            return false;
+        }
+        cursor.step();
+    }
+    true
+}
+
 /// True iff `buf` contains exactly one top-level `;` and the trailing tail
 /// (after that semicolon) consists only of whitespace and comments.
 pub fn is_single_statement(buf: &str) -> bool {
     let mut cursor = Cursor::new(buf);
-    let mut found_terminator = false;
     while cursor.idx < cursor.bytes.len() {
         if cursor.step() {
-            if found_terminator {
-                return false;
-            }
-            found_terminator = true;
+            let tail = &buf[cursor.idx..];
+            return is_whitespace_or_comment_only(tail);
         }
     }
-    found_terminator
+    false
 }
 
 #[cfg(test)]
@@ -240,5 +266,25 @@ mod tests {
     #[test]
     fn single_rejects_no_terminator() {
         assert!(!is_single_statement("SELECT 1"));
+    }
+
+    #[test]
+    fn single_rejects_trailing_statement_no_second_semicolon() {
+        assert!(!is_single_statement("SELECT 1; SELECT 2"));
+    }
+
+    #[test]
+    fn single_rejects_drop_table_after_semicolon() {
+        assert!(!is_single_statement("SELECT 1; DROP TABLE foo"));
+    }
+
+    #[test]
+    fn single_accepts_trailing_line_comment_with_newline() {
+        assert!(is_single_statement("SELECT 1;\n-- trailing comment only"));
+    }
+
+    #[test]
+    fn single_rejects_statement_after_trailing_comment() {
+        assert!(!is_single_statement("SELECT 1;\n-- comment\nSELECT 2"));
     }
 }

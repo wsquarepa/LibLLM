@@ -6,9 +6,7 @@ use crate::diagnostics::sysinfo_snapshot::{SystemInfo, TerminalInfo};
 
 pub struct BuildInfo {
     pub version: &'static str,
-    pub profile: &'static str,
     pub channel: &'static str,
-    pub branch: &'static str,
     pub commit: &'static str,
     pub dirty: bool,
 }
@@ -89,38 +87,23 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
 
 fn header_line(ctx: &BannerContext<'_>) -> String {
     let descriptor = build_descriptor(ctx.build);
-    let name = format!("LibLLM {} ({})", ctx.build.version, descriptor);
+    let name = format!("LibLLM version {} ({})", ctx.build.version, descriptor);
     let wall = ctx.wall_clock;
     let gap = 80usize.saturating_sub(1 + name.len() + wall.len() + 1);
     format!(" {name}{}{wall} ", " ".repeat(gap))
 }
 
 fn build_descriptor(build: &BuildInfo) -> String {
-    let mut pieces: Vec<String> = vec![build.profile.to_owned()];
-    if build.channel == "stable" && !build.dirty {
-        return pieces.join(", ");
-    }
-    let branch = if build.branch != "unknown" && !build.branch.is_empty() {
-        build.branch
-    } else if build.channel != "unknown" && !build.channel.is_empty() {
-        build.channel
-    } else {
-        "local"
+    let base = match build.channel {
+        "stable" => format!("+{}", build.commit),
+        "unknown" => "-dev".to_owned(),
+        _ => format!("-{}", build.commit),
     };
-    let commit = if build.commit == "unknown" { "" } else { build.commit };
-    let dirty_suffix = if build.dirty { "+dirty" } else { "" };
-    let commit_chunk = match (commit.is_empty(), dirty_suffix.is_empty()) {
-        (true, true) => String::new(),
-        (true, false) => dirty_suffix.to_owned(),
-        (false, true) => commit.to_owned(),
-        (false, false) => format!("{commit}{dirty_suffix}"),
-    };
-    if commit_chunk.is_empty() {
-        pieces.push(branch.to_owned());
+    if build.dirty {
+        format!("{base}+dirty")
     } else {
-        pieces.push(format!("{branch} {commit_chunk}"));
+        base
     }
-    pieces.join(", ")
 }
 
 fn write_row(out: &mut String, label: &str, value: &str) {
@@ -154,9 +137,7 @@ mod tests {
     fn fixture() -> (BuildInfo, SystemInfo, TerminalInfo, RuntimeInfo) {
         let build = BuildInfo {
             version: "1.0.0",
-            profile: "debug",
             channel: "feat/log-rework",
-            branch: "feat/log-rework",
             commit: "a1b2c3d",
             dirty: false,
         };
@@ -204,7 +185,7 @@ mod tests {
         };
         let out = render(&ctx);
         assert!(out.lines().next().unwrap().starts_with("================"));
-        assert!(out.contains("LibLLM 1.0.0 (debug, feat/log-rework a1b2c3d)"));
+        assert!(out.contains("LibLLM version 1.0.0 (-a1b2c3d)"));
         assert!(out.contains("2026-04-17 11:12:51"));
         assert!(out.contains("Run mode      tui"));
         assert!(out.contains("CPU           AMD Ryzen 9 7950X (16 logical cores)"));
@@ -218,11 +199,9 @@ mod tests {
     }
 
     #[test]
-    fn release_stable_build_collapses_descriptor() {
+    fn stable_build_uses_plus_sha_descriptor() {
         let (mut build, system, terminal, runtime) = fixture();
-        build.profile = "release";
         build.channel = "stable";
-        build.branch = "master";
         build.dirty = false;
         let ctx = BannerContext {
             build: &build,
@@ -232,16 +211,14 @@ mod tests {
             wall_clock: "2026-04-17 11:12:51",
         };
         let out = render(&ctx);
-        assert!(out.contains("LibLLM 1.0.0 (release)"));
+        assert!(out.contains("LibLLM version 1.0.0 (+a1b2c3d)"));
         assert!(!out.contains("master"));
     }
 
     #[test]
-    fn dirty_release_keeps_branch_and_adds_dirty_marker() {
+    fn dirty_stable_build_appends_dirty_marker() {
         let (mut build, system, terminal, runtime) = fixture();
-        build.profile = "release";
         build.channel = "stable";
-        build.branch = "master";
         build.commit = "deadbee";
         build.dirty = true;
         let ctx = BannerContext {
@@ -252,6 +229,6 @@ mod tests {
             wall_clock: "2026-04-17 11:12:51",
         };
         let out = render(&ctx);
-        assert!(out.contains("LibLLM 1.0.0 (release, master deadbee+dirty)"));
+        assert!(out.contains("LibLLM version 1.0.0 (+deadbee+dirty)"));
     }
 }

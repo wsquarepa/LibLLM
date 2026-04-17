@@ -15,9 +15,7 @@ fn banner_and_event_lines_are_rendered() {
             cli_args: "test-runner".to_owned(),
             build: BuildInfo {
                 version: "9.9.9",
-                profile: "debug",
                 channel: "feat/example",
-                branch: "feat/example",
                 commit: "abcdef0",
                 dirty: false,
             },
@@ -37,7 +35,7 @@ fn assert_log_matches_shape(path: &Path) {
     let contents = std::fs::read_to_string(path).expect("read log");
     let first = contents.lines().next().expect("empty log");
     assert!(first.starts_with("================"), "first line was {first:?}");
-    assert!(contents.contains("LibLLM 9.9.9 (debug, feat/example abcdef0)"));
+    assert!(contents.contains("LibLLM version 9.9.9 (-abcdef0)"));
     assert!(contents.contains("Run mode      test"));
     assert!(contents.contains("Filter        info  (source: --log-filter)"));
 

@@ -9,3 +9,4 @@ pub mod recover;
 pub mod tui;
 pub mod update;
 pub mod validation;
+pub mod version;

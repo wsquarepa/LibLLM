@@ -124,11 +124,16 @@ pub struct CliOverrides {
 #[derive(Parser)]
 #[command(
     name = "libllm",
-    about = "CLI chat client for llama.cpp completions API"
+    about = "CLI chat client for llama.cpp completions API",
+    disable_version_flag = true
 )]
 pub struct Args {
     #[command(subcommand)]
     pub command: Option<Command>,
+
+    /// Print version and exit
+    #[arg(short = 'V', long, action = clap::ArgAction::SetTrue)]
+    pub version: bool,
 
     /// Data directory path (initializes libllm structure at this path)
     #[arg(short = 'd', long)]

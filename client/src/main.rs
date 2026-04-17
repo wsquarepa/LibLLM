@@ -31,6 +31,11 @@ async fn main() -> Result<()> {
     libllm::crypto_provider::install_default_crypto_provider();
     let args = Args::parse();
 
+    if args.version {
+        println!("{}", client::version::LONG);
+        return Ok(());
+    }
+
     if args.cleanup {
         let summary = diagnostics::cleanup_temp_logs()?;
         println!(
@@ -85,9 +90,7 @@ async fn main() -> Result<()> {
     let cli_args_joined = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
     let build = diagnostics::BuildInfo {
         version: env!("CARGO_PKG_VERSION"),
-        profile: if cfg!(debug_assertions) { "debug" } else { "release" },
         channel: env!("LIBLLM_CHANNEL"),
-        branch: env!("LIBLLM_GIT_BRANCH"),
         commit: env!("LIBLLM_COMMIT"),
         dirty: !env!("LIBLLM_GIT_DIRTY").is_empty(),
     };

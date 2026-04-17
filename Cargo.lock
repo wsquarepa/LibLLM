@@ -164,7 +164,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "backup"
-version = "1.0.0"
+version = "1.2.4"
 dependencies = [
  "anyhow",
  "argon2",
@@ -408,7 +408,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client"
-version = "1.0.0"
+version = "1.2.4"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1576,7 +1576,7 @@ checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libllm"
-version = "1.0.0"
+version = "1.2.4"
 dependencies = [
  "anyhow",
  "argon2",

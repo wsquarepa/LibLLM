@@ -2,7 +2,6 @@ use std::process::Command;
 
 fn main() {
     let hash = git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    let branch = git_output(&["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
     let dirty = match Command::new("git").args(["diff-index", "--quiet", "HEAD", "--"]).status() {
         Ok(status) if status.success() => "",
         Ok(_) => "+dirty",
@@ -10,10 +9,16 @@ fn main() {
     };
     let channel = std::env::var("LIBLLM_CHANNEL").unwrap_or_else(|_| "unknown".to_owned());
 
+    let descriptor = match (channel.as_str(), hash.as_str()) {
+        ("stable", sha) => format!("+{sha}{dirty}"),
+        ("unknown", _) => format!("-dev{dirty}"),
+        (_, sha) => format!("-{sha}{dirty}"),
+    };
+
     println!("cargo:rustc-env=LIBLLM_COMMIT={hash}");
-    println!("cargo:rustc-env=LIBLLM_GIT_BRANCH={branch}");
     println!("cargo:rustc-env=LIBLLM_GIT_DIRTY={dirty}");
     println!("cargo:rustc-env=LIBLLM_CHANNEL={channel}");
+    println!("cargo:rustc-env=LIBLLM_VERSION_DESCRIPTOR={descriptor}");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/");
     println!("cargo:rerun-if-changed=.git/index");

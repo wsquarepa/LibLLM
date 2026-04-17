@@ -156,6 +156,21 @@ fn is_whitespace_or_comment_only(buf: &str) -> bool {
     true
 }
 
+/// True iff `buf` attempts to set the `query_only` pragma.
+///
+/// Matches any form of `PRAGMA query_only ...` or `PRAGMA schema.query_only ...`,
+/// case-insensitively, ignoring leading whitespace. Used to prevent raw SQL from
+/// bypassing the shell write-gate that is managed via `--write` / `.write on`.
+pub fn touches_query_only_pragma(buf: &str) -> bool {
+    let lower = buf.trim_start().to_ascii_lowercase();
+    lower.starts_with("pragma")
+        && lower
+            .trim_start_matches("pragma")
+            .split('.')
+            .last()
+            .is_some_and(|tail| tail.trim_start().starts_with("query_only"))
+}
+
 /// True iff `buf` contains exactly one top-level `;` and the trailing tail
 /// (after that semicolon) consists only of whitespace and comments.
 pub fn is_single_statement(buf: &str) -> bool {
@@ -286,5 +301,36 @@ mod tests {
     #[test]
     fn single_rejects_statement_after_trailing_comment() {
         assert!(!is_single_statement("SELECT 1;\n-- comment\nSELECT 2"));
+    }
+
+    #[test]
+    fn query_only_pragma_detected_basic() {
+        assert!(touches_query_only_pragma("PRAGMA query_only = OFF;"));
+    }
+
+    #[test]
+    fn query_only_pragma_detected_case_insensitive() {
+        assert!(touches_query_only_pragma("pragma QUERY_ONLY = off;"));
+    }
+
+    #[test]
+    fn query_only_pragma_detected_with_schema() {
+        assert!(touches_query_only_pragma("PRAGMA main.query_only = OFF;"));
+    }
+
+    #[test]
+    fn query_only_pragma_detected_read_form() {
+        assert!(touches_query_only_pragma("PRAGMA query_only;"));
+    }
+
+    #[test]
+    fn query_only_pragma_not_matched_for_other_pragmas() {
+        assert!(!touches_query_only_pragma("PRAGMA journal_mode = WAL;"));
+        assert!(!touches_query_only_pragma("PRAGMA cache_size;"));
+    }
+
+    #[test]
+    fn query_only_pragma_not_matched_for_regular_sql() {
+        assert!(!touches_query_only_pragma("SELECT * FROM query_only;"));
     }
 }

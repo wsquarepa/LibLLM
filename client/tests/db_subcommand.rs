@@ -574,3 +574,61 @@ fn shell_private_mode_writes_no_history() {
     let history_path = data_dir.join(".db_shell_history");
     assert!(!history_path.exists(), "private mode must not write a history file");
 }
+
+#[test]
+fn shell_rejects_query_only_pragma_in_read_only_mode() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let mut child = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "shell",
+            "--private",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn shell");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        writeln!(stdin, "PRAGMA query_only = OFF;").unwrap();
+        writeln!(stdin, ".quit").unwrap();
+    }
+    let output = child.wait_with_output().expect("wait");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("query_only") && stderr.contains("read-only"),
+        "expected query_only rejection message, got: {stderr}"
+    );
+}
+
+#[test]
+fn sql_rejects_query_only_pragma_in_read_only_mode() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    seed_plain_db(&data_dir.join("data.db"));
+
+    let output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "PRAGMA query_only = OFF;",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(!output.status.success(), "expected non-zero exit");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("query_only") && stderr.contains("read-only"),
+        "expected query_only rejection message, got: {stderr}"
+    );
+}

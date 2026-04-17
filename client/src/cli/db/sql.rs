@@ -6,13 +6,19 @@ use anyhow::{Context, Result};
 use libllm::db::Database;
 
 use super::format::Format;
-use super::parser::is_single_statement;
+use super::parser::{is_single_statement, touches_query_only_pragma};
 use super::DbContext;
 
 pub fn run(ctx: &DbContext, write: bool, format: &str, query: &str) -> Result<()> {
     if !is_single_statement(query) {
         anyhow::bail!(
             "db sql accepts a single statement; use db shell or .read for multi-statement scripts"
+        );
+    }
+    if !write && touches_query_only_pragma(query) {
+        anyhow::bail!(
+            "PRAGMA query_only cannot be modified in read-only mode; \
+             use --write to enable writes"
         );
     }
 

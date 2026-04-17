@@ -17,7 +17,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use super::format::{Format, RowFormatter};
-use super::parser::is_statement_complete;
+use super::parser::{is_statement_complete, touches_query_only_pragma};
 use super::DbContext;
 
 const PROMPT_PRIMARY: &str = "libllm> ";
@@ -237,6 +237,12 @@ fn print_help() {
 }
 
 fn run_statement(state: &ShellState, sql: &str) -> Result<()> {
+    if !state.write_allowed && touches_query_only_pragma(sql) {
+        anyhow::bail!(
+            "PRAGMA query_only cannot be modified in read-only mode; \
+             use `.write on` to enable writes"
+        );
+    }
     let started = std::time::Instant::now();
     let rows = state.db.execute_query(sql)?;
     if rows.headers.is_empty() {

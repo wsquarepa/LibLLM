@@ -267,3 +267,42 @@ fn import_rejects_txt_without_type() {
         "expected error about missing type, got: {stderr}"
     );
 }
+
+#[test]
+fn import_rejects_oversized_persona_file() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path().join("data");
+    let txt_path = dir.path().join("huge.txt");
+
+    let over_limit: u64 = 10 * 1024 * 1024 + 1;
+    {
+        use std::io::Write as _;
+        let mut f = std::fs::File::create(&txt_path).expect("create huge file");
+        let chunk = vec![b'x'; 64 * 1024];
+        let mut written: u64 = 0;
+        while written < over_limit {
+            let n = chunk.len().min((over_limit - written) as usize);
+            f.write_all(&chunk[..n]).expect("write chunk");
+            written += n as u64;
+        }
+    }
+
+    let output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "import",
+            "--type",
+            "persona",
+            txt_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(!output.status.success(), "expected non-zero exit for oversized file");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("too large") || stderr.contains("limit"),
+        "expected size-limit error, got: {stderr}"
+    );
+}

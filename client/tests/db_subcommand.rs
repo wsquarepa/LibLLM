@@ -340,7 +340,7 @@ fn sql_write_allows_update() {
     let db_path = data_dir.join("data.db");
     seed_plain_db(&db_path);
 
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -350,9 +350,14 @@ fn sql_write_allows_update() {
             "--write",
             "UPDATE personas SET name = 'AliceX' WHERE slug = 'alice';",
         ])
-        .status()
+        .output()
         .expect("spawn client");
-    assert!(status.success(), "exit status: {status:?}");
+    assert!(
+        output.status.success(),
+        "exit status: {:?}, stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let db = Database::open(&db_path, None).expect("open db");
     let loaded = db.load_persona("alice").expect("load alice");

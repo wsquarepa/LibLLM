@@ -244,6 +244,13 @@ impl Database {
             .context("failed to execute statement")
     }
 
+    /// Number of rows affected by the most recent INSERT/UPDATE/DELETE
+    /// on this connection. Returns 0 for statements that did not modify rows
+    /// (including SELECT, PRAGMA, schema changes, or no statement at all).
+    pub fn changes(&self) -> u64 {
+        self.conn.changes()
+    }
+
     /// Run one or more SQL statements, discarding any returned rows.
     /// Use for pragma-like operations and SQLCipher control statements
     /// (ATTACH ... KEY, SELECT sqlcipher_export, DETACH) where the result

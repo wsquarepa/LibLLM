@@ -276,7 +276,7 @@ pub(super) fn handle_field_dialog_key(
                     }
                     app.preset_editor = None;
                     app.focus = Focus::PresetPickerDialog;
-                    return None;
+                    None
                 }
                 DialogKind::PersonaEditor => {
                     let is_cli_locked = app.cli_overrides.persona.is_some();
@@ -350,7 +350,7 @@ pub(super) fn handle_field_dialog_key(
                         maintenance::reload_persona_picker(app);
                         app.focus = Focus::PersonaDialog;
                     }
-                    return None;
+                    None
                 }
                 DialogKind::SystemPromptEditor => {
                     if app.system_editor_read_only {
@@ -437,7 +437,7 @@ pub(super) fn handle_field_dialog_key(
 
                     app.system_prompt_editor = None;
                     app.focus = app.system_editor_return_focus;
-                    return None;
+                    None
                 }
                 DialogKind::CharacterEditor => {
                     if !app.character_editor.as_ref().unwrap().has_changes() {
@@ -530,7 +530,7 @@ pub(super) fn handle_field_dialog_key(
                     }
                     app.character_editor = None;
                     app.focus = Focus::CharacterDialog;
-                    return None;
+                    None
                 }
                 DialogKind::WorldbookEntryEditor => {
                     if !app.worldbook_entry_editor.as_ref().unwrap().has_changes() {
@@ -548,11 +548,9 @@ pub(super) fn handle_field_dialog_key(
                     }
                     app.worldbook_entry_editor = None;
                     app.focus = Focus::WorldbookEditorDialog;
-                    return None;
+                    None
                 }
             }
-            #[allow(unreachable_code)]
-            None
         }
     }
 }

@@ -31,6 +31,17 @@ cargo test --workspace 2>&1 | grep -E "^test result:"
 
 Every line must show `0 failed`.
 
+### No warning suppression
+
+Never silence compiler warnings with `#[allow(...)]` attributes, `#![allow(...)]` inner attributes, `RUSTFLAGS=-Awarnings`, or any equivalent mechanism. Fix the underlying code instead.
+
+- Dead code → delete it.
+- Unreachable expression → restructure control flow so the path is reachable, or remove the dead branch.
+- Unused import → delete it.
+- Unused variable → delete it or use it.
+
+If a warning genuinely cannot be fixed at the source (extremely rare, e.g., third-party macro output), flag it before using a suppression pragma. Silently suppressing warnings is strictly prohibited.
+
 ### OnceLock constraint
 
 `config::set_data_dir()` uses `OnceLock` and can only be called once per process. Only `client/tests/infrastructure.rs` owns this call -- other test files must pass explicit paths instead of relying on `data_dir()`.

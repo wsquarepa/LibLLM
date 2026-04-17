@@ -115,38 +115,14 @@ pub fn open_config_editor(
     let [general_locked, sampling_locked, backup_locked, summarization_locked]: [Vec<usize>; 4] =
         locked.try_into().expect("expected 4 lock vectors");
 
-    let general = TabSection {
-        title: "General",
-        labels: GENERAL_LABELS,
-        original_values: general_vals.clone(),
-        values: general_vals,
-        multiline_fields: &[],
-        boolean_fields: GENERAL_BOOLEAN,
-        selector_fields: GENERAL_SELECTOR,
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: general_locked,
-        validated_fields: Vec::new(),
-        color_preview_fields: &[],
-        selected: 0,
-    };
+    let general = TabSection::new("General", GENERAL_LABELS, general_vals)
+        .with_boolean_fields(GENERAL_BOOLEAN)
+        .with_selector_fields(GENERAL_SELECTOR)
+        .with_locked_fields(general_locked);
 
-    let sampling = TabSection {
-        title: "Sampling",
-        labels: SAMPLING_LABELS,
-        original_values: sampling_vals.clone(),
-        values: sampling_vals,
-        multiline_fields: &[],
-        boolean_fields: &[],
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: sampling_locked,
-        validated_fields: vec![
+    let sampling = TabSection::new("Sampling", SAMPLING_LABELS, sampling_vals)
+        .with_locked_fields(sampling_locked)
+        .with_validated_fields(vec![
             (0, FieldValidation::Float { min: 0.0, max: 2.0 }),
             (1, FieldValidation::Int { min: 1, max: 100 }),
             (2, FieldValidation::Float { min: 0.0, max: 1.0 }),
@@ -154,55 +130,29 @@ pub fn open_config_editor(
             (4, FieldValidation::Int { min: -1, max: 32767 }),
             (5, FieldValidation::Float { min: 0.0, max: 2.0 }),
             (6, FieldValidation::Int { min: -1, max: 32767 }),
-        ],
-        color_preview_fields: &[],
-        selected: 0,
-    };
+        ]);
 
-    let backup = TabSection {
-        title: "Backup",
-        labels: BACKUP_LABELS,
-        original_values: backup_vals.clone(),
-        values: backup_vals,
-        multiline_fields: &[],
-        boolean_fields: BACKUP_BOOLEAN,
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: backup_locked,
-        validated_fields: vec![
+    let backup = TabSection::new("Backup", BACKUP_LABELS, backup_vals)
+        .with_boolean_fields(BACKUP_BOOLEAN)
+        .with_locked_fields(backup_locked)
+        .with_validated_fields(vec![
             (1, FieldValidation::Int { min: 0, max: 3650 }),
             (2, FieldValidation::Int { min: 0, max: 3650 }),
             (3, FieldValidation::Int { min: 0, max: 3650 }),
             (4, FieldValidation::Int { min: 0, max: 100 }),
             (5, FieldValidation::Int { min: 0, max: 100 }),
-        ],
-        color_preview_fields: &[],
-        selected: 0,
-    };
+        ]);
 
-    let summarization = TabSection {
-        title: "Summarization",
-        labels: SUMMARIZATION_LABELS,
-        original_values: summarization_vals.clone(),
-        values: summarization_vals,
-        multiline_fields: SUMMARIZATION_MULTILINE,
-        boolean_fields: SUMMARIZATION_BOOLEAN,
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: SUMMARIZATION_PLACEHOLDER,
-        placeholder_text: Some("(inherit main api_url)"),
-        locked_fields: summarization_locked,
-        validated_fields: vec![
-            (2, FieldValidation::Int { min: 512, max: 131072 }),
-            (3, FieldValidation::Int { min: 1, max: 100 }),
-        ],
-        color_preview_fields: &[],
-        selected: 0,
-    };
+    let summarization =
+        TabSection::new("Summarization", SUMMARIZATION_LABELS, summarization_vals)
+            .with_multiline_fields(SUMMARIZATION_MULTILINE)
+            .with_boolean_fields(SUMMARIZATION_BOOLEAN)
+            .with_placeholder(SUMMARIZATION_PLACEHOLDER, "(inherit main api_url)")
+            .with_locked_fields(summarization_locked)
+            .with_validated_fields(vec![
+                (2, FieldValidation::Int { min: 512, max: 131072 }),
+                (3, FieldValidation::Int { min: 1, max: 100 }),
+            ]);
 
     TabbedFieldDialog::new(
         " Configuration ",
@@ -395,111 +345,42 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
         String::new(),
         String::new(),
     ];
-    let theme_tab = TabSection {
-        title: "Theme",
-        labels: THEME_TAB_LABELS,
-        original_values: theme_vals.clone(),
-        values: theme_vals,
-        multiline_fields: &[],
-        boolean_fields: &[],
-        selector_fields: THEME_TAB_SELECTOR,
-        action_fields: THEME_TAB_ACTIONS,
-        separator_fields: THEME_TAB_SEPARATOR,
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: Vec::new(),
-        validated_fields: Vec::new(),
-        color_preview_fields: &[],
-        selected: 0,
-    };
+    let theme_tab = TabSection::new("Theme", THEME_TAB_LABELS, theme_vals)
+        .with_selector_fields(THEME_TAB_SELECTOR)
+        .with_action_fields(THEME_TAB_ACTIONS)
+        .with_separator_fields(THEME_TAB_SEPARATOR);
 
     let messages_vals: Vec<String> = MESSAGES_LABEL_IDS
         .iter()
         .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
-    let messages = TabSection {
-        title: "Messages",
-        labels: MESSAGES_LABELS,
-        original_values: messages_vals.clone(),
-        values: messages_vals,
-        multiline_fields: &[],
-        boolean_fields: &[],
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: Vec::new(),
-        validated_fields: color_validations(MESSAGES_LABELS.len()),
-        color_preview_fields: MESSAGES_COLOR_FIELDS,
-        selected: 0,
-    };
+    let messages = TabSection::new("Messages", MESSAGES_LABELS, messages_vals)
+        .with_validated_fields(color_validations(MESSAGES_LABELS.len()))
+        .with_color_preview_fields(MESSAGES_COLOR_FIELDS);
 
     let borders_vals: Vec<String> = BORDERS_STATUS_LABEL_IDS
         .iter()
         .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
-    let borders_status = TabSection {
-        title: "Borders & Status",
-        labels: BORDERS_STATUS_LABELS,
-        original_values: borders_vals.clone(),
-        values: borders_vals,
-        multiline_fields: &[],
-        boolean_fields: &[],
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: Vec::new(),
-        validated_fields: color_validations(BORDERS_STATUS_LABELS.len()),
-        color_preview_fields: BORDERS_STATUS_COLOR_FIELDS,
-        selected: 0,
-    };
+    let borders_status = TabSection::new("Borders & Status", BORDERS_STATUS_LABELS, borders_vals)
+        .with_validated_fields(color_validations(BORDERS_STATUS_LABELS.len()))
+        .with_color_preview_fields(BORDERS_STATUS_COLOR_FIELDS);
 
     let ui_vals: Vec<String> = UI_LABEL_IDS
         .iter()
         .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
-    let ui_tab = TabSection {
-        title: "UI",
-        labels: UI_LABELS,
-        original_values: ui_vals.clone(),
-        values: ui_vals,
-        multiline_fields: &[],
-        boolean_fields: &[],
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: Vec::new(),
-        validated_fields: color_validations(UI_LABELS.len()),
-        color_preview_fields: UI_COLOR_FIELDS,
-        selected: 0,
-    };
+    let ui_tab = TabSection::new("UI", UI_LABELS, ui_vals)
+        .with_validated_fields(color_validations(UI_LABELS.len()))
+        .with_color_preview_fields(UI_COLOR_FIELDS);
 
     let ind_vals: Vec<String> = INDICATORS_LABEL_IDS
         .iter()
         .map(|l| overrides.get(*l).unwrap_or_default().to_owned())
         .collect();
-    let indicators = TabSection {
-        title: "Indicators",
-        labels: INDICATORS_LABELS,
-        original_values: ind_vals.clone(),
-        values: ind_vals,
-        multiline_fields: &[],
-        boolean_fields: &[],
-        selector_fields: &[],
-        action_fields: &[],
-        separator_fields: &[],
-        placeholder_fields: &[],
-        placeholder_text: None,
-        locked_fields: Vec::new(),
-        validated_fields: color_validations(INDICATORS_LABELS.len()),
-        color_preview_fields: INDICATORS_COLOR_FIELDS,
-        selected: 0,
-    };
+    let indicators = TabSection::new("Indicators", INDICATORS_LABELS, ind_vals)
+        .with_validated_fields(color_validations(INDICATORS_LABELS.len()))
+        .with_color_preview_fields(INDICATORS_COLOR_FIELDS);
 
     TabbedFieldDialog::new(
         " Theme ",

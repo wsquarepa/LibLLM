@@ -28,7 +28,88 @@ pub struct TabSection {
     pub locked_fields: Vec<usize>,
     pub validated_fields: Vec<(usize, FieldValidation)>,
     pub color_preview_fields: &'static [usize],
-    pub selected: usize,
+    selected: usize,
+}
+
+impl TabSection {
+    pub fn new(
+        title: &'static str,
+        labels: &'static [&'static str],
+        values: Vec<String>,
+    ) -> Self {
+        let original_values = values.clone();
+        Self {
+            title,
+            labels,
+            values,
+            original_values,
+            multiline_fields: &[],
+            boolean_fields: &[],
+            selector_fields: &[],
+            action_fields: &[],
+            separator_fields: &[],
+            placeholder_fields: &[],
+            placeholder_text: None,
+            locked_fields: Vec::new(),
+            validated_fields: Vec::new(),
+            color_preview_fields: &[],
+            selected: 0,
+        }
+    }
+
+    pub fn with_boolean_fields(mut self, fields: &'static [usize]) -> Self {
+        self.boolean_fields = fields;
+        self
+    }
+
+    pub fn with_selector_fields(mut self, fields: &'static [usize]) -> Self {
+        self.selector_fields = fields;
+        self
+    }
+
+    pub fn with_action_fields(mut self, fields: &'static [usize]) -> Self {
+        self.action_fields = fields;
+        self
+    }
+
+    pub fn with_multiline_fields(mut self, fields: &'static [usize]) -> Self {
+        self.multiline_fields = fields;
+        self
+    }
+
+    pub fn with_separator_fields(mut self, fields: &'static [usize]) -> Self {
+        self.separator_fields = fields;
+        self
+    }
+
+    pub fn with_placeholder(
+        mut self,
+        fields: &'static [usize],
+        text: &'static str,
+    ) -> Self {
+        self.placeholder_fields = fields;
+        self.placeholder_text = Some(text);
+        self
+    }
+
+    pub fn with_locked_fields(mut self, fields: Vec<usize>) -> Self {
+        self.locked_fields = fields;
+        self
+    }
+
+    pub fn with_validated_fields(mut self, fields: Vec<(usize, FieldValidation)>) -> Self {
+        self.validated_fields = fields;
+        self
+    }
+
+    pub fn with_color_preview_fields(mut self, fields: &'static [usize]) -> Self {
+        self.color_preview_fields = fields;
+        self
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
 }
 
 pub enum TabbedFieldAction {
@@ -657,24 +738,7 @@ mod tests {
 
     fn make_section(title: &'static str, labels: &'static [&'static str]) -> TabSection {
         let values: Vec<String> = labels.iter().map(|_| String::new()).collect();
-        let original_values = values.clone();
-        TabSection {
-            title,
-            labels,
-            values,
-            original_values,
-            multiline_fields: &[],
-            boolean_fields: &[],
-            selector_fields: &[],
-            action_fields: &[],
-            separator_fields: &[],
-            placeholder_fields: &[],
-            placeholder_text: None,
-            locked_fields: Vec::new(),
-            validated_fields: Vec::new(),
-            color_preview_fields: &[],
-            selected: 0,
-        }
+        TabSection::new(title, labels, values)
     }
 
     #[test]

@@ -1,5 +1,7 @@
 //! Command-line argument parsing and CLI override definitions.
 
+pub mod db;
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -25,6 +27,46 @@ pub enum RecoverCommand {
     },
     /// Rebuild backup index from backup files on disk
     RebuildIndex,
+}
+
+#[derive(Subcommand)]
+pub enum DbSubcommand {
+    /// Execute a single SQL statement
+    Sql {
+        /// Allow mutating statements (INSERT/UPDATE/DELETE/etc.)
+        #[arg(long)]
+        write: bool,
+        /// Output format
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// SQL statement to execute
+        query: String,
+    },
+    /// Open an interactive SQL REPL
+    Shell {
+        /// Allow mutating statements within the session
+        #[arg(long)]
+        write: bool,
+        /// Disable on-disk history for this session
+        #[arg(long)]
+        private: bool,
+    },
+    /// Write a fully decrypted SQLite database to <path>
+    Dump {
+        /// Skip overwrite confirmation if <path> already exists
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Output path
+        path: std::path::PathBuf,
+    },
+    /// Replace the encrypted database with the contents of a plaintext SQLite file at <path>
+    Import {
+        /// Skip the confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Plaintext SQLite file
+        path: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -59,6 +101,12 @@ pub enum Command {
         /// Skip downgrade confirmation
         #[arg(long, short = 'y')]
         yes: bool,
+    },
+    /// Direct database inspection and editing.
+    #[command(alias = "database")]
+    Db {
+        #[command(subcommand)]
+        command: DbSubcommand,
     },
 }
 

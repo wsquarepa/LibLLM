@@ -239,7 +239,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, super::schema::CURRENT_VERSION);
     }
 
     #[test]

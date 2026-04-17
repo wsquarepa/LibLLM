@@ -127,7 +127,7 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
                 "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\
                  SELECT sqlcipher_export('encrypted');\
                  DETACH DATABASE encrypted;",
-                db_path.display(),
+                db_path.display().to_string().replace('\'', "''"),
                 key_hex,
             ))
             .context("failed to export plaintext database as encrypted")?;

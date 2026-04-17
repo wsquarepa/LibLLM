@@ -32,9 +32,10 @@ pub fn export_plaintext_db(db_path: &Path, key: Option<&DerivedKey>) -> Result<V
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("temp file path is not valid UTF-8"))?;
         src.execute_batch(&format!(
-            "ATTACH DATABASE '{dest_path_str}' AS plaintext KEY '';\
+            "ATTACH DATABASE '{}' AS plaintext KEY '';\
              SELECT sqlcipher_export('plaintext');\
-             DETACH DATABASE plaintext;"
+             DETACH DATABASE plaintext;",
+            dest_path_str.replace('\'', "''"),
         ))?;
     } else {
         let mut dest = rusqlite::Connection::open(&dest_path)?;

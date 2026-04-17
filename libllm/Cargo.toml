@@ -18,7 +18,7 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls-no-provider", "charset", "http2", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 futures-util = "0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 sysinfo = "0.38"
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 

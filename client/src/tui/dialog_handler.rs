@@ -99,7 +99,6 @@ pub(super) fn handle_field_dialog_key(
                 };
                 if !has_changes {
                     app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                    app.config_dialog = None;
                 } else {
                     let existing = libllm::config::load();
                     if let Err(e) = business::apply_tabbed_config_fields(
@@ -115,8 +114,9 @@ pub(super) fn handle_field_dialog_key(
                         business::apply_config(app);
                         app.set_status("Config saved.".to_owned(), StatusLevel::Info);
                     }
-                    app.config_dialog = None;
                 }
+                app.config_dialog = None;
+                app.focus = Focus::Input;
             }
             dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 1 } => {
                 crate::tui::dialogs::preset::open_preset_picker(
@@ -174,6 +174,7 @@ pub(super) fn handle_field_dialog_key(
                     app.invalidate_chat_cache();
                 }
                 app.theme_dialog = None;
+                app.focus = Focus::Input;
             }
             dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 0 } => {
                 open_base_theme_picker(app);

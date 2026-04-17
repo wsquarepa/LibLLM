@@ -58,22 +58,16 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
         let content = editor.lines().join("\n").trim().to_owned();
         let node_id = app.raw_edit_node.take();
         app.edit_editor = None;
+        app.focus = Focus::Chat;
 
         if content.is_empty() {
-            app.focus = Focus::Chat;
             return None;
         }
 
-        return match node_id {
-            Some(id) => Some(Action::EditMessage {
-                node_id: id,
-                content,
-            }),
-            None => {
-                app.focus = Focus::Chat;
-                None
-            }
-        };
+        return node_id.map(|id| Action::EditMessage {
+            node_id: id,
+            content,
+        });
     }
 
     let (consumed, warning) = crate::tui::clipboard::handle_clipboard_key(&key, editor);
@@ -153,22 +147,16 @@ pub(in crate::tui) fn handle_edit_confirm_key(key: KeyEvent, app: &mut App) -> O
                 let content = editor.lines().join("\n").trim().to_owned();
                 let node_id = app.raw_edit_node.take();
                 app.edit_editor = None;
+                app.focus = Focus::Chat;
 
                 if content.is_empty() {
-                    app.focus = Focus::Chat;
                     return None;
                 }
 
-                return match node_id {
-                    Some(id) => Some(Action::EditMessage {
-                        node_id: id,
-                        content,
-                    }),
-                    None => {
-                        app.focus = Focus::Chat;
-                        None
-                    }
-                };
+                return node_id.map(|id| Action::EditMessage {
+                    node_id: id,
+                    content,
+                });
             } else {
                 app.edit_editor = None;
                 app.raw_edit_node = None;

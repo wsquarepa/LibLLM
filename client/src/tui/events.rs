@@ -136,6 +136,25 @@ fn handle_key(
     app: &mut App,
     bg_tx: mpsc::Sender<BackgroundEvent>,
 ) -> Option<Action> {
+    #[cfg(debug_assertions)]
+    {
+        let invariant_ok = match app.focus {
+            Focus::ConfigDialog => app.config_dialog.is_some(),
+            Focus::ThemeDialog => app.theme_dialog.is_some(),
+            Focus::PresetEditorDialog => app.preset_editor.is_some(),
+            Focus::PersonaEditorDialog => app.persona_editor.is_some(),
+            Focus::CharacterEditorDialog => app.character_editor.is_some(),
+            Focus::SystemPromptEditorDialog => app.system_prompt_editor.is_some(),
+            Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
+            Focus::EditDialog => app.edit_editor.is_some(),
+            _ => true,
+        };
+        debug_assert!(
+            invariant_ok,
+            "focus {:?} points at a dialog whose state is None",
+            app.focus
+        );
+    }
     if app.focus == Focus::PasskeyDialog {
         return dialogs::passkey::handle_passkey_key(key, app, bg_tx.clone());
     }

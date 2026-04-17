@@ -16,7 +16,7 @@ use super::dialogs;
 use super::render;
 use super::theme;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Focus {
     Input,
     Chat,

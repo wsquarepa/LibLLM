@@ -453,6 +453,36 @@ fn dump_round_trip_encrypted() {
 }
 
 #[test]
+fn dump_handles_output_path_with_tmp_extension() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    let db_path = data_dir.join("data.db");
+    seed_plain_db(&db_path);
+
+    // Output path that ends in `.tmp` — would collide with the internal
+    // tmp-file name if the dump computed it via `with_extension`.
+    let out = dir.path().join("backup.tmp");
+
+    let status = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "dump",
+            out.to_str().unwrap(),
+        ])
+        .status()
+        .expect("spawn client");
+    assert!(status.success(), "dump exit status: {status:?}");
+
+    let dumped = libllm::db::Database::open(&out, None).expect("open dump");
+    let personas = dumped.list_personas().expect("list");
+    assert_eq!(personas.len(), 1);
+    assert_eq!(personas[0].0, "alice");
+}
+
+#[test]
 fn shell_runs_scripted_select() {
     let dir = common::temp_dir();
     let data_dir = dir.path();

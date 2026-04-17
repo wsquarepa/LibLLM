@@ -21,7 +21,11 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
         std::process::exit(exit::WAL_LIVENESS);
     }
 
-    let tmp_path = path.with_extension("tmp");
+    let tmp_path = {
+        let mut s = path.as_os_str().to_owned();
+        s.push(".tmp");
+        std::path::PathBuf::from(s)
+    };
     if tmp_path.exists() {
         std::fs::remove_file(&tmp_path)
             .with_context(|| format!("failed to remove stale tmp file: {}", tmp_path.display()))?;

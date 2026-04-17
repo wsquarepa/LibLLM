@@ -584,7 +584,7 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-The project is a Cargo workspace with three crates (`libllm`, `client`, `backup`). Tests include unit tests in `libllm` and seven integration test suites in `client/tests/`.
+The project is a Cargo workspace with three crates (`libllm`, `client`, `backup`). Tests include unit tests in `libllm` and nine integration test suites in `client/tests/`.
 
 ## License
 

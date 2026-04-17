@@ -198,6 +198,13 @@ pub fn write_json_file(path: &Path, json: &str) {
     std::fs::write(path, json).expect("failed to write JSON file");
 }
 
+/// Path to the compiled `client` binary, resolved at compile time by Cargo.
+///
+/// Used by integration tests that spawn the CLI as a subprocess.
+pub fn client_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_BIN_EXE_client"))
+}
+
 /// Read a file to a string (panics on failure, test-only).
 pub fn read_file(path: &Path) -> String {
     std::fs::read_to_string(path).expect("failed to read file")

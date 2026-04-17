@@ -16,11 +16,12 @@ use crate::worldinfo::WorldBook;
 mod characters;
 mod personas;
 mod prompts;
-pub mod schema;
+mod schema;
 mod sessions;
 mod worldbooks;
 
 pub use prompts::PromptListEntry;
+pub use schema::CURRENT_VERSION;
 pub use sessions::SessionListEntry;
 
 fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Result<Vec<(String, String)>> {

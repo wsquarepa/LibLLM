@@ -16,7 +16,7 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
     }
 
     let plain_version = read_schema_version(path)?;
-    let expected = libllm::db::schema::CURRENT_VERSION;
+    let expected = libllm::db::CURRENT_VERSION;
     if plain_version != expected {
         eprintln!(
             "plaintext schema version {plain_version} does not match \

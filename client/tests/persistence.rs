@@ -187,3 +187,47 @@ fn role_summary_round_trip() {
     let deserialized: Role = serialized.parse().unwrap();
     assert_eq!(deserialized, role);
 }
+
+#[test]
+fn worldbook_rename_insert_before_delete_preserves_old_on_failure() {
+    let dir = common::temp_dir();
+    let db_path = dir.path().join("data.db");
+    let db = Database::open(&db_path, None).expect("open db");
+
+    let original = common::worldbook("old", vec![common::worldbook_entry(vec!["key"], "lore")]);
+    db.insert_worldbook("old", &original).expect("insert original");
+
+    let conflicting = common::worldbook("conflict", vec![]);
+    db.insert_worldbook("conflict", &conflicting).expect("insert conflicting");
+
+    let new_wb = common::worldbook("old-renamed", vec![]);
+    let insert_result = db.insert_worldbook("conflict", &new_wb);
+
+    assert!(
+        insert_result.is_err(),
+        "inserting a duplicate slug must fail"
+    );
+
+    let still_there = db.load_worldbook("old");
+    assert!(
+        still_there.is_ok(),
+        "original worldbook must still exist when the insert fails before the delete"
+    );
+}
+
+#[test]
+fn worldbook_rename_insert_then_delete_completes_cleanly() {
+    let dir = common::temp_dir();
+    let db_path = dir.path().join("data.db");
+    let db = Database::open(&db_path, None).expect("open db");
+
+    let original = common::worldbook("old", vec![common::worldbook_entry(vec!["key"], "lore")]);
+    db.insert_worldbook("old", &original).expect("insert original");
+
+    let renamed = common::worldbook("new-name", vec![common::worldbook_entry(vec!["key"], "lore")]);
+    db.insert_worldbook("new-name", &renamed).expect("insert with new slug succeeds");
+    db.delete_worldbook("old").expect("delete old slug succeeds");
+
+    assert!(db.load_worldbook("old").is_err(), "old slug must be gone");
+    assert!(db.load_worldbook("new-name").is_ok(), "new slug must exist");
+}

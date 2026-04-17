@@ -351,7 +351,7 @@ pub(in crate::tui) fn save_preset_from_editor(
     if !original_name.is_empty() && original_name != name {
         if let Some(safe_original) = sanitize_preset_name(original_name) {
             let old_path = dir.join(format!("{safe_original}.json"));
-            if old_path.starts_with(&dir) {
+            if old_path.starts_with(&dir) && old_path != path {
                 let _ = std::fs::remove_file(&old_path);
             }
         }
@@ -380,4 +380,42 @@ pub(in crate::tui) fn refresh_preset_list(app: &mut App) {
         .preset_picker_selected
         .min(names.len().saturating_sub(1));
     app.preset_picker_names = names;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_preset_does_not_delete_file_when_sanitized_names_collide() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+
+        let preset_dir = libllm::preset::instruct_presets_dir();
+        std::fs::create_dir_all(&preset_dir).expect("create preset dir");
+
+        let values = vec![
+            "foo".to_owned(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "false".to_owned(),
+            "false".to_owned(),
+            "false".to_owned(),
+        ];
+
+        save_preset_from_editor(PresetKind::Instruct, &values, ".foo")
+            .expect("save should succeed");
+
+        let saved_path = preset_dir.join("foo.json");
+        assert!(
+            saved_path.exists(),
+            "preset file must not be deleted when sanitized old and new names are the same"
+        );
+    }
 }

@@ -504,13 +504,11 @@ fn save_worldbook_editor(app: &mut App) {
     };
     let slug = libllm::character::slugify(&new_name);
     let old_slug = libllm::character::slugify(&original);
-    let save_result = if !original.is_empty() && original != new_name {
-        let db = app.db.as_ref();
-        let r = db.map(|db| {
-            let _ = db.delete_worldbook(&old_slug);
-            db.insert_worldbook(&slug, &wb)
-        }).unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
-        r
+    let is_rename = !original.is_empty() && original != new_name;
+    let save_result = if is_rename {
+        app.db.as_ref()
+            .map(|db| db.insert_worldbook(&slug, &wb))
+            .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     } else {
         app.db.as_ref().map(|db| {
             if db.load_worldbook(&slug).is_ok() {
@@ -522,13 +520,16 @@ fn save_worldbook_editor(app: &mut App) {
     };
     match save_result {
         Ok(()) => {
-            if !original.is_empty() && original != new_name {
+            if is_rename {
                 if let Some(pos) = app.session.worldbooks.iter().position(|n| n == &original) {
                     app.session.worldbooks[pos] = new_name.clone();
                 }
                 if let Some(pos) = app.config.worldbooks.iter().position(|n| n == &original) {
                     app.config.worldbooks[pos] = new_name.clone();
                     let _ = libllm::config::save(&app.config);
+                }
+                if let Some(db) = app.db.as_ref() {
+                    let _ = db.delete_worldbook(&old_slug);
                 }
             }
             app.invalidate_worldbook_cache();

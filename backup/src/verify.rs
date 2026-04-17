@@ -87,7 +87,7 @@ pub fn verify_chain(
     }
 
     for entry in &index.entries {
-        let Some(chain) = index.chain_to(&entry.id) else {
+        let Ok(chain) = index.chain_to(&entry.id) else {
             continue;
         };
 

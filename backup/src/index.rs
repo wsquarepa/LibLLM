@@ -1,5 +1,6 @@
 //! Backup index types and persistence for tracking backup chains.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
 
@@ -77,35 +78,61 @@ impl BackupIndex {
 
     /// Returns the ordered chain of entries (base first, then diffs) leading to the target.
     ///
-    /// Walks backward from the target entry until a base entry is found. Returns None if
-    /// the target id does not exist or if the chain references a base_id that cannot be resolved.
-    pub fn chain_to(&self, target_id: &str) -> Option<Vec<&BackupEntry>> {
-        let target = self.find_entry(target_id)?;
+    /// Walks backward from the target entry until a base entry is found. Returns an error if
+    /// the target id does not exist, if the chain references a base_id that cannot be resolved,
+    /// if a cycle is detected in the base_id links, or if the chain exceeds the depth cap.
+    pub fn chain_to(&self, target_id: &str) -> Result<Vec<&BackupEntry>> {
+        const MAX_CHAIN_DEPTH: usize = 10_000;
+
+        let target = self
+            .find_entry(target_id)
+            .with_context(|| format!("backup id not found in index: {target_id}"))?;
 
         let mut chain: Vec<&BackupEntry> = Vec::new();
+        let mut visited: HashSet<&str> = HashSet::new();
         let mut current = target;
 
         loop {
+            if !visited.insert(current.id.as_str()) {
+                anyhow::bail!(
+                    "cycle detected in backup chain at id: {}",
+                    current.id
+                );
+            }
+            if chain.len() >= MAX_CHAIN_DEPTH {
+                anyhow::bail!(
+                    "backup chain exceeds maximum depth of {MAX_CHAIN_DEPTH} at id: {}",
+                    current.id
+                );
+            }
             chain.push(current);
             match current.entry_type {
                 BackupType::Base => break,
                 BackupType::Diff => {
-                    let base_id = current.base_id.as_deref()?;
-                    current = self.find_entry(base_id)?;
+                    let base_id = current.base_id.as_deref().with_context(|| {
+                        format!("diff entry {} has no base_id", current.id)
+                    })?;
+                    current = self.find_entry(base_id).with_context(|| {
+                        format!(
+                            "base_id {} referenced by {} not found in index",
+                            base_id, current.id
+                        )
+                    })?;
                 }
             }
         }
 
         chain.reverse();
-        Some(chain)
+        Ok(chain)
     }
 }
 
 /// Generates a backup identifier from the current UTC time.
 ///
-/// Format: "YYYYMMDDTHHmmssZ" (16 characters, e.g. "20260414T153000Z").
+/// Format: "YYYYMMDDTHHmmss.mmmZ" (20 characters, e.g. "20260414T153000.123Z").
+/// Millisecond resolution prevents collisions between snapshots taken within the same second.
 pub fn generate_backup_id() -> String {
-    Utc::now().format("%Y%m%dT%H%M%SZ").to_string()
+    Utc::now().format("%Y%m%dT%H%M%S.%3fZ").to_string()
 }
 
 /// Constructs the filename for a backup file given its id and type.
@@ -255,9 +282,21 @@ mod tests {
     #[test]
     fn generate_id_format() {
         let id = generate_backup_id();
-        assert_eq!(id.len(), 16, "id must be 16 characters: {id}");
+        assert_eq!(id.len(), 20, "id must be 20 characters: {id}");
         assert!(id.ends_with('Z'), "id must end with Z: {id}");
         assert!(id.contains('T'), "id must contain T: {id}");
+        assert!(id.contains('.'), "id must contain millisecond separator: {id}");
+    }
+
+    #[test]
+    fn generate_id_millisecond_resolution_differs_across_ms_boundary() {
+        let id1 = generate_backup_id();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let id2 = generate_backup_id();
+        assert_ne!(
+            id1, id2,
+            "ids separated by 2ms must differ: id1={id1} id2={id2}"
+        );
     }
 
     #[test]
@@ -330,6 +369,8 @@ mod tests {
     fn is_safe_backup_filename_accepts_valid_name() {
         assert!(is_safe_backup_filename("20260414T073656Z-base.bak"));
         assert!(is_safe_backup_filename("20260414T073656Z-diff.bak"));
+        assert!(is_safe_backup_filename("20260414T073656.123Z-base.bak"));
+        assert!(is_safe_backup_filename("20260414T073656.123Z-diff.bak"));
     }
 
     #[test]
@@ -423,8 +464,26 @@ mod tests {
     }
 
     #[test]
-    fn chain_to_missing_id_returns_none() {
+    fn chain_to_missing_id_returns_err() {
         let index = BackupIndex::new();
-        assert!(index.chain_to("doesnotexist").is_none());
+        assert!(index.chain_to("doesnotexist").is_err());
+    }
+
+    #[test]
+    fn chain_to_cycle_returns_err() {
+        let mut index = BackupIndex::new();
+
+        let mut a = make_diff_entry("id-a", "id-b");
+        a.base_id = Some("id-b".to_string());
+        let mut b = make_diff_entry("id-b", "id-a");
+        b.base_id = Some("id-a".to_string());
+
+        index.entries.push(a);
+        index.entries.push(b);
+
+        let result = index.chain_to("id-a");
+        assert!(result.is_err(), "expected Err for cyclic chain");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("cycle"), "expected cycle error, got: {msg}");
     }
 }

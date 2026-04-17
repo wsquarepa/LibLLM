@@ -329,19 +329,34 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/theme` | | Switch color theme (`dark`, `light`) |
 | `/export` | | Export current branch to file (`html`, `md`, `jsonl`) |
 | `/macro` | `/m` | Run a user-defined macro (see [Macros](#macros)) |
-| `/report` | | Copy the active debug log to `./debug.log` (requires `debug_log = true`) |
+| `/report` | | Copy the active debug log to `./debug.log` |
 | `/quit` | `/exit` | Exit the chat |
 
 ## Diagnostics
 
-Debug logging is off by default. Enable it by setting `debug_log = true` in your config or by passing `--debug <path>` on the command line. When enabled, the log goes to your operating system's temporary directory under a unique filename, so both interactive TUI sessions and one-off `-m` runs leave behind a reportable log.
-
-Use `--debug <path>` to override the log location:
+The debug log is always written to a file in the operating system's temporary directory under a unique filename. Pass `--debug <path>` to write it to a specific location instead:
 
 ```sh
 libllm --debug ./my-debug.log
 libllm -m "hello" --debug ./single-run.log
 ```
+
+Use `--log-filter <DIRECTIVE>` to set the effective `EnvFilter` directive (requires `--debug`):
+
+```sh
+libllm --debug ./my-debug.log --log-filter debug
+libllm --debug ./my-debug.log --log-filter info,libllm::db=debug
+```
+
+Set `LIBLLM_LOG` as an alternative to `--log-filter`; it is ignored unless `--debug` is passed:
+
+```sh
+LIBLLM_LOG=info,libllm::db=debug libllm --debug ./mylog.log
+```
+
+The default filter is `info`.
+
+The banner at the top of each log lists build identity, system info, terminal info, and the active filter. Each event line shows a relative offset in `+hh:mm:ss.sss` format from run start.
 
 Use `--timings` to generate a timings report at the end of the run:
 
@@ -369,7 +384,6 @@ reasoning_preset = "OFF"
 template_preset = "Default"
 worldbooks = ["fantasy-lore", "tech-terms"]
 tls_skip_verify = false
-debug_log = false
 
 [sampling]
 temperature = 0.8

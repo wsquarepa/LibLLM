@@ -33,7 +33,6 @@ fn config_default_values() {
     assert!(cfg.sampling.max_tokens.is_none());
     assert!(cfg.worldbooks.is_empty());
     assert!(!cfg.tls_skip_verify);
-    assert!(!cfg.debug_log);
     assert!(cfg.default_persona.is_none());
 }
 
@@ -57,7 +56,6 @@ fn config_save_load_roundtrip() {
     cfg.reasoning_preset = Some("deepseek".to_owned());
     cfg.worldbooks = vec!["lore.worldbook".to_owned()];
     cfg.tls_skip_verify = true;
-    cfg.debug_log = true;
     cfg.default_persona = Some("tester".to_owned());
     cfg.sampling.temperature = Some(0.7);
     cfg.sampling.top_k = Some(40);
@@ -72,7 +70,6 @@ fn config_save_load_roundtrip() {
     assert_eq!(loaded.reasoning_preset.as_deref(), Some("deepseek"));
     assert_eq!(loaded.worldbooks, vec!["lore.worldbook"]);
     assert!(loaded.tls_skip_verify);
-    assert!(loaded.debug_log);
     assert_eq!(loaded.default_persona.as_deref(), Some("tester"));
     assert_eq!(loaded.sampling.temperature, Some(0.7));
     assert_eq!(loaded.sampling.top_k, Some(40));
@@ -104,7 +101,6 @@ fn config_partial_toml() {
     assert!(loaded.sampling.temperature.is_none());
     assert!(loaded.worldbooks.is_empty());
     assert!(!loaded.tls_skip_verify);
-    assert!(!loaded.debug_log);
     assert!(loaded.default_persona.is_none());
 }
 
@@ -168,14 +164,12 @@ fn config_survives_migration() {
 
     let mut cfg = Config::default();
     cfg.api_url = Some("http://survive.test/v1".to_owned());
-    cfg.debug_log = true;
     config::save(&cfg).unwrap();
 
     migration::migrate_config_path();
 
     let loaded = config::load();
     assert_eq!(loaded.api_url.as_deref(), Some("http://survive.test/v1"));
-    assert!(loaded.debug_log);
 }
 
 // ---------------------------------------------------------------------------

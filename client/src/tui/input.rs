@@ -18,11 +18,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if picker_active {
         let prefix = app.textarea.lines()[0].as_str();
-        let hidden: &[&str] = if libllm::config::load().debug_log {
-            &[]
-        } else {
-            &["/report"]
-        };
+        let hidden: &[&str] = &[];
         let matches = libllm::commands::matching_commands(
             prefix.split_whitespace().next().unwrap_or("/"),
             hidden,

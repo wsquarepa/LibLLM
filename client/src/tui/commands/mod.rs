@@ -428,14 +428,6 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
 }
 
 fn cmd_report(app: &mut App) {
-    if !libllm::config::load().debug_log {
-        tracing::debug!(result = "disabled", "tui.command.report");
-        app.set_status(
-            "Debug logging is disabled in config".to_owned(),
-            StatusLevel::Error,
-        );
-        return;
-    }
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
         Err(err) => {

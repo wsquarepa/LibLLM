@@ -220,7 +220,6 @@ pub fn load_tabbed_config_sections(
         } else {
             cfg.tls_skip_verify.to_string()
         },
-        cfg.debug_log.to_string(),
     ];
 
     let sampling = vec![
@@ -354,7 +353,6 @@ pub fn apply_tabbed_config_fields(
     } else {
         general[4] == "true"
     };
-    let debug_log = general[5] == "true";
 
     let temperature = if locked[1].contains(&0) {
         existing.sampling.temperature
@@ -430,7 +428,6 @@ pub fn apply_tabbed_config_fields(
         },
         worldbooks: existing.worldbooks,
         tls_skip_verify,
-        debug_log,
         default_persona: existing.default_persona,
         macros: existing.macros,
         theme: existing.theme,

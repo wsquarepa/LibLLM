@@ -35,8 +35,6 @@ pub struct Config {
     pub worldbooks: Vec<String>,
     #[serde(default)]
     pub tls_skip_verify: bool,
-    #[serde(default)]
-    pub debug_log: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub default_persona: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]

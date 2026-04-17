@@ -16,9 +16,8 @@ const GENERAL_LABELS: &[&str] = &[
     "Instruct preset",
     "Reasoning preset",
     "TLS Skip Verify",
-    "Debug Logging",
 ];
-const GENERAL_BOOLEAN: &[usize] = &[4, 5];
+const GENERAL_BOOLEAN: &[usize] = &[4];
 const GENERAL_SELECTOR: &[usize] = &[1, 2, 3];
 
 const SAMPLING_LABELS: &[&str] = &[

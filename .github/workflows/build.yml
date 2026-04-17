@@ -120,6 +120,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v8
         with:
@@ -129,11 +131,21 @@ jobs:
       - name: Determine release params
         id: params
         shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          HASH=$(git rev-parse --short HEAD)
-          TIME=$(git log -1 --format=%ci)
-          MSG=$(git log -1 --format=%B | sed '/^$/d')
-          printf 'Commit `%s` at `%s`\n\n```\n%s\n```\n' "$HASH" "$TIME" "$MSG" > notes.md
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+
+          {
+            echo "Changes this release:"
+            echo ""
+            if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] \
+              || ! git rev-parse --verify --quiet "${BEFORE_SHA}^{commit}" >/dev/null; then
+              git log -1 --format="- [%h](${REPO_URL}/commit/%H) %s" HEAD
+            else
+              git log --format="- [%h](${REPO_URL}/commit/%H) %s" "${BEFORE_SHA}..HEAD"
+            fi
+          } > notes.md
 
           if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
             echo "tag=stable" >> "$GITHUB_OUTPUT"

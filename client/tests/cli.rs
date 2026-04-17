@@ -72,6 +72,18 @@ fn parse_import_with_type() {
     }
 }
 
+#[test]
+fn parse_import_with_type_long_form() {
+    let args =
+        Args::try_parse_from(["libllm", "import", "--type", "persona", "note.txt"]).unwrap();
+    match args.command {
+        Some(Command::Import { kind, .. }) => {
+            assert_eq!(kind, Some("persona".to_string()));
+        }
+        _ => panic!("expected Command::Import"),
+    }
+}
+
 // The following 6 tests document EXPECTED behavior for `requires` constraints that are not yet
 // enforced by clap attributes in cli.rs. They will fail until those constraints are implemented.
 

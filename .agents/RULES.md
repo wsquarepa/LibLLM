@@ -25,7 +25,9 @@ After the background task completes, read the output file to check for errors an
 
 ### Test suites
 
-Integration tests live in `client/tests/` across seven files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `lints`, `persistence`. Unit tests live in `libllm/src/db/` sub-modules and in `client/src/cli/db/{parser,format}.rs`. Shared helpers are in `client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
+Integration tests live in `client/tests/` across nine files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `import_subcommand`, `lints`, `persistence`, `recover_subcommand`. Unit tests live in `libllm/src/db/` sub-modules and in `client/src/cli/db/{parser,format}.rs`. Shared helpers are in `client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
+
+**Subprocess integration tests:** Three test binaries (`db_subcommand`, `import_subcommand`, `recover_subcommand`) spawn the compiled `client` binary via `common::client_bin()` to exercise the CLI surface end-to-end (exit codes, stderr/stdout split, env-var passkey, `--no-encrypt` data dirs). Use this pattern when the contract being tested is the CLI itself — argument parsing, exit codes, confirmation prompts, multi-process safety. Use `.output()` (not `.status()`) so stderr is captured in failure messages. The `update` subcommand is deliberately not subprocess-tested because it depends on network access; the `edit` subcommand would need an `$EDITOR` mock and is also currently uncovered at this level.
 
 ### Verifying test results
 

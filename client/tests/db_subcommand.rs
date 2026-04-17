@@ -4,13 +4,9 @@ mod common;
 use std::io::Write as _;
 use std::process::{Command, Stdio};
 
+use common::client_bin;
 use libllm::db::Database;
 use libllm::persona::PersonaFile;
-
-fn client_bin() -> std::path::PathBuf {
-    let target = env!("CARGO_BIN_EXE_client");
-    std::path::PathBuf::from(target)
-}
 
 fn seed_plain_db(path: &std::path::Path) {
     let db = Database::open(path, None).expect("open plain db");

@@ -83,7 +83,7 @@ pub enum Command {
         /// File(s) to import (.json, .png, or .txt)
         files: Vec<std::path::PathBuf>,
         /// Force content type: character, char, worldbook, wb, book, persona, prompt, system-prompt
-        #[arg(long, short = 't')]
+        #[arg(long = "type", short = 't')]
         kind: Option<String>,
     },
     /// Manage database backups (list, verify, restore, rebuild-index).

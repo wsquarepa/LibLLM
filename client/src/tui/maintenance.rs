@@ -68,21 +68,23 @@ pub(in crate::tui) fn reload_worldbook_picker(app: &mut App) {
 }
 
 pub(in crate::tui) fn reload_persona_picker(app: &mut App) {
-    let selected_name = app.persona_list.get(app.persona_selected).cloned();
-    let personas = match app.db.as_ref().and_then(|db| db.list_personas().ok()) {
-        Some(ps) => ps.into_iter().map(|(_, name)| name).collect(),
-        None => Vec::new(),
-    };
+    let selected_slug = app.persona_slugs.get(app.persona_selected).cloned();
+    let personas = app
+        .db
+        .as_ref()
+        .and_then(|db| db.list_personas().ok())
+        .unwrap_or_default();
 
-    app.persona_list = personas;
-    app.persona_selected = selected_name
-        .and_then(|name| {
-            app.persona_list
+    app.persona_names = personas.iter().map(|(_, name)| name.clone()).collect();
+    app.persona_slugs = personas.into_iter().map(|(slug, _)| slug).collect();
+    app.persona_selected = selected_slug
+        .and_then(|slug| {
+            app.persona_slugs
                 .iter()
-                .position(|existing| existing == &name)
+                .position(|existing| existing == &slug)
         })
         .unwrap_or(0)
-        .min(app.persona_list.len().saturating_sub(1));
+        .min(app.persona_slugs.len().saturating_sub(1));
 }
 
 pub(in crate::tui) fn reload_system_prompt_picker(app: &mut App) {

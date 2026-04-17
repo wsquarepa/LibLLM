@@ -293,14 +293,15 @@ pub(super) fn handle_field_dialog_key(
                         app.focus = Focus::PersonaDialog;
                     } else {
                         let values = &app.persona_editor.as_ref().unwrap().values;
-                        let file_name = app.persona_editor_file_name.clone();
+                        let old_slug = app.persona_editor_slug.clone();
                         let persona = libllm::persona::PersonaFile {
                             name: values[0].clone(),
                             persona: values[1].clone(),
                         };
 
-                        if file_name != persona.name
-                            && app.persona_list.iter().any(|n| n == &persona.name)
+                        let new_slug = libllm::character::slugify(&persona.name);
+                        if new_slug != old_slug
+                            && app.persona_slugs.iter().any(|s| s == &new_slug)
                         {
                             app.set_status(
                                 format!("Name '{}' is already in use.", persona.name),
@@ -309,9 +310,7 @@ pub(super) fn handle_field_dialog_key(
                             return None;
                         }
 
-                        let new_slug = libllm::character::slugify(&persona.name);
-                        if !file_name.is_empty() && file_name != persona.name {
-                            let old_slug = libllm::character::slugify(&file_name);
+                        if !old_slug.is_empty() && new_slug != old_slug {
                             if let Some(ref db) = app.db {
                                 let _ = db.delete_persona(&old_slug);
                             }
@@ -330,14 +329,12 @@ pub(super) fn handle_field_dialog_key(
                         {
                             Ok(_) => {
                                 app.invalidate_chat_cache();
-                                if app.session.persona.as_deref() == Some(&file_name)
-                                    || app.session.persona.as_deref()
-                                        == Some(persona.name.as_str())
-                                {
+                                if app.session.persona.as_deref() == Some(old_slug.as_str()) {
                                     app.active_persona_name = Some(persona.name.clone());
                                     app.active_persona_desc = Some(persona.persona.clone());
-                                    app.session.persona = Some(persona.name.clone());
+                                    app.session.persona = Some(new_slug.clone());
                                 }
+                                app.persona_editor_slug = new_slug;
                                 app.set_status(
                                     format!("Persona '{}' saved.", persona.name),
                                     StatusLevel::Info,

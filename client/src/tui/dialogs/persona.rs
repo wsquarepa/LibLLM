@@ -10,7 +10,7 @@ use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let count = app.persona_list.len();
+    let count = app.persona_names.len();
     let dialog = clear_centered(
         f,
         super::LIST_DIALOG_WIDTH,
@@ -20,10 +20,11 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
-    for (i, name) in app.persona_list.iter().enumerate() {
+    for (i, name) in app.persona_names.iter().enumerate() {
         let is_selected = i == app.persona_selected;
         let marker = if is_selected { "> " } else { "  " };
-        let active_marker = if app.session.persona.as_deref() == Some(name.as_str()) {
+        let slug = app.persona_slugs.get(i).map(String::as_str).unwrap_or("");
+        let active_marker = if app.session.persona.as_deref() == Some(slug) {
             " *"
         } else {
             ""
@@ -59,7 +60,7 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
 }
 
 pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.persona_list.is_empty() {
+    if app.persona_slugs.is_empty() {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_persona(app);
@@ -77,21 +78,22 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
             super::move_selection_up(&mut app.persona_selected);
         }
         KeyCode::Down => {
-            super::move_selection_down(&mut app.persona_selected, app.persona_list.len());
+            super::move_selection_down(&mut app.persona_selected, app.persona_slugs.len());
         }
         KeyCode::Enter => {
-            let file_name = app.persona_list[app.persona_selected].clone();
-            match app.db.as_ref().and_then(|db| db.load_persona(&file_name).ok()) {
+            let slug = app.persona_slugs[app.persona_selected].clone();
+            match app.db.as_ref().and_then(|db| db.load_persona(&slug).ok()) {
                 Some(pf) => {
+                    let display_name = pf.name.clone();
                     app.active_persona_name = Some(pf.name);
                     app.active_persona_desc = Some(pf.persona);
-                    app.session.persona = Some(file_name.clone());
+                    app.session.persona = Some(slug.clone());
                     app.invalidate_chat_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
-                    app.config.default_persona = Some(file_name.clone());
+                    app.config.default_persona = Some(slug.clone());
                     let mut cfg = libllm::config::load();
-                    cfg.default_persona = Some(file_name.clone());
+                    cfg.default_persona = Some(slug.clone());
                     if let Err(e) = libllm::config::save(&cfg) {
                         libllm::debug_log::log_kv(
                             "config.default_persona",
@@ -103,13 +105,13 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
                     }
 
                     app.set_status(
-                        format!("Persona set to '{file_name}'."),
+                        format!("Persona set to '{display_name}'."),
                         super::super::StatusLevel::Info,
                     );
                 }
                 None => {
                     app.set_status(
-                        format!("Failed to load persona '{file_name}'."),
+                        format!("Failed to load persona '{slug}'."),
                         super::super::StatusLevel::Error,
                     );
                 }
@@ -117,17 +119,18 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
             app.focus = Focus::Input;
         }
         KeyCode::Right => {
-            let file_name = app.persona_list[app.persona_selected].clone();
-            open_persona_editor(app, &file_name);
+            let slug = app.persona_slugs[app.persona_selected].clone();
+            open_persona_editor(app, &slug);
         }
         KeyCode::Char('a') => {
             create_and_edit_persona(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.persona_list[app.persona_selected].clone();
-            app.delete_confirm_filename = name.clone();
+            let name = app.persona_names[app.persona_selected].clone();
+            let slug = app.persona_slugs[app.persona_selected].clone();
+            app.delete_confirm_filename = name;
             app.delete_confirm_selected = 0;
-            app.delete_context = DeleteContext::Persona { name };
+            app.delete_context = DeleteContext::Persona { slug };
             app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {
@@ -138,20 +141,20 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
     None
 }
 
-fn open_persona_editor(app: &mut App, file_name: &str) {
-    let pf = app.db.as_ref().and_then(|db| db.load_persona(file_name).ok());
+fn open_persona_editor(app: &mut App, slug: &str) {
+    let pf = app.db.as_ref().and_then(|db| db.load_persona(slug).ok());
     let values = match pf {
         Some(pf) => vec![pf.name, pf.persona],
-        None => vec![file_name.to_owned(), String::new()],
+        None => vec![slug.to_owned(), String::new()],
     };
 
-    app.persona_editor_file_name = file_name.to_owned();
+    app.persona_editor_slug = slug.to_owned();
     app.persona_editor = Some(super::open_persona_editor(values));
     app.focus = Focus::PersonaEditorDialog;
 }
 
 fn create_and_edit_persona(app: &mut App) {
-    let existing: std::collections::HashSet<String> = app.persona_list.iter().cloned().collect();
+    let existing: std::collections::HashSet<String> = app.persona_names.iter().cloned().collect();
     let new_name = super::generate_unique_name("persona", &existing);
     let persona = libllm::persona::PersonaFile {
         name: new_name.clone(),
@@ -165,9 +168,10 @@ fn create_and_edit_persona(app: &mut App) {
         );
         return;
     }
-    app.persona_list.push(new_name.clone());
-    app.persona_selected = app.persona_list.len() - 1;
-    open_persona_editor(app, &new_name);
+    app.persona_names.push(new_name);
+    app.persona_slugs.push(slug.clone());
+    app.persona_selected = app.persona_slugs.len() - 1;
+    open_persona_editor(app, &slug);
 }
 
 pub(in crate::tui) fn handle_persona_paste(
@@ -239,7 +243,8 @@ pub(in crate::tui) fn handle_persona_paste(
     match app.db.as_ref().map(|db| db.insert_persona(&slug, &persona)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
         Ok(()) => {
             let personas = app.db.as_ref().and_then(|db| db.list_personas().ok()).unwrap_or_default();
-            app.persona_list = personas.into_iter().map(|(_, n)| n).collect();
+            app.persona_names = personas.iter().map(|(_, n)| n.clone()).collect();
+            app.persona_slugs = personas.into_iter().map(|(s, _)| s).collect();
             app.persona_selected = 0;
             app.set_status(
                 format!("Imported persona: {name}"),

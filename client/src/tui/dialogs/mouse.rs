@@ -53,7 +53,7 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
         crate::tui::Focus::PersonaDialog => {
             match hit_test_list_dialog(
                 terminal_area,
-                app.persona_list.len(),
+                app.persona_names.len(),
                 mouse.column,
                 mouse.row,
             ) {

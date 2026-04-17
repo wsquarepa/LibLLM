@@ -282,14 +282,14 @@ fn cmd_branch(app: &mut App) {
 }
 
 fn cmd_persona(app: &mut App) {
-    if let Some(ref persona_name) = app.cli_overrides.persona {
-        let pf = app.db.as_ref().and_then(|db| db.load_persona(persona_name).ok());
+    if let Some(ref persona_slug) = app.cli_overrides.persona {
+        let pf = app.db.as_ref().and_then(|db| db.load_persona(persona_slug).ok());
         let values = match pf {
             Some(pf) => vec![pf.name, pf.persona],
-            None => vec![persona_name.clone(), String::new()],
+            None => vec![persona_slug.clone(), String::new()],
         };
         let all_locked = vec![0, 1];
-        app.persona_editor_file_name = persona_name.clone();
+        app.persona_editor_slug = persona_slug.clone();
         app.persona_editor =
             Some(dialogs::open_persona_editor(values).with_locked_fields(all_locked));
         app.focus = Focus::PersonaEditorDialog;
@@ -297,7 +297,8 @@ fn cmd_persona(app: &mut App) {
     }
 
     let personas = app.db.as_ref().and_then(|db| db.list_personas().ok()).unwrap_or_default();
-    app.persona_list = personas.into_iter().map(|(_, name)| name).collect();
+    app.persona_names = personas.iter().map(|(_, name)| name.clone()).collect();
+    app.persona_slugs = personas.into_iter().map(|(slug, _)| slug).collect();
     app.persona_selected = 0;
     app.focus = Focus::PersonaDialog;
 }

@@ -109,8 +109,8 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                     delete_character(app, &slug);
                     app.focus = Focus::CharacterDialog;
                 }
-                DeleteContext::Persona { name } => {
-                    delete_persona(app, &name);
+                DeleteContext::Persona { slug } => {
+                    delete_persona(app, &slug);
                     app.focus = Focus::PersonaDialog;
                 }
                 DeleteContext::SystemPrompt { name } => {
@@ -217,10 +217,9 @@ fn delete_character(app: &mut App, slug: &str) {
     );
 }
 
-fn delete_persona(app: &mut App, name: &str) {
-    let slug = libllm::character::slugify(name);
+fn delete_persona(app: &mut App, slug: &str) {
     if let Some(ref db) = app.db {
-        if let Err(e) = db.delete_persona(&slug) {
+        if let Err(e) = db.delete_persona(slug) {
             app.set_status(
                 format!("Error deleting persona: {e}"),
                 super::super::StatusLevel::Error,
@@ -229,7 +228,7 @@ fn delete_persona(app: &mut App, name: &str) {
         }
     }
 
-    if app.session.persona.as_deref() == Some(name) {
+    if app.session.persona.as_deref() == Some(slug) {
         app.active_persona_name = None;
         app.active_persona_desc = None;
         app.session.persona = None;
@@ -238,7 +237,7 @@ fn delete_persona(app: &mut App, name: &str) {
 
     maintenance::reload_persona_picker(app);
     app.set_status(
-        format!("Deleted persona: {name}"),
+        format!("Deleted persona: {slug}"),
         super::super::StatusLevel::Info,
     );
 }

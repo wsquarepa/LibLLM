@@ -239,7 +239,10 @@ impl Args {
             tls_skip_verify: self.tls_skip_verify,
             sampling: self.sampling_overrides(),
             system_prompt: self.system_prompt.clone(),
-            persona: self.persona.clone(),
+            persona: self
+                .persona
+                .as_deref()
+                .map(libllm::character::slugify),
             no_summarize: self.no_summarize,
         }
     }

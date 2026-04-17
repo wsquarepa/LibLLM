@@ -163,6 +163,18 @@ fn parse_update_with_branch() {
 }
 
 #[test]
+fn cli_overrides_persona_is_slugified() {
+    let args =
+        Args::try_parse_from(["libllm", "-c", "Example", "-p", "Alice Cooper"]).unwrap();
+    let overrides = args.cli_overrides();
+    assert_eq!(
+        overrides.persona.as_deref(),
+        Some("alice-cooper"),
+        "persona override must be slugified so DB lookups key by slug, not display name"
+    );
+}
+
+#[test]
 fn parse_update_list_flag_rejected() {
     let result = Args::try_parse_from(["libllm", "update", "--list"]);
     let err = result.err().expect("--list should no longer be accepted");

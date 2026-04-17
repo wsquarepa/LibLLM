@@ -177,7 +177,7 @@ async fn main() -> Result<()> {
 
     {
         if let Some(ref persona_name) = args.persona {
-            session.persona = Some(persona_name.clone());
+            session.persona = Some(character::slugify(persona_name));
         } else if session.persona.is_none() && session.tree.head().is_none() {
             session.persona = cfg.default_persona.clone();
         }

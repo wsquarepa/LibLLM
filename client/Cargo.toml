@@ -19,7 +19,7 @@ tui-textarea-2 = "0.10"
 rpassword = "7"
 dialoguer = "0.11"
 rustyline = { version = "14", features = ["with-file-history"] }
-rusqlite = { version = "0.39", features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 arboard = "3"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 uuid = { version = "1.23.0", features = ["v4"] }

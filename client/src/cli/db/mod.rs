@@ -78,6 +78,9 @@ fn resolve_context(args: &Args) -> Result<DbContext> {
 /// immediate write lock; on WAL-mode SQLite this fails with `SQLITE_BUSY` when
 /// another connection has a pending write.
 pub fn wal_liveness_check(db_path: &Path, key: Option<&DerivedKey>) -> Result<()> {
+    if !db_path.exists() {
+        return Ok(());
+    }
     let conn = rusqlite::Connection::open(db_path)
         .with_context(|| format!("failed to open database for liveness check: {}", db_path.display()))?;
     if let Some(key) = key {

@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use libllm::crypto::{self, DerivedKey};
+use zeroize::Zeroizing;
 
 use crate::cli::{Args, DbSubcommand};
 
@@ -85,7 +86,8 @@ pub fn wal_liveness_check(db_path: &Path, key: Option<&DerivedKey>) -> Result<()
     let conn = rusqlite::Connection::open(db_path)
         .with_context(|| format!("failed to open database for liveness check: {}", db_path.display()))?;
     if let Some(key) = key {
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key.hex()))
+        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()));
+        conn.execute_batch(&pragma)
             .context("failed to set encryption key for liveness check")?;
     }
     conn.busy_timeout(std::time::Duration::from_millis(0))

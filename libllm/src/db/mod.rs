@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+use zeroize::Zeroizing;
 
 use crate::character::CharacterCard;
 use crate::crypto::DerivedKey;
@@ -90,8 +91,8 @@ impl Database {
                     .with_context(|| format!("failed to restrict permissions: {}", path.display()))?;
 
                 if let Some(key) = key {
-                    let hex_key = key.hex();
-                    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
+                    let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()));
+                    conn.execute_batch(&pragma)
                         .context("failed to set database encryption key")?;
                 }
 
@@ -257,9 +258,9 @@ impl Database {
 
     pub fn rekey(&self, new_key: &DerivedKey) -> Result<()> {
         crate::timed_result!(tracing::Level::INFO, "db.rekey", ; {
-            let hex_key = new_key.hex();
+            let pragma = Zeroizing::new(format!("PRAGMA rekey = \"x'{}'\";\n", &*new_key.hex()));
             self.conn
-                .execute_batch(&format!("PRAGMA rekey = \"x'{}'\";", hex_key))
+                .execute_batch(&pragma)
                 .context("failed to rekey database")?;
             Ok(())
         })

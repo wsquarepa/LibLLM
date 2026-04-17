@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use argon2::Argon2;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const SALT_LEN: usize = 16;
 
@@ -82,8 +82,8 @@ impl DerivedKey {
         &self.bytes
     }
 
-    pub fn hex(&self) -> String {
-        self.bytes.iter().map(|b| format!("{b:02x}")).collect()
+    pub fn hex(&self) -> Zeroizing<String> {
+        Zeroizing::new(self.bytes.iter().map(|b| format!("{b:02x}")).collect())
     }
 }
 
@@ -304,7 +304,7 @@ mod tests {
 
         let hex = key.hex();
         assert_eq!(hex.len(), 64);
-        assert!(hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+        assert!((*hex).chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
     }
 
     #[test]

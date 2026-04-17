@@ -378,7 +378,9 @@ impl<'a> FieldDialog<'a> {
                 .is_some_and(|(_, fields)| fields.contains(&i));
             let show_placeholder = is_empty && !self.editing && has_placeholder;
 
-            let max_value_width = dialog.width as usize - 2 - Self::LABEL_PREFIX_WIDTH;
+            let max_value_width = (dialog.width as usize)
+                .saturating_sub(2)
+                .saturating_sub(Self::LABEL_PREFIX_WIDTH);
             let mut spans = vec![Span::styled(format!("  {label:<22}"), label_style)];
 
             if show_placeholder {
@@ -401,7 +403,7 @@ impl<'a> FieldDialog<'a> {
                 } else {
                     " ".to_string()
                 };
-                let after_start = (self.cursor_pos + 1).min(char_count);
+                let after_start = (self.cursor_pos + 1).min(char_count).min(visible_end);
                 let after: String = chars[after_start..visible_end].iter().collect();
 
                 let cursor_style = value_style.add_modifier(Modifier::REVERSED);

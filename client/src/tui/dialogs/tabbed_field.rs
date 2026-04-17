@@ -583,10 +583,10 @@ impl<'a> TabbedFieldDialog<'a> {
         let has_placeholder = section.placeholder_fields.contains(&i) || is_color;
         let show_placeholder = is_empty && !self.editing && has_placeholder;
 
-        let max_value_width = dialog_width as usize
-            - 2
-            - Self::LABEL_PREFIX_WIDTH
-            - if is_color { Self::SWATCH_WIDTH + 1 } else { 0 };
+        let max_value_width = (dialog_width as usize)
+            .saturating_sub(2)
+            .saturating_sub(Self::LABEL_PREFIX_WIDTH)
+            .saturating_sub(if is_color { Self::SWATCH_WIDTH + 1 } else { 0 });
 
         let mut spans: Vec<Span<'static>> =
             vec![Span::styled(format!("  {label:<22}"), label_style)];

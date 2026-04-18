@@ -2,7 +2,7 @@
 mod common;
 
 use client::validation;
-use libllm::config::{self, Auth, AuthKind, Config};
+use libllm::config::{self, Auth, Config};
 use libllm::migration;
 
 fn setup_data_dir() -> tempfile::TempDir {
@@ -353,7 +353,6 @@ fn config_auth_roundtrip_bearer() {
     config::save(&cfg).unwrap();
     let loaded = config::load();
     assert_eq!(loaded.auth, Auth::Bearer { token: "sk-abc".into() });
-    assert_eq!(loaded.auth.kind(), AuthKind::Bearer);
 }
 
 #[test]

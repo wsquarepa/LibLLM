@@ -7,6 +7,30 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use libllm::sampling::SamplingOverrides;
 
+/// Client-side wrapper around `libllm::config::AuthKind` for clap's `ValueEnum` parsing.
+/// Keeps CLI-framework concerns out of the `libllm` crate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum AuthKindArg {
+    None,
+    Basic,
+    Bearer,
+    Header,
+    Query,
+}
+
+impl From<AuthKindArg> for libllm::config::AuthKind {
+    fn from(arg: AuthKindArg) -> Self {
+        match arg {
+            AuthKindArg::None => libllm::config::AuthKind::None,
+            AuthKindArg::Basic => libllm::config::AuthKind::Basic,
+            AuthKindArg::Bearer => libllm::config::AuthKind::Bearer,
+            AuthKindArg::Header => libllm::config::AuthKind::Header,
+            AuthKindArg::Query => libllm::config::AuthKind::Query,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum RecoverCommand {
     /// List all backup points
@@ -119,6 +143,14 @@ pub struct CliOverrides {
     pub system_prompt: Option<String>,
     pub persona: Option<String>,
     pub no_summarize: bool,
+    pub auth_type: Option<libllm::config::AuthKind>,
+    pub auth_basic_username: Option<String>,
+    pub auth_basic_password: Option<String>,
+    pub auth_bearer_token: Option<String>,
+    pub auth_header_name: Option<String>,
+    pub auth_header_value: Option<String>,
+    pub auth_query_name: Option<String>,
+    pub auth_query_value: Option<String>,
 }
 
 #[derive(Parser)]
@@ -211,6 +243,22 @@ pub struct Args {
     #[arg(long)]
     pub no_summarize: bool,
 
+    /// Authentication type for API requests
+    #[arg(long, value_enum)]
+    pub auth_type: Option<AuthKindArg>,
+
+    /// Username for Basic auth
+    #[arg(long)]
+    pub auth_basic_username: Option<String>,
+
+    /// Header name for Header auth
+    #[arg(long)]
+    pub auth_header_name: Option<String>,
+
+    /// Query parameter name for Query auth
+    #[arg(long)]
+    pub auth_query_name: Option<String>,
+
     /// Write debug log to this path instead of a temp file
     #[arg(long)]
     pub debug: Option<PathBuf>,
@@ -248,11 +296,31 @@ impl Args {
             tls_skip_verify: self.tls_skip_verify,
             sampling: self.sampling_overrides(),
             system_prompt: self.system_prompt.clone(),
-            persona: self
-                .persona
-                .as_deref()
-                .map(libllm::character::slugify),
+            persona: self.persona.as_deref().map(libllm::character::slugify),
             no_summarize: self.no_summarize,
+            auth_type: self.auth_type.map(Into::into),
+            auth_basic_username: self.auth_basic_username.clone(),
+            auth_basic_password: std::env::var("LIBLLM_AUTH_BASIC_PASSWORD").ok(),
+            auth_bearer_token: std::env::var("LIBLLM_AUTH_BEARER_TOKEN").ok(),
+            auth_header_name: self.auth_header_name.clone(),
+            auth_header_value: std::env::var("LIBLLM_AUTH_HEADER_VALUE").ok(),
+            auth_query_name: self.auth_query_name.clone(),
+            auth_query_value: std::env::var("LIBLLM_AUTH_QUERY_VALUE").ok(),
+        }
+    }
+}
+
+impl CliOverrides {
+    pub fn auth_overrides(&self) -> libllm::config::AuthOverrides {
+        libllm::config::AuthOverrides {
+            auth_type: self.auth_type,
+            auth_basic_username: self.auth_basic_username.clone(),
+            auth_basic_password: self.auth_basic_password.clone(),
+            auth_bearer_token: self.auth_bearer_token.clone(),
+            auth_header_name: self.auth_header_name.clone(),
+            auth_header_value: self.auth_header_value.clone(),
+            auth_query_name: self.auth_query_name.clone(),
+            auth_query_value: self.auth_query_value.clone(),
         }
     }
 }

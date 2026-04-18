@@ -54,6 +54,14 @@ fn no_overrides() -> CliOverrides {
         system_prompt: None,
         persona: None,
         no_summarize: false,
+        auth_type: None,
+        auth_basic_username: None,
+        auth_basic_password: None,
+        auth_bearer_token: None,
+        auth_header_name: None,
+        auth_header_value: None,
+        auth_query_name: None,
+        auth_query_value: None,
     }
 }
 

@@ -130,6 +130,26 @@ impl Auth {
         }
     }
 
+    /// Applies the configured authentication to an outbound request builder.
+    ///
+    /// Returns an error if a `Header` variant contains an invalid `HeaderName` or
+    /// `HeaderValue` at runtime. Save-time validation prevents this in normal flows;
+    /// a runtime failure here indicates corrupted state and is surfaced rather than
+    /// silently dropped.
+    pub fn apply(&self, req: reqwest::RequestBuilder) -> std::result::Result<reqwest::RequestBuilder, AuthError> {
+        match self {
+            Auth::None => Ok(req),
+            Auth::Basic { username, password } => Ok(req.basic_auth(username, Some(password))),
+            Auth::Bearer { token } => Ok(req.bearer_auth(token)),
+            Auth::Header { name, value } => {
+                let n = HeaderName::from_bytes(name.as_bytes()).map_err(AuthError::InvalidHeaderName)?;
+                let v = HeaderValue::from_str(value).map_err(AuthError::InvalidHeaderValue)?;
+                Ok(req.header(n, v))
+            }
+            Auth::Query { name, value } => Ok(req.query(&[(name.as_str(), value.as_str())])),
+        }
+    }
+
     pub fn validate(&self) -> std::result::Result<(), AuthError> {
         match self {
             Auth::None => Ok(()),
@@ -689,6 +709,11 @@ pub fn load() -> Config {
 mod tests {
     use super::*;
 
+    fn test_client() -> reqwest::Client {
+        crate::crypto_provider::install_default_crypto_provider();
+        reqwest::Client::new()
+    }
+
     #[test]
     fn salt_path_under_data_dir() {
         let dir = tempfile::tempdir().unwrap();
@@ -961,6 +986,69 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(resolve_auth(&cfg, &overrides), Auth::None);
+    }
+
+    #[test]
+    fn apply_none_adds_no_headers() {
+        let client = test_client();
+        let req = Auth::None.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        assert!(req.headers().get(reqwest::header::AUTHORIZATION).is_none());
+        assert_eq!(req.url().query(), None);
+    }
+
+    #[test]
+    fn apply_basic_sets_authorization_basic() {
+        let client = test_client();
+        let auth = Auth::Basic { username: "user".into(), password: "pass".into() };
+        let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
+        // base64("user:pass") == "dXNlcjpwYXNz"
+        assert_eq!(header.to_str().unwrap(), "Basic dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn apply_bearer_sets_authorization_bearer() {
+        let client = test_client();
+        let auth = Auth::Bearer { token: "sk-abc".into() };
+        let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
+        assert_eq!(header.to_str().unwrap(), "Bearer sk-abc");
+    }
+
+    #[test]
+    fn apply_header_sets_custom_header() {
+        let client = test_client();
+        let auth = Auth::Header { name: "X-Api-Key".into(), value: "abc".into() };
+        let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        assert_eq!(req.headers().get("x-api-key").unwrap().to_str().unwrap(), "abc");
+    }
+
+    #[test]
+    fn apply_header_invalid_name_returns_error() {
+        let client = test_client();
+        let auth = Auth::Header { name: "bad name".into(), value: "v".into() };
+        assert!(auth.apply(client.post("http://example.com/")).is_err());
+    }
+
+    #[test]
+    fn apply_query_appends_url_encoded_pair() {
+        let client = test_client();
+        let auth = Auth::Query { name: "api key".into(), value: "a/b c".into() };
+        let req = auth.apply(client.post("http://example.com/foo")).unwrap().build().unwrap();
+        // reqwest percent-encodes both name and value
+        let query = req.url().query().unwrap();
+        assert!(query.contains("api+key=a%2Fb+c") || query.contains("api%20key=a%2Fb%20c"),
+                "unexpected query encoding: {query}");
+    }
+
+    #[test]
+    fn apply_query_preserves_existing_query_params() {
+        let client = test_client();
+        let auth = Auth::Query { name: "k".into(), value: "v".into() };
+        let req = auth.apply(client.post("http://example.com/?existing=1")).unwrap().build().unwrap();
+        let query = req.url().query().unwrap();
+        assert!(query.contains("existing=1"));
+        assert!(query.contains("k=v"));
     }
 }
 

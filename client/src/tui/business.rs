@@ -434,6 +434,7 @@ pub fn apply_tabbed_config_fields(
         theme_colors: existing.theme_colors,
         backup: backup_cfg,
         summarization: summarization_cfg,
+        auth: existing.auth,
     };
 
     libllm::config::save(&cfg)
@@ -481,7 +482,9 @@ pub(super) fn apply_config(app: &mut App) {
 
     let new_url = app.cli_overrides.api_url.as_deref().unwrap_or(cfg.api_url());
     let new_tls_skip = app.cli_overrides.tls_skip_verify || cfg.tls_skip_verify;
-    app.client = libllm::client::ApiClient::new(new_url, new_tls_skip);
+    // TODO wired in Task 6
+    let new_auth = libllm::config::resolve_auth(&cfg, &libllm::config::AuthOverrides::default());
+    app.client = libllm::client::ApiClient::new(new_url, new_tls_skip, new_auth);
     app.model_name = None;
     app.api_available = true;
     app.api_error.clear();

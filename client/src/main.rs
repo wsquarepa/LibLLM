@@ -164,7 +164,9 @@ async fn main() -> Result<()> {
             ResetColor,
         );
     }
-    let client = ApiClient::new(api_url, tls_skip_verify);
+    // TODO wired in Task 6
+    let auth = libllm::config::resolve_auth(&cfg, &libllm::config::AuthOverrides::default());
+    let client = ApiClient::new(api_url, tls_skip_verify, auth);
 
     let preset_name = args
         .template

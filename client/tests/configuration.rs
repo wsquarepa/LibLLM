@@ -348,8 +348,10 @@ fn log_filter_with_debug_parses() {
 fn config_auth_roundtrip_bearer() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
-    let mut cfg = Config::default();
-    cfg.auth = Auth::Bearer { token: "sk-abc".into() };
+    let cfg = Config {
+        auth: Auth::Bearer { token: "sk-abc".into() },
+        ..Config::default()
+    };
     config::save(&cfg).unwrap();
     let loaded = config::load();
     assert_eq!(loaded.auth, Auth::Bearer { token: "sk-abc".into() });
@@ -359,8 +361,10 @@ fn config_auth_roundtrip_bearer() {
 fn config_auth_roundtrip_basic() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
-    let mut cfg = Config::default();
-    cfg.auth = Auth::Basic { username: "u".into(), password: "p".into() };
+    let cfg = Config {
+        auth: Auth::Basic { username: "u".into(), password: "p".into() },
+        ..Config::default()
+    };
     config::save(&cfg).unwrap();
     let loaded = config::load();
     assert_eq!(loaded.auth, Auth::Basic { username: "u".into(), password: "p".into() });
@@ -370,8 +374,10 @@ fn config_auth_roundtrip_basic() {
 fn config_auth_roundtrip_header() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
-    let mut cfg = Config::default();
-    cfg.auth = Auth::Header { name: "X-Key".into(), value: "v".into() };
+    let cfg = Config {
+        auth: Auth::Header { name: "X-Key".into(), value: "v".into() },
+        ..Config::default()
+    };
     config::save(&cfg).unwrap();
     let loaded = config::load();
     assert_eq!(loaded.auth, Auth::Header { name: "X-Key".into(), value: "v".into() });
@@ -381,8 +387,10 @@ fn config_auth_roundtrip_header() {
 fn config_auth_roundtrip_query() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
-    let mut cfg = Config::default();
-    cfg.auth = Auth::Query { name: "api_key".into(), value: "v".into() };
+    let cfg = Config {
+        auth: Auth::Query { name: "api_key".into(), value: "v".into() },
+        ..Config::default()
+    };
     config::save(&cfg).unwrap();
     let loaded = config::load();
     assert_eq!(loaded.auth, Auth::Query { name: "api_key".into(), value: "v".into() });

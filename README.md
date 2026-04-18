@@ -1,111 +1,26 @@
 # LibLLM
 
-> [!NOTE]
-> This project was initially intended to be a test as to how well Claude Opus 4.6 could handle the Rust programming language. As someone who has never used Rust before, I didn't really have any way to validate it's work other than to make it create something.
->
-> This has since turned into a full fledged project. I intend to continue maintaining it for the near future.
->
-> The motivation behind this project was to make an encrypted, local version of SillyTavern. Although the feature set is not as complete as the SillyTavern feature set, it's slowly getting there :D
-
-A keyboard-driven terminal chat client for local LLMs. LibLLM connects to any [llama.cpp](https://github.com/ggerganov/llama.cpp)-compatible API and gives you conversation branching, encrypted session persistence, character cards, and worldbooks -- all from the terminal.
-
-Built for power users who run local models and want a fast, private chat interface with full control over conversation history.
-
-**Why LibLLM?**
-
-- **Branching conversations** -- retry or edit any message to fork the conversation, then navigate between branches like a tree
-- **Encrypted by default** -- all data stored in a single SQLite database encrypted with SQLCipher (AES-256)
-- **Character cards and worldbooks** -- load SillyTavern-compatible cards and keyword-activated lore entries
-- **Pipe-friendly CLI** -- send a single message with `libllm -m "prompt"` for scripting, or use `--data` and `--continue` for persistent multi-turn scripted conversations
+A keyboard-driven terminal chat client for local LLMs -- conversation branching, encrypted local storage, character cards, and worldbooks, all from the terminal.
 
 ![LibLLM TUI](assets/screenshot.png)
 
-## Table of contents
-
-- [Installation](#installation)
-- [Quickstart](#quickstart)
-- [Concepts](#concepts)
-- [Common workflows](#common-workflows)
-- [CLI reference](#cli-reference)
-- [TUI keyboard shortcuts](#tui-keyboard-shortcuts)
-- [TUI commands](#tui-commands)
-- [Configuration](#configuration)
-- [Data directory](#data-directory)
-- [Encryption](#encryption)
-- [Direct database access](#direct-database-access)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [License](#license)
-
-## Installation
-
-### Quick install (Linux / macOS)
+## Install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wsquarepa/LibLLM/master/install.sh | sh
 ```
 
-This downloads the latest stable binary for your platform and installs it to `~/.local/bin`. Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running.
-
-### Update
-
-```sh
-libllm update                    # interactive picker (TTY) or update stable (non-TTY)
-libllm update stable             # update stable explicitly
-libllm update feature/branch     # switch to a branch build
-libllm update -y feature/branch  # skip the channel-switch confirmation
-```
-
-The bare `libllm update` opens an arrow-key picker when stdin and stderr are both TTYs. In non-interactive shells (pipes, CI, agent sessions) it updates to `stable` directly, preserving scriptable behavior.
-
-Switching between channels shows a confirmation prompt since branch builds may introduce data format changes. Use `--yes` / `-y` to skip the prompt.
-
-Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
-
-### Recover
-
-```sh
-libllm recover                   # interactive menu (TTY) or subcommand help (non-TTY)
-libllm recover list              # list backup points
-libllm recover restore <id>      # restore a specific backup
-libllm recover verify [--full]   # verify backup chain integrity
-libllm recover rebuild-index     # rebuild backup index from disk
-```
-
-The bare `libllm recover` opens an action menu on a TTY. In non-interactive shells it prints the subcommand help to stdout and exits `0`, so wrappers and agents get discoverable output.
-
-### From release
-
-Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are available as [releases](../../releases). The [stable release](../../releases/tag/stable) is updated on every push to `master`. Branch builds are published as pre-releases when changes are pushed to any other branch.
-
-### From source
-
-Requires [Rust](https://rustup.rs/) (stable toolchain).
-
-```sh
-git clone https://github.com/wsquarepa/LibLLM.git
-cd LibLLM
-cargo build --release --workspace
-# binary at target/release/client
-```
+This downloads the latest stable binary for your platform and installs it to `~/.local/bin`. See [Other install methods](#other-install-methods) for building from source, platform binaries, or installing into a custom location.
 
 ## Quickstart
 
-**Prerequisites:** a running llama.cpp-compatible API server. LibLLM expects an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
+**Prerequisites:** a running [llama.cpp](https://github.com/ggerganov/llama.cpp)-compatible API server exposing an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
 
-**1. Launch**
+1. Run `libllm` in your terminal.
+2. Set a passkey when prompted on first launch. This encrypts your local data directory.
+3. Type a message and press Enter. Responses stream in real-time and auto-save after each exchange.
 
-```sh
-libllm
-```
-
-On first launch, LibLLM prompts you to set an encryption passkey. This passkey protects the SQLite database where all your sessions, character cards, and worldbooks are stored. You must set a passkey to continue (or use `--data -d <path> --no-encrypt` to opt out).
-
-**2. Chat**
-
-Type a message and press Enter. The response streams in real-time. Your session is auto-saved after each exchange.
-
-**Override the API URL** if your server runs on a different address:
+To connect to a server on a different address:
 
 ```sh
 libllm --api-url http://localhost:8080/v1
@@ -113,13 +28,42 @@ libllm --api-url http://localhost:8080/v1
 export LIBLLM_API_URL=http://localhost:8080/v1
 ```
 
+## Why LibLLM is different
+
+- **Branching conversations.** Retry or edit any message to fork the conversation, then navigate between branches like a tree. You never lose a previous response.
+- **Encrypted local storage.** All sessions, characters, and worldbooks live in a single SQLite database encrypted by default with SQLCipher (AES-256). Nothing leaves your machine.
+- **TUI and pipe-friendly CLI.** Full keyboard-driven TUI for interactive use, plus `libllm -m "prompt"` for one-off messages and `--continue` for persistent scripted conversations.
+
+## Common workflows
+
+### Interactive chat
+
+```sh
+libllm
+```
+
+### One-off message from a script
+
+```sh
+libllm -m "Summarize this file" < document.txt
+echo "Translate to French: hello world" | libllm -m -
+```
+
+These are ephemeral -- nothing is saved. See [More workflows](#more-workflows) for persistent scripted conversations.
+
+### Branching a conversation
+
+- `/retry` regenerates the last response (creates a new branch).
+- Press Up arrow (with empty input) to navigate to a previous message, then Enter to edit it (creates a new branch).
+- Alt+Left / Alt+Right to switch between sibling branches.
+
+---
+
 ## Concepts
 
 ### Conversation branching
 
 Messages in LibLLM form a tree, not a flat list. When you use `/retry` to regenerate a response or navigate to a message and edit it, the new version becomes a sibling branch of the original. You can navigate between branches with Alt+Left/Right, and branch indicators like `[1/3]` appear at fork points.
-
-This means you never lose a previous response -- you can always switch back to an earlier branch.
 
 ### Character cards and roleplay mode
 
@@ -139,23 +83,9 @@ To skip encryption, use `--data -d <path> --no-encrypt` (data stored in a plain 
 
 There is no passkey recovery mechanism. If you forget your passkey, the encrypted database cannot be decrypted.
 
-## Common workflows
+## More workflows
 
-### Start the TUI
-
-```sh
-libllm
-```
-
-### Send a one-off message from a script
-
-```sh
-libllm -m "Summarize this file" < document.txt
-# or
-echo "Translate to French: hello world" | libllm -m -
-```
-
-These are ephemeral -- the session is not saved. To persist the conversation, use `--data`:
+### Persistent scripted conversation
 
 ```sh
 # First message (creates a new session, prints UUID to stderr)
@@ -200,14 +130,6 @@ libllm -r "You are a concise technical writer"
 
 The `-r` flag forcibly overrides the system prompt regardless of session or config state. In TUI mode, `/system` becomes a read-only viewer showing the forced prompt in red.
 
-### Switch branches during a conversation
-
-- `/retry` to regenerate the last response (creates a new branch)
-- `/continue` to continue the last assistant response
-- Up arrow (with empty input) to navigate to a previous message, then Enter to edit it (creates a new branch)
-- Alt+Left / Alt+Right to switch between sibling branches
-- `/branch` to browse all branches at the current position
-
 ### Override sampling parameters
 
 ```sh
@@ -223,6 +145,54 @@ LIBLLM_PASSKEY=mypasskey libllm -d ./data
 # or
 libllm -d ./data --passkey mypasskey
 ```
+
+## Other install methods
+
+### Install script options
+
+Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running. Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
+
+### From release
+
+Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are available as [releases](../../releases). The [stable release](../../releases/tag/stable) is updated on every push to `master`. Branch builds are published as pre-releases when changes are pushed to any other branch.
+
+### From source
+
+Requires [Rust](https://rustup.rs/) (stable toolchain).
+
+```sh
+git clone https://github.com/wsquarepa/LibLLM.git
+cd LibLLM
+cargo build --release --workspace
+# binary at target/release/client
+```
+
+## Updating and recovery
+
+### Update
+
+```sh
+libllm update                    # interactive picker (TTY) or update stable (non-TTY)
+libllm update stable             # update stable explicitly
+libllm update feature/branch     # switch to a branch build
+libllm update -y feature/branch  # skip the channel-switch confirmation
+```
+
+The bare `libllm update` opens an arrow-key picker when stdin and stderr are both TTYs. In non-interactive shells (pipes, CI, agent sessions) it updates to `stable` directly, preserving scriptable behavior.
+
+Switching between channels shows a confirmation prompt since branch builds may introduce data format changes. Use `--yes` / `-y` to skip the prompt.
+
+### Recover
+
+```sh
+libllm recover                   # interactive menu (TTY) or subcommand help (non-TTY)
+libllm recover list              # list backup points
+libllm recover restore <id>      # restore a specific backup
+libllm recover verify [--full]   # verify backup chain integrity
+libllm recover rebuild-index     # rebuild backup index from disk
+```
+
+The bare `libllm recover` opens an action menu on a TTY. In non-interactive shells it prints the subcommand help to stdout and exits `0`, so wrappers and agents get discoverable output.
 
 ## CLI reference
 
@@ -331,47 +301,6 @@ Type `/` in the input to open the command picker. Tab or Space to autocomplete, 
 | `/macro` | `/m` | Run a user-defined macro (see [Macros](#macros)) |
 | `/report` | | Copy the active debug log to `./debug.log` |
 | `/quit` | `/exit` | Exit the chat |
-
-## Diagnostics
-
-The debug log is always written to a file in the operating system's temporary directory under a unique filename. Pass `--debug <path>` to write it to a specific location instead:
-
-```sh
-libllm --debug ./my-debug.log
-libllm -m "hello" --debug ./single-run.log
-```
-
-Use `--log-filter <DIRECTIVE>` to set the effective `EnvFilter` directive (requires `--debug`):
-
-```sh
-libllm --debug ./my-debug.log --log-filter debug
-libllm --debug ./my-debug.log --log-filter info,libllm::db=debug
-```
-
-Set `LIBLLM_LOG` as an alternative to `--log-filter`; it is ignored unless `--debug` is passed:
-
-```sh
-LIBLLM_LOG=info,libllm::db=debug libllm --debug ./mylog.log
-```
-
-The default filter is `info`.
-
-The banner at the top of each log lists build identity, system info, terminal info, and the active filter. Each event line shows a relative offset in `+hh:mm:ss.sss` format from run start.
-
-Use `--timings` to generate a timings report at the end of the run:
-
-```sh
-libllm --timings
-libllm --timings ./startup-timings.log
-```
-
-Use `--cleanup` to remove LibLLM-managed temporary debug logs:
-
-```sh
-libllm --cleanup
-```
-
-Inside the TUI, `/report` copies the currently active debug log to `./debug.log`. LibLLM will refuse to overwrite an existing `./debug.log` file.
 
 ## Configuration
 
@@ -561,6 +490,47 @@ libllm db import --yes ./edit.db
 | 3 | Schema-version mismatch on `import` |
 | 4 | WAL liveness check failed (another process holds the database) |
 
+## Diagnostics
+
+The debug log is always written to a file in the operating system's temporary directory under a unique filename. Pass `--debug <path>` to write it to a specific location instead:
+
+```sh
+libllm --debug ./my-debug.log
+libllm -m "hello" --debug ./single-run.log
+```
+
+Use `--log-filter <DIRECTIVE>` to set the effective `EnvFilter` directive (requires `--debug`):
+
+```sh
+libllm --debug ./my-debug.log --log-filter debug
+libllm --debug ./my-debug.log --log-filter info,libllm::db=debug
+```
+
+Set `LIBLLM_LOG` as an alternative to `--log-filter`; it is ignored unless `--debug` is passed:
+
+```sh
+LIBLLM_LOG=info,libllm::db=debug libllm --debug ./mylog.log
+```
+
+The default filter is `info`.
+
+The banner at the top of each log lists build identity, system info, terminal info, and the active filter. Each event line shows a relative offset in `+hh:mm:ss.sss` format from run start.
+
+Use `--timings` to generate a timings report at the end of the run:
+
+```sh
+libllm --timings
+libllm --timings ./startup-timings.log
+```
+
+Use `--cleanup` to remove LibLLM-managed temporary debug logs:
+
+```sh
+libllm --cleanup
+```
+
+Inside the TUI, `/report` copies the currently active debug log to `./debug.log`. LibLLM will refuse to overwrite an existing `./debug.log` file.
+
 ## Troubleshooting
 
 ### Cannot connect to API
@@ -599,6 +569,17 @@ cargo test --workspace
 ```
 
 The project is a Cargo workspace with three crates (`libllm`, `client`, `backup`). Tests include unit tests in `libllm` and nine integration test suites in `client/tests/`.
+
+<details>
+<summary>About this project</summary>
+
+This project was initially intended to be a test as to how well Claude Opus 4.6 could handle the Rust programming language. As someone who has never used Rust before, I didn't really have any way to validate its work other than to make it create something.
+
+This has since turned into a full fledged project. I intend to continue maintaining it for the near future.
+
+The motivation behind this project was to make an encrypted, local version of SillyTavern. Although the feature set is not as complete as the SillyTavern feature set, it's slowly getting there.
+
+</details>
 
 ## License
 

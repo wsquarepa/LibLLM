@@ -257,7 +257,7 @@ pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area
         let is_locked = state.locked[i];
         let raw = state.slot_value(slot);
         let display_value: String = if slot.is_secret() {
-            "\u{2022}".repeat(raw.chars().count())
+            "*".repeat(raw.chars().count())
         } else {
             raw.to_owned()
         };

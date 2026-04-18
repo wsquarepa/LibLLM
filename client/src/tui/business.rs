@@ -207,6 +207,7 @@ pub fn load_tabbed_config_sections(
             .or(cfg.api_url.as_deref())
             .unwrap_or(libllm::config::Config::default().api_url())
             .to_owned(),
+        cfg.auth.display_label().to_owned(),
         cfg.template_preset.as_deref().unwrap_or("Default").to_owned(),
         overrides
             .template
@@ -295,11 +296,22 @@ pub fn config_locked_fields_by_section(
     if overrides.api_url.is_some() {
         general.push(0);
     }
+    let auth_overridden = overrides.auth_type.is_some()
+        || overrides.auth_basic_username.is_some()
+        || overrides.auth_basic_password.is_some()
+        || overrides.auth_bearer_token.is_some()
+        || overrides.auth_header_name.is_some()
+        || overrides.auth_header_value.is_some()
+        || overrides.auth_query_name.is_some()
+        || overrides.auth_query_value.is_some();
+    if auth_overridden {
+        general.push(1);
+    }
     if overrides.template.is_some() {
-        general.push(2);
+        general.push(3);
     }
     if overrides.tls_skip_verify {
-        general.push(4);
+        general.push(5);
     }
     if overrides.sampling.temperature.is_some() {
         sampling.push(0);
@@ -341,17 +353,18 @@ pub fn apply_tabbed_config_fields(
     } else {
         non_empty(&general[0])
     };
-    let template_preset = non_empty(&general[1]);
-    let instruct_preset = if locked[0].contains(&2) {
+    // general[1] is the Authentication display label — written by the auth sub-dialog, not here.
+    let template_preset = non_empty(&general[2]);
+    let instruct_preset = if locked[0].contains(&3) {
         existing.instruct_preset.clone()
     } else {
-        non_empty(&general[2])
+        non_empty(&general[3])
     };
-    let reasoning_preset = non_empty(&general[3]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
-    let tls_skip_verify = if locked[0].contains(&4) {
+    let reasoning_preset = non_empty(&general[4]).filter(|v| !v.eq_ignore_ascii_case("OFF"));
+    let tls_skip_verify = if locked[0].contains(&5) {
         existing.tls_skip_verify
     } else {
-        general[4] == "true"
+        general[5] == "true"
     };
 
     let temperature = if locked[1].contains(&0) {

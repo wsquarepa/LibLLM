@@ -87,7 +87,7 @@ fn load_tabbed_config_sections_defaults() {
     let overrides = no_overrides();
     let sections = business::load_tabbed_config_sections(&cfg, &overrides);
     assert_eq!(sections.len(), 4, "expected 4 tabs");
-    assert_eq!(sections[0].len(), 5, "General tab");
+    assert_eq!(sections[0].len(), 6, "General tab");
     assert_eq!(sections[1].len(), 7, "Sampling tab");
     assert_eq!(sections[2].len(), 6, "Backup tab");
     assert_eq!(sections[3].len(), 5, "Summarization tab");
@@ -137,6 +137,7 @@ fn apply_tabbed_config_fields_preserves_locked() {
     let sections = vec![
         vec![
             "http://should-not-save.example/v1".to_owned(),
+            "None".to_owned(),
             "Default".to_owned(),
             "Mistral V3-Tekken".to_owned(),
             "OFF".to_owned(),

@@ -297,8 +297,15 @@ mod tests {
         let now = Utc::now();
 
         // Place both old entries in the same month within the monthly tier so old_base loses
-        // the period election to old_base_newer and becomes prunable.
-        let old_base_time = now - Duration::days(200);
+        // the period election to old_base_newer and becomes prunable. Anchor to day 15 so the
+        // +1d neighbor never crosses a month boundary regardless of when the test runs.
+        let old_base_time = (now - Duration::days(200))
+            .date_naive()
+            .with_day(15)
+            .unwrap()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc();
         let old_base_newer_time = old_base_time + Duration::days(1);
         // new_base is in the keep-all tier.
         let new_time = now - Duration::days(1);

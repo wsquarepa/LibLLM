@@ -282,8 +282,8 @@ pub async fn run(
                         app.summary_receiver = None;
                         app.summary_branch_head = None;
 
-                        if current_head == expected_head {
-                            if let Ok(summary_text) = result {
+                        if current_head == expected_head
+                            && let Ok(summary_text) = result {
                                 let branch_path = app.session.tree.branch_path();
                                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                                 let dropped = app.context_mgr.dropped_message_count(&summary_aware);
@@ -306,7 +306,6 @@ pub async fn run(
                                     }
                                 }
                             }
-                        }
 
                         if app.is_summarizing {
                             app.is_summarizing = false;

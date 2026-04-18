@@ -127,18 +127,16 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
             }
         }
         crate::tui::Focus::ConfigDialog => {
-            if let Some(ref mut d) = app.config_dialog {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.config_dialog
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::Input;
                 }
-            }
         }
         crate::tui::Focus::ThemeDialog => {
-            if let Some(ref mut d) = app.theme_dialog {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.theme_dialog
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::Input;
                 }
-            }
         }
         crate::tui::Focus::BaseThemePickerDialog => {
             match hit_test_list_dialog(
@@ -153,39 +151,34 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
             }
         }
         crate::tui::Focus::PresetEditorDialog => {
-            if let Some(ref mut d) = app.preset_editor {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.preset_editor
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::ConfigDialog;
                 }
-            }
         }
         crate::tui::Focus::PersonaEditorDialog => {
-            if let Some(ref mut d) = app.persona_editor {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.persona_editor
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::PersonaDialog;
                 }
-            }
         }
         crate::tui::Focus::CharacterEditorDialog => {
-            if let Some(ref mut d) = app.character_editor {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.character_editor
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::CharacterDialog;
                 }
-            }
         }
         crate::tui::Focus::SystemPromptEditorDialog => {
-            if let Some(ref mut d) = app.system_prompt_editor {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.system_prompt_editor
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::SystemPromptDialog;
                 }
-            }
         }
         crate::tui::Focus::WorldbookEntryEditorDialog => {
-            if let Some(ref mut d) = app.worldbook_entry_editor {
-                if !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
+            if let Some(ref mut d) = app.worldbook_entry_editor
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
                     app.focus = crate::tui::Focus::WorldbookEditorDialog;
                 }
-            }
         }
         crate::tui::Focus::WorldbookEditorDialog => {
             let count = app.worldbook_editor_entries.len();

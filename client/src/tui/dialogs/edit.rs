@@ -35,9 +35,7 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area
 }
 
 pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    let Some(ref mut editor) = app.edit_editor else {
-        return None;
-    };
+    let editor = app.edit_editor.as_mut()?;
 
     let is_confirm = key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::ALT);
 

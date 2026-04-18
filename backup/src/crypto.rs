@@ -71,7 +71,7 @@ pub fn encrypt_payload(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
     let nonce = chacha20poly1305::XNonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(&nonce, plaintext)
+        .encrypt(nonce, plaintext)
         .map_err(|e| anyhow::anyhow!("encryption failed: {e}"))?;
 
     let mut output = Vec::with_capacity(NONCE_LEN + ciphertext.len());

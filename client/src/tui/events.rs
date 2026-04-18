@@ -116,15 +116,14 @@ pub(super) fn process_action(action: Action, app: &mut App, token_tx: mpsc::Send
             commands::start_streaming(app, &text, token_tx);
         }
         Action::EditMessage { node_id, content } => {
-            if let Some(new_root) = app.session.tree.duplicate_subtree(node_id) {
-                if app.session.tree.set_message_content(new_root, content) {
+            if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
+                && app.session.tree.set_message_content(new_root, content) {
                     app.session.tree.switch_to(new_root);
                     app.invalidate_chat_cache();
                     app.nav_cursor = Some(new_root);
                     app.focus = Focus::Chat;
                     app.mark_session_dirty(SaveTrigger::Debounced, false);
                 }
-            }
         }
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx);
@@ -377,9 +376,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
     if app.is_streaming {
         return None;
     }
-    let Some(ref areas) = app.layout_areas else {
-        return None;
-    };
+    let areas = app.layout_areas.as_ref()?;
     let sidebar = areas.sidebar;
     let chat = areas.chat;
     let input = areas.input;
@@ -410,19 +407,18 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                     }
                     cumulative += item_height;
                 }
-                if let Some(index) = hit_index {
-                    if selected_idx != Some(index) {
+                if let Some(index) = hit_index
+                    && selected_idx != Some(index) {
                         app.sidebar_state.select(Some(index));
                         input::load_sidebar_selection(app);
                     }
-                }
             } else if chat.contains(pos) {
                 app.focus = Focus::Chat;
                 if let Some(ref cache) = app.chat_content_cache {
                     let branch_ids = app.session.tree.current_branch_ids();
                     if let Some(node_id) = render::hit_test_chat_message(
                         cache,
-                        &branch_ids,
+                        branch_ids,
                         chat,
                         app.chat_scroll,
                         mouse.row,
@@ -446,9 +442,9 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                     app.textarea.start_selection();
                 }
                 move_textarea_cursor_to_mouse(&mut app.textarea, input, mouse.column, mouse.row);
-            } else if app.focus == Focus::EditDialog {
-                if let Some(ref mut editor) = app.edit_editor {
-                    if let Ok((tw, th)) = crossterm::terminal::size() {
+            } else if app.focus == Focus::EditDialog
+                && let Some(ref mut editor) = app.edit_editor
+                    && let Ok((tw, th)) = crossterm::terminal::size() {
                         let terminal_area = Rect::new(0, 0, tw, th);
                         let width = (tw as f32 * dialogs::DIALOG_WIDTH_RATIO) as u16;
                         let height = (th as f32 * dialogs::DIALOG_HEIGHT_RATIO) as u16;
@@ -464,8 +460,6 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                         }
                         move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
                     }
-                }
-            }
             None
         }
         MouseEventKind::ScrollUp => {
@@ -496,13 +490,12 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             None
         }
         MouseEventKind::Moved => {
-            let old_hover = app.hover_node;
             if chat.contains(pos) {
                 if let Some(ref cache) = app.chat_content_cache {
                     let branch_ids = app.session.tree.current_branch_ids();
                     app.hover_node = render::hit_test_chat_message(
                         cache,
-                        &branch_ids,
+                        branch_ids,
                         chat,
                         app.chat_scroll,
                         mouse.row,
@@ -513,11 +506,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             } else {
                 app.hover_node = None;
             }
-            if app.hover_node != old_hover {
-                None
-            } else {
-                None
-            }
+            None
         }
         _ => None,
     }

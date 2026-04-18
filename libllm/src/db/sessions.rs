@@ -7,6 +7,15 @@ use rusqlite::{Connection, params};
 
 use crate::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
 
+type SessionRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+);
+
 pub struct SessionListEntry {
     pub id: String,
     pub display_name: String,
@@ -127,14 +136,7 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
 
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
     crate::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
-            let (model, template, system_prompt, character, persona, head_id): (
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<i64>,
-            ) = conn
+            let (model, template, system_prompt, character, persona, head_id): SessionRow = conn
                 .query_row(
                     "SELECT model, template, system_prompt, character, persona, head_id
                      FROM sessions WHERE id = ?1",

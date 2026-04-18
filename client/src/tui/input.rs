@@ -281,11 +281,11 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Enter => {
-            if let Some(node_id) = app.nav_cursor {
-                if let Some(node) = app.session.tree.node(node_id) {
+            if let Some(node_id) = app.nav_cursor
+                && let Some(node) = app.session.tree.node(node_id) {
                     let branch_ids = app.session.tree.branch_path_ids();
                     let node_idx = branch_ids.iter().position(|&id| id == node_id);
-                    let has_later_summary = node_idx.map_or(false, |idx| {
+                    let has_later_summary = node_idx.is_some_and(|idx| {
                         branch_ids[idx + 1..].iter().any(|&id| {
                             app.session
                                 .tree
@@ -308,7 +308,6 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                         app.focus = super::Focus::EditDialog;
                     }
                 }
-            }
             None
         }
         _ => None,
@@ -370,9 +369,10 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
     };
     if is_new_chat {
         app.discard_pending_session_save();
-        let mut new_session = Session::default();
-        new_session.persona = app.config.default_persona.clone();
-        *app.session = new_session;
+        *app.session = Session {
+            persona: app.config.default_persona.clone(),
+            ..Session::default()
+        };
         super::business::load_active_persona(app);
         app.invalidate_chat_cache();
         app.invalidate_worldbook_cache();

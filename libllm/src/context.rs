@@ -242,7 +242,7 @@ mod tests {
     fn two_messages_exceeding_limit() {
         let ctx = ContextManager::default();
         let huge = "x".repeat(100_000);
-        let msgs = vec![user_msg(&huge), assistant_msg(&huge)];
+        let msgs = [user_msg(&huge), assistant_msg(&huge)];
         let refs: Vec<&_> = msgs.iter().collect();
 
         let truncated = ctx.truncated_path(&refs);
@@ -311,13 +311,11 @@ mod tests {
     #[test]
     fn multiple_summaries_uses_last_one() {
         let ctx = ContextManager::new(8192);
-        let msgs = vec![
-            user_msg("ancient msg"),
+        let msgs = [user_msg("ancient msg"),
             Message::new(Role::Summary, "Old summary".to_owned()),
             user_msg("mid msg"),
             Message::new(Role::Summary, "Newer summary".to_owned()),
-            user_msg("recent msg"),
-        ];
+            user_msg("recent msg")];
         let refs: Vec<&_> = msgs.iter().collect();
         let aware = ctx.summary_aware_path(&refs);
 
@@ -330,7 +328,7 @@ mod tests {
     #[test]
     fn no_summary_returns_full_path() {
         let ctx = ContextManager::new(8192);
-        let msgs = vec![user_msg("msg 1"), assistant_msg("reply 1")];
+        let msgs = [user_msg("msg 1"), assistant_msg("reply 1")];
         let refs: Vec<&_> = msgs.iter().collect();
         let aware = ctx.summary_aware_path(&refs);
         assert_eq!(aware.len(), 2);
@@ -358,16 +356,14 @@ mod tests {
     fn dropped_count_after_summary_boundary() {
         let ctx = ContextManager::new(4096);
         let big = "x".repeat(4000);
-        let msgs = vec![
-            user_msg(&big),
+        let msgs = [user_msg(&big),
             assistant_msg(&big),
             Message::new(Role::Summary, "Summary".to_owned()),
             user_msg(&big),
             assistant_msg(&big),
             user_msg(&big),
             assistant_msg(&big),
-            user_msg(&big),
-        ];
+            user_msg(&big)];
         let refs: Vec<&_> = msgs.iter().collect();
         let aware = ctx.summary_aware_path(&refs);
         let dropped = ctx.dropped_message_count(&aware);

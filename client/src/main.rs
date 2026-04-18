@@ -199,14 +199,13 @@ async fn main() -> Result<()> {
 
         if let Some(ref sp) = args.system_prompt {
             session.system_prompt = Some(sp.clone());
-        } else if session.system_prompt.is_none() {
-            if let Some(ref db) = db {
+        } else if session.system_prompt.is_none()
+            && let Some(ref db) = db {
                 session.system_prompt = db
                     .load_prompt(libllm::system_prompt::BUILTIN_ASSISTANT)
                     .ok()
                     .map(|p| p.content);
             }
-        }
 
         if let Some(ref char_arg) = args.character {
             let card = libllm::timed_result!(
@@ -361,11 +360,10 @@ fn resolve_character(
     }
 
     let slug = character::slugify(char_arg);
-    if let Some(db) = db {
-        if let Ok(card) = db.load_character(&slug) {
+    if let Some(db) = db
+        && let Ok(card) = db.load_character(&slug) {
             return Ok(card);
         }
-    }
 
     anyhow::bail!("Character not found: {char_arg}");
 }

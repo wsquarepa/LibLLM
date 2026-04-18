@@ -77,9 +77,7 @@ pub(super) fn handle_field_dialog_key(
     kind: DialogKind,
 ) -> Option<Action> {
     if matches!(kind, DialogKind::Config) {
-        let Some(dialog) = app.config_dialog.as_mut() else {
-            return None;
-        };
+        let dialog = app.config_dialog.as_mut()?;
         let action = dialog.handle_key(key);
         if let Some(msg) = dialog.clipboard_warning.take() {
             app.set_status(msg, StatusLevel::Warning);
@@ -146,9 +144,7 @@ pub(super) fn handle_field_dialog_key(
     }
 
     if matches!(kind, DialogKind::Theme) {
-        let Some(dialog) = app.theme_dialog.as_mut() else {
-            return None;
-        };
+        let dialog = app.theme_dialog.as_mut()?;
         let action = dialog.handle_key(key);
         let value_changed = dialog.take_value_changed();
         if value_changed {
@@ -216,9 +212,7 @@ pub(super) fn handle_field_dialog_key(
         DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
     };
 
-    let Some(dialog) = dialog else {
-        return None;
-    };
+    let dialog = dialog?;
 
     let result = dialog.handle_key(key);
 
@@ -226,15 +220,14 @@ pub(super) fn handle_field_dialog_key(
         app.set_status(msg, StatusLevel::Warning);
     }
 
-    if matches!(kind, DialogKind::WorldbookEntryEditor) {
-        if let Some(ref mut d) = app.worldbook_entry_editor {
+    if matches!(kind, DialogKind::WorldbookEntryEditor)
+        && let Some(ref mut d) = app.worldbook_entry_editor {
             let selective = d
                 .values
                 .get(2)
                 .is_some_and(|v| v.eq_ignore_ascii_case("true"));
             d.hidden_fields = if selective { Vec::new() } else { vec![3] };
         }
-    }
 
     match result {
         dialogs::FieldDialogAction::Continue => None,
@@ -313,11 +306,10 @@ pub(super) fn handle_field_dialog_key(
                             return None;
                         }
 
-                        if !old_slug.is_empty() && new_slug != old_slug {
-                            if let Some(ref db) = app.db {
+                        if !old_slug.is_empty() && new_slug != old_slug
+                            && let Some(ref db) = app.db {
                                 let _ = db.delete_persona(&old_slug);
                             }
-                        }
                         match app
                             .db
                             .as_ref()

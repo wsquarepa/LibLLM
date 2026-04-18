@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn raw_preset_render() {
         let preset = InstructPreset::raw();
-        let msgs = vec![user_msg("Hello"), assistant_msg("Hi there")];
+        let msgs = [user_msg("Hello"), assistant_msg("Hi there")];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 
@@ -351,11 +351,9 @@ mod tests {
     fn chatml_render() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = vec![
-            system_msg("You are helpful."),
+        let msgs = [system_msg("You are helpful."),
             user_msg("Hi"),
-            assistant_msg("Hello!"),
-        ];
+            assistant_msg("Hello!")];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 
@@ -378,7 +376,7 @@ mod tests {
     fn llama3_render() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("Llama 3 Instruct");
-        let msgs = vec![user_msg("Hi"), assistant_msg("Hello!")];
+        let msgs = [user_msg("Hi"), assistant_msg("Hello!")];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, Some("System text"));
 
@@ -402,7 +400,7 @@ mod tests {
     fn system_prompt_injection() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = vec![user_msg("Hi")];
+        let msgs = [user_msg("Hi")];
         let refs: Vec<&_> = msgs.iter().collect();
 
         let without = preset.render(&refs, None);
@@ -482,14 +480,12 @@ mod tests {
     fn multi_turn_conversation() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = vec![
-            user_msg("Turn 1"),
+        let msgs = [user_msg("Turn 1"),
             assistant_msg("Reply 1"),
             user_msg("Turn 2"),
             assistant_msg("Reply 2"),
             user_msg("Turn 3"),
-            assistant_msg("Reply 3"),
-        ];
+            assistant_msg("Reply 3")];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 
@@ -510,10 +506,8 @@ mod tests {
     fn special_characters_in_messages() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = vec![
-            user_msg("line1\nline2\nline3"),
-            assistant_msg("<tag>content</tag> | pipe | test"),
-        ];
+        let msgs = [user_msg("line1\nline2\nline3"),
+            assistant_msg("<tag>content</tag> | pipe | test")];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 
@@ -535,7 +529,7 @@ mod tests {
             input_suffix: "\n".to_owned(),
             ..Default::default()
         };
-        let msgs = vec![user_msg("Hello"), assistant_msg("Hi")];
+        let msgs = [user_msg("Hello"), assistant_msg("Hi")];
         let refs: Vec<&_> = msgs.iter().collect();
 
         let complete = preset.render(&refs, None);
@@ -559,7 +553,7 @@ mod tests {
             input_suffix: "\n".to_owned(),
             ..Default::default()
         };
-        let msgs = vec![user_msg("Q"), assistant_msg("A")];
+        let msgs = [user_msg("Q"), assistant_msg("A")];
         let refs: Vec<&_> = msgs.iter().collect();
 
         let complete = preset.render(&refs, None);

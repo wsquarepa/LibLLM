@@ -131,11 +131,9 @@ mod tests {
 
     #[test]
     fn format_prompt_basic() {
-        let msgs = vec![
-            Message::new(Role::User, "Hello".to_owned()),
+        let msgs = [Message::new(Role::User, "Hello".to_owned()),
             Message::new(Role::Assistant, "Hi there!".to_owned()),
-            Message::new(Role::User, "How are you?".to_owned()),
-        ];
+            Message::new(Role::User, "How are you?".to_owned())];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize this.", &refs);
         assert!(prompt.contains("Summarize this."));
@@ -146,10 +144,8 @@ mod tests {
 
     #[test]
     fn format_prompt_excludes_summary_role() {
-        let msgs = vec![
-            Message::new(Role::Summary, "Old summary".to_owned()),
-            Message::new(Role::User, "New message".to_owned()),
-        ];
+        let msgs = [Message::new(Role::Summary, "Old summary".to_owned()),
+            Message::new(Role::User, "New message".to_owned())];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize.", &refs);
         assert!(!prompt.contains("Old summary"));
@@ -158,10 +154,8 @@ mod tests {
 
     #[test]
     fn format_prompt_handles_system_messages() {
-        let msgs = vec![
-            Message::new(Role::System, "You are helpful.".to_owned()),
-            Message::new(Role::User, "Hi".to_owned()),
-        ];
+        let msgs = [Message::new(Role::System, "You are helpful.".to_owned()),
+            Message::new(Role::User, "Hi".to_owned())];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize.", &refs);
         assert!(prompt.contains("System: You are helpful."));

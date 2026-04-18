@@ -14,10 +14,8 @@ use libllm::session::{Message, MessageTree, Role, Session};
 fn summarizer_excludes_summary_messages() {
     use libllm::summarize::Summarizer;
 
-    let msgs = vec![
-        Message::new(Role::Summary, "Should not appear".to_owned()),
-        Message::new(Role::User, "Should appear".to_owned()),
-    ];
+    let msgs = [Message::new(Role::Summary, "Should not appear".to_owned()),
+        Message::new(Role::User, "Should appear".to_owned())];
     let refs: Vec<&_> = msgs.iter().collect();
     let prompt = Summarizer::format_prompt("Instruction", &refs);
     assert!(!prompt.contains("Should not appear"));
@@ -29,13 +27,11 @@ fn summary_aware_path_with_context_manager() {
     use libllm::context::ContextManager;
 
     let ctx = ContextManager::new(8192);
-    let msgs = vec![
-        Message::new(Role::User, "old msg 1".to_owned()),
+    let msgs = [Message::new(Role::User, "old msg 1".to_owned()),
         Message::new(Role::Assistant, "old reply 1".to_owned()),
         Message::new(Role::Summary, "Summary of 2 earlier messages".to_owned()),
         Message::new(Role::User, "new msg".to_owned()),
-        Message::new(Role::Assistant, "new reply".to_owned()),
-    ];
+        Message::new(Role::Assistant, "new reply".to_owned())];
     let refs: Vec<&_> = msgs.iter().collect();
     let aware = ctx.summary_aware_path(&refs);
 
@@ -99,8 +95,10 @@ fn load_tabbed_config_sections_defaults() {
 
 #[test]
 fn load_tabbed_config_sections_override_precedence() {
-    let mut cfg = Config::default();
-    cfg.api_url = Some("http://stored.example/v1".to_owned());
+    let cfg = Config {
+        api_url: Some("http://stored.example/v1".to_owned()),
+        ..Config::default()
+    };
     let overrides = CliOverrides {
         api_url: Some("http://cli.example/v1".to_owned()),
         ..no_overrides()
@@ -128,8 +126,10 @@ fn config_locked_by_section_tracks_sampling_overrides() {
 fn apply_tabbed_config_fields_preserves_locked() {
     let dir = tempfile::tempdir().unwrap();
     libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
-    let mut existing = Config::default();
-    existing.api_url = Some("http://preserve.me/v1".to_owned());
+    let existing = Config {
+        api_url: Some("http://preserve.me/v1".to_owned()),
+        ..Config::default()
+    };
     let overrides = CliOverrides {
         api_url: Some("http://cli.example/v1".to_owned()),
         ..no_overrides()
@@ -231,10 +231,8 @@ fn build_effective_system_prompt_custom_prompt_preserved_without_character() {
 #[test]
 fn inject_worldbook_entries_no_character_unchanged() {
     let session = empty_session();
-    let messages = vec![
-        Message::new(Role::User, "Hello world".to_owned()),
-        Message::new(Role::Assistant, "Hi there".to_owned()),
-    ];
+    let messages = [Message::new(Role::User, "Hello world".to_owned()),
+        Message::new(Role::Assistant, "Hi there".to_owned())];
     let refs: Vec<&Message> = messages.iter().collect();
 
     let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
@@ -254,10 +252,8 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
         character: Some("TestChar".to_owned()),
         ..empty_session()
     };
-    let messages = vec![
-        Message::new(Role::User, "trigger_keyword".to_owned()),
-        Message::new(Role::Assistant, "response".to_owned()),
-    ];
+    let messages = [Message::new(Role::User, "trigger_keyword".to_owned()),
+        Message::new(Role::Assistant, "response".to_owned())];
     let refs: Vec<&Message> = messages.iter().collect();
 
     // No worldbooks, so messages pass through unchanged regardless of character.

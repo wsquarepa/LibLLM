@@ -121,13 +121,13 @@ pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandI
         })
         .collect();
     matches.sort_by_key(|c| {
-        let best = std::iter::once(c.name)
+        
+        std::iter::once(c.name)
             .chain(c.aliases.iter().copied())
             .filter(|n| n.starts_with(prefix))
             .map(|n| n.len())
             .min()
-            .unwrap_or(usize::MAX);
-        best
+            .unwrap_or(usize::MAX)
     });
     matches
 }

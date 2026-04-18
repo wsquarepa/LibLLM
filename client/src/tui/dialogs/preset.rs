@@ -348,14 +348,13 @@ pub(in crate::tui) fn save_preset_from_editor(
     );
     std::fs::write(&path, json)?;
 
-    if !original_name.is_empty() && original_name != name {
-        if let Some(safe_original) = sanitize_preset_name(original_name) {
+    if !original_name.is_empty() && original_name != name
+        && let Some(safe_original) = sanitize_preset_name(original_name) {
             let old_path = dir.join(format!("{safe_original}.json"));
             if old_path.starts_with(&dir) && old_path != path {
                 let _ = std::fs::remove_file(&old_path);
             }
         }
-    }
 
     Ok(())
 }

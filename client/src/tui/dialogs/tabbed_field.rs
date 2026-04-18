@@ -618,11 +618,7 @@ impl<'a> TabbedFieldDialog<'a> {
             let chars: Vec<char> = display_value.chars().collect();
             let char_count = chars.len();
             let visible_width = max_value_width.saturating_sub(1);
-            let scroll = if self.cursor_pos > visible_width {
-                self.cursor_pos - visible_width
-            } else {
-                0
-            };
+            let scroll = self.cursor_pos.saturating_sub(visible_width);
             let visible_end = (scroll + max_value_width).min(char_count);
             let before: String = chars[scroll..self.cursor_pos].iter().collect();
             let cursor_ch = if self.cursor_pos < char_count {

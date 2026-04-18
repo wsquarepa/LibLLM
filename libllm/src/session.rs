@@ -287,11 +287,10 @@ impl MessageTree {
     }
 
     fn rehydrate_runtime_state(&mut self) {
-        if let Some(head) = self.head {
-            if head >= self.nodes.len() {
+        if let Some(head) = self.head
+            && head >= self.nodes.len() {
                 self.head = None;
             }
-        }
         self.validate_preferred_children();
         if self.preferred_child.is_empty() {
             self.update_preferred_children();
@@ -671,7 +670,7 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 #[cfg(test)]

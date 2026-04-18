@@ -49,6 +49,12 @@ pub struct BackupIndex {
     pub entries: Vec<BackupEntry>,
 }
 
+impl Default for BackupIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BackupIndex {
     pub fn new() -> Self {
         Self {

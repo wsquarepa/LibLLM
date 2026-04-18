@@ -107,11 +107,10 @@ impl Theme {
 
     pub fn apply_overrides(&mut self, overrides: &ThemeColorOverrides) {
         for label in ColorLabel::ALL {
-            if let Some(s) = overrides.get(label) {
-                if let Some(c) = parse_color(s) {
+            if let Some(s) = overrides.get(label)
+                && let Some(c) = parse_color(s) {
                     self.set_color(label, c);
                 }
-            }
         }
     }
 
@@ -314,30 +313,36 @@ mod tests {
 
     #[test]
     fn resolve_light() {
-        let mut config = Config::default();
-        config.theme = Some("light".to_owned());
+        let config = Config {
+            theme: Some("light".to_owned()),
+            ..Config::default()
+        };
         let t = resolve_theme(&config);
         assert_eq!(t.user_message, Color::Blue);
     }
 
     #[test]
     fn resolve_with_overrides() {
-        let mut config = Config::default();
-        config.theme_colors = Some(ThemeColorOverrides {
-            user_message: Some("red".to_owned()),
-            ..Default::default()
-        });
+        let config = Config {
+            theme_colors: Some(ThemeColorOverrides {
+                user_message: Some("red".to_owned()),
+                ..Default::default()
+            }),
+            ..Config::default()
+        };
         let t = resolve_theme(&config);
         assert_eq!(t.user_message, Color::Red);
     }
 
     #[test]
     fn resolve_invalid_override_ignored() {
-        let mut config = Config::default();
-        config.theme_colors = Some(ThemeColorOverrides {
-            user_message: Some("notacolor".to_owned()),
-            ..Default::default()
-        });
+        let config = Config {
+            theme_colors: Some(ThemeColorOverrides {
+                user_message: Some("notacolor".to_owned()),
+                ..Default::default()
+            }),
+            ..Config::default()
+        };
         let t = resolve_theme(&config);
         assert_eq!(t.user_message, Color::Green);
     }

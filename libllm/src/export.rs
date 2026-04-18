@@ -229,8 +229,8 @@ fn html_format_line(line: &str) -> String {
     let mut i = 0;
 
     while i < bytes.len() {
-        if bytes[i] == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            if let Some(end) = find_delimiter(&escaped[i + 2..], "**") {
+        if bytes[i] == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'*'
+            && let Some(end) = find_delimiter(&escaped[i + 2..], "**") {
                 let inner = &escaped[i + 2..i + 2 + end];
                 out.push_str("<strong>");
                 out.push_str(inner);
@@ -238,10 +238,9 @@ fn html_format_line(line: &str) -> String {
                 i += 2 + end + 2;
                 continue;
             }
-        }
 
-        if bytes[i] == b'*' {
-            if let Some(end) = find_delimiter(&escaped[i + 1..], "*") {
+        if bytes[i] == b'*'
+            && let Some(end) = find_delimiter(&escaped[i + 1..], "*") {
                 let inner = &escaped[i + 1..i + 1 + end];
                 out.push_str("<em>");
                 out.push_str(inner);
@@ -249,7 +248,6 @@ fn html_format_line(line: &str) -> String {
                 i += 1 + end + 1;
                 continue;
             }
-        }
 
         if bytes[i] == b'&' && escaped[i..].starts_with("&quot;") {
             let after = i + 6;
@@ -282,7 +280,7 @@ fn find_delimiter(text: &str, delim: &str) -> Option<usize> {
 pub fn html_format_content(content: &str) -> String {
     content
         .lines()
-        .map(|line| html_format_line(line))
+        .map(html_format_line)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -364,7 +362,7 @@ mod tests {
 
     #[test]
     fn markdown_system_message() {
-        let msgs = vec![system_msg("You are helpful.")];
+        let msgs = [system_msg("You are helpful.")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_markdown(&refs, "Char", "User");
         assert!(result.contains("## System\n\nYou are helpful."));
@@ -379,7 +377,7 @@ mod tests {
 
     #[test]
     fn html_escapes_content() {
-        let msgs = vec![user_msg("<script>alert('xss')</script>")];
+        let msgs = [user_msg("<script>alert('xss')</script>")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_html(&refs, "Char", "User");
         assert!(result.contains("&lt;script&gt;"));
@@ -407,7 +405,7 @@ mod tests {
 
     #[test]
     fn html_formats_bold() {
-        let msgs = vec![user_msg("This is **bold** text")];
+        let msgs = [user_msg("This is **bold** text")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_html(&refs, "Char", "User");
         assert!(result.contains("<strong>bold</strong>"));
@@ -416,7 +414,7 @@ mod tests {
 
     #[test]
     fn html_formats_italic() {
-        let msgs = vec![user_msg("This is *italic* text")];
+        let msgs = [user_msg("This is *italic* text")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_html(&refs, "Char", "User");
         assert!(result.contains("<em>italic</em>"));
@@ -425,7 +423,7 @@ mod tests {
 
     #[test]
     fn html_formats_dialogue() {
-        let msgs = vec![assistant_msg("She said \"hello there\" softly")];
+        let msgs = [assistant_msg("She said \"hello there\" softly")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_html(&refs, "Char", "User");
         assert!(result.contains("<q>hello there</q>"));
@@ -433,7 +431,7 @@ mod tests {
 
     #[test]
     fn html_formats_mixed_markdown() {
-        let msgs = vec![user_msg("**bold** and *italic* and \"dialogue\"")];
+        let msgs = [user_msg("**bold** and *italic* and \"dialogue\"")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_html(&refs, "Char", "User");
         assert!(result.contains("<strong>bold</strong>"));
@@ -475,7 +473,7 @@ mod tests {
 
     #[test]
     fn jsonl_system_message() {
-        let msgs = vec![system_msg("System prompt")];
+        let msgs = [system_msg("System prompt")];
         let refs: Vec<&Message> = msgs.iter().collect();
         let result = render_jsonl(&refs, "Char", "User");
         let lines: Vec<&str> = result.lines().collect();

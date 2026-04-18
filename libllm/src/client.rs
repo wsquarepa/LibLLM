@@ -487,11 +487,10 @@ where
             let line_bytes = &buffer[line_start..line_end];
             consumed = line_end + 1;
 
-            if let Some(text) = parse_token_line(line_bytes) {
-                if !on_token(&text)? {
+            if let Some(text) = parse_token_line(line_bytes)
+                && !on_token(&text)? {
                     return Ok(());
                 }
-            }
         }
 
         if consumed > 0 {

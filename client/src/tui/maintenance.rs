@@ -10,11 +10,10 @@ pub(super) fn spawn_startup_maintenance(
 ) {
     match save_mode {
         SaveMode::Database { .. } => {
-            if let Some(ref db) = app.db {
-                if let Err(e) = db.ensure_builtin_prompts() {
+            if let Some(ref db) = app.db
+                && let Err(e) = db.ensure_builtin_prompts() {
                     tracing::warn!(phase = "ensure_builtins", error = %e, "maintenance.warning");
                 }
-            }
         }
         SaveMode::None | SaveMode::PendingPasskey { .. } => {}
     }

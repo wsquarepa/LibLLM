@@ -169,7 +169,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         stored_size = entry.stored_size,
         encrypted = entry.encrypted,
         source = "interactive" ;
-        { restore_to_point(data_dir, &entry.id, passkey).map_err(anyhow::Error::from) }
+        { restore_to_point(data_dir, &entry.id, passkey)}
     )?;
 
     println!("Restore to '{}' completed successfully.", entry.id);
@@ -187,8 +187,8 @@ fn cmd_list(data_dir: &Path) -> Result<()> {
     }
 
     println!(
-        "{:<20} {:<6} {:<12} {:<12} {:<10} {}",
-        "ID", "Type", "Plain Size", "Stored Size", "Encrypted", "Created"
+        "{:<20} {:<6} {:<12} {:<12} {:<10} Created",
+        "ID", "Type", "Plain Size", "Stored Size", "Encrypted"
     );
     println!("{}", "-".repeat(80));
 
@@ -212,7 +212,7 @@ fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> 
         tracing::Level::INFO,
         "recover.verify",
         full = full ;
-        { verify_chain(data_dir, passkey, full).map_err(anyhow::Error::from) }
+        { verify_chain(data_dir, passkey, full)}
     )?;
     tracing::info!(phase = "summary", checked_count = result.checked_count, error_count = result.errors.len(), result = if result.errors.is_empty() { "ok" } else { "error" }, "recover.verify");
 
@@ -268,7 +268,7 @@ fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> R
         plaintext_size = entry.plaintext_size,
         stored_size = entry.stored_size,
         encrypted = entry.encrypted ;
-        { restore_to_point(data_dir, id, passkey).map_err(anyhow::Error::from) }
+        { restore_to_point(data_dir, id, passkey)}
     )?;
     println!("Restore to '{id}' completed successfully.");
     Ok(())
@@ -286,7 +286,7 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             tracing::Level::INFO,
             "recover.resolve_backup_key",
             has_passkey = passkey.is_some() ;
-            { backup::crypto::resolve_backup_key(data_dir, passkey).map_err(anyhow::Error::from) }
+            { backup::crypto::resolve_backup_key(data_dir, passkey)}
         )?;
 
         struct FileInfo {

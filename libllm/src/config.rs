@@ -46,7 +46,9 @@ impl std::fmt::Display for AuthKind {
 /// Outbound-request authentication configuration.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Auth {
+    #[default]
     None,
     Basic { username: String, password: String },
     Bearer { token: String },
@@ -54,11 +56,6 @@ pub enum Auth {
     Query { name: String, value: String },
 }
 
-impl Default for Auth {
-    fn default() -> Self {
-        Auth::None
-    }
-}
 
 impl Auth {
     pub fn kind(&self) -> AuthKind {
@@ -652,11 +649,10 @@ pub(crate) fn migrate_config() {
         }
     };
 
-    if let Some(parent) = new_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
+    if let Some(parent) = new_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent) {
             eprintln!("Warning: failed to create config directory: {e}");
         }
-    }
 
     if std::fs::rename(&old_path, &new_path).is_ok() {
         tracing::info!(result = "ok", from = %old_path.display(), to = %new_path.display(), "config.migrate");
@@ -703,6 +699,27 @@ pub fn load() -> Config {
             Config::default()
         }
     }
+}
+
+/// Serializes and atomically writes the config to `config.toml` in the data directory.
+pub fn save(cfg: &Config) -> Result<()> {
+    let path = config_path();
+    let serialize_start = Instant::now();
+    let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
+    let serialize_elapsed_ms = serialize_start.elapsed().as_secs_f64() * 1000.0;
+    let path_str = path.display().to_string();
+    tracing::info!(phase = "serialize", result = "ok", path = path_str.as_str(), bytes = toml_str.len(), elapsed_ms = serialize_elapsed_ms, "config.save");
+    crate::timed_result!(
+        tracing::Level::INFO,
+        "config.save",
+        phase = "write",
+        path = path_str.as_str(),
+        bytes = toml_str.len()
+        ; {
+            crate::crypto::write_atomic(&path, toml_str.as_bytes())
+                .context(format!("failed to write config: {}", path.display()))
+        }
+    )
 }
 
 #[cfg(test)]
@@ -1049,25 +1066,4 @@ mod tests {
         assert!(query.contains("existing=1"));
         assert!(query.contains("k=v"));
     }
-}
-
-/// Serializes and atomically writes the config to `config.toml` in the data directory.
-pub fn save(cfg: &Config) -> Result<()> {
-    let path = config_path();
-    let serialize_start = Instant::now();
-    let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
-    let serialize_elapsed_ms = serialize_start.elapsed().as_secs_f64() * 1000.0;
-    let path_str = path.display().to_string();
-    tracing::info!(phase = "serialize", result = "ok", path = path_str.as_str(), bytes = toml_str.len(), elapsed_ms = serialize_elapsed_ms, "config.save");
-    crate::timed_result!(
-        tracing::Level::INFO,
-        "config.save",
-        phase = "write",
-        path = path_str.as_str(),
-        bytes = toml_str.len()
-        ; {
-            crate::crypto::write_atomic(&path, toml_str.as_bytes())
-                .context(format!("failed to write config: {}", path.display()))
-        }
-    )
 }

@@ -21,8 +21,8 @@ impl App<'_> {
                 needs_redraw = true;
             }
         }
-        if let Some(d) = self.config_dialog.as_mut() {
-            if let Some(t) = d.reject_flash {
+        if let Some(d) = self.config_dialog.as_mut()
+            && let Some(t) = d.reject_flash {
                 if dialogs::is_flash_active(Some(t)) {
                     needs_redraw = true;
                 } else {
@@ -30,9 +30,8 @@ impl App<'_> {
                     needs_redraw = true;
                 }
             }
-        }
-        if let Some(d) = self.theme_dialog.as_mut() {
-            if let Some(t) = d.reject_flash {
+        if let Some(d) = self.theme_dialog.as_mut()
+            && let Some(t) = d.reject_flash {
                 if dialogs::is_flash_active(Some(t)) {
                     needs_redraw = true;
                 } else {
@@ -40,15 +39,14 @@ impl App<'_> {
                     needs_redraw = true;
                 }
             }
-        }
         for dialog in [
             &mut self.persona_editor,
             &mut self.system_prompt_editor,
             &mut self.character_editor,
             &mut self.worldbook_entry_editor,
         ] {
-            if let Some(d) = dialog.as_mut() {
-                if let Some(t) = d.reject_flash {
+            if let Some(d) = dialog.as_mut()
+                && let Some(t) = d.reject_flash {
                     if dialogs::is_flash_active(Some(t)) {
                         needs_redraw = true;
                     } else {
@@ -56,7 +54,6 @@ impl App<'_> {
                         needs_redraw = true;
                     }
                 }
-            }
         }
         needs_redraw
     }

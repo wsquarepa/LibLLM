@@ -252,8 +252,8 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
-    if let Some(body) = &release.body {
-        if let Some(remote_hash) = parse_release_hash(body) {
+    if let Some(body) = &release.body
+        && let Some(remote_hash) = parse_release_hash(body) {
             let current_hash = env!("LIBLLM_COMMIT", "unknown");
             if current_hash != "unknown" && current_hash == remote_hash {
                 tracing::info!(channel = "stable", result = "skipped", reason = "up_to_date", "update.check");
@@ -261,7 +261,6 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
                 return Ok(());
             }
         }
-    }
 
     let expected_name = &asset.name;
     println!("Downloading {expected_name}...");
@@ -281,9 +280,9 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
-    if CHANNEL == branch {
-        if let Some(body) = &release.body {
-            if let Some(remote_hash) = parse_release_hash(body) {
+    if CHANNEL == branch
+        && let Some(body) = &release.body
+            && let Some(remote_hash) = parse_release_hash(body) {
                 let current_hash = env!("LIBLLM_COMMIT", "unknown");
                 if current_hash != "unknown" && current_hash == remote_hash {
                     tracing::info!(channel = branch, result = "skipped", reason = "up_to_date", "update.check");
@@ -291,8 +290,6 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
                     return Ok(());
                 }
             }
-        }
-    }
 
     let expected_name = &asset.name;
     println!("Downloading {expected_name}...");

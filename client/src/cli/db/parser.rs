@@ -167,7 +167,7 @@ pub fn touches_query_only_pragma(buf: &str) -> bool {
         && lower
             .trim_start_matches("pragma")
             .split('.')
-            .last()
+            .next_back()
             .is_some_and(|tail| tail.trim_start().starts_with("query_only"))
 }
 

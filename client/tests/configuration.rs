@@ -38,8 +38,10 @@ fn config_default_values() {
 
 #[test]
 fn config_api_url_custom() {
-    let mut cfg = Config::default();
-    cfg.api_url = Some("http://example.com/api".to_owned());
+    let cfg = Config {
+        api_url: Some("http://example.com/api".to_owned()),
+        ..Config::default()
+    };
     assert_eq!(cfg.api_url(), "http://example.com/api");
 }
 
@@ -49,16 +51,21 @@ fn config_save_load_roundtrip() {
     let root = dir.path();
     let _key = common::test_key(root);
 
-    let mut cfg = Config::default();
-    cfg.api_url = Some("http://roundtrip.test/v1".to_owned());
-    cfg.template_preset = Some("chatml".to_owned());
-    cfg.instruct_preset = Some("alpaca".to_owned());
-    cfg.reasoning_preset = Some("deepseek".to_owned());
-    cfg.worldbooks = vec!["lore.worldbook".to_owned()];
-    cfg.tls_skip_verify = true;
-    cfg.default_persona = Some("tester".to_owned());
-    cfg.sampling.temperature = Some(0.7);
-    cfg.sampling.top_k = Some(40);
+    let cfg = Config {
+        api_url: Some("http://roundtrip.test/v1".to_owned()),
+        template_preset: Some("chatml".to_owned()),
+        instruct_preset: Some("alpaca".to_owned()),
+        reasoning_preset: Some("deepseek".to_owned()),
+        worldbooks: vec!["lore.worldbook".to_owned()],
+        tls_skip_verify: true,
+        default_persona: Some("tester".to_owned()),
+        sampling: libllm::sampling::SamplingOverrides {
+            temperature: Some(0.7),
+            top_k: Some(40),
+            ..Default::default()
+        },
+        ..Config::default()
+    };
 
     config::save(&cfg).unwrap();
     let loaded = config::load();
@@ -162,8 +169,10 @@ fn config_survives_migration() {
     let key = common::test_key(root);
     let _ = key;
 
-    let mut cfg = Config::default();
-    cfg.api_url = Some("http://survive.test/v1".to_owned());
+    let cfg = Config {
+        api_url: Some("http://survive.test/v1".to_owned()),
+        ..Config::default()
+    };
     config::save(&cfg).unwrap();
 
     migration::migrate_config_path();
@@ -296,11 +305,13 @@ fn empty_theme_override_drops_to_none() {
     libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
     libllm::config::ensure_dirs().unwrap();
 
-    let mut cfg = libllm::config::Config::default();
-    cfg.theme_colors = Some(libllm::config::ThemeColorOverrides {
-        user_message: Some("#ff0000".to_owned()),
-        ..Default::default()
-    });
+    let cfg = libllm::config::Config {
+        theme_colors: Some(libllm::config::ThemeColorOverrides {
+            user_message: Some("#ff0000".to_owned()),
+            ..Default::default()
+        }),
+        ..libllm::config::Config::default()
+    };
 
     let sections = vec![
         vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],

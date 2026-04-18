@@ -1002,7 +1002,6 @@ mod tests {
         let auth = Auth::Basic { username: "user".into(), password: "pass".into() };
         let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
         let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
-        // base64("user:pass") == "dXNlcjpwYXNz"
         assert_eq!(header.to_str().unwrap(), "Basic dXNlcjpwYXNz");
     }
 

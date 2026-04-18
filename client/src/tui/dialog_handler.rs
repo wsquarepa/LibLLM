@@ -119,18 +119,21 @@ pub(super) fn handle_field_dialog_key(
                 app.focus = Focus::Input;
             }
             dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 1 } => {
+                crate::tui::dialogs::auth::open_auth_dialog(app);
+            }
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 2 } => {
                 crate::tui::dialogs::preset::open_preset_picker(
                     app,
                     crate::tui::dialogs::preset::PresetKind::Template,
                 );
             }
-            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 2 } => {
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 3 } => {
                 crate::tui::dialogs::preset::open_preset_picker(
                     app,
                     crate::tui::dialogs::preset::PresetKind::Instruct,
                 );
             }
-            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 3 } => {
+            dialogs::TabbedFieldAction::OpenSelector { section: 0, field: 4 } => {
                 crate::tui::dialogs::preset::open_preset_picker(
                     app,
                     crate::tui::dialogs::preset::PresetKind::Reasoning,

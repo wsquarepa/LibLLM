@@ -150,6 +150,7 @@ pub async fn run(
         set_passkey_deriving: false,
         set_passkey_is_initial: initial_passkey_setup,
         config_dialog: None,
+        auth_dialog: None,
         theme_dialog: None,
         base_theme_picker_names: Vec::new(),
         base_theme_picker_selected: 0,
@@ -492,6 +493,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::ThemeDialog => Some("theme"),
         Focus::BaseThemePickerDialog => Some("base_theme_picker"),
         Focus::PresetPickerDialog => Some("preset_picker"),
+        Focus::AuthDialog => Some("auth_dialog"),
+        Focus::AuthTypePicker => Some("auth_type_picker"),
         Focus::PresetEditorDialog => Some("preset_editor"),
         Focus::PersonaDialog => Some("persona"),
         Focus::PersonaEditorDialog => Some("persona_editor"),
@@ -544,6 +547,12 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::PresetPickerDialog => {
             dialogs::preset::render_preset_dialog(f, app, f.area());
+        }
+        Focus::AuthDialog => {
+            dialogs::auth::render_auth_dialog(f, app, f.area());
+        }
+        Focus::AuthTypePicker => {
+            dialogs::auth::render_type_picker(f, app, f.area());
         }
         Focus::PresetEditorDialog => {
             if let Some(ref dialog) = app.preset_editor {

@@ -20,15 +20,27 @@ thread_local! {
     static DATA_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Discriminator for `Auth` — used for labels, CLI parsing, and UI state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-#[clap(rename_all = "lowercase")]
+/// Discriminator for `Auth` — used for labels and UI state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthKind {
     None,
     Basic,
     Bearer,
     Header,
     Query,
+}
+
+impl std::fmt::Display for AuthKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            AuthKind::None => "None",
+            AuthKind::Basic => "Basic",
+            AuthKind::Bearer => "Bearer",
+            AuthKind::Header => "Header",
+            AuthKind::Query => "Query",
+        };
+        f.write_str(s)
+    }
 }
 
 /// Outbound-request authentication configuration.
@@ -122,7 +134,7 @@ impl std::fmt::Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthError::EmptyRequiredField { variant, field } => {
-                write!(f, "auth {variant:?}: {field} is required")
+                write!(f, "auth {variant}: {field} is required")
             }
             AuthError::InvalidHeaderName(e) => write!(f, "invalid header name: {e}"),
             AuthError::InvalidHeaderValue(e) => write!(f, "invalid header value: {e}"),

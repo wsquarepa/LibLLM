@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
 dirs = "6.0.0"
 serde = { version = "1", features = ["derive"] }

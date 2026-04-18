@@ -22,20 +22,20 @@ const TYPE_PICKER_OPTIONS: &[AuthKind] = &[
     AuthKind::Query,
 ];
 
-pub enum AuthDialogAction {
+pub(in crate::tui) enum AuthDialogAction {
     Continue,
     Close,
     OpenTypePicker,
 }
 
-pub struct AuthScratchpad {
-    pub basic_username: String,
-    pub basic_password: String,
-    pub bearer_token: String,
-    pub header_name: String,
-    pub header_value: String,
-    pub query_name: String,
-    pub query_value: String,
+struct AuthScratchpad {
+    basic_username: String,
+    basic_password: String,
+    bearer_token: String,
+    header_name: String,
+    header_value: String,
+    query_name: String,
+    query_value: String,
 }
 
 impl AuthScratchpad {
@@ -53,7 +53,7 @@ impl AuthScratchpad {
 }
 
 #[derive(Clone, Copy)]
-pub enum FieldSlot {
+enum FieldSlot {
     Type,
     BasicUsername,
     BasicPassword,
@@ -76,19 +76,19 @@ impl FieldSlot {
     }
 }
 
-pub struct LocksBySlot {
-    pub auth_type: bool,
-    pub basic_username: bool,
-    pub basic_password: bool,
-    pub bearer_token: bool,
-    pub header_name: bool,
-    pub header_value: bool,
-    pub query_name: bool,
-    pub query_value: bool,
+struct LocksBySlot {
+    auth_type: bool,
+    basic_username: bool,
+    basic_password: bool,
+    bearer_token: bool,
+    header_name: bool,
+    header_value: bool,
+    query_name: bool,
+    query_value: bool,
 }
 
 impl LocksBySlot {
-    pub fn from_overrides(overrides: &AuthOverrides) -> Self {
+    fn from_overrides(overrides: &AuthOverrides) -> Self {
         Self {
             auth_type: overrides.auth_type.is_some(),
             basic_username: overrides.auth_basic_username.is_some(),
@@ -115,17 +115,17 @@ impl LocksBySlot {
     }
 }
 
-pub struct AuthDialogState {
-    pub active_type: AuthKind,
-    pub scratchpad: AuthScratchpad,
-    pub labels: Vec<&'static str>,
-    pub slots: Vec<FieldSlot>,
-    pub selected: usize,
-    pub editing: bool,
-    pub cursor_pos: usize,
-    pub locked: Vec<bool>,
-    pub value_changed: bool,
-    pub type_picker_selected: usize,
+pub(in crate::tui) struct AuthDialogState {
+    active_type: AuthKind,
+    scratchpad: AuthScratchpad,
+    labels: Vec<&'static str>,
+    slots: Vec<FieldSlot>,
+    selected: usize,
+    editing: bool,
+    cursor_pos: usize,
+    locked: Vec<bool>,
+    value_changed: bool,
+    type_picker_selected: usize,
 }
 
 fn rows_for(kind: AuthKind) -> (Vec<&'static str>, Vec<FieldSlot>) {
@@ -151,7 +151,7 @@ fn rows_for(kind: AuthKind) -> (Vec<&'static str>, Vec<FieldSlot>) {
 }
 
 impl AuthDialogState {
-    pub fn from_auth(auth: &Auth, locks: &LocksBySlot) -> Self {
+    fn from_auth(auth: &Auth, locks: &LocksBySlot) -> Self {
         let active_type = auth.kind();
         let (labels, slots) = rows_for(active_type);
         let locked = slots.iter().map(|s| locks.is_locked(*s)).collect();
@@ -206,7 +206,7 @@ impl AuthDialogState {
         }
     }
 
-    pub fn build_candidate_auth(&self) -> Auth {
+    fn build_candidate_auth(&self) -> Auth {
         match self.active_type {
             AuthKind::None => Auth::None,
             AuthKind::Basic => Auth::Basic {
@@ -256,9 +256,7 @@ pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area
         let is_selected = i == state.selected;
         let is_locked = state.locked[i];
         let raw = state.slot_value(slot);
-        let display_value: String = if matches!(slot, FieldSlot::Type) {
-            raw.to_owned()
-        } else if slot.is_secret() {
+        let display_value: String = if slot.is_secret() {
             "\u{2022}".repeat(raw.chars().count())
         } else {
             raw.to_owned()
@@ -275,10 +273,32 @@ pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area
         };
 
         let marker = if is_selected { ">" } else { " " };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{marker} {label}: "), style),
-            Span::styled(display_value, style),
-        ]));
+        if is_selected && state.editing {
+            let chars: Vec<char> = display_value.chars().collect();
+            let cursor_pos = state.cursor_pos.min(chars.len());
+            let prefix: String = chars[..cursor_pos].iter().collect();
+            let at_cursor: String = if cursor_pos < chars.len() {
+                chars[cursor_pos].to_string()
+            } else {
+                " ".to_string()
+            };
+            let suffix: String = if cursor_pos < chars.len() {
+                chars[cursor_pos + 1..].iter().collect()
+            } else {
+                String::new()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("{marker} {label}: "), style),
+                Span::styled(prefix, style),
+                Span::styled(at_cursor, style.add_modifier(Modifier::REVERSED)),
+                Span::styled(suffix, style),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled(format!("{marker} {label}: "), style),
+                Span::styled(display_value, style),
+            ]));
+        }
     }
 
     let paragraph = Paragraph::new(lines).block(dialog_block(" Authentication ", Color::Yellow));

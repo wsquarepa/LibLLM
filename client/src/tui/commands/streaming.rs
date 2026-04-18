@@ -178,8 +178,7 @@ pub(in crate::tui) fn handle_stream_token(
                             .api_url
                             .as_deref()
                             .unwrap_or(app.client.base_url());
-                        // TODO wired in Task 6
-                        let summarizer_auth = libllm::config::resolve_auth(&app.config, &libllm::config::AuthOverrides::default());
+                        let summarizer_auth = libllm::config::resolve_auth(&app.config, &app.cli_overrides.auth_overrides());
                         let summarizer_client = libllm::client::ApiClient::new(
                             summarize_api_url,
                             app.config.tls_skip_verify || app.cli_overrides.tls_skip_verify,

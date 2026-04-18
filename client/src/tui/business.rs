@@ -482,8 +482,7 @@ pub(super) fn apply_config(app: &mut App) {
 
     let new_url = app.cli_overrides.api_url.as_deref().unwrap_or(cfg.api_url());
     let new_tls_skip = app.cli_overrides.tls_skip_verify || cfg.tls_skip_verify;
-    // TODO wired in Task 6
-    let new_auth = libllm::config::resolve_auth(&cfg, &libllm::config::AuthOverrides::default());
+    let new_auth = libllm::config::resolve_auth(&cfg, &app.cli_overrides.auth_overrides());
     app.client = libllm::client::ApiClient::new(new_url, new_tls_skip, new_auth);
     app.model_name = None;
     app.api_available = true;

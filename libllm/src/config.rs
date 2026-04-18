@@ -7,6 +7,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 #[cfg(not(feature = "test-support"))]
 use anyhow::anyhow;
+use reqwest::header::{HeaderName, HeaderValue, InvalidHeaderName, InvalidHeaderValue};
 use serde::{Deserialize, Serialize};
 
 use crate::sampling::SamplingOverrides;
@@ -18,6 +19,118 @@ static DATA_DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::ne
 thread_local! {
     static DATA_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
+
+/// Discriminator for `Auth` — used for labels, CLI parsing, and UI state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum AuthKind {
+    None,
+    Basic,
+    Bearer,
+    Header,
+    Query,
+}
+
+/// Outbound-request authentication configuration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Auth {
+    None,
+    Basic { username: String, password: String },
+    Bearer { token: String },
+    Header { name: String, value: String },
+    Query { name: String, value: String },
+}
+
+impl Default for Auth {
+    fn default() -> Self {
+        Auth::None
+    }
+}
+
+impl Auth {
+    pub fn kind(&self) -> AuthKind {
+        match self {
+            Auth::None => AuthKind::None,
+            Auth::Basic { .. } => AuthKind::Basic,
+            Auth::Bearer { .. } => AuthKind::Bearer,
+            Auth::Header { .. } => AuthKind::Header,
+            Auth::Query { .. } => AuthKind::Query,
+        }
+    }
+
+    pub fn display_label(&self) -> &'static str {
+        match self.kind() {
+            AuthKind::None => "None",
+            AuthKind::Basic => "Basic",
+            AuthKind::Bearer => "Bearer",
+            AuthKind::Header => "Header",
+            AuthKind::Query => "Query",
+        }
+    }
+
+    pub fn validate(&self) -> std::result::Result<(), AuthError> {
+        match self {
+            Auth::None => Ok(()),
+            Auth::Basic { username, password } => {
+                if username.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Basic, field: "username" });
+                }
+                if password.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Basic, field: "password" });
+                }
+                Ok(())
+            }
+            Auth::Bearer { token } => {
+                if token.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Bearer, field: "token" });
+                }
+                Ok(())
+            }
+            Auth::Header { name, value } => {
+                if name.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Header, field: "name" });
+                }
+                if value.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Header, field: "value" });
+                }
+                HeaderName::from_bytes(name.as_bytes()).map_err(AuthError::InvalidHeaderName)?;
+                HeaderValue::from_str(value).map_err(AuthError::InvalidHeaderValue)?;
+                Ok(())
+            }
+            Auth::Query { name, value } => {
+                if name.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Query, field: "name" });
+                }
+                if value.is_empty() {
+                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Query, field: "value" });
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum AuthError {
+    EmptyRequiredField { variant: AuthKind, field: &'static str },
+    InvalidHeaderName(InvalidHeaderName),
+    InvalidHeaderValue(InvalidHeaderValue),
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthError::EmptyRequiredField { variant, field } => {
+                write!(f, "auth {variant:?}: {field} is required")
+            }
+            AuthError::InvalidHeaderName(e) => write!(f, "invalid header name: {e}"),
+            AuthError::InvalidHeaderValue(e) => write!(f, "invalid header value: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for AuthError {}
 
 /// Top-level application configuration, serialized as `config.toml` in the data directory.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -47,6 +160,8 @@ pub struct Config {
     pub backup: BackupConfig,
     #[serde(default)]
     pub summarization: SummarizationConfig,
+    #[serde(default)]
+    pub auth: Auth,
 }
 
 const DEFAULT_SUMMARIZATION_PROMPT: &str =
@@ -521,6 +636,116 @@ mod tests {
         assert!(!cfg.backup.enabled);
         assert_eq!(cfg.backup.keep_all_days, 14);
         assert_eq!(cfg.backup.rebase_hard_ceiling, 5);
+    }
+
+    #[test]
+    fn auth_default_is_none() {
+        let auth = Auth::default();
+        assert_eq!(auth, Auth::None);
+        assert_eq!(auth.kind(), AuthKind::None);
+    }
+
+    #[test]
+    fn auth_round_trips_through_toml_none() {
+        let cfg = Config { auth: Auth::None, ..Config::default() };
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(back.auth, Auth::None);
+    }
+
+    #[test]
+    fn auth_round_trips_through_toml_basic() {
+        let cfg = Config {
+            auth: Auth::Basic { username: "user".into(), password: "pw".into() },
+            ..Config::default()
+        };
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(back.auth, Auth::Basic { username: "user".into(), password: "pw".into() });
+    }
+
+    #[test]
+    fn auth_round_trips_through_toml_bearer() {
+        let cfg = Config {
+            auth: Auth::Bearer { token: "sk-xyz".into() },
+            ..Config::default()
+        };
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(back.auth, Auth::Bearer { token: "sk-xyz".into() });
+    }
+
+    #[test]
+    fn auth_round_trips_through_toml_header() {
+        let cfg = Config {
+            auth: Auth::Header { name: "X-Api-Key".into(), value: "abc".into() },
+            ..Config::default()
+        };
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(back.auth, Auth::Header { name: "X-Api-Key".into(), value: "abc".into() });
+    }
+
+    #[test]
+    fn auth_round_trips_through_toml_query() {
+        let cfg = Config {
+            auth: Auth::Query { name: "api_key".into(), value: "abc".into() },
+            ..Config::default()
+        };
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(back.auth, Auth::Query { name: "api_key".into(), value: "abc".into() });
+    }
+
+    #[test]
+    fn auth_defaults_when_missing_from_toml() {
+        let toml_str = r#"
+            api_url = "http://localhost:5001/v1"
+        "#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.auth, Auth::None);
+    }
+
+    #[test]
+    fn auth_display_labels() {
+        assert_eq!(Auth::None.display_label(), "None");
+        assert_eq!(Auth::Basic { username: String::new(), password: String::new() }.display_label(), "Basic");
+        assert_eq!(Auth::Bearer { token: String::new() }.display_label(), "Bearer");
+        assert_eq!(Auth::Header { name: String::new(), value: String::new() }.display_label(), "Header");
+        assert_eq!(Auth::Query { name: String::new(), value: String::new() }.display_label(), "Query");
+    }
+
+    #[test]
+    fn auth_validate_none_always_ok() {
+        assert!(Auth::None.validate().is_ok());
+    }
+
+    #[test]
+    fn auth_validate_basic_requires_both_fields() {
+        assert!(Auth::Basic { username: String::new(), password: "p".into() }.validate().is_err());
+        assert!(Auth::Basic { username: "u".into(), password: String::new() }.validate().is_err());
+        assert!(Auth::Basic { username: "u".into(), password: "p".into() }.validate().is_ok());
+    }
+
+    #[test]
+    fn auth_validate_bearer_requires_token() {
+        assert!(Auth::Bearer { token: String::new() }.validate().is_err());
+        assert!(Auth::Bearer { token: "t".into() }.validate().is_ok());
+    }
+
+    #[test]
+    fn auth_validate_header_requires_both_fields_and_valid_header_name() {
+        assert!(Auth::Header { name: String::new(), value: "v".into() }.validate().is_err());
+        assert!(Auth::Header { name: "X-Key".into(), value: String::new() }.validate().is_err());
+        assert!(Auth::Header { name: "X Key".into(), value: "v".into() }.validate().is_err(), "spaces are invalid header chars");
+        assert!(Auth::Header { name: "X-Key".into(), value: "v".into() }.validate().is_ok());
+    }
+
+    #[test]
+    fn auth_validate_query_requires_both_fields() {
+        assert!(Auth::Query { name: String::new(), value: "v".into() }.validate().is_err());
+        assert!(Auth::Query { name: "k".into(), value: String::new() }.validate().is_err());
+        assert!(Auth::Query { name: "k".into(), value: "v".into() }.validate().is_ok());
     }
 }
 

@@ -493,15 +493,11 @@ pub(in crate::tui) fn handle_type_picker_key(
         return None;
     };
     match key.code {
-        KeyCode::Up => {
-            if state.type_picker_selected > 0 {
-                state.type_picker_selected -= 1;
-            }
+        KeyCode::Up if state.type_picker_selected > 0 => {
+            state.type_picker_selected -= 1;
         }
-        KeyCode::Down => {
-            if state.type_picker_selected + 1 < TYPE_PICKER_OPTIONS.len() {
-                state.type_picker_selected += 1;
-            }
+        KeyCode::Down if state.type_picker_selected + 1 < TYPE_PICKER_OPTIONS.len() => {
+            state.type_picker_selected += 1;
         }
         KeyCode::Enter => {
             if state.locked.first().copied().unwrap_or(false) {

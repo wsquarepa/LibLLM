@@ -273,11 +273,9 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
 
     if app.worldbook_editor_name_selected {
         match key.code {
-            KeyCode::Down => {
-                if !app.worldbook_editor_entries.is_empty() {
-                    app.worldbook_editor_name_selected = false;
-                    app.worldbook_editor_selected = 0;
-                }
+            KeyCode::Down if !app.worldbook_editor_entries.is_empty() => {
+                app.worldbook_editor_name_selected = false;
+                app.worldbook_editor_selected = 0;
             }
             KeyCode::Right | KeyCode::Enter => {
                 app.worldbook_editor_name_editing = true;

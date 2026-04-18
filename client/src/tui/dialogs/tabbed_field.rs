@@ -348,13 +348,11 @@ impl<'a> TabbedFieldDialog<'a> {
                         self.reject_flash = Some(Instant::now());
                     }
                 }
-                KeyCode::Backspace => {
-                    if self.cursor_pos > 0 {
-                        self.cursor_pos -= 1;
-                        let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
-                        self.sections[tab].values[idx].remove(byte_pos);
-                        self.value_changed = true;
-                    }
+                KeyCode::Backspace if self.cursor_pos > 0 => {
+                    self.cursor_pos -= 1;
+                    let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
+                    self.sections[tab].values[idx].remove(byte_pos);
+                    self.value_changed = true;
                 }
                 KeyCode::Delete => {
                     let char_count = self.sections[tab].values[idx].chars().count();
@@ -364,10 +362,8 @@ impl<'a> TabbedFieldDialog<'a> {
                         self.value_changed = true;
                     }
                 }
-                KeyCode::Left => {
-                    if self.cursor_pos > 0 {
-                        self.cursor_pos -= 1;
-                    }
+                KeyCode::Left if self.cursor_pos > 0 => {
+                    self.cursor_pos -= 1;
                 }
                 KeyCode::Right => {
                     let char_count = self.sections[tab].values[idx].chars().count();

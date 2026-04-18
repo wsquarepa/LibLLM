@@ -529,10 +529,8 @@ pub(super) fn is_dialog_focus(focus: Focus) -> bool {
 
 fn handle_base_theme_picker_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match key.code {
-        KeyCode::Up => {
-            if app.base_theme_picker_selected > 0 {
-                app.base_theme_picker_selected -= 1;
-            }
+        KeyCode::Up if app.base_theme_picker_selected > 0 => {
+            app.base_theme_picker_selected -= 1;
         }
         KeyCode::Down => {
             let count = app.base_theme_picker_names.len();

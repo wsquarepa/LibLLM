@@ -480,12 +480,10 @@ impl<'a> FieldDialog<'a> {
                         self.reject_flash = Some(std::time::Instant::now());
                     }
                 }
-                KeyCode::Backspace => {
-                    if self.cursor_pos > 0 {
-                        self.cursor_pos -= 1;
-                        let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
-                        self.values[self.selected].remove(byte_pos);
-                    }
+                KeyCode::Backspace if self.cursor_pos > 0 => {
+                    self.cursor_pos -= 1;
+                    let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
+                    self.values[self.selected].remove(byte_pos);
                 }
                 KeyCode::Delete => {
                     let char_count = self.values[self.selected].chars().count();
@@ -494,10 +492,8 @@ impl<'a> FieldDialog<'a> {
                         self.values[self.selected].remove(byte_pos);
                     }
                 }
-                KeyCode::Left => {
-                    if self.cursor_pos > 0 {
-                        self.cursor_pos -= 1;
-                    }
+                KeyCode::Left if self.cursor_pos > 0 => {
+                    self.cursor_pos -= 1;
                 }
                 KeyCode::Right => {
                     let char_count = self.values[self.selected].chars().count();

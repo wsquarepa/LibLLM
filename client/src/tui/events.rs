@@ -156,6 +156,8 @@ fn handle_key(
             | Focus::SetPasskeyDialog
             | Focus::BaseThemePickerDialog
             | Focus::PresetPickerDialog
+            | Focus::AuthDialog
+            | Focus::AuthTypePicker
             | Focus::PersonaDialog
             | Focus::CharacterDialog
             | Focus::WorldbookDialog
@@ -181,6 +183,22 @@ fn handle_key(
     }
     if app.focus == Focus::PresetPickerDialog {
         return dialogs::preset::handle_preset_dialog_key(key, app);
+    }
+    if app.focus == Focus::AuthDialog {
+        match dialogs::auth::handle_auth_dialog_key(key, app) {
+            dialogs::auth::AuthDialogAction::Continue => return None,
+            dialogs::auth::AuthDialogAction::Close => {
+                dialogs::auth::close_and_persist(app);
+                return None;
+            }
+            dialogs::auth::AuthDialogAction::OpenTypePicker => {
+                dialogs::auth::open_type_picker(app);
+                return None;
+            }
+        }
+    }
+    if app.focus == Focus::AuthTypePicker {
+        return dialogs::auth::handle_type_picker_key(key, app);
     }
     if app.focus == Focus::PresetEditorDialog {
         return handle_field_dialog_key(key, app, DialogKind::PresetEditor);

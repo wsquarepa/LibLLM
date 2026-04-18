@@ -164,7 +164,9 @@ async fn main() -> Result<()> {
             ResetColor,
         );
     }
-    let client = ApiClient::new(api_url, tls_skip_verify);
+    let cli_overrides = args.cli_overrides();
+    let auth = libllm::config::resolve_auth(&cfg, &cli_overrides.auth_overrides());
+    let client = ApiClient::new(api_url, tls_skip_verify, auth);
 
     let preset_name = args
         .template
@@ -273,7 +275,6 @@ async fn main() -> Result<()> {
     }
 
     tracing::info!(phase = "tui_handoff", mode = "interactive", "startup.phase");
-    let cli_overrides = args.cli_overrides();
     let resolved_passkey = tui::run(
         client,
         &mut session,

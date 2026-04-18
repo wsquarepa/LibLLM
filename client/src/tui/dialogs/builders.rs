@@ -12,13 +12,14 @@ pub(in crate::tui) const FIELD_DIALOG_DEFAULT_WIDTH: u16 = 60;
 
 const GENERAL_LABELS: &[&str] = &[
     "API URL",
+    "Authentication",
     "Template preset",
     "Instruct preset",
     "Reasoning preset",
     "TLS Skip Verify",
 ];
-const GENERAL_BOOLEAN: &[usize] = &[4];
-const GENERAL_SELECTOR: &[usize] = &[1, 2, 3];
+const GENERAL_BOOLEAN: &[usize] = &[5];
+const GENERAL_SELECTOR: &[usize] = &[1, 2, 3, 4];
 
 const SAMPLING_LABELS: &[&str] = &[
     "Temperature",

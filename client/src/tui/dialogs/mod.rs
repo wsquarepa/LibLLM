@@ -1,6 +1,7 @@
 //! Modal dialog rendering and key handling for all TUI overlay panels.
 
 pub mod api_error;
+pub mod auth;
 pub mod branch;
 pub mod character;
 pub mod delete_confirm;

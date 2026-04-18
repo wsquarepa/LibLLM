@@ -28,6 +28,8 @@ pub(super) enum Focus {
     BaseThemePickerDialog,
     PresetPickerDialog,
     PresetEditorDialog,
+    AuthDialog,
+    AuthTypePicker,
     PersonaDialog,
     PersonaEditorDialog,
     CharacterDialog,
@@ -201,6 +203,7 @@ pub(super) struct App<'a> {
     pub(super) set_passkey_is_initial: bool,
 
     pub(super) config_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
+    pub(super) auth_dialog: Option<dialogs::auth::AuthDialogState>,
     pub(super) theme_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
     pub(super) base_theme_picker_names: Vec<String>,
     pub(super) base_theme_picker_selected: usize,

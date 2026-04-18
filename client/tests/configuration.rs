@@ -2,7 +2,7 @@
 mod common;
 
 use client::validation;
-use libllm::config::{self, Config};
+use libllm::config::{self, Auth, Config};
 use libllm::migration;
 
 fn setup_data_dir() -> tempfile::TempDir {
@@ -338,4 +338,73 @@ fn log_filter_with_debug_parses() {
         "info",
     ]);
     assert!(result.is_ok(), "expected parse success but got an error");
+}
+
+// ---------------------------------------------------------------------------
+// Auth round-trip tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn config_auth_roundtrip_bearer() {
+    let dir = setup_data_dir();
+    let _key = common::test_key(dir.path());
+    let cfg = Config {
+        auth: Auth::Bearer { token: "sk-abc".into() },
+        ..Config::default()
+    };
+    config::save(&cfg).unwrap();
+    let loaded = config::load();
+    assert_eq!(loaded.auth, Auth::Bearer { token: "sk-abc".into() });
+}
+
+#[test]
+fn config_auth_roundtrip_basic() {
+    let dir = setup_data_dir();
+    let _key = common::test_key(dir.path());
+    let cfg = Config {
+        auth: Auth::Basic { username: "u".into(), password: "p".into() },
+        ..Config::default()
+    };
+    config::save(&cfg).unwrap();
+    let loaded = config::load();
+    assert_eq!(loaded.auth, Auth::Basic { username: "u".into(), password: "p".into() });
+}
+
+#[test]
+fn config_auth_roundtrip_header() {
+    let dir = setup_data_dir();
+    let _key = common::test_key(dir.path());
+    let cfg = Config {
+        auth: Auth::Header { name: "X-Key".into(), value: "v".into() },
+        ..Config::default()
+    };
+    config::save(&cfg).unwrap();
+    let loaded = config::load();
+    assert_eq!(loaded.auth, Auth::Header { name: "X-Key".into(), value: "v".into() });
+}
+
+#[test]
+fn config_auth_roundtrip_query() {
+    let dir = setup_data_dir();
+    let _key = common::test_key(dir.path());
+    let cfg = Config {
+        auth: Auth::Query { name: "api_key".into(), value: "v".into() },
+        ..Config::default()
+    };
+    config::save(&cfg).unwrap();
+    let loaded = config::load();
+    assert_eq!(loaded.auth, Auth::Query { name: "api_key".into(), value: "v".into() });
+}
+
+#[test]
+fn config_auth_defaults_to_none_for_missing_section() {
+    let dir = setup_data_dir();
+    let _key = common::test_key(dir.path());
+    std::fs::write(
+        config::config_path(),
+        "api_url = \"http://localhost:5001/v1\"\n",
+    )
+    .unwrap();
+    let loaded = config::load();
+    assert_eq!(loaded.auth, Auth::None);
 }

@@ -16,6 +16,7 @@ use crate::sampling::SamplingParams;
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
+    auth: crate::config::Auth,
 }
 
 #[derive(Deserialize)]
@@ -42,7 +43,7 @@ impl ApiClient {
     /// Creates a new client targeting the given base URL (e.g. `http://localhost:5001/v1`).
     ///
     /// When `tls_skip_verify` is true, TLS certificate validation is disabled.
-    pub fn new(base_url: &str, tls_skip_verify: bool) -> Self {
+    pub fn new(base_url: &str, tls_skip_verify: bool, auth: crate::config::Auth) -> Self {
         crate::crypto_provider::install_default_crypto_provider();
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(tls_skip_verify)
@@ -52,6 +53,7 @@ impl ApiClient {
         Self {
             client,
             base_url: base_url.trim_end_matches('/').to_owned(),
+            auth,
         }
     }
 
@@ -61,9 +63,9 @@ impl ApiClient {
         let start = Instant::now();
         let result: Result<String> = async {
             let resp = self
-                .client
-                .get(&url)
-                .timeout(std::time::Duration::from_secs(5))
+                .auth
+                .apply(self.client.get(&url).timeout(std::time::Duration::from_secs(5)))
+                .context("apply auth")?
                 .send()
                 .await
                 .context("GET /models failed")?;
@@ -272,9 +274,9 @@ impl ApiClient {
             "client.complete"
         );
         let send_result = self
-            .client
-            .post(&url)
-            .json(&body)
+            .auth
+            .apply(self.client.post(&url).json(&body))
+            .context("apply auth")?
             .send()
             .await
             .context("POST /completions (non-streaming) failed");
@@ -343,7 +345,21 @@ impl ApiClient {
     pub async fn fetch_server_context_size(&self) -> Option<usize> {
         let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
-        let resp = match self.client.get(&url).send().await {
+        let builder = match self.auth.apply(self.client.get(&url)) {
+            Ok(b) => b,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.props"
+                );
+                return None;
+            }
+        };
+        let resp = match builder.send().await {
             Ok(resp) => resp,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -431,9 +447,9 @@ impl ApiClient {
         });
 
         let resp = self
-            .client
-            .post(&url)
-            .json(&body)
+            .auth
+            .apply(self.client.post(&url).json(&body))
+            .context("apply auth")?
             .send()
             .await
             .context("POST /completions failed")?;

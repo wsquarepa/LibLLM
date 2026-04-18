@@ -190,3 +190,54 @@ fn recover_non_interactive_without_subcommand_returns_ok() {
     let result = client::recover::run_with_interactivity(&dummy_dir, None, None, false);
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 }
+
+#[test]
+fn parse_auth_type_accepts_bearer() {
+    let args = Args::try_parse_from(["libllm", "--auth-type", "bearer"]).unwrap();
+    assert_eq!(args.auth_type, Some(client::cli::AuthKindArg::Bearer));
+}
+
+#[test]
+fn parse_auth_type_accepts_all_variants() {
+    for (flag, expected) in [
+        ("none", client::cli::AuthKindArg::None),
+        ("basic", client::cli::AuthKindArg::Basic),
+        ("bearer", client::cli::AuthKindArg::Bearer),
+        ("header", client::cli::AuthKindArg::Header),
+        ("query", client::cli::AuthKindArg::Query),
+    ] {
+        let args = Args::try_parse_from(["libllm", "--auth-type", flag]).unwrap();
+        assert_eq!(args.auth_type, Some(expected));
+    }
+}
+
+#[test]
+fn parse_auth_type_rejects_invalid_value() {
+    let result = Args::try_parse_from(["libllm", "--auth-type", "garbage"]);
+    let stderr = result.err().expect("invalid auth-type value should be rejected").to_string();
+    assert!(
+        stderr.contains("auth-type") || stderr.contains("possible values"),
+        "error message should mention auth-type or possible values: {stderr}"
+    );
+}
+
+#[test]
+fn parse_auth_non_secret_flags_populate_cli_overrides() {
+    let args = Args::try_parse_from([
+        "libllm",
+        "--auth-type",
+        "header",
+        "--auth-basic-username",
+        "alice",
+        "--auth-header-name",
+        "X-Api-Key",
+        "--auth-query-name",
+        "api_key",
+    ])
+    .unwrap();
+    let overrides = args.cli_overrides();
+    assert_eq!(overrides.auth_type, Some(libllm::config::AuthKind::Header));
+    assert_eq!(overrides.auth_basic_username.as_deref(), Some("alice"));
+    assert_eq!(overrides.auth_header_name.as_deref(), Some("X-Api-Key"));
+    assert_eq!(overrides.auth_query_name.as_deref(), Some("api_key"));
+}

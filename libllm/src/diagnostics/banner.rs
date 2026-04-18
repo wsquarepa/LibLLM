@@ -142,13 +142,13 @@ mod tests {
             dirty: false,
         };
         let system = SystemInfo {
-            host: "apollo".to_owned(),
-            os_name: "Fedora Linux".to_owned(),
-            os_version: "43".to_owned(),
-            kernel: "6.19.12-210.t2.fc43.x86_64".to_owned(),
+            host: "orion".to_owned(),
+            os_name: "Artemis Linux".to_owned(),
+            os_version: "2".to_owned(),
+            kernel: "6.0.0-artemis".to_owned(),
             arch: "x86_64".to_owned(),
             family: "unix".to_owned(),
-            cpu_brand: "AMD Ryzen 9 7950X".to_owned(),
+            cpu_brand: "Saturn V Core".to_owned(),
             logical_cpus: 16,
             total_memory_bytes: 68_719_476_736,
         };
@@ -162,10 +162,10 @@ mod tests {
         let runtime = RuntimeInfo {
             run_mode: "tui".to_owned(),
             pid: 48291,
-            executable: "/home/wsquarepa/.cargo/bin/libllm".to_owned(),
-            working_dir: "/home/wsquarepa/Documents/LibLLM".to_owned(),
+            executable: "/home/astronaut/.cargo/bin/libllm".to_owned(),
+            working_dir: "/home/astronaut/mission-control".to_owned(),
             cli_args: "tui --persona assistant".to_owned(),
-            debug_log_path: "/home/wsquarepa/libllm-debug.log".to_owned(),
+            debug_log_path: "/home/astronaut/libllm-debug.log".to_owned(),
             timings_path: "disabled".to_owned(),
             filter_directive: "info".to_owned(),
             filter_source: "default".to_owned(),
@@ -188,7 +188,7 @@ mod tests {
         assert!(out.contains("LibLLM version 1.0.0 (-a1b2c3d)"));
         assert!(out.contains("2026-04-17 11:12:51"));
         assert!(out.contains("Run mode      tui"));
-        assert!(out.contains("CPU           AMD Ryzen 9 7950X (16 logical cores)"));
+        assert!(out.contains("CPU           Saturn V Core (16 logical cores)"));
         assert!(out.contains("Memory        64.0 GiB total"));
         assert!(out.contains("Terminal      xterm-256color  (158 x 42)"));
         assert!(out.contains("Filter        info  (source: default)"));

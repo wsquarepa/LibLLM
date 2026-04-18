@@ -56,6 +56,10 @@ The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "de
 
 `config::set_data_dir()` uses `OnceLock` and can only be called once per process. Each integration-test binary is a separate process, so the rule applies per-binary. Within a binary, the first call should use `.unwrap()` (it owns the OnceLock); subsequent calls in other tests of the same binary must use `.ok()` to tolerate "already set" without failing. Tests in unrelated binaries can each own their own first call. When in doubt, pass an explicit path through your call chain instead of relying on `data_dir()`.
 
+## Commit messages
+
+Keep commits to a single subject line: `type(scope): summary`. No body, no bullet points, no multi-paragraph prose. Context that doesn't fit in the subject belongs in the diff, the PR description, or the issue tracker -- not in the commit message. If a change genuinely cannot be summarized in one line, split it into multiple commits.
+
 ## Architecture Gotchas
 
 These are non-obvious patterns that cannot be inferred from a quick code read.

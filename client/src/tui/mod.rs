@@ -463,11 +463,13 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 f,
                 app,
                 messages_area,
-                &mut chat_scroll,
                 branch_ids,
                 token_count,
-                scroll_dirty,
-                &mut cache,
+                render::ChatRenderState {
+                    chat_scroll: &mut chat_scroll,
+                    scroll_dirty,
+                    cache: &mut cache,
+                },
             );
             if let Some(queue_rect) = queue_area {
                 render::render_message_queue(f, app, queue_rect);
@@ -557,32 +559,6 @@ fn format_token_count(count: usize) -> String {
         "1 token".to_owned()
     } else {
         format!("{count} tokens")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn estimate_input_tokens_from_text_returns_zero_for_blank_input() {
-        assert_eq!(estimate_input_tokens_from_text("   \n\t  "), 0);
-    }
-
-    #[test]
-    fn estimate_input_tokens_from_text_trims_outer_whitespace() {
-        assert_eq!(estimate_input_tokens_from_text("  abcd  "), 5);
-    }
-
-    #[test]
-    fn estimate_input_tokens_from_text_counts_multiline_content() {
-        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh"), 6);
-    }
-
-    #[test]
-    fn format_token_count_uses_singular_and_plural() {
-        assert_eq!(format_token_count(1), "1 token");
-        assert_eq!(format_token_count(2), "2 tokens");
     }
 }
 
@@ -715,4 +691,30 @@ fn render_base_theme_picker(f: &mut ratatui::Frame, app: &App, area: ratatui::la
         area,
         &[Line::from("Up/Down: navigate  Enter: select  Esc: cancel")],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn estimate_input_tokens_from_text_returns_zero_for_blank_input() {
+        assert_eq!(estimate_input_tokens_from_text("   \n\t  "), 0);
+    }
+
+    #[test]
+    fn estimate_input_tokens_from_text_trims_outer_whitespace() {
+        assert_eq!(estimate_input_tokens_from_text("  abcd  "), 5);
+    }
+
+    #[test]
+    fn estimate_input_tokens_from_text_counts_multiline_content() {
+        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh"), 6);
+    }
+
+    #[test]
+    fn format_token_count_uses_singular_and_plural() {
+        assert_eq!(format_token_count(1), "1 token");
+        assert_eq!(format_token_count(2), "2 tokens");
+    }
 }

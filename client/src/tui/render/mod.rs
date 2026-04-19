@@ -43,6 +43,12 @@ pub struct ChatContentCache {
     entries: Vec<CachedMessageLines>,
 }
 
+pub struct ChatRenderState<'a> {
+    pub chat_scroll: &'a mut u16,
+    pub scroll_dirty: bool,
+    pub cache: &'a mut Option<ChatContentCache>,
+}
+
 pub fn border_style(focused: bool, theme: &Theme) -> Style {
     if focused {
         Style::default().fg(theme.border_focused)
@@ -220,12 +226,15 @@ pub fn render_chat(
     f: &mut ratatui::Frame,
     app: &App,
     area: Rect,
-    chat_scroll: &mut u16,
     branch_ids: &[NodeId],
     token_count: usize,
-    scroll_dirty: bool,
-    cache: &mut Option<ChatContentCache>,
+    state: ChatRenderState<'_>,
 ) -> u16 {
+    let ChatRenderState {
+        chat_scroll,
+        scroll_dirty,
+        cache,
+    } = state;
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let has_replacements = app.session.character.is_some();

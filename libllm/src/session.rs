@@ -907,6 +907,7 @@ mod tests {
         let removed = tree.remove_node(m2);
         assert!(removed);
         assert_eq!(tree.nodes().len(), 3);
+        assert_eq!(tree.head(), Some(2));
 
         let branch = tree.current_branch_ids();
         assert_eq!(branch.len(), 3);
@@ -970,8 +971,14 @@ mod tests {
         let removed = tree.remove_node(m2);
         assert!(removed);
         for (&parent_id, &child_id) in tree.preferred_child_map() {
-            assert!(parent_id < tree.nodes().len());
-            assert!(child_id < tree.nodes().len());
+            assert!(
+                tree.node(parent_id).is_some(),
+                "preferred_child parent must be a live node"
+            );
+            assert!(
+                tree.node(child_id).is_some(),
+                "preferred_child must point at a live node"
+            );
         }
     }
 

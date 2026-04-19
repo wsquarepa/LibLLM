@@ -326,14 +326,12 @@ pub async fn run(
                                 }
                             }
 
-                        if app.is_summarizing {
-                            app.is_summarizing = false;
-                            if !app.message_queue.is_empty() {
-                                let next = app.message_queue.remove(0);
-                                commands::start_streaming(&mut app, &next, token_tx.clone()).await;
-                                if !app.is_streaming {
-                                    app.message_queue.clear();
-                                }
+                        app.is_summarizing = false;
+                        if !app.message_queue.is_empty() {
+                            let next = app.message_queue.remove(0);
+                            commands::start_streaming(&mut app, &next, token_tx.clone()).await;
+                            if !app.is_streaming {
+                                app.message_queue.clear();
                             }
                         }
                         needs_redraw = true;

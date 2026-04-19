@@ -338,6 +338,7 @@ pub(in crate::tui) async fn handle_stream_token(
                         app.summary_receiver = Some(rx);
                         app.summary_branch_head = current_head;
                         app.summary_pending_dropped = Some(dropped);
+                        app.is_summarizing = true;
 
                         let summary_counter = app.token_counter.clone();
                         tokio::spawn(async move {

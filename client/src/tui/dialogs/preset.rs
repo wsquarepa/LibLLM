@@ -30,6 +30,11 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
+    let filtered_selected = visible_indices
+        .iter()
+        .position(|&i| i == app.preset_picker_selected)
+        .unwrap_or(0);
+
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| ListItem::new(names[i].clone()))
@@ -40,7 +45,7 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
         dialog,
         &app.theme,
         super::PagedListContent {
-            selected: app.preset_picker_selected,
+            selected: filtered_selected,
             items,
             title_base: title,
             search: Some(&app.dialog_search),

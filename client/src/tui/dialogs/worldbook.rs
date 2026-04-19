@@ -33,6 +33,11 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
+    let filtered_selected = visible_indices
+        .iter()
+        .position(|&i| i == app.worldbook_selected)
+        .unwrap_or(0);
+
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| {
@@ -56,7 +61,7 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         dialog,
         &app.theme,
         super::PagedListContent {
-            selected: app.worldbook_selected,
+            selected: filtered_selected,
             items,
             title_base: " Worldbooks ",
             search: Some(&app.dialog_search),
@@ -267,7 +272,10 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     let effective_selected = if app.worldbook_editor_name_selected {
         usize::MAX
     } else {
-        app.worldbook_editor_selected
+        visible_indices
+            .iter()
+            .position(|&i| i == app.worldbook_editor_selected)
+            .unwrap_or(0)
     };
 
     super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme, Some(&app.dialog_search));

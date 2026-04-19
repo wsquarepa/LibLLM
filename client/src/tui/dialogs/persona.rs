@@ -16,6 +16,11 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
+    let filtered_selected = visible_indices
+        .iter()
+        .position(|&i| i == app.persona_selected)
+        .unwrap_or(0);
+
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| {
@@ -35,7 +40,7 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
         dialog,
         &app.theme,
         super::PagedListContent {
-            selected: app.persona_selected,
+            selected: filtered_selected,
             items,
             title_base: " Personas ",
             search: Some(&app.dialog_search),

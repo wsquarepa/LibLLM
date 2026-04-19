@@ -18,6 +18,11 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
+    let filtered_selected = visible_indices
+        .iter()
+        .position(|&i| i == app.character_selected)
+        .unwrap_or(0);
+
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| ListItem::new(app.character_names[i].clone()))
@@ -28,7 +33,7 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         dialog,
         &app.theme,
         super::PagedListContent {
-            selected: app.character_selected,
+            selected: filtered_selected,
             items,
             title_base: " Select Character ",
             search: Some(&app.dialog_search),

@@ -22,6 +22,11 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
     let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
 
+    let filtered_selected = visible_indices
+        .iter()
+        .position(|&i| i == app.branch_dialog_selected)
+        .unwrap_or(0);
+
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| ListItem::new(app.branch_dialog_items[i].1.clone()))
@@ -32,7 +37,7 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
         dialog,
         &app.theme,
         super::PagedListContent {
-            selected: app.branch_dialog_selected,
+            selected: filtered_selected,
             items,
             title_base: " Select Branch ",
             search: Some(&app.dialog_search),

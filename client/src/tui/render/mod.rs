@@ -22,6 +22,8 @@ use super::theme::Theme;
 
 pub struct SidebarCache {
     selected_idx: Option<usize>,
+    filter_query: String,
+    filter_active: bool,
     items: Vec<ListItem<'static>>,
 }
 
@@ -97,17 +99,37 @@ pub fn render_hints_below_dialog(
 
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let selected_idx = app.sidebar_state.selected();
-    let cache_valid = app
-        .sidebar_cache
-        .as_ref()
-        .is_some_and(|cache| cache.selected_idx == selected_idx);
+    let filter_query = app.sidebar_search.query.clone();
+    let filter_active = app.sidebar_search.active;
+    let search_visible = app.sidebar_search.active || app.sidebar_search.is_filtering();
+
+    let cache_valid = app.sidebar_cache.as_ref().is_some_and(|cache| {
+        cache.selected_idx == selected_idx
+            && cache.filter_query == filter_query
+            && cache.filter_active == filter_active
+    });
 
     if !cache_valid {
-        let items = app
+        let display_names: Vec<String> = app
             .sidebar_sessions
             .iter()
-            .enumerate()
-            .map(|(i, entry)| {
+            .map(|e| e.display_name.clone())
+            .collect();
+        let visible_indices: Vec<usize> = if app.sidebar_search.is_filtering() {
+            (0..app.sidebar_sessions.len())
+                .filter(|&i| {
+                    app.sidebar_sessions[i].is_new_chat
+                        || app.sidebar_search.matches(&display_names[i])
+                })
+                .collect()
+        } else {
+            (0..app.sidebar_sessions.len()).collect()
+        };
+
+        let items: Vec<ListItem<'static>> = visible_indices
+            .iter()
+            .map(|&i| {
+                let entry = &app.sidebar_sessions[i];
                 if selected_idx == Some(i) {
                     let mut lines = vec![Line::from(entry.sidebar_label.clone())];
                     if let Some(ref preview) = entry.sidebar_preview {
@@ -124,6 +146,8 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
             .collect();
         app.sidebar_cache = Some(SidebarCache {
             selected_idx,
+            filter_query: filter_query.clone(),
+            filter_active,
             items,
         });
     }
@@ -142,15 +166,56 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
         .title(" Sessions ")
         .border_style(border_style(sidebar_focused, &app.theme));
     if sidebar_focused {
-        sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete ").centered());
+        sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete  Ctrl+F: search ").centered());
     }
 
+    let inner = sidebar_block.inner(area);
+    f.render_widget(sidebar_block, area);
+
+    let (search_area, list_area) = if search_visible {
+        let s_area = Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 };
+        let l_area = Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: inner.height.saturating_sub(1),
+        };
+        (Some(s_area), l_area)
+    } else {
+        (None, inner)
+    };
+
     let list = List::new(app.sidebar_cache.as_ref().unwrap().items.clone())
-        .block(sidebar_block)
         .highlight_style(highlight_style)
         .highlight_symbol("> ");
 
-    f.render_stateful_widget(list, area, &mut app.sidebar_state);
+    let mut local_state = ListState::default();
+    if let Some(orig_idx) = selected_idx {
+        let display_names: Vec<String> = app
+            .sidebar_sessions
+            .iter()
+            .map(|e| e.display_name.clone())
+            .collect();
+        let visible_indices: Vec<usize> = if app.sidebar_search.is_filtering() {
+            (0..app.sidebar_sessions.len())
+                .filter(|&i| {
+                    app.sidebar_sessions[i].is_new_chat
+                        || app.sidebar_search.matches(&display_names[i])
+                })
+                .collect()
+        } else {
+            (0..app.sidebar_sessions.len()).collect()
+        };
+        if let Some(pos) = visible_indices.iter().position(|&i| i == orig_idx) {
+            local_state.select(Some(pos));
+        }
+    }
+
+    f.render_stateful_widget(list, list_area, &mut local_state);
+
+    if let Some(s_area) = search_area {
+        super::dialogs::render_search_field_for_sidebar(f, s_area, &app.sidebar_search, &app.theme);
+    }
 }
 
 pub fn render_chat(

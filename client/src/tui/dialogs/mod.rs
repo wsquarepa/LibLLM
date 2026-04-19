@@ -32,7 +32,7 @@ pub(in crate::tui) use builders::{
 };
 pub(in crate::tui) use paged_list::{
     PagedListAction, SearchState, filter_indices, handle_paged_list_key, page_size,
-    paged_list_height, render_paged_list, render_paged_list_inline,
+    paged_list_height, render_paged_list, render_paged_list_inline, render_search_field_for_sidebar,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;

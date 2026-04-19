@@ -414,6 +414,15 @@ pub(in crate::tui) fn render_paged_list_inline(
     }
 }
 
+pub(in crate::tui) fn render_search_field_for_sidebar(
+    f: &mut Frame,
+    area: Rect,
+    state: &SearchState,
+    theme: &Theme,
+) {
+    render_search_field(f, area, state, theme);
+}
+
 fn render_search_field(f: &mut Frame, area: Rect, state: &SearchState, theme: &Theme) {
     use ratatui::text::Span;
     use ratatui::widgets::Paragraph;

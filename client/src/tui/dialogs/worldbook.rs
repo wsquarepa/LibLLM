@@ -420,7 +420,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                     &labels,
                     visible,
                     key,
-                    None,
+                    Some(&mut app.dialog_search),
                 );
             }
         }
@@ -434,7 +434,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                 &labels,
                 visible,
                 key,
-                None,
+                Some(&mut app.dialog_search),
             );
         }
         KeyCode::Right | KeyCode::Enter => {

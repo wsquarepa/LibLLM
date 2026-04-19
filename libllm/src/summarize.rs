@@ -44,26 +44,63 @@ impl Summarizer {
         prompt
     }
 
-    /// Sheds the oldest messages until the formatted prompt fits within the token budget.
-    /// Uses the same 4-chars-per-token heuristic as `ContextManager`.
-    /// Always keeps at least the last message.
-    pub fn shed_to_fit<'a>(messages: &[&'a Message], token_budget: usize) -> Vec<&'a Message> {
-        let estimate_tokens = |msgs: &[&Message]| -> usize {
-            msgs.iter().map(|m| m.content.len() / 4 + 4).sum::<usize>() + 50
+    /// Shrinks `messages` until `format_prompt(instruction, trimmed)` is ≤ `token_budget`
+    /// according to `counter`. Binary-searches the smallest `k` such that dropping the `k`
+    /// oldest non-Summary messages puts the rendered prompt under budget. Always keeps at
+    /// least one message if the input is non-empty.
+    pub async fn shed_to_fit<'a>(
+        instruction: &str,
+        messages: &[&'a Message],
+        token_budget: usize,
+        counter: &crate::tokenizer::TokenCounter,
+    ) -> Result<Vec<&'a Message>> {
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let droppable = crate::context::droppable_count(messages);
+        let max_drop = droppable.saturating_sub(1);
+
+        let render_at = |k: usize| -> String {
+            let subset = crate::context::drop_oldest_non_summary(messages, k);
+            let refs: Vec<&Message> = subset.iter().copied().collect();
+            Self::format_prompt(instruction, &refs)
         };
 
-        let mut start = 0;
-        while start < messages.len().saturating_sub(1)
-            && estimate_tokens(&messages[start..]) > token_budget
-        {
-            start += 1;
+        // Fast path: no shedding needed.
+        let full = render_at(0);
+        let full_count = counter.count_authoritative(&full).await?;
+        if full_count <= token_budget {
+            return Ok(messages.to_vec());
         }
-        messages[start..].to_vec()
+
+        // Binary-search the smallest k in [1, max_drop] with rendered count ≤ budget.
+        let (mut lo, mut hi) = (1usize, max_drop);
+        let mut best = max_drop;
+        while lo <= hi {
+            let mid = lo + (hi - lo) / 2;
+            let rendered = render_at(mid);
+            let count = counter.count_authoritative(&rendered).await?;
+            if count <= token_budget {
+                best = mid;
+                if mid == 0 {
+                    break;
+                }
+                hi = mid - 1;
+            } else {
+                lo = mid + 1;
+            }
+        }
+
+        Ok(crate::context::drop_oldest_non_summary(messages, best))
     }
 
-    /// Summarizes the given messages by calling the LLM.
-    /// Sheds oldest messages if they exceed the token budget.
-    pub async fn summarize(&self, messages: &[&Message], token_budget: usize) -> Result<String> {
+    pub async fn summarize(
+        &self,
+        messages: &[&Message],
+        token_budget: usize,
+        counter: &crate::tokenizer::TokenCounter,
+    ) -> Result<String> {
         let start = Instant::now();
         tracing::info!(
             phase = "start",
@@ -72,7 +109,8 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let trimmed = Self::shed_to_fit(messages, token_budget);
+        let trimmed =
+            Self::shed_to_fit(&self.prompt_instruction, messages, token_budget, counter).await?;
         let dropped = messages.len() - trimmed.len();
         tracing::info!(
             phase = "trim",
@@ -82,11 +120,11 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed);
+        let refs: Vec<&Message> = trimmed.iter().copied().collect();
+        let prompt = Self::format_prompt(&self.prompt_instruction, &refs);
         tracing::info!(
             phase = "prompt",
             prompt_bytes = prompt.len(),
-            estimated_tokens = prompt.len() / 4,
             "summarize.run"
         );
 
@@ -160,18 +198,34 @@ mod tests {
         assert!(prompt.contains("System: You are helpful."));
     }
 
-    #[test]
-    fn shed_oldest_messages_when_over_budget() {
-        let big = "x".repeat(40000);
-        let msgs: Vec<_> = (0..20)
-            .map(|_| Message::new(Role::User, big.clone()))
-            .collect();
-        let refs: Vec<&Message> = msgs.iter().collect();
-        let trimmed = Summarizer::shed_to_fit(&refs, 8192);
-        assert!(trimmed.len() < refs.len());
-        assert_eq!(
-            trimmed.last().unwrap().content,
-            refs.last().unwrap().content
+    #[tokio::test]
+    async fn shed_to_fit_trims_until_prompt_under_budget() {
+        use crate::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
         );
+
+        let m1 = Message::new(Role::User, "a".repeat(400));
+        let m2 = Message::new(Role::Assistant, "b".repeat(400));
+        let m3 = Message::new(Role::User, "c".repeat(400));
+        let refs: Vec<&Message> = vec![&m1, &m2, &m3];
+
+        let instruction = "Summarize.";
+        let trimmed = Summarizer::shed_to_fit(instruction, &refs, 150, &counter)
+            .await
+            .expect("shed_to_fit");
+
+        // Under budget once re-rendered with the trimmed set.
+        let rendered = Summarizer::format_prompt(instruction, &trimmed);
+        let final_count = counter.count_authoritative(&rendered).await.unwrap();
+        assert!(
+            final_count <= 150,
+            "expected rendered prompt ≤ 150 tokens, got {final_count}"
+        );
+
+        // At least one message must always remain.
+        assert!(!trimmed.is_empty());
     }
 }

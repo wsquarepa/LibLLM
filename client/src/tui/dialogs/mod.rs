@@ -16,6 +16,7 @@ pub mod worldbook;
 mod builders;
 mod crypto;
 mod mouse;
+mod paged_list;
 mod tabbed_field;
 mod validation;
 
@@ -28,6 +29,10 @@ pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub(in crate::tui) use builders::{
     DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
     LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
+};
+pub(in crate::tui) use paged_list::{
+    PagedListAction, handle_paged_list_key, page_size, paged_list_height, render_paged_list,
+    render_paged_list_inline,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;
@@ -66,15 +71,6 @@ pub(in crate::tui) fn generate_unique_name(
     }
 }
 
-pub(in crate::tui) fn move_selection_up(selected: &mut usize) {
-    *selected = selected.saturating_sub(1);
-}
-
-pub(in crate::tui) fn move_selection_down(selected: &mut usize, list_len: usize) {
-    if list_len > 0 {
-        *selected = (*selected + 1).min(list_len - 1);
-    }
-}
 
 pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
     let cleaned: String = raw
@@ -141,7 +137,7 @@ pub(in crate::tui) fn render_multiline_editor(
     crate::tui::render::render_hints_below_dialog(f, dialog, area, &[ratatui::text::Line::from("Esc: done editing")]);
 }
 
-const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
+pub(in crate::tui) const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
 const FIELD_DIALOG_EDITOR_EXTRA: u16 = 8;
 const API_ERROR_DIALOG_WIDTH: u16 = 60;
 const API_ERROR_DIALOG_HEIGHT: u16 = 6;

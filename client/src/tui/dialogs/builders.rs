@@ -6,7 +6,7 @@ use super::validation::FieldValidation;
 
 pub(in crate::tui) const DIALOG_WIDTH_RATIO: f32 = 0.7;
 pub(in crate::tui) const DIALOG_HEIGHT_RATIO: f32 = 0.6;
-pub(in crate::tui) const LIST_DIALOG_WIDTH: u16 = 50;
+pub(in crate::tui) const LIST_DIALOG_WIDTH: u16 = 64;
 pub(in crate::tui) const LIST_DIALOG_TALL_PADDING: u16 = 4;
 pub(in crate::tui) const FIELD_DIALOG_DEFAULT_WIDTH: u16 = 60;
 

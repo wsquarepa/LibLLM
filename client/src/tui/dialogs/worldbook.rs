@@ -3,8 +3,8 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::Paragraph;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::ListItem;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
@@ -27,39 +27,28 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let dialog = clear_centered(
-        f,
-        super::LIST_DIALOG_WIDTH,
-        count as u16 + super::LIST_DIALOG_TALL_PADDING,
-        area,
-    );
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let mut lines: Vec<Line> = vec![Line::from("")];
+    let items: Vec<ListItem<'_>> = app
+        .worldbook_list
+        .iter()
+        .map(|name| {
+            let state = worldbook_state(app, name);
+            let (checkbox, color) = match state {
+                WorldbookState::Global => ("[G]", Color::Green),
+                WorldbookState::Session => ("[S]", Color::Cyan),
+                WorldbookState::Off => ("[ ]", Color::Reset),
+            };
+            let line = Line::from(Span::styled(
+                format!("{checkbox} {name}"),
+                Style::default().fg(color),
+            ));
+            ListItem::new(line)
+        })
+        .collect();
 
-    for (i, name) in app.worldbook_list.iter().enumerate() {
-        let is_selected = i == app.worldbook_selected;
-        let state = worldbook_state(app, name);
-        let (checkbox, color) = match state {
-            WorldbookState::Global => ("[G]", Color::Green),
-            WorldbookState::Session => ("[S]", Color::Cyan),
-            WorldbookState::Off => ("[ ]", Color::Reset),
-        };
-        let marker = if is_selected { "> " } else { "  " };
-        let style = if is_selected {
-            Style::default().fg(color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(color)
-        };
-        lines.push(Line::from(Span::styled(
-            format!("{marker}{checkbox} {name}"),
-            style,
-        )));
-    }
-
-    let paragraph =
-        Paragraph::new(Text::from(lines)).block(dialog_block(" Worldbooks ", Color::Yellow));
-
-    f.render_widget(paragraph, dialog);
+    super::render_paged_list(f, dialog, app.worldbook_selected, items, " Worldbooks ", &app.theme);
 
     render_hints_below_dialog(
         f,
@@ -67,8 +56,8 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         area,
         &[
             Line::from("[G] Global  [S] Session  [ ] Off"),
-            Line::from("Up/Down: navigate  Enter: cycle  Right: edit"),
-            Line::from("a: add new  Del: delete  Esc: close"),
+            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
+            Line::from("Enter: cycle  Right: edit  a: add  Del: delete  Esc: close"),
             Line::from("Drop .json to import"),
         ],
     );
@@ -88,13 +77,18 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
+    if super::handle_paged_list_key(
+        &mut app.worldbook_selected,
+        app.worldbook_list.len(),
+        visible,
+        key,
+    ) == super::PagedListAction::Consumed
+    {
+        return None;
+    }
+
     match key.code {
-        KeyCode::Up => {
-            super::move_selection_up(&mut app.worldbook_selected);
-        }
-        KeyCode::Down => {
-            super::move_selection_down(&mut app.worldbook_selected, app.worldbook_list.len());
-        }
         KeyCode::Enter | KeyCode::Char(' ') => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
             match worldbook_state(app, &name) {
@@ -166,86 +160,97 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let dialog = clear_centered(
-        f,
-        super::FIELD_DIALOG_DEFAULT_WIDTH,
-        count as u16 + super::LIST_DIALOG_TALL_PADDING + 2,
-        area,
-    );
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2);
+    let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, height, area);
 
-    let mut lines: Vec<Line> = vec![Line::from("")];
+    let title = format!(" Worldbook ({count} entries) ");
+    f.render_widget(ratatui::widgets::Clear, dialog);
+    f.render_widget(dialog_block(title, app.theme.border_focused), dialog);
 
     let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
     let name_editing = app.worldbook_editor_name_editing;
-    let name_marker = if name_selected || name_editing {
-        "> "
-    } else {
-        "  "
-    };
+    let name_marker = if name_selected || name_editing { "> " } else { "  " };
     let name_flashing = name_editing && super::is_flash_active(app.input_reject_flash);
     let name_style = if name_flashing {
         Style::default()
-            .fg(Color::Yellow)
+            .fg(app.theme.status_warning_bg)
             .add_modifier(Modifier::BOLD)
     } else if name_selected || name_editing {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(app.theme.sidebar_highlight_bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(app.theme.border_focused)
     };
-
     let name_display = if name_editing {
         format!("{name_marker}Name: {}_", app.worldbook_editor_name)
     } else {
         format!("{name_marker}Name: {}", app.worldbook_editor_name)
     };
-    lines.push(Line::from(Span::styled(name_display, name_style)));
-    lines.push(Line::from(""));
+    let name_row = Rect {
+        x: dialog.x + 1,
+        y: dialog.y + 1,
+        width: dialog.width.saturating_sub(2),
+        height: 1,
+    };
+    f.render_widget(
+        ratatui::widgets::Paragraph::new(Line::from(Span::styled(name_display, name_style))),
+        name_row,
+    );
 
-    for (i, entry) in app.worldbook_editor_entries.iter().enumerate() {
-        let is_selected = i == app.worldbook_editor_selected && !app.worldbook_editor_name_selected;
-        let marker = if is_selected { "> " } else { "  " };
-        let enabled = if entry.enabled { "+" } else { "-" };
-        let label = if entry.keys.is_empty() {
-            format!("[{enabled}] (no keys)")
-        } else {
-            let keys_str = entry.keys.join(", ");
-            let truncated = if keys_str.len() > 40 {
-                let end = keys_str[..40]
-                    .char_indices()
-                    .last()
-                    .map_or(0, |(i, c)| i + c.len_utf8());
-                format!("{}...", &keys_str[..end])
+    // Entries area is the rest of the inner dialog, below the name row and spacer.
+    let list_area = Rect {
+        x: dialog.x + 1,
+        y: dialog.y + 3,
+        width: dialog.width.saturating_sub(2),
+        height: dialog.height.saturating_sub(4),
+    };
+
+    let items: Vec<ListItem<'_>> = app
+        .worldbook_editor_entries
+        .iter()
+        .map(|entry| {
+            let enabled = if entry.enabled { "+" } else { "-" };
+            let label = if entry.keys.is_empty() {
+                format!("[{enabled}] (no keys)")
             } else {
-                keys_str
+                let keys_str = entry.keys.join(", ");
+                let truncated = if keys_str.len() > 40 {
+                    let end = keys_str[..40]
+                        .char_indices()
+                        .last()
+                        .map_or(0, |(i, c)| i + c.len_utf8());
+                    format!("{}...", &keys_str[..end])
+                } else {
+                    keys_str
+                };
+                format!("[{enabled}] {truncated}")
             };
-            format!("[{enabled}] {truncated}")
-        };
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else if entry.enabled {
-            Style::default()
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        lines.push(Line::from(Span::styled(format!("{marker}{label}"), style)));
-    }
+            let row_style = if entry.enabled {
+                Style::default()
+            } else {
+                Style::default().fg(app.theme.dimmed)
+            };
+            ListItem::new(Line::from(Span::styled(label, row_style)))
+        })
+        .collect();
 
-    let title = format!(" Worldbook ({count} entries) ");
-    let paragraph = Paragraph::new(Text::from(lines)).block(dialog_block(title, Color::Yellow));
+    // Name row focus is signaled by usize::MAX so no entry row highlights.
+    let effective_selected = if app.worldbook_editor_name_selected {
+        usize::MAX
+    } else {
+        app.worldbook_editor_selected
+    };
 
-    f.render_widget(paragraph, dialog);
+    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme);
 
     render_hints_below_dialog(
         f,
         dialog,
         area,
         &[
-            Line::from("Up/Down: navigate  Right/Enter: edit  a: add  Del: delete"),
-            Line::from("Esc: save & close"),
+            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
+            Line::from("Right/Enter: edit  a: add  Del: delete  Esc: save & close"),
         ],
     );
 }
@@ -315,13 +320,28 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             if app.worldbook_editor_selected == 0 {
                 app.worldbook_editor_name_selected = true;
             } else {
-                super::move_selection_up(&mut app.worldbook_editor_selected);
+                let visible = super::page_size(
+                    app.last_terminal_height,
+                    super::LIST_DIALOG_TALL_PADDING + 2,
+                );
+                super::handle_paged_list_key(
+                    &mut app.worldbook_editor_selected,
+                    app.worldbook_editor_entries.len(),
+                    visible,
+                    key,
+                );
             }
         }
-        KeyCode::Down => {
-            super::move_selection_down(
+        KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End => {
+            let visible = super::page_size(
+                app.last_terminal_height,
+                super::LIST_DIALOG_TALL_PADDING + 2,
+            );
+            super::handle_paged_list_key(
                 &mut app.worldbook_editor_selected,
                 app.worldbook_editor_entries.len(),
+                visible,
+                key,
             );
         }
         KeyCode::Right | KeyCode::Enter => {

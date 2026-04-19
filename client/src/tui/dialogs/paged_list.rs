@@ -101,6 +101,17 @@ impl Default for SearchState {
     }
 }
 
+pub(in crate::tui) fn filter_indices(labels: &[String], state: &SearchState) -> Vec<usize> {
+    if !state.is_filtering() {
+        return (0..labels.len()).collect();
+    }
+    labels
+        .iter()
+        .enumerate()
+        .filter_map(|(i, label)| if state.matches(label) { Some(i) } else { None })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tui) enum PagedListAction {
     Consumed,
@@ -617,5 +628,42 @@ mod tests {
         assert!(s.compile_error());
         s.cancel();
         assert!(!s.compile_error());
+    }
+
+    #[test]
+    fn filter_indices_inactive_returns_all() {
+        let labels = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned()];
+        let s = SearchState::new();
+        assert_eq!(filter_indices(&labels, &s), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn filter_indices_filters_matches_in_order() {
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut s = SearchState::new();
+        s.push_char('a');
+        s.push_char('l');
+        // "al" matches "alpha" (idx 0) and "alfalfa" (idx 3).
+        assert_eq!(filter_indices(&labels, &s), vec![0, 3]);
+    }
+
+    #[test]
+    fn filter_indices_invalid_regex_returns_empty() {
+        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
+        let mut s = SearchState::new();
+        s.push_char('(');
+        assert_eq!(filter_indices(&labels, &s), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn filter_indices_empty_label_list() {
+        let labels: Vec<String> = Vec::new();
+        let s = SearchState::new();
+        assert_eq!(filter_indices(&labels, &s), Vec::<usize>::new());
     }
 }

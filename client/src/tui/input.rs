@@ -320,22 +320,80 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         return None;
     }
 
-    match key.code {
-        KeyCode::Up => {
-            let selected = app.sidebar_state.selected().unwrap_or(0);
-            let new = if selected == 0 {
-                count - 1
-            } else {
-                selected - 1
-            };
-            app.sidebar_state.select(Some(new));
-            load_sidebar_selection(app);
-            None
+    let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
+
+    if is_ctrl_f && !app.sidebar_search.active {
+        let current = app.sidebar_state.selected().unwrap_or(0);
+        app.sidebar_search.enter(current);
+        app.sidebar_cache = None;
+        return None;
+    }
+
+    if app.sidebar_search.active {
+        match key.code {
+            KeyCode::Esc => {
+                if let Some(restored) = app.sidebar_search.cancel() {
+                    app.sidebar_state.select(Some(restored.min(count - 1)));
+                    load_sidebar_selection(app);
+                }
+                app.sidebar_cache = None;
+                return None;
+            }
+            KeyCode::Enter => {
+                app.sidebar_search.commit();
+                app.sidebar_cache = None;
+                return None;
+            }
+            KeyCode::Backspace => {
+                app.sidebar_search.pop_char();
+                app.sidebar_cache = None;
+                return None;
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.sidebar_search.push_char(c);
+                app.sidebar_cache = None;
+                return None;
+            }
+            _ => {}
         }
-        KeyCode::Down => {
-            let selected = app.sidebar_state.selected().unwrap_or(0);
-            let new = (selected + 1) % count;
-            app.sidebar_state.select(Some(new));
+    }
+
+    let display_names: Vec<String> = app
+        .sidebar_sessions
+        .iter()
+        .map(|e| e.display_name.clone())
+        .collect();
+    let visible_indices: Vec<usize> = if app.sidebar_search.is_filtering() {
+        (0..app.sidebar_sessions.len())
+            .filter(|&i| {
+                app.sidebar_sessions[i].is_new_chat || app.sidebar_search.matches(&display_names[i])
+            })
+            .collect()
+    } else {
+        (0..app.sidebar_sessions.len()).collect()
+    };
+
+    if visible_indices.is_empty() {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Up | KeyCode::Down => {
+            let current_orig = app.sidebar_state.selected().unwrap_or(0);
+            let current_pos = visible_indices
+                .iter()
+                .position(|&i| i == current_orig)
+                .unwrap_or(0);
+            let last = visible_indices.len() - 1;
+            let new_pos = match key.code {
+                KeyCode::Up => {
+                    if current_pos == 0 { last } else { current_pos - 1 }
+                }
+                KeyCode::Down => (current_pos + 1) % visible_indices.len(),
+                _ => current_pos,
+            };
+            let new_orig = visible_indices[new_pos];
+            app.sidebar_state.select(Some(new_orig));
             load_sidebar_selection(app);
             None
         }

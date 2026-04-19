@@ -111,7 +111,7 @@ pub struct TokenCounter {
 
 impl TokenCounter {
     /// Construct directly from a chosen backend. Used by tests and by `TokenCounter::new` once
-    /// the startup probe in Task 5 decides which backend applies.
+    /// the startup probe decides which backend applies.
     pub fn new_with_backend(
         backend: TokenizerBackend,
         refresh_tx: mpsc::Sender<TokenCountUpdate>,
@@ -125,6 +125,35 @@ impl TokenCounter {
             pending: Arc::new(Mutex::new(std::collections::HashSet::new())),
             refresh_tx,
         }
+    }
+
+    /// Probes `/tokenize` with a tiny payload. Success → `ServerTokenizer`. Failure → `HeuristicTokenizer`.
+    /// Backend is fixed for the lifetime of this counter.
+    pub async fn new(client: ApiClient, refresh_tx: mpsc::Sender<TokenCountUpdate>) -> Self {
+        let server = ServerTokenizer::new(client);
+        let probe = server.count("probe").await;
+        let backend = match probe {
+            Ok(_) => {
+                tracing::info!(
+                    phase = "probe",
+                    result = "ok",
+                    kind = "server",
+                    "tokenizer.init"
+                );
+                TokenizerBackend::Server(server)
+            }
+            Err(err) => {
+                tracing::warn!(
+                    phase = "probe",
+                    result = "fallback",
+                    kind = "heuristic",
+                    error = %err,
+                    "tokenizer.init"
+                );
+                TokenizerBackend::Heuristic(HeuristicTokenizer::standard())
+            }
+        };
+        Self::new_with_backend(backend, refresh_tx)
     }
 
     pub fn is_heuristic(&self) -> bool {
@@ -236,6 +265,8 @@ impl TokenCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn heuristic_matches_legacy_formula() {
@@ -285,5 +316,41 @@ mod tests {
             .expect("timed out waiting for refresh")
             .expect("channel closed");
         assert!(update.result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn new_probes_server_and_selects_server_backend() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": [1, 2]
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+
+        let counter = TokenCounter::new(client, tx).await;
+        assert_eq!(counter.kind(), TokenizerKind::Server);
+    }
+
+    #[tokio::test]
+    async fn new_falls_back_to_heuristic_when_probe_fails() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+
+        let counter = TokenCounter::new(client, tx).await;
+        assert_eq!(counter.kind(), TokenizerKind::Heuristic);
     }
 }

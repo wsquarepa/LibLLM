@@ -139,6 +139,10 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                     crate::tui::dialog_handler::live_apply_theme_dialog(app);
                     app.focus = Focus::ThemeDialog;
                 }
+                DeleteContext::ChatMessage { node_id } => {
+                    delete_chat_message(app, node_id);
+                    app.focus = Focus::Chat;
+                }
             }
         }
         ConfirmResult::Cancelled => {
@@ -151,6 +155,7 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                 DeleteContext::Worldbook { .. } => Focus::WorldbookDialog,
                 DeleteContext::Preset { .. } => Focus::PresetPickerDialog,
                 DeleteContext::ThemeResetColors => Focus::ThemeDialog,
+                DeleteContext::ChatMessage { .. } => Focus::Chat,
             };
         }
         ConfirmResult::Pending => {}
@@ -258,6 +263,32 @@ fn delete_system_prompt(app: &mut App, name: &str) {
     maintenance::reload_system_prompt_picker(app);
     app.set_status(
         format!("Deleted prompt: {name}"),
+        super::super::StatusLevel::Info,
+    );
+}
+
+fn delete_chat_message(app: &mut App, node_id: libllm::session::NodeId) {
+    let prev_head = app.session.tree.head();
+    let existed = app.session.tree.remove_node(node_id);
+    if !existed {
+        debug_assert!(false, "delete_chat_message called with unknown node_id");
+        return;
+    }
+
+    app.nav_cursor = None;
+    app.hover_node = None;
+    if app.raw_edit_node == Some(node_id) {
+        app.raw_edit_node = None;
+    }
+    app.invalidate_chat_cache();
+    app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
+
+    if prev_head != app.session.tree.head() {
+        app.auto_scroll = true;
+    }
+
+    app.set_status(
+        "Deleted message".to_owned(),
         super::super::StatusLevel::Info,
     );
 }

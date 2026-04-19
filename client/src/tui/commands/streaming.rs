@@ -173,10 +173,19 @@ pub(in crate::tui) async fn start_streaming(
         );
         return;
     }
-    let parent = app.session.tree.head();
-    app.session
-        .tree
-        .push(parent, Message::new(Role::User, content.to_owned()));
+    let mut parent = app.session.tree.head();
+    let segments: Vec<String> = if app.session.character.is_some() {
+        libllm::side_character::split_user_input(content)
+    } else {
+        vec![content.to_owned()]
+    };
+    for segment in segments {
+        let new_id = app
+            .session
+            .tree
+            .push(parent, Message::new(Role::User, segment));
+        parent = Some(new_id);
+    }
     app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_cache();
     app.is_streaming = true;

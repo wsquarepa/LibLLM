@@ -101,7 +101,6 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let selected_idx = app.sidebar_state.selected();
     let filter_query = app.sidebar_search.query.clone();
     let filter_active = app.sidebar_search.active;
-    let search_visible = app.sidebar_search.active || app.sidebar_search.is_filtering();
 
     let cache_valid = app.sidebar_cache.as_ref().is_some_and(|cache| {
         cache.selected_idx == selected_idx
@@ -161,29 +160,31 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     };
 
     let sidebar_focused = app.focus == super::Focus::Sidebar;
+    let title_color = if sidebar_focused {
+        app.theme.border_focused
+    } else {
+        app.theme.border_unfocused
+    };
     let mut sidebar_block = Block::default()
         .borders(Borders::ALL)
         .title(" Sessions ")
         .border_style(border_style(sidebar_focused, &app.theme));
-    if sidebar_focused {
-        sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete  Ctrl+F: search ").centered());
+    let search_visible = app.sidebar_search.active || app.sidebar_search.is_filtering();
+    if search_visible || !sidebar_focused {
+        let search_max = area.width.saturating_sub(2);
+        sidebar_block = sidebar_block.title_bottom(super::dialogs::search_title_line(
+            &app.sidebar_search,
+            title_color,
+            &app.theme,
+            search_max,
+        ));
+    }
+    if sidebar_focused && !search_visible {
+        sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete  Ctrl+F: search ").right_aligned());
     }
 
-    let inner = sidebar_block.inner(area);
+    let list_area = sidebar_block.inner(area);
     f.render_widget(sidebar_block, area);
-
-    let (search_area, list_area) = if search_visible {
-        let s_area = Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 };
-        let l_area = Rect {
-            x: inner.x,
-            y: inner.y + 1,
-            width: inner.width,
-            height: inner.height.saturating_sub(1),
-        };
-        (Some(s_area), l_area)
-    } else {
-        (None, inner)
-    };
 
     let list = List::new(app.sidebar_cache.as_ref().unwrap().items.clone())
         .highlight_style(highlight_style)
@@ -212,10 +213,6 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     }
 
     f.render_stateful_widget(list, list_area, &mut local_state);
-
-    if let Some(s_area) = search_area {
-        super::dialogs::render_search_field_for_sidebar(f, s_area, &app.sidebar_search, &app.theme);
-    }
 }
 
 pub fn render_chat(

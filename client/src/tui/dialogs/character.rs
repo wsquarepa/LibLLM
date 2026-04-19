@@ -14,8 +14,7 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
     let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
     let unfiltered_total = app.character_names.len();
     let count = visible_indices.len();
-    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected = visible_indices
@@ -67,7 +66,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
         &mut app.character_selected,
         &app.character_names,

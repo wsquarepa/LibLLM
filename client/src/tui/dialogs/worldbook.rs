@@ -29,8 +29,7 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
     let visible_indices = super::filter_indices(&app.worldbook_list, &app.dialog_search);
     let unfiltered_total = app.worldbook_list.len();
     let count = visible_indices.len();
-    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected = visible_indices
@@ -96,7 +95,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
         &mut app.worldbook_selected,
         &app.worldbook_list,
@@ -194,13 +193,19 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         .collect();
     let visible_indices = super::filter_indices(&entry_labels, &app.dialog_search);
     let count = visible_indices.len();
-    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2, search_visible);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2);
     let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, height, area);
 
     let title = format!(" Worldbook ({} entries) ", entry_labels.len());
     f.render_widget(ratatui::widgets::Clear, dialog);
-    f.render_widget(dialog_block(title, app.theme.border_focused), dialog);
+    let search_max = dialog.width.saturating_sub(2);
+    let block = dialog_block(title, app.theme.border_focused).title_bottom(super::search_title_line(
+        &app.dialog_search,
+        app.theme.border_focused,
+        &app.theme,
+        search_max,
+    ));
+    f.render_widget(block, dialog);
 
     let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
     let name_editing = app.worldbook_editor_name_editing;
@@ -278,7 +283,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
             .unwrap_or(0)
     };
 
-    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme, Some(&app.dialog_search));
+    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme);
 
     let hints = if app.dialog_search.active {
         vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
@@ -312,7 +317,6 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         let visible = super::page_size(
             app.last_terminal_height,
             super::LIST_DIALOG_TALL_PADDING + 2,
-            app.dialog_search.active || app.dialog_search.is_filtering(),
         );
         if is_ctrl_f && !app.dialog_search.active {
             app.worldbook_editor_name_selected = false;
@@ -415,7 +419,6 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                 let visible = super::page_size(
                     app.last_terminal_height,
                     super::LIST_DIALOG_TALL_PADDING + 2,
-                    app.dialog_search.active || app.dialog_search.is_filtering(),
                 );
                 super::handle_paged_list_key(
                     &mut app.worldbook_editor_selected,
@@ -430,7 +433,6 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             let visible = super::page_size(
                 app.last_terminal_height,
                 super::LIST_DIALOG_TALL_PADDING + 2,
-                app.dialog_search.active || app.dialog_search.is_filtering(),
             );
             super::handle_paged_list_key(
                 &mut app.worldbook_editor_selected,

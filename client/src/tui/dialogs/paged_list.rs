@@ -9,8 +9,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use regex::{Regex, RegexBuilder};
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::Line;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState, Padding, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use crate::tui::render::dialog_block;
@@ -35,13 +35,12 @@ impl SearchState {
 
     pub fn enter(&mut self, current_selected: usize) {
         self.active = true;
-        if self.pre_search_selected.is_none() {
-            self.pre_search_selected = Some(current_selected);
-        }
+        self.pre_search_selected = Some(current_selected);
     }
 
     pub fn commit(&mut self) {
         self.active = false;
+        self.pre_search_selected = None;
     }
 
     pub fn cancel(&mut self) -> Option<usize> {
@@ -137,13 +136,7 @@ pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) ->
     start..start + visible
 }
 
-pub(in crate::tui) fn paged_list_height(
-    items: usize,
-    terminal_height: u16,
-    chrome: u16,
-    search_visible: bool,
-) -> u16 {
-    let chrome = if search_visible { chrome.saturating_add(1) } else { chrome };
+pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chrome: u16) -> u16 {
     let cap = (terminal_height as f32 * 0.7) as u16;
     let content_sized = (items as u16).saturating_add(chrome);
     let desired = cap.min(content_sized);
@@ -156,8 +149,7 @@ pub(in crate::tui) fn paged_list_height(
     }
 }
 
-pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16, search_visible: bool) -> usize {
-    let chrome = if search_visible { chrome.saturating_add(1) } else { chrome };
+pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16) -> usize {
     terminal_height
         .saturating_sub(chrome)
         .saturating_sub(3)
@@ -299,25 +291,17 @@ pub(in crate::tui) fn render_paged_list(
 ) {
     let PagedListContent { selected, items, title_base, search, unfiltered_total } = content;
     let total = items.len();
-    let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
-    let (search_area, list_area) = if search_visible {
-        let inner_search = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: 1 };
-        let list_area = Rect {
-            x: area.x,
-            y: area.y + 1,
-            width: area.width,
-            height: area.height.saturating_sub(1),
-        };
-        (Some(inner_search), list_area)
-    } else {
-        (None, area)
-    };
+    let list_area = area;
 
     let visible = visible_rows(list_area);
     let range = viewport(total, selected, visible);
 
     let title = format_title(title_base, total, selected, visible, unfiltered_total);
-    let block = dialog_block(Line::from(title), theme.border_focused).padding(Padding::horizontal(1));
+    let mut block = dialog_block(Line::from(title), theme.border_focused).padding(Padding::horizontal(1));
+    if let Some(state) = search {
+        let max = list_area.width.saturating_sub(2);
+        block = block.title_bottom(search_title_line(state, theme.border_focused, theme, max));
+    }
 
     let clamped_selected = selected.min(total.saturating_sub(1));
     let relative_selected = clamped_selected.saturating_sub(range.start);
@@ -352,10 +336,6 @@ pub(in crate::tui) fn render_paged_list(
             &mut scrollbar_state,
         );
     }
-
-    if let (Some(search_area), Some(state)) = (search_area, search) {
-        render_search_field(f, search_area, state, theme);
-    }
 }
 
 pub(in crate::tui) fn render_paged_list_inline(
@@ -364,22 +344,9 @@ pub(in crate::tui) fn render_paged_list_inline(
     selected: usize,
     items: Vec<ListItem<'_>>,
     theme: &Theme,
-    search: Option<&SearchState>,
 ) {
     let total = items.len();
-    let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
-    let (search_area, list_area) = if search_visible {
-        let s_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: 1 };
-        let l_area = Rect {
-            x: area.x,
-            y: area.y + 1,
-            width: area.width,
-            height: area.height.saturating_sub(1),
-        };
-        (Some(s_area), l_area)
-    } else {
-        (None, area)
-    };
+    let list_area = area;
 
     let visible = list_area.height as usize;
     let range = viewport(total, selected, visible);
@@ -414,37 +381,109 @@ pub(in crate::tui) fn render_paged_list_inline(
             ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
         f.render_stateful_widget(scrollbar, list_area, &mut scrollbar_state);
     }
+}
 
-    if let (Some(search_area), Some(state)) = (search_area, search) {
-        render_search_field(f, search_area, state, theme);
+pub(in crate::tui) fn list_dialog_rect(
+    terminal_area: Rect,
+    visible_count: usize,
+    chrome: u16,
+    dialog_width: u16,
+) -> Rect {
+    let height = paged_list_height(visible_count, terminal_area.height, chrome);
+    crate::tui::render::centered_rect(dialog_width, height, terminal_area)
+}
+
+pub(in crate::tui) fn map_list_click(
+    items_area: Rect,
+    visible_indices: &[usize],
+    current_orig_selected: usize,
+    screen_row: u16,
+) -> Option<usize> {
+    let inner = screen_row.checked_sub(items_area.y)?;
+    if inner >= items_area.height {
+        return None;
+    }
+    let current_pos = visible_indices
+        .iter()
+        .position(|&i| i == current_orig_selected)
+        .unwrap_or(0);
+    let range = viewport(visible_indices.len(), current_pos, items_area.height as usize);
+    visible_indices.get(range.start + inner as usize).copied()
+}
+
+const SEARCH_PREFIX_ACTIVE: &str = " Search: ";
+const SEARCH_SUFFIX_ACTIVE: &str = "_ ";
+const SEARCH_PREFIX_COMMITTED: &str = " Search: ";
+const SEARCH_SUFFIX_COMMITTED: &str = " ";
+const SEARCH_LABEL_IDLE: &str = " Search ";
+
+fn tail_fit(s: &str, max_chars: usize) -> String {
+    let total = s.chars().count();
+    if total <= max_chars {
+        return s.to_owned();
+    }
+    s.chars().skip(total - max_chars).collect()
+}
+
+pub(in crate::tui) fn search_title_line(
+    state: &SearchState,
+    title_color: Color,
+    theme: &Theme,
+    max_width: u16,
+) -> Line<'static> {
+    let (body, bold, fg) = search_body(state, title_color, theme, max_width);
+    let mut style = Style::default().fg(fg);
+    if bold {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    Line::from(Span::styled(body, style))
+}
+
+pub(in crate::tui) fn search_title_width(state: &SearchState, max_width: u16) -> u16 {
+    if state.active {
+        let fixed = (SEARCH_PREFIX_ACTIVE.len() + SEARCH_SUFFIX_ACTIVE.len()) as u16;
+        let budget = max_width.saturating_sub(fixed) as usize;
+        let query_chars = state.query.chars().count().min(budget);
+        fixed + query_chars as u16
+    } else if state.is_filtering() {
+        let fixed = (SEARCH_PREFIX_COMMITTED.len() + SEARCH_SUFFIX_COMMITTED.len()) as u16;
+        let budget = max_width.saturating_sub(fixed) as usize;
+        let query_chars = state.query.chars().count().min(budget);
+        fixed + query_chars as u16
+    } else {
+        SEARCH_LABEL_IDLE.len() as u16
     }
 }
 
-pub(in crate::tui) fn render_search_field_for_sidebar(
-    f: &mut Frame,
-    area: Rect,
+fn search_body(
     state: &SearchState,
+    title_color: Color,
     theme: &Theme,
-) {
-    render_search_field(f, area, state, theme);
-}
-
-fn render_search_field(f: &mut Frame, area: Rect, state: &SearchState, theme: &Theme) {
-    use ratatui::text::Span;
-    use ratatui::widgets::Paragraph;
-
-    let fg = if state.compile_error() {
-        theme.status_error_fg
-    } else if state.active {
-        theme.sidebar_highlight_fg
+    max_width: u16,
+) -> (String, bool, Color) {
+    if state.active {
+        let fg = if state.compile_error() { theme.status_error_fg } else { title_color };
+        let fixed = SEARCH_PREFIX_ACTIVE.len() + SEARCH_SUFFIX_ACTIVE.len();
+        let budget = (max_width as usize).saturating_sub(fixed);
+        let visible_query = tail_fit(&state.query, budget);
+        (
+            format!("{SEARCH_PREFIX_ACTIVE}{visible_query}{SEARCH_SUFFIX_ACTIVE}"),
+            true,
+            fg,
+        )
+    } else if state.is_filtering() {
+        let fg = if state.compile_error() { theme.status_error_fg } else { title_color };
+        let fixed = SEARCH_PREFIX_COMMITTED.len() + SEARCH_SUFFIX_COMMITTED.len();
+        let budget = (max_width as usize).saturating_sub(fixed);
+        let visible_query = tail_fit(&state.query, budget);
+        (
+            format!("{SEARCH_PREFIX_COMMITTED}{visible_query}{SEARCH_SUFFIX_COMMITTED}"),
+            false,
+            fg,
+        )
     } else {
-        theme.dimmed
-    };
-
-    let cursor = if state.active { "_" } else { "" };
-    let text = format!("/{}{}", state.query, cursor);
-    let para = Paragraph::new(Line::from(Span::styled(text, Style::default().fg(fg))));
-    f.render_widget(para, area);
+        (SEARCH_LABEL_IDLE.to_owned(), false, theme.dimmed)
+    }
 }
 
 fn visible_rows(area: Rect) -> usize {
@@ -535,49 +574,27 @@ mod tests {
 
     #[test]
     fn height_content_sized_for_short_list() {
-        // 3 items + chrome 4 = 7 rows. 70% of 100-row terminal = 70.
-        // content fits well under cap -> content-sized.
-        assert_eq!(paged_list_height(3, 100, 4, false), 7);
+        assert_eq!(paged_list_height(3, 100, 4), 7);
     }
 
     #[test]
     fn height_caps_at_seventy_percent() {
-        // 200 items would need 204 rows with chrome 4.
-        // 70% of 100 = 70.
-        assert_eq!(paged_list_height(200, 100, 4, false), 70);
+        assert_eq!(paged_list_height(200, 100, 4), 70);
     }
 
     #[test]
     fn height_respects_minimum_floor_when_possible() {
-        // terminal_height = 10, chrome = 4 -> chrome + 3 = 7 floor.
-        // 0 items would compute 4 (content-sized), but floor lifts it to 7.
-        assert_eq!(paged_list_height(0, 10, 4, false), 7);
+        assert_eq!(paged_list_height(0, 10, 4), 7);
     }
 
     #[test]
     fn height_skips_floor_when_terminal_too_small() {
-        // terminal_height = 5, chrome = 4 -> floor would be 7 but terminal only has 5.
-        // Fall back to whatever fits: terminal_height itself.
-        assert_eq!(paged_list_height(100, 5, 4, false), 5);
+        assert_eq!(paged_list_height(100, 5, 4), 5);
     }
 
     #[test]
     fn height_uses_branch_chrome() {
-        // Branch picker uses chrome = 3.
-        // 10 items + 3 = 13 rows, fits under 70% of 50 = 35.
-        assert_eq!(paged_list_height(10, 50, 3, false), 13);
-    }
-
-    #[test]
-    fn height_grows_by_one_when_search_visible() {
-        // Without search: 3 items + chrome 4 = 7. With search: chrome becomes 5, total 8.
-        assert_eq!(paged_list_height(3, 100, 4, true), 8);
-    }
-
-    #[test]
-    fn height_caps_still_apply_when_search_visible() {
-        // 200 items, chrome 4, search adds 1 -> chrome 5. 70% of 100 = 70 cap unchanged.
-        assert_eq!(paged_list_height(200, 100, 4, true), 70);
+        assert_eq!(paged_list_height(10, 50, 3), 13);
     }
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -859,24 +876,18 @@ mod tests {
 
     #[test]
     fn page_size_normal_terminal() {
-        assert_eq!(page_size(100, 4, false), 93);
+        assert_eq!(page_size(100, 4), 93);
     }
 
     #[test]
     fn page_size_floors_at_one_for_tiny_terminal() {
-        assert_eq!(page_size(5, 4, false), 1);
-        assert_eq!(page_size(0, 4, false), 1);
+        assert_eq!(page_size(5, 4), 1);
+        assert_eq!(page_size(0, 4), 1);
     }
 
     #[test]
     fn page_size_branch_chrome() {
-        assert_eq!(page_size(50, 3, false), 44);
-    }
-
-    #[test]
-    fn page_size_subtracts_search_row_when_visible() {
-        // page_size(100, 4, false) = 93. With search, chrome becomes 5, so 100 - 5 - 3 = 92.
-        assert_eq!(page_size(100, 4, true), 92);
+        assert_eq!(page_size(50, 3), 44);
     }
 
     #[test]

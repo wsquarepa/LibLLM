@@ -17,8 +17,7 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
     let visible_indices = super::filter_indices(&labels, &app.dialog_search);
     let unfiltered_total = labels.len();
     let count = visible_indices.len();
-    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
-    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS, search_visible);
+    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS);
     let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
 
@@ -70,7 +69,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS, app.dialog_search.active || app.dialog_search.is_filtering());
+    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS);
     let action = super::handle_paged_list_key(
         &mut app.branch_dialog_selected,
         &labels,

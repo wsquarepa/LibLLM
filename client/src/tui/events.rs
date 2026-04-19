@@ -319,6 +319,9 @@ fn handle_key(
     }
 
     if key.code == KeyCode::Esc {
+        if app.focus == Focus::Sidebar && app.sidebar_search.active {
+            return input::handle_sidebar_key(key, app);
+        }
         app.nav_cursor = None;
         app.focus = Focus::Input;
         app.auto_scroll = true;
@@ -392,6 +395,16 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             if sidebar.contains(pos) {
                 app.focus = Focus::Sidebar;
                 app.nav_cursor = None;
+                if mouse.row + 1 == sidebar.y + sidebar.height
+                    && hit_search_title(&app.sidebar_search, sidebar, mouse.column)
+                {
+                    if !app.sidebar_search.active {
+                        let current = app.sidebar_state.selected().unwrap_or(0);
+                        app.sidebar_search.enter(current);
+                        app.sidebar_cache = None;
+                    }
+                    return None;
+                }
                 let inner_row = mouse.row.saturating_sub(sidebar.y + 1) as usize;
                 let offset = app.sidebar_state.offset();
                 let selected_idx = app.sidebar_state.selected();
@@ -463,7 +476,9 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             None
         }
         MouseEventKind::ScrollUp => {
-            if chat.contains(pos) {
+            if is_dialog_focus(app.focus) {
+                scroll_dialog(app, ScrollDirection::Up);
+            } else if chat.contains(pos) {
                 app.chat_scroll = app.chat_scroll.saturating_sub(3);
                 app.auto_scroll = false;
             } else if sidebar.contains(pos) {
@@ -475,7 +490,9 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             None
         }
         MouseEventKind::ScrollDown => {
-            if chat.contains(pos) {
+            if is_dialog_focus(app.focus) {
+                scroll_dialog(app, ScrollDirection::Down);
+            } else if chat.contains(pos) {
                 app.chat_scroll = app.chat_scroll.saturating_add(3).min(app.chat_max_scroll);
                 app.auto_scroll = false;
             } else if sidebar.contains(pos) {
@@ -509,6 +526,55 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             None
         }
         _ => None,
+    }
+}
+
+fn hit_search_title(state: &dialogs::SearchState, container: Rect, click_col: u16) -> bool {
+    let max = container.width.saturating_sub(2);
+    let width = dialogs::search_title_width(state, max);
+    let left_edge = container.x;
+    let right_edge = left_edge + width;
+    click_col >= left_edge && click_col < right_edge
+}
+
+#[derive(Clone, Copy)]
+enum ScrollDirection {
+    Up,
+    Down,
+}
+
+fn scroll_dialog(app: &mut App, direction: ScrollDirection) {
+    let code = match direction {
+        ScrollDirection::Up => KeyCode::Up,
+        ScrollDirection::Down => KeyCode::Down,
+    };
+    let key = KeyEvent::new(code, KeyModifiers::NONE);
+    match app.focus {
+        Focus::CharacterDialog => {
+            dialogs::character::handle_character_dialog_key(key, app);
+        }
+        Focus::PersonaDialog => {
+            dialogs::persona::handle_persona_dialog_key(key, app);
+        }
+        Focus::SystemPromptDialog => {
+            dialogs::system_prompt::handle_system_prompt_dialog_key(key, app);
+        }
+        Focus::BranchDialog => {
+            dialogs::branch::handle_branch_dialog_key(key, app);
+        }
+        Focus::WorldbookDialog => {
+            dialogs::worldbook::handle_worldbook_dialog_key(key, app);
+        }
+        Focus::WorldbookEditorDialog => {
+            dialogs::worldbook::handle_worldbook_editor_key(key, app);
+        }
+        Focus::PresetPickerDialog => {
+            dialogs::preset::handle_preset_dialog_key(key, app);
+        }
+        Focus::BaseThemePickerDialog => {
+            handle_base_theme_picker_key(key, app);
+        }
+        _ => {}
     }
 }
 

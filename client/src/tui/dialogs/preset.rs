@@ -26,8 +26,7 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
         PresetKind::Reasoning => " Select Reasoning Preset ",
     };
 
-    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected = visible_indices
@@ -81,7 +80,7 @@ pub(in crate::tui) fn handle_preset_dialog_key(
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
         &mut app.preset_picker_selected,
         &app.preset_picker_names,

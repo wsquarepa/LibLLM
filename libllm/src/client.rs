@@ -503,6 +503,84 @@ impl ApiClient {
         Ok(count)
     }
 
+    /// Calls `POST {server}/api/extra/tokencount` (KoboldCPP) with the given text and returns the token count.
+    /// KoboldCPP does not expose an `add_special` toggle; it always counts as the configured model does.
+    pub async fn tokenize_kobold(&self, text: &str) -> anyhow::Result<usize> {
+        let url = format!(
+            "{}/api/extra/tokencount",
+            self.base_url.trim_end_matches("/v1")
+        );
+        let start = Instant::now();
+        let body = serde_json::json!({ "prompt": text });
+        let builder = self
+            .auth
+            .apply(self.client.post(&url).json(&body))
+            .map_err(|err| {
+                tracing::error!(
+                    phase = "auth",
+                    result = "error",
+                    error = %err,
+                    "client.tokenize_kobold"
+                );
+                anyhow::anyhow!("auth apply failed: {err}")
+            })?;
+
+        let resp = builder.send().await.map_err(|err| {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                error = %err,
+                "client.tokenize_kobold"
+            );
+            anyhow::anyhow!("tokenize_kobold request failed: {err}")
+        })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                status = status.as_u16(),
+                "client.tokenize_kobold"
+            );
+            return Err(anyhow::anyhow!(
+                "tokenize_kobold returned HTTP {}",
+                status.as_u16()
+            ));
+        }
+
+        let json: serde_json::Value = resp.json().await.map_err(|err| {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                error = %err,
+                "client.tokenize_kobold"
+            );
+            anyhow::anyhow!("tokenize_kobold response parse failed: {err}")
+        })?;
+
+        let count = json["value"]
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("tokenize_kobold response missing numeric `value`"))?
+            as usize;
+
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        tracing::debug!(
+            phase = "request",
+            result = "ok",
+            elapsed_ms = elapsed_ms,
+            count = count,
+            "client.tokenize_kobold"
+        );
+        Ok(count)
+    }
+
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -643,5 +721,56 @@ mod tests {
         let client = ApiClient::new(&base, false, crate::config::Auth::None);
 
         assert!(client.tokenize("hello", true).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn tokenize_kobold_returns_value_count() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/extra/tokencount"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": 5,
+                "ids": [1, 22177, 1044, 4304, 1033]
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        let count = client.tokenize_kobold("Hello, world!").await.unwrap();
+        assert_eq!(count, 5);
+    }
+
+    #[tokio::test]
+    async fn tokenize_kobold_returns_error_on_server_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/extra/tokencount"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        assert!(client.tokenize_kobold("hello").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn tokenize_kobold_errors_when_value_missing() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/extra/tokencount"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ids": [1, 2, 3]
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        assert!(client.tokenize_kobold("hello").await.is_err());
     }
 }

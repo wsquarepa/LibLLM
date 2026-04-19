@@ -1,4 +1,5 @@
-//! Accurate token counting against llama.cpp `/tokenize`, with a heuristic fallback.
+//! Accurate token counting against llama.cpp `/tokenize` or KoboldCPP
+//! `/api/extra/tokencount`, with a heuristic fallback.
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -16,19 +17,45 @@ pub enum TokenizerKind {
     Heuristic,
 }
 
-/// Authoritative tokenizer that delegates to `ApiClient::tokenize`.
+/// Which server-side tokenize endpoint a `ServerTokenizer` talks to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerTokenizeFlavor {
+    /// llama.cpp `POST /tokenize` with `{content, add_special}` returning `{tokens: [...]}`.
+    LlamaCpp,
+    /// KoboldCPP `POST /api/extra/tokencount` with `{prompt}` returning `{value, ids}`.
+    KoboldCpp,
+}
+
+impl ServerTokenizeFlavor {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::LlamaCpp => "llama_cpp",
+            Self::KoboldCpp => "kobold_cpp",
+        }
+    }
+}
+
+/// Authoritative tokenizer that delegates to one of the supported server tokenize endpoints.
 #[derive(Clone)]
 pub struct ServerTokenizer {
     client: ApiClient,
+    flavor: ServerTokenizeFlavor,
 }
 
 impl ServerTokenizer {
-    pub fn new(client: ApiClient) -> Self {
-        Self { client }
+    pub fn new(client: ApiClient, flavor: ServerTokenizeFlavor) -> Self {
+        Self { client, flavor }
+    }
+
+    pub fn flavor(&self) -> ServerTokenizeFlavor {
+        self.flavor
     }
 
     pub async fn count(&self, text: &str) -> Result<usize> {
-        self.client.tokenize(text, true).await
+        match self.flavor {
+            ServerTokenizeFlavor::LlamaCpp => self.client.tokenize(text, true).await,
+            ServerTokenizeFlavor::KoboldCpp => self.client.tokenize_kobold(text).await,
+        }
     }
 }
 
@@ -130,30 +157,49 @@ impl TokenCounter {
         }
     }
 
-    /// Probes `/tokenize` with a tiny payload. Success → `ServerTokenizer`. Failure → `HeuristicTokenizer`.
-    /// Backend is fixed for the lifetime of this counter.
+    /// Probes server tokenize endpoints and picks the first one that succeeds: llama.cpp
+    /// `/tokenize` first, then KoboldCPP `/api/extra/tokencount`. Falls back to
+    /// `HeuristicTokenizer` when neither responds. Backend is fixed for the lifetime of
+    /// this counter.
     pub async fn new(client: ApiClient, refresh_tx: mpsc::Sender<TokenCountUpdate>) -> Self {
-        let server = ServerTokenizer::new(client);
-        let probe = server.count("probe").await;
-        let backend = match probe {
+        let llama = ServerTokenizer::new(client.clone(), ServerTokenizeFlavor::LlamaCpp);
+        let backend = match llama.count("probe").await {
             Ok(_) => {
                 tracing::info!(
                     phase = "probe",
                     result = "ok",
                     kind = "server",
+                    flavor = llama.flavor().as_str(),
                     "tokenizer.init"
                 );
-                TokenizerBackend::Server(server)
+                TokenizerBackend::Server(llama)
             }
-            Err(err) => {
-                tracing::warn!(
-                    phase = "probe",
-                    result = "fallback",
-                    kind = "heuristic",
-                    error = %err,
-                    "tokenizer.init"
-                );
-                TokenizerBackend::Heuristic(HeuristicTokenizer::standard())
+            Err(llama_err) => {
+                let kobold = ServerTokenizer::new(client, ServerTokenizeFlavor::KoboldCpp);
+                match kobold.count("probe").await {
+                    Ok(_) => {
+                        tracing::info!(
+                            phase = "probe",
+                            result = "ok",
+                            kind = "server",
+                            flavor = kobold.flavor().as_str(),
+                            llama_error = %llama_err,
+                            "tokenizer.init"
+                        );
+                        TokenizerBackend::Server(kobold)
+                    }
+                    Err(kobold_err) => {
+                        tracing::warn!(
+                            phase = "probe",
+                            result = "fallback",
+                            kind = "heuristic",
+                            llama_error = %llama_err,
+                            kobold_error = %kobold_err,
+                            "tokenizer.init"
+                        );
+                        TokenizerBackend::Heuristic(HeuristicTokenizer::standard())
+                    }
+                }
             }
         };
         Self::new_with_backend(backend, refresh_tx)
@@ -165,6 +211,15 @@ impl TokenCounter {
 
     pub fn kind(&self) -> TokenizerKind {
         self.backend.kind()
+    }
+
+    /// When the active backend is a `ServerTokenizer`, returns which endpoint flavor it speaks.
+    /// Returns `None` for the heuristic backend.
+    pub fn server_flavor(&self) -> Option<ServerTokenizeFlavor> {
+        match self.backend.as_ref() {
+            TokenizerBackend::Server(s) => Some(s.flavor()),
+            TokenizerBackend::Heuristic(_) => None,
+        }
     }
 
     /// Returns a heuristic count for arbitrary text without touching the cache or backend.
@@ -360,6 +415,39 @@ mod tests {
 
         let counter = TokenCounter::new(client, tx).await;
         assert_eq!(counter.kind(), TokenizerKind::Server);
+        assert_eq!(
+            counter.server_flavor(),
+            Some(ServerTokenizeFlavor::LlamaCpp)
+        );
+    }
+
+    #[tokio::test]
+    async fn new_falls_through_to_kobold_when_llama_cpp_probe_fails() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/extra/tokencount"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "value": 1,
+                "ids": [42]
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+
+        let counter = TokenCounter::new(client, tx).await;
+        assert_eq!(counter.kind(), TokenizerKind::Server);
+        assert_eq!(
+            counter.server_flavor(),
+            Some(ServerTokenizeFlavor::KoboldCpp)
+        );
     }
 
     #[tokio::test]

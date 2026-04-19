@@ -140,6 +140,10 @@ pub(super) struct ScrollState {
     pub(super) auto_scroll: bool,
     pub(super) nav_cursor: Option<NodeId>,
     pub(super) head: Option<NodeId>,
+    /// Current branch length. Tracked so that mutations which grow the branch while
+    /// preserving head (e.g. splicing an auto-summary between existing nodes) still
+    /// dirty the scroll state and let `auto_scroll` re-snap to the new bottom.
+    pub(super) branch_len: usize,
     pub(super) buffer_len: usize,
     pub(super) width: u16,
     pub(super) height: u16,

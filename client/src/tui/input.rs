@@ -158,6 +158,14 @@ fn switch_nav_sibling(app: &mut App, offset: isize) {
     let Some(current) = app.nav_cursor else {
         return;
     };
+    if app
+        .session
+        .tree
+        .node(current)
+        .is_some_and(|n| n.message.role == Role::Summary)
+    {
+        return;
+    }
     let siblings = app.session.tree.siblings_of(current);
     if siblings.len() <= 1 {
         return;

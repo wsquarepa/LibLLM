@@ -83,6 +83,26 @@ pub fn droppable_count(messages: &[&Message]) -> usize {
     messages.iter().filter(|m| m.role != Role::Summary).count()
 }
 
+/// Returns the exclusive upper bound `i` in `messages` such that exactly `k` non-Summary
+/// messages appear in `messages[..i]`. Returns `messages.len()` when fewer than `k`
+/// non-Summary messages exist. Used by the summarization trigger to locate the boundary
+/// between dropped and kept messages without re-deriving it from `drop_oldest_non_summary`.
+pub fn drop_split_index(messages: &[&Message], k: usize) -> usize {
+    if k == 0 {
+        return 0;
+    }
+    let mut seen = 0usize;
+    for (i, m) in messages.iter().enumerate() {
+        if m.role != Role::Summary {
+            seen += 1;
+            if seen == k {
+                return i + 1;
+            }
+        }
+    }
+    messages.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +168,33 @@ mod tests {
         let c = user_msg("post");
         let refs: Vec<&_> = vec![&a, &summary, &c];
         assert_eq!(droppable_count(&refs), 2);
+    }
+
+    #[test]
+    fn drop_split_index_counts_non_summary_only() {
+        let a = user_msg("m1");
+        let b = assistant_msg("m2");
+        let summary = Message::new(Role::Summary, "s".to_owned());
+        let c = user_msg("m3");
+        let d = assistant_msg("m4");
+        let refs: Vec<&_> = vec![&a, &b, &summary, &c, &d];
+
+        assert_eq!(drop_split_index(&refs, 0), 0);
+        assert_eq!(drop_split_index(&refs, 1), 1);
+        assert_eq!(drop_split_index(&refs, 2), 2);
+        assert_eq!(drop_split_index(&refs, 3), 4);
+        assert_eq!(drop_split_index(&refs, 4), 5);
+        assert_eq!(drop_split_index(&refs, 99), 5);
+    }
+
+    #[test]
+    fn drop_split_index_with_leading_summary() {
+        let summary = Message::new(Role::Summary, "prior".to_owned());
+        let a = user_msg("m1");
+        let b = assistant_msg("m2");
+        let refs: Vec<&_> = vec![&summary, &a, &b];
+
+        assert_eq!(drop_split_index(&refs, 1), 2);
+        assert_eq!(drop_split_index(&refs, 2), 3);
     }
 }

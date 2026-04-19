@@ -300,10 +300,10 @@ pub(in crate::tui) async fn handle_stream_token(
                     let aggressive = droppable.saturating_sub(keep_last);
                     let dropped = aggressive.max(dropped).min(max_drop);
                     let summary_boundary = branch_path.len() - summary_aware.len();
+                    let split_idx = libllm::context::drop_split_index(&summary_aware, dropped);
                     let messages_to_summarize: Vec<Message> = branch_path
-                        [..summary_boundary + dropped]
+                        [summary_boundary..summary_boundary + split_idx]
                         .iter()
-                        .filter(|m| m.role != Role::Summary)
                         .map(|m| (*m).clone())
                         .collect();
 

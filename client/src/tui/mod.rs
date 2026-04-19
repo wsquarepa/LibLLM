@@ -310,8 +310,9 @@ pub async fn run(
                                     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                                     let branch_ids = app.session.tree.current_branch_ids();
                                     let summary_boundary = branch_ids.len() - summary_aware.len();
-                                    let insert_idx = summary_boundary + dropped - 1;
-                                    if insert_idx < branch_ids.len() {
+                                    let split_idx = libllm::context::drop_split_index(&summary_aware, dropped);
+                                    let insert_idx = summary_boundary + split_idx - 1;
+                                    if split_idx > 0 && insert_idx < branch_ids.len() {
                                         let parent_node_id = branch_ids[insert_idx];
                                         app.session.tree.splice_between(
                                             parent_node_id,

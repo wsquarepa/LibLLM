@@ -14,17 +14,17 @@ use libllm::session::{Message, MessageTree, Role, Session};
 // ---------------------------------------------------------------------------
 
 #[test]
-fn summarizer_excludes_summary_messages() {
+fn summarizer_includes_prior_summary_as_context() {
     use libllm::summarize::Summarizer;
 
     let msgs = [
-        Message::new(Role::Summary, "Should not appear".to_owned()),
-        Message::new(Role::User, "Should appear".to_owned()),
+        Message::new(Role::Summary, "Prior summary content".to_owned()),
+        Message::new(Role::User, "New message".to_owned()),
     ];
     let refs: Vec<&_> = msgs.iter().collect();
     let prompt = Summarizer::format_prompt("Instruction", &refs);
-    assert!(!prompt.contains("Should not appear"));
-    assert!(prompt.contains("Should appear"));
+    assert!(prompt.contains("Previous summary: Prior summary content"));
+    assert!(prompt.contains("User: New message"));
 }
 
 #[test]

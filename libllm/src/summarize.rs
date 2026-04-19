@@ -32,7 +32,8 @@ impl Summarizer {
     /// precedes the conversation, the model treats the trailing `Assistant:` line as an
     /// ongoing turn and continues the roleplay instead of summarizing.
     ///
-    /// Excludes any `Role::Summary` messages from the input (no recursive summarization).
+    /// `Role::Summary` messages are rendered as `Previous summary:` blocks so a rolling
+    /// summary can build on the prior one instead of starting from scratch each time.
     pub fn format_prompt(instruction: &str, messages: &[&Message]) -> String {
         let mut prompt = String::from("--- CONVERSATION ---\n");
         for msg in messages {
@@ -40,7 +41,7 @@ impl Summarizer {
                 Role::User => "User",
                 Role::Assistant => "Assistant",
                 Role::System => "System",
-                Role::Summary => continue,
+                Role::Summary => "Previous summary",
             };
             prompt.push_str(label);
             prompt.push_str(": ");
@@ -200,14 +201,14 @@ mod tests {
     }
 
     #[test]
-    fn format_prompt_excludes_summary_role() {
+    fn format_prompt_includes_prior_summary_as_context() {
         let msgs = [
             Message::new(Role::Summary, "Old summary".to_owned()),
             Message::new(Role::User, "New message".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize.", &refs);
-        assert!(!prompt.contains("Old summary"));
+        assert!(prompt.contains("Previous summary: Old summary"));
         assert!(prompt.contains("User: New message"));
     }
 

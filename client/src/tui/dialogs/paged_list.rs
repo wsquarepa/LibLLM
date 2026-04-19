@@ -32,7 +32,8 @@ pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) ->
     if total <= visible {
         return 0..total;
     }
-    let start = clamped.saturating_sub(visible - 1);
+    let center_offset = visible / 2;
+    let start = clamped.saturating_sub(center_offset);
     let start = start.min(total - visible);
     start..start + visible
 }
@@ -221,20 +222,26 @@ mod tests {
     }
 
     #[test]
-    fn viewport_selection_at_top_shows_top_slice() {
+    fn viewport_selection_near_top_stays_at_top() {
+        // For visible=5, center_offset=2. Selections at 0..=2 keep the window at 0..5.
         assert_eq!(viewport(20, 0, 5), 0..5);
-        assert_eq!(viewport(20, 4, 5), 0..5);
+        assert_eq!(viewport(20, 1, 5), 0..5);
+        assert_eq!(viewport(20, 2, 5), 0..5);
     }
 
     #[test]
-    fn viewport_selection_past_bottom_scrolls_down() {
-        assert_eq!(viewport(20, 5, 5), 1..6);
-        assert_eq!(viewport(20, 10, 5), 6..11);
+    fn viewport_selection_in_middle_is_centered() {
+        // Selected sits at relative index center_offset within the visible window.
+        assert_eq!(viewport(20, 5, 5), 3..8);
+        assert_eq!(viewport(20, 10, 5), 8..13);
     }
 
     #[test]
-    fn viewport_selection_at_end_clamps_window() {
+    fn viewport_selection_near_bottom_stays_at_bottom() {
+        // Window clamps to the last `visible` rows as selection approaches the end.
         assert_eq!(viewport(20, 19, 5), 15..20);
+        assert_eq!(viewport(20, 18, 5), 15..20);
+        assert_eq!(viewport(20, 17, 5), 15..20);
     }
 
     #[test]

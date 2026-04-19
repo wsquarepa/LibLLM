@@ -8,3 +8,6 @@ edition = "2024"
 
 [workspace.lints.clippy]
 allow_attributes = "deny"
+
+[workspace.dependencies]
+regex = "1"

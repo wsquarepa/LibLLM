@@ -108,6 +108,7 @@ pub struct TokenCounter {
     cache: Arc<Mutex<LruCache<u64, usize>>>,
     pending: Arc<Mutex<std::collections::HashSet<u64>>>,
     refresh_tx: mpsc::Sender<TokenCountUpdate>,
+    last_authoritative: Arc<Mutex<Option<usize>>>,
 }
 
 impl TokenCounter {
@@ -125,6 +126,7 @@ impl TokenCounter {
             cache: Arc::new(Mutex::new(LruCache::new(capacity))),
             pending: Arc::new(Mutex::new(std::collections::HashSet::new())),
             refresh_tx,
+            last_authoritative: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -192,7 +194,15 @@ impl TokenCounter {
             self.spawn_refresh(key, text.to_owned());
         }
 
-        CountState::Estimated(self.fallback.count(text))
+        let is_server_backend = !self.is_heuristic();
+        let last = *self
+            .last_authoritative
+            .lock()
+            .expect("tokenizer last_authoritative poisoned");
+        match (is_server_backend, last) {
+            (true, Some(n)) => CountState::Stale(n),
+            _ => CountState::Estimated(self.fallback.count(text)),
+        }
     }
 
     /// Async read used by pre-send. Awaits the backend directly on a miss, writes result to cache.
@@ -206,6 +216,10 @@ impl TokenCounter {
             .lock()
             .expect("tokenizer cache poisoned")
             .put(key, n);
+        *self
+            .last_authoritative
+            .lock()
+            .expect("tokenizer last_authoritative poisoned") = Some(n);
         Ok(n)
     }
 
@@ -221,6 +235,10 @@ impl TokenCounter {
                 .lock()
                 .expect("tokenizer cache poisoned")
                 .put(update.key, n);
+            *self
+                .last_authoritative
+                .lock()
+                .expect("tokenizer last_authoritative poisoned") = Some(n);
         }
     }
 
@@ -336,6 +354,30 @@ mod tests {
 
         let counter = TokenCounter::new(client, tx).await;
         assert_eq!(counter.kind(), TokenizerKind::Server);
+    }
+
+    #[tokio::test]
+    async fn counter_returns_stale_after_first_authoritative_then_cache_miss() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": vec![0u32; 9]
+            })))
+            .mount(&server)
+            .await;
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let counter = TokenCounter::new(client, tx).await;
+
+        let n = counter.count_authoritative("first").await.unwrap();
+        assert_eq!(n, 9);
+
+        match counter.count_cached("different text") {
+            CountState::Stale(prev) => assert_eq!(prev, 9),
+            other => panic!("expected Stale(9), got {other:?}"),
+        }
     }
 
     #[tokio::test]

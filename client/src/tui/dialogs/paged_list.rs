@@ -6,6 +6,7 @@
 use std::ops::Range;
 
 use crossterm::event::{KeyCode, KeyEvent};
+use regex::{Regex, RegexBuilder};
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::{Modifier, Style};
@@ -18,6 +19,7 @@ use crate::tui::theme::Theme;
 pub(in crate::tui) struct SearchState {
     pub query: String,
     pub active: bool,
+    compiled: Option<Result<Regex, regex::Error>>,
     pre_search_selected: Option<usize>,
 }
 
@@ -26,6 +28,7 @@ impl SearchState {
         Self {
             query: String::new(),
             active: false,
+            compiled: None,
             pre_search_selected: None,
         }
     }
@@ -44,19 +47,46 @@ impl SearchState {
     pub fn cancel(&mut self) -> Option<usize> {
         self.active = false;
         self.query.clear();
+        self.compiled = None;
         self.pre_search_selected.take()
     }
 
     pub fn push_char(&mut self, c: char) {
         self.query.push(c);
+        self.recompile();
     }
 
     pub fn pop_char(&mut self) {
         self.query.pop();
+        self.recompile();
     }
 
     pub fn is_filtering(&self) -> bool {
         !self.query.is_empty()
+    }
+
+    pub fn matches(&self, label: &str) -> bool {
+        match &self.compiled {
+            None => true,
+            Some(Ok(re)) => re.is_match(label),
+            Some(Err(_)) => false,
+        }
+    }
+
+    pub fn compile_error(&self) -> bool {
+        matches!(&self.compiled, Some(Err(_)))
+    }
+
+    fn recompile(&mut self) {
+        if self.query.is_empty() {
+            self.compiled = None;
+            return;
+        }
+        self.compiled = Some(
+            RegexBuilder::new(&self.query)
+                .case_insensitive(true)
+                .build(),
+        );
     }
 
     #[cfg(test)]
@@ -539,5 +569,53 @@ mod tests {
         s.enter(0);
         assert!(s.is_filtering());
         assert!(s.active);
+    }
+
+    #[test]
+    fn search_state_matches_is_case_insensitive() {
+        let mut s = SearchState::new();
+        s.push_char('a');
+        s.push_char('l');
+        s.push_char('i');
+        assert!(s.matches("Alice"));
+        assert!(s.matches("alibi"));
+        assert!(s.matches("SALIM"));
+        assert!(!s.matches("Bob"));
+    }
+
+    #[test]
+    fn search_state_matches_returns_false_when_regex_invalid() {
+        let mut s = SearchState::new();
+        s.push_char('(');
+        assert!(s.compile_error());
+        assert!(!s.matches("anything"));
+        assert!(!s.matches(""));
+    }
+
+    #[test]
+    fn search_state_matches_anything_with_empty_query() {
+        let s = SearchState::new();
+        assert!(s.matches("Alice"));
+        assert!(s.matches(""));
+        assert!(!s.compile_error());
+    }
+
+    #[test]
+    fn search_state_recompiles_on_pop_back_to_valid() {
+        let mut s = SearchState::new();
+        s.push_char('(');
+        assert!(s.compile_error());
+        s.pop_char();
+        assert!(!s.compile_error());
+        assert!(s.matches("anything"));
+    }
+
+    #[test]
+    fn search_state_cancel_drops_compile_error() {
+        let mut s = SearchState::new();
+        s.push_char('[');
+        assert!(s.compile_error());
+        s.cancel();
+        assert!(!s.compile_error());
     }
 }

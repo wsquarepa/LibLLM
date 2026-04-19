@@ -173,6 +173,7 @@ pub(in crate::tui) async fn start_streaming(
         );
         return;
     }
+    debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
     let mut parent = app.session.tree.head();
     let segments: Vec<String> = if app.session.character.is_some() {
         libllm::side_character::split_user_input(content)

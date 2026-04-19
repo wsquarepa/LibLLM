@@ -438,7 +438,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let mut input_block = Block::default()
         .borders(Borders::ALL)
         .title(" Input ")
-        .title(Line::from(format!(" Est. {} ", format_token_count(input_token_count))).right_aligned())
+        .title(
+            Line::from(format!(" Est. {} ", format_token_count(input_token_count))).right_aligned(),
+        )
         .border_style(border);
     if input_focused {
         let hint = if app.nav_cursor.is_some() {

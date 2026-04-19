@@ -1,10 +1,13 @@
 //! End-to-end pre-send token-counting behavior against a mock llama.cpp server.
 
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libllm::client::ApiClient;
 use libllm::tokenizer::{TokenCounter, TokenizerKind};
@@ -77,5 +80,9 @@ async fn count_authoritative_calls_server_on_miss_and_caches_on_hit() {
     // Second call with same text should be cached.
     let n2 = counter.count_authoritative("same text").await.unwrap();
     assert_eq!(n2, 7);
-    assert_eq!(hits.load(Ordering::SeqCst), 2, "cache miss counted an HTTP call");
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        2,
+        "cache miss counted an HTTP call"
+    );
 }

@@ -118,8 +118,8 @@ impl TokenCounter {
         backend: TokenizerBackend,
         refresh_tx: mpsc::Sender<TokenCountUpdate>,
     ) -> Self {
-        let capacity = NonZeroUsize::new(DEFAULT_CACHE_CAPACITY)
-            .expect("cache capacity must be non-zero");
+        let capacity =
+            NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).expect("cache capacity must be non-zero");
         Self {
             backend: Arc::new(backend),
             fallback: HeuristicTokenizer::standard(),
@@ -181,7 +181,12 @@ impl TokenCounter {
     pub fn count_cached(&self, text: &str) -> CountState {
         let key = Self::hash_key(text);
 
-        if let Some(&n) = self.cache.lock().expect("tokenizer cache poisoned").get(&key) {
+        if let Some(&n) = self
+            .cache
+            .lock()
+            .expect("tokenizer cache poisoned")
+            .get(&key)
+        {
             return CountState::Authoritative(n);
         }
 
@@ -208,7 +213,12 @@ impl TokenCounter {
     /// Async read used by pre-send. Awaits the backend directly on a miss, writes result to cache.
     pub async fn count_authoritative(&self, text: &str) -> Result<usize> {
         let key = Self::hash_key(text);
-        if let Some(&n) = self.cache.lock().expect("tokenizer cache poisoned").get(&key) {
+        if let Some(&n) = self
+            .cache
+            .lock()
+            .expect("tokenizer cache poisoned")
+            .get(&key)
+        {
             return Ok(n);
         }
         let n = self.backend.count(text).await?;
@@ -257,11 +267,7 @@ impl TokenCounter {
                     "tokenizer.refresh"
                 );
             }
-            if tx
-                .send(TokenCountUpdate { key, result })
-                .await
-                .is_err()
-            {
+            if tx.send(TokenCountUpdate { key, result }).await.is_err() {
                 // Main loop is gone; clear pending so we don't leak the key.
                 pending
                     .lock()

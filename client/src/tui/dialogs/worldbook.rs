@@ -80,9 +80,10 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     if super::handle_paged_list_key(
         &mut app.worldbook_selected,
-        app.worldbook_list.len(),
+        &app.worldbook_list,
         visible,
         key,
+        None,
     ) == super::PagedListAction::Consumed
     {
         return None;
@@ -324,11 +325,17 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                     app.last_terminal_height,
                     super::LIST_DIALOG_TALL_PADDING + 2,
                 );
+                let labels: Vec<String> = app
+                    .worldbook_editor_entries
+                    .iter()
+                    .map(|entry| entry.keys.join(", "))
+                    .collect();
                 super::handle_paged_list_key(
                     &mut app.worldbook_editor_selected,
-                    app.worldbook_editor_entries.len(),
+                    &labels,
                     visible,
                     key,
+                    None,
                 );
             }
         }
@@ -337,11 +344,17 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                 app.last_terminal_height,
                 super::LIST_DIALOG_TALL_PADDING + 2,
             );
+            let labels: Vec<String> = app
+                .worldbook_editor_entries
+                .iter()
+                .map(|entry| entry.keys.join(", "))
+                .collect();
             super::handle_paged_list_key(
                 &mut app.worldbook_editor_selected,
-                app.worldbook_editor_entries.len(),
+                &labels,
                 visible,
                 key,
+                None,
             );
         }
         KeyCode::Right | KeyCode::Enter => {

@@ -61,9 +61,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     if super::handle_paged_list_key(
         &mut app.character_selected,
-        app.character_names.len(),
+        &app.character_names,
         visible,
         key,
+        None,
     ) == super::PagedListAction::Consumed
     {
         return None;

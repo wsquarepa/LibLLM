@@ -62,9 +62,10 @@ pub(in crate::tui) fn handle_preset_dialog_key(
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     if super::handle_paged_list_key(
         &mut app.preset_picker_selected,
-        app.preset_picker_names.len(),
+        &app.preset_picker_names,
         visible,
         key,
+        None,
     ) == super::PagedListAction::Consumed
     {
         return None;

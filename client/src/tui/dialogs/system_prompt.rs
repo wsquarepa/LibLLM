@@ -56,9 +56,10 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     if super::handle_paged_list_key(
         &mut app.system_prompt_selected,
-        app.system_prompt_list.len(),
+        &app.system_prompt_list,
         visible,
         key,
+        None,
     ) == super::PagedListAction::Consumed
     {
         return None;

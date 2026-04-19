@@ -116,6 +116,8 @@ pub(in crate::tui) fn filter_indices(labels: &[String], state: &SearchState) -> 
 pub(in crate::tui) enum PagedListAction {
     Consumed,
     Passthrough,
+    EnteredSearch,
+    ExitedSearch,
 }
 
 pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) -> Range<usize> {
@@ -163,10 +165,75 @@ pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16) -> usize {
 
 pub(in crate::tui) fn handle_paged_list_key(
     selected: &mut usize,
-    total: usize,
+    labels: &[String],
     visible: usize,
     key: KeyEvent,
+    search: Option<&mut SearchState>,
 ) -> PagedListAction {
+    use crossterm::event::KeyModifiers;
+
+    if let Some(state) = search {
+        let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
+        if is_ctrl_f {
+            if state.active {
+                return PagedListAction::Consumed;
+            }
+            state.enter(*selected);
+            return PagedListAction::EnteredSearch;
+        }
+
+        if state.active {
+            match key.code {
+                KeyCode::Esc => {
+                    if let Some(restored) = state.cancel() {
+                        *selected = restored.min(labels.len().saturating_sub(1));
+                    }
+                    return PagedListAction::ExitedSearch;
+                }
+                KeyCode::Enter => {
+                    state.commit();
+                    return PagedListAction::ExitedSearch;
+                }
+                KeyCode::Backspace => {
+                    state.pop_char();
+                    return PagedListAction::Consumed;
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.push_char(c);
+                    return PagedListAction::Consumed;
+                }
+                KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Home
+                | KeyCode::End => {
+                    let filtered = filter_indices(labels, state);
+                    navigate_filtered(selected, &filtered, visible, key);
+                    return PagedListAction::Consumed;
+                }
+                _ => return PagedListAction::Consumed,
+            }
+        }
+
+        if state.is_filtering()
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+            )
+        {
+            let filtered = filter_indices(labels, state);
+            navigate_filtered(selected, &filtered, visible, key);
+            return PagedListAction::Consumed;
+        }
+    }
+
+    let total = labels.len();
     let last = total.saturating_sub(1);
     match key.code {
         KeyCode::Up => {
@@ -195,6 +262,24 @@ pub(in crate::tui) fn handle_paged_list_key(
         }
         _ => PagedListAction::Passthrough,
     }
+}
+
+fn navigate_filtered(selected: &mut usize, filtered: &[usize], visible: usize, key: KeyEvent) {
+    if filtered.is_empty() {
+        return;
+    }
+    let current_pos = filtered.iter().position(|&i| i == *selected).unwrap_or(0);
+    let last = filtered.len() - 1;
+    let new_pos = match key.code {
+        KeyCode::Up => current_pos.saturating_sub(1),
+        KeyCode::Down => (current_pos + 1).min(last),
+        KeyCode::PageUp => current_pos.saturating_sub(visible.max(1)),
+        KeyCode::PageDown => (current_pos + visible.max(1)).min(last),
+        KeyCode::Home => 0,
+        KeyCode::End => last,
+        _ => current_pos,
+    };
+    *selected = filtered[new_pos];
 }
 
 pub(in crate::tui) fn render_paged_list(
@@ -486,84 +571,234 @@ mod tests {
 
     #[test]
     fn key_up_decrements_and_clamps_at_zero() {
+        let labels = vec!["x".to_owned(); 10];
         let mut sel = 3usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Up)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Up), None), PagedListAction::Consumed);
         assert_eq!(sel, 2);
 
         sel = 0;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Up)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Up), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
     }
 
     #[test]
     fn key_down_increments_and_clamps_at_last() {
+        let labels = vec!["x".to_owned(); 10];
         let mut sel = 3usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), None), PagedListAction::Consumed);
         assert_eq!(sel, 4);
 
         sel = 9;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), None), PagedListAction::Consumed);
         assert_eq!(sel, 9);
     }
 
     #[test]
     fn key_page_down_jumps_by_visible_and_clamps() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 0usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageDown), None), PagedListAction::Consumed);
         assert_eq!(sel, 5);
 
         sel = 18;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageDown), None), PagedListAction::Consumed);
         assert_eq!(sel, 19);
     }
 
     #[test]
     fn key_page_up_jumps_by_visible_and_clamps_at_zero() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 15usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageUp)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageUp), None), PagedListAction::Consumed);
         assert_eq!(sel, 10);
 
         sel = 2;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageUp)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageUp), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
     }
 
     #[test]
     fn key_home_jumps_to_zero() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 7usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Home)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Home), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
     }
 
     #[test]
     fn key_end_jumps_to_last() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 2usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::End)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::End), None), PagedListAction::Consumed);
         assert_eq!(sel, 19);
 
+        let labels_empty: Vec<String> = Vec::new();
         let mut sel_empty = 0usize;
-        assert_eq!(handle_paged_list_key(&mut sel_empty, 0, 5, key(KeyCode::End)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel_empty, &labels_empty, 5, key(KeyCode::End), None), PagedListAction::Consumed);
         assert_eq!(sel_empty, 0);
     }
 
     #[test]
     fn unrelated_keys_pass_through_without_mutation() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 5usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Enter)), PagedListAction::Passthrough);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Enter), None), PagedListAction::Passthrough);
         assert_eq!(sel, 5);
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Esc)), PagedListAction::Passthrough);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Esc), None), PagedListAction::Passthrough);
         assert_eq!(sel, 5);
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Char('a'))), PagedListAction::Passthrough);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Char('a')), None), PagedListAction::Passthrough);
         assert_eq!(sel, 5);
     }
 
     #[test]
     fn motion_on_empty_list_is_idempotent() {
+        let labels: Vec<String> = Vec::new();
         let mut sel = 0usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
-        assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageDown), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
+    }
+
+    fn ctrl_key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), crossterm::event::KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn search_ctrl_f_activates_and_snapshots() {
+        let mut sel = 4usize;
+        let labels = vec!["a".to_owned(), "b".to_owned(), "c".to_owned(), "d".to_owned(), "e".to_owned()];
+        let mut state = SearchState::new();
+        let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), Some(&mut state));
+        assert_eq!(action, PagedListAction::EnteredSearch);
+        assert!(state.active);
+        assert_eq!(state.pre_search_selected(), Some(4));
+    }
+
+    #[test]
+    fn search_printable_char_appends_to_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Char('a')), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(state.query, "a");
+    }
+
+    #[test]
+    fn search_backspace_pops_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('x');
+        state.push_char('y');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Backspace), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(state.query, "x");
+    }
+
+    #[test]
+    fn search_navigation_keys_move_within_filtered_slice() {
+        // Labels: alpha, beta, gamma, alfalfa.
+        // Filter "al" -> matches indices [0, 3].
+        // selected starts at 0 (alpha). Down should advance to filtered[1] = original index 3.
+        let mut sel = 0usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('a');
+        state.push_char('l');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(sel, 3);
+    }
+
+    #[test]
+    fn search_navigation_clamps_at_filtered_end() {
+        // Same fixture as above. Selected on alfalfa (idx 3). Down should stay on idx 3.
+        let mut sel = 3usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(3);
+        state.push_char('a');
+        state.push_char('l');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(sel, 3);
+    }
+
+    #[test]
+    fn search_enter_commits_and_keeps_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('a');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Enter), Some(&mut state));
+        assert_eq!(action, PagedListAction::ExitedSearch);
+        assert!(!state.active);
+        assert_eq!(state.query, "a");
+    }
+
+    #[test]
+    fn search_esc_cancels_and_restores_selection() {
+        // sel starts at 0 to simulate the user having navigated within the filtered view.
+        // The snapshot captured by enter(2) is what Esc must restore.
+        let mut sel = 0usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(2);
+        state.push_char('a');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Esc), Some(&mut state));
+        assert_eq!(action, PagedListAction::ExitedSearch);
+        assert!(!state.active);
+        assert!(state.query.is_empty());
+        assert_eq!(sel, 2);
+    }
+
+    #[test]
+    fn search_passthrough_when_state_inactive_and_no_ctrlf() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Char('a')), Some(&mut state));
+        assert_eq!(action, PagedListAction::Passthrough);
+    }
+
+    #[test]
+    fn search_ctrl_f_when_active_stays_active() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert!(state.active);
+    }
+
+    #[test]
+    fn search_none_argument_keeps_existing_behavior() {
+        // When dialogs pass None, Ctrl+F is passthrough (caller may bind it elsewhere).
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
+        let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), None);
+        assert_eq!(action, PagedListAction::Passthrough);
     }
 
     #[test]

@@ -51,11 +51,17 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
     }
 
     let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS);
+    let labels: Vec<String> = app
+        .branch_dialog_items
+        .iter()
+        .map(|(_, label)| label.clone())
+        .collect();
     if super::handle_paged_list_key(
         &mut app.branch_dialog_selected,
-        app.branch_dialog_items.len(),
+        &labels,
         visible,
         key,
+        None,
     ) == super::PagedListAction::Consumed
     {
         return None;

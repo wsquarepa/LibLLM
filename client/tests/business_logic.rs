@@ -308,3 +308,43 @@ fn side_character_split_chains_three_user_nodes() {
     }
     assert_eq!(tree.head(), Some(ids[2]));
 }
+
+#[test]
+fn remove_middle_message_preserves_descendants() {
+    use libllm::session::{Message, MessageTree, Role};
+
+    let mut tree = MessageTree::new();
+    let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+    let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+    let m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
+    let m4 = tree.push(Some(m3), Message::new(Role::Assistant, "m4".to_owned()));
+
+    let removed = tree.remove_node(m2);
+    assert!(removed);
+
+    let branch: Vec<String> = tree
+        .current_branch_ids()
+        .iter()
+        .map(|&id| tree.node(id).unwrap().message.content.clone())
+        .collect();
+    assert_eq!(branch, vec!["m1", "m3", "m4"]);
+    assert!(tree.head().is_some());
+
+    let _ = (m1, m3, m4);
+}
+
+#[test]
+fn remove_head_moves_head_to_parent() {
+    use libllm::session::{Message, MessageTree, Role};
+
+    let mut tree = MessageTree::new();
+    let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+    let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+
+    assert_eq!(tree.head(), Some(m2));
+    let removed = tree.remove_node(m2);
+    assert!(removed);
+
+    let survivor = tree.head().expect("head must move to parent after leaf delete");
+    assert_eq!(tree.node(survivor).unwrap().message.content, "m1");
+}

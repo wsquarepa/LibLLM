@@ -26,14 +26,17 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 }
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let count = app.worldbook_list.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, false);
+    let visible_indices = super::filter_indices(&app.worldbook_list, &app.dialog_search);
+    let unfiltered_total = app.worldbook_list.len();
+    let count = visible_indices.len();
+    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let items: Vec<ListItem<'_>> = app
-        .worldbook_list
+    let items: Vec<ListItem<'_>> = visible_indices
         .iter()
-        .map(|name| {
+        .map(|&i| {
+            let name = &app.worldbook_list[i];
             let state = worldbook_state(app, name);
             let (checkbox, color) = match state {
                 WorldbookState::Global => ("[G]", Color::Green),
@@ -48,23 +51,32 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         })
         .collect();
 
-    super::render_paged_list(f, dialog, app.worldbook_selected, items, " Worldbooks ", &app.theme, None, None);
-
-    render_hints_below_dialog(
+    super::render_paged_list(
         f,
         dialog,
-        area,
-        &[
+        app.worldbook_selected,
+        items,
+        " Worldbooks ",
+        &app.theme,
+        Some(&app.dialog_search),
+        Some(unfiltered_total),
+    );
+
+    let hints = if app.dialog_search.active {
+        vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
+    } else {
+        vec![
             Line::from("[G] Global  [S] Session  [ ] Off"),
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: cycle  Right: edit  a: add  Del: delete  Esc: close"),
+            Line::from("Enter: cycle  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: close"),
             Line::from("Drop .json to import"),
-        ],
-    );
+        ]
+    };
+    render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.worldbook_list.is_empty() {
+    if app.worldbook_list.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_worldbook(app);
@@ -78,14 +90,14 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
     }
 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
-    if super::handle_paged_list_key(
+    let action = super::handle_paged_list_key(
         &mut app.worldbook_selected,
         &app.worldbook_list,
         visible,
         key,
-        None,
-    ) == super::PagedListAction::Consumed
-    {
+        Some(&mut app.dialog_search),
+    );
+    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
         return None;
     }
 

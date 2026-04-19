@@ -10,7 +10,7 @@ use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{List, ListItem, ListState, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{List, ListItem, ListState, Padding, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use crate::tui::render::dialog_block;
 use crate::tui::theme::Theme;
@@ -106,7 +106,7 @@ pub(in crate::tui) fn render_paged_list(
     let range = viewport(total, selected, visible);
 
     let title = format_title(title_base, total, selected, visible);
-    let block = dialog_block(Line::from(title), theme.border_focused);
+    let block = dialog_block(Line::from(title), theme.border_focused).padding(Padding::horizontal(1));
 
     let clamped_selected = selected.min(total.saturating_sub(1));
     let relative_selected = clamped_selected.saturating_sub(range.start);
@@ -173,7 +173,8 @@ pub(in crate::tui) fn render_paged_list_inline(
     if total > 0 && selected != usize::MAX {
         list_state.select(Some(relative_selected));
     }
-    f.render_stateful_widget(list, area, &mut list_state);
+    let list_area = area.inner(Margin { horizontal: 1, vertical: 0 });
+    f.render_stateful_widget(list, list_area, &mut list_state);
 
     if total > visible && visible > 0 {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)

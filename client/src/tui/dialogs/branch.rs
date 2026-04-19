@@ -33,9 +33,10 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
         f,
         dialog,
         area,
-        &[Line::from(
-            "Up/Down: navigate  PgUp/PgDn: page  Home/End: jump  Enter: select  Esc: cancel",
-        )],
+        &[
+            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
+            Line::from("Enter: select  Esc: cancel"),
+        ],
     );
 }
 

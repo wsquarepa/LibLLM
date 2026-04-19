@@ -419,7 +419,11 @@ pub fn apply_tabbed_config_fields(
     let summarization_cfg = libllm::config::SummarizationConfig {
         enabled: summarization[0] == "true",
         api_url: summarization_api_url,
-        context_size: parse_usize_clamped(&summarization[2], 512, 131072),
+        context_size: parse_usize_clamped(
+            &summarization[2],
+            512,
+            libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE,
+        ),
         trigger_threshold: parse_usize_clamped(&summarization[3], 1, 100),
         prompt: summarization[4].clone(),
     };

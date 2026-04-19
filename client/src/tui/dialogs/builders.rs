@@ -44,7 +44,7 @@ const BACKUP_BOOLEAN: &[usize] = &[0];
 const SUMMARIZATION_LABELS: &[&str] = &[
     "Enabled",
     "API URL",
-    "Context Size",
+    "Max Context Size",
     "Trigger Threshold",
     "Prompt",
 ];

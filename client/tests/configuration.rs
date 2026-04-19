@@ -130,7 +130,10 @@ fn config_ensure_dirs_creates_data_directory() {
 fn summarization_config_defaults() {
     let config: libllm::config::Config = toml::from_str("").unwrap();
     assert!(config.summarization.enabled);
-    assert_eq!(config.summarization.context_size, 8192);
+    assert_eq!(
+        config.summarization.context_size,
+        libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE
+    );
     assert_eq!(config.summarization.trigger_threshold, 5);
     assert!(config.summarization.api_url.is_none());
     assert!(!config.summarization.prompt.is_empty());

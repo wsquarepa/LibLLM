@@ -326,7 +326,8 @@ pub struct Config {
 
 const DEFAULT_SUMMARIZATION_PROMPT: &str = "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
 
-const DEFAULT_CONTEXT_SIZE: usize = 8192;
+pub const MAX_SUMMARIZATION_CONTEXT_SIZE: usize = 131_072;
+const DEFAULT_CONTEXT_SIZE: usize = MAX_SUMMARIZATION_CONTEXT_SIZE;
 
 const DEFAULT_TRIGGER_THRESHOLD: usize = 5;
 

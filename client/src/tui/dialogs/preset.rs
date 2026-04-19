@@ -81,7 +81,7 @@ pub(in crate::tui) fn handle_preset_dialog_key(
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
     let action = super::handle_paged_list_key(
         &mut app.preset_picker_selected,
         &app.preset_picker_names,

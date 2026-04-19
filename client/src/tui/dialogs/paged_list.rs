@@ -156,7 +156,8 @@ pub(in crate::tui) fn paged_list_height(
     }
 }
 
-pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16) -> usize {
+pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16, search_visible: bool) -> usize {
+    let chrome = if search_visible { chrome.saturating_add(1) } else { chrome };
     terminal_height
         .saturating_sub(chrome)
         .saturating_sub(3)
@@ -858,18 +859,24 @@ mod tests {
 
     #[test]
     fn page_size_normal_terminal() {
-        assert_eq!(page_size(100, 4), 93);
+        assert_eq!(page_size(100, 4, false), 93);
     }
 
     #[test]
     fn page_size_floors_at_one_for_tiny_terminal() {
-        assert_eq!(page_size(5, 4), 1);
-        assert_eq!(page_size(0, 4), 1);
+        assert_eq!(page_size(5, 4, false), 1);
+        assert_eq!(page_size(0, 4, false), 1);
     }
 
     #[test]
     fn page_size_branch_chrome() {
-        assert_eq!(page_size(50, 3), 44);
+        assert_eq!(page_size(50, 3, false), 44);
+    }
+
+    #[test]
+    fn page_size_subtracts_search_row_when_visible() {
+        // page_size(100, 4, false) = 93. With search, chrome becomes 5, so 100 - 5 - 3 = 92.
+        assert_eq!(page_size(100, 4, true), 92);
     }
 
     #[test]

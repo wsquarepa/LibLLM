@@ -96,7 +96,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
     let action = super::handle_paged_list_key(
         &mut app.worldbook_selected,
         &app.worldbook_list,
@@ -312,6 +312,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         let visible = super::page_size(
             app.last_terminal_height,
             super::LIST_DIALOG_TALL_PADDING + 2,
+            app.dialog_search.active || app.dialog_search.is_filtering(),
         );
         if is_ctrl_f && !app.dialog_search.active {
             app.worldbook_editor_name_selected = false;
@@ -414,6 +415,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                 let visible = super::page_size(
                     app.last_terminal_height,
                     super::LIST_DIALOG_TALL_PADDING + 2,
+                    app.dialog_search.active || app.dialog_search.is_filtering(),
                 );
                 super::handle_paged_list_key(
                     &mut app.worldbook_editor_selected,
@@ -428,6 +430,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             let visible = super::page_size(
                 app.last_terminal_height,
                 super::LIST_DIALOG_TALL_PADDING + 2,
+                app.dialog_search.active || app.dialog_search.is_filtering(),
             );
             super::handle_paged_list_key(
                 &mut app.worldbook_editor_selected,

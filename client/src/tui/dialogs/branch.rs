@@ -70,7 +70,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS);
+    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS, app.dialog_search.active || app.dialog_search.is_filtering());
     let action = super::handle_paged_list_key(
         &mut app.branch_dialog_selected,
         &labels,

@@ -16,6 +16,7 @@ pub mod worldbook;
 mod builders;
 mod crypto;
 mod mouse;
+mod paged_list;
 mod tabbed_field;
 mod validation;
 

@@ -4,6 +4,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
+use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
 
 use crate::tui::business;
@@ -48,10 +49,10 @@ pub(in crate::tui::commands) fn loaded_worldbooks(
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-/// Builds the final prompt string for streaming, with the `dropped` oldest non-summary
-/// messages removed. This is the exact byte stream that would be POSTed to `/completion`.
-/// Used by both the pre-send shrink loop and the chat pane's displayed-count path.
-pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> String {
+fn build_rendered_prompt_common<F>(app: &crate::tui::App, dropped: usize, render: F) -> String
+where
+    F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
+{
     let worldbooks = cached_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
     let context_messages = app.context_mgr.summary_aware_path(&branch_path);
@@ -62,8 +63,18 @@ pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usiz
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
     let injected = business::replace_template_vars(app.session, injected, user_name);
     let injected_refs: Vec<&libllm::session::Message> = injected.iter().collect();
-    app.instruct_preset
-        .render(&injected_refs, effective_prompt.as_deref())
+    render(
+        &app.instruct_preset,
+        &injected_refs,
+        effective_prompt.as_deref(),
+    )
+}
+
+/// Builds the final prompt string for streaming, with the `dropped` oldest non-summary
+/// messages removed. This is the exact byte stream that would be POSTed to `/completion`.
+/// Used by both the pre-send shrink loop and the chat pane's displayed-count path.
+pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> String {
+    build_rendered_prompt_common(app, dropped, |preset, refs, sys| preset.render(refs, sys))
 }
 
 /// Same as `build_rendered_prompt` but uses `InstructPreset::render_continuation` instead
@@ -72,18 +83,9 @@ pub(in crate::tui) fn build_rendered_prompt_continuation(
     app: &crate::tui::App,
     dropped: usize,
 ) -> String {
-    let worldbooks = cached_worldbooks(app);
-    let branch_path = app.session.tree.branch_path();
-    let context_messages = app.context_mgr.summary_aware_path(&branch_path);
-    let trimmed = libllm::context::drop_oldest_non_summary(&context_messages, dropped);
-    let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
-    let injected =
-        business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
-    let injected = business::replace_template_vars(app.session, injected, user_name);
-    let injected_refs: Vec<&libllm::session::Message> = injected.iter().collect();
-    app.instruct_preset
-        .render_continuation(&injected_refs, effective_prompt.as_deref())
+    build_rendered_prompt_common(app, dropped, |preset, refs, sys| {
+        preset.render_continuation(refs, sys)
+    })
 }
 
 /// Read-only view of the worldbook cache for `build_rendered_prompt*`. The cache is

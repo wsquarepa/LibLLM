@@ -305,8 +305,8 @@ fn theme_editor_covers_all_color_override_fields() {
         .map(|s| s.labels.len())
         .sum();
     assert_eq!(
-        color_field_count, 26,
-        "tabs 2-5 must cover all 26 ThemeColorOverrides fields"
+        color_field_count, 29,
+        "tabs 2-5 must cover all 29 ThemeColorOverrides fields"
     );
 }
 
@@ -329,6 +329,9 @@ fn theme_overrides_apply_round_trip() {
             "".to_owned(),
             "".to_owned(),
             "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
         ],
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 8],
@@ -340,7 +343,7 @@ fn theme_overrides_apply_round_trip() {
 
     let saved = libllm::config::load();
     let overrides = saved.theme_colors.expect("expected overrides to persist");
-    assert_eq!(overrides.user_message.as_deref(), Some("#ff0000"));
+    assert_eq!(overrides.user_character_fg.as_deref(), Some("#ff0000"));
     assert!(overrides.assistant_message_fg.is_none());
 }
 
@@ -352,7 +355,7 @@ fn empty_theme_override_drops_to_none() {
 
     let cfg = libllm::config::Config {
         theme_colors: Some(libllm::config::ThemeColorOverrides {
-            user_message: Some("#ff0000".to_owned()),
+            user_character_fg: Some("#ff0000".to_owned()),
             ..Default::default()
         }),
         ..libllm::config::Config::default()
@@ -365,13 +368,7 @@ fn empty_theme_override_drops_to_none() {
             "".to_owned(),
             "".to_owned(),
         ],
-        vec![
-            "".to_owned(),
-            "".to_owned(),
-            "".to_owned(),
-            "".to_owned(),
-            "".to_owned(),
-        ],
+        vec!["".to_owned(); 8],
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 8],
         vec!["".to_owned(); 3],
@@ -380,6 +377,32 @@ fn empty_theme_override_drops_to_none() {
     client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
     let saved = libllm::config::load();
     assert!(saved.theme_colors.is_none());
+}
+
+#[test]
+fn side_character_labels_round_trip() {
+    let dir = common::temp_dir();
+    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm::config::ensure_dirs().unwrap();
+
+    let cfg = libllm::config::Config {
+        theme_colors: Some(libllm::config::ThemeColorOverrides {
+            side_character_fg: Some("#aa00aa".to_owned()),
+            side_character_bg: Some("#001100".to_owned()),
+            user_character_fg: Some("#00ff00".to_owned()),
+            user_character_bg: Some("#110011".to_owned()),
+            ..Default::default()
+        }),
+        ..libllm::config::Config::default()
+    };
+    libllm::config::save(&cfg).unwrap();
+
+    let loaded = libllm::config::load();
+    let overrides = loaded.theme_colors.expect("overrides should persist");
+    assert_eq!(overrides.user_character_fg.as_deref(), Some("#00ff00"));
+    assert_eq!(overrides.user_character_bg.as_deref(), Some("#110011"));
+    assert_eq!(overrides.side_character_fg.as_deref(), Some("#aa00aa"));
+    assert_eq!(overrides.side_character_bg.as_deref(), Some("#001100"));
 }
 
 #[test]

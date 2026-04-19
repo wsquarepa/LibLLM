@@ -32,6 +32,9 @@ pub struct Theme {
     pub streaming_indicator: Color,
     pub api_unavailable: Color,
     pub summary_indicator: Color,
+    pub token_band_ok: Color,
+    pub token_band_warn: Color,
+    pub token_band_over: Color,
 }
 
 impl Theme {
@@ -63,6 +66,9 @@ impl Theme {
             streaming_indicator: Color::Yellow,
             api_unavailable: Color::Red,
             summary_indicator: Color::DarkGray,
+            token_band_ok: Color::Green,
+            token_band_warn: Color::Yellow,
+            token_band_over: Color::Red,
         }
     }
 
@@ -94,6 +100,9 @@ impl Theme {
             streaming_indicator: Color::Blue,
             api_unavailable: Color::Red,
             summary_indicator: Color::Gray,
+            token_band_ok: Color::Green,
+            token_band_warn: Color::Yellow,
+            token_band_over: Color::Red,
         }
     }
 
@@ -143,6 +152,9 @@ impl Theme {
             ColorLabel::StreamingIndicator => self.streaming_indicator,
             ColorLabel::ApiUnavailable => self.api_unavailable,
             ColorLabel::SummaryIndicator => self.summary_indicator,
+            ColorLabel::TokenBandOk => self.token_band_ok,
+            ColorLabel::TokenBandWarn => self.token_band_warn,
+            ColorLabel::TokenBandOver => self.token_band_over,
         }
     }
 
@@ -174,6 +186,9 @@ impl Theme {
             ColorLabel::StreamingIndicator => &mut self.streaming_indicator,
             ColorLabel::ApiUnavailable => &mut self.api_unavailable,
             ColorLabel::SummaryIndicator => &mut self.summary_indicator,
+            ColorLabel::TokenBandOk => &mut self.token_band_ok,
+            ColorLabel::TokenBandWarn => &mut self.token_band_warn,
+            ColorLabel::TokenBandOver => &mut self.token_band_over,
         };
         *slot = color;
     }
@@ -353,5 +368,18 @@ mod tests {
         let themes = Theme::available_themes();
         assert!(themes.contains(&"dark"));
         assert!(themes.contains(&"light"));
+    }
+
+    #[test]
+    fn token_band_labels_apply_overrides() {
+        let mut theme = Theme::dark();
+        let mut overrides = ThemeColorOverrides::default();
+        overrides.set(ColorLabel::TokenBandOk, Some("cyan".to_owned()));
+        overrides.set(ColorLabel::TokenBandWarn, Some("magenta".to_owned()));
+        overrides.set(ColorLabel::TokenBandOver, Some("white".to_owned()));
+        theme.apply_overrides(&overrides);
+        assert_eq!(theme.token_band_ok, Color::Cyan);
+        assert_eq!(theme.token_band_warn, Color::Magenta);
+        assert_eq!(theme.token_band_over, Color::White);
     }
 }

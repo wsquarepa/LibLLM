@@ -53,21 +53,17 @@ pub fn argon2_params() -> argon2::Params {
     .expect("argon2 parameters are valid by construction")
 }
 
-fn write_restricted(path: &Path, data: &[u8]) -> Result<()> {
+fn create_restricted(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("failed to write: {}", path.display()))?;
-    file.write_all(data)
-        .with_context(|| format!("failed to write: {}", path.display()))?;
-    file.sync_all()
-        .with_context(|| format!("failed to sync: {}", path.display()))?;
+    let mut file = options.open(path)?;
+    file.write_all(data)?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -89,8 +85,81 @@ impl DerivedKey {
 
 /// Reads an existing 16-byte salt from `path`, or generates a cryptographically random one and writes it.
 ///
-/// Returns an error if the file exists but has the wrong length, or if I/O fails.
+/// Returns an error if the file exists but has the wrong length, if I/O fails, or
+/// if a sibling `data.db` exists without a salt (which would signal that a prior
+/// encrypted database has lost its salt: silently minting a new one would render
+/// that database undecryptable). When two callers race to create the salt, the
+/// loser detects the existing file via `O_EXCL` and re-reads the winner's value
+/// so both end up with identical key material.
 pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
+    if let Some(salt) = read_salt_file(path)? {
+        return Ok(salt);
+    }
+
+    if let Some(parent) = path.parent() {
+        let db_path = parent.join("data.db");
+        if db_path.exists() {
+            tracing::error!(
+                phase = "create",
+                result = "error",
+                reason = "db_without_salt",
+                path = %path.display(),
+                db_path = %db_path.display(),
+                "crypto.salt",
+            );
+            bail!(
+                "refusing to create a new salt: {} exists but {} is missing; \
+                 the existing database would become undecryptable with a fresh salt",
+                db_path.display(),
+                path.display()
+            );
+        }
+    }
+
+    let salt: [u8; SALT_LEN] = rand::random();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("failed to create directory for salt file")?;
+    }
+    match create_restricted(path, &salt) {
+        Ok(()) => {
+            tracing::info!(
+                phase = "create",
+                result = "ok",
+                path = %path.display(),
+                "crypto.salt",
+            );
+            Ok(salt)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            let existing = read_salt_file(path)
+                .context(format!("failed to re-read salt after concurrent create: {}", path.display()))?
+                .context(format!(
+                    "salt file vanished after AlreadyExists from create_new: {}",
+                    path.display()
+                ))?;
+            tracing::info!(
+                phase = "create",
+                result = "ok",
+                reason = "concurrent_winner",
+                path = %path.display(),
+                "crypto.salt",
+            );
+            Ok(existing)
+        }
+        Err(err) => {
+            tracing::error!(
+                phase = "create",
+                result = "error",
+                path = %path.display(),
+                error = %err,
+                "crypto.salt",
+            );
+            Err(err).context(format!("failed to write salt file: {}", path.display()))
+        }
+    }
+}
+
+fn read_salt_file(path: &Path) -> Result<Option<[u8; SALT_LEN]>> {
     match std::fs::read(path) {
         Ok(data) => {
             if data.len() != SALT_LEN {
@@ -118,9 +187,9 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
                 bytes = SALT_LEN,
                 "crypto.salt",
             );
-            return Ok(salt);
+            Ok(Some(salt))
         }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => {
             tracing::error!(
                 phase = "load",
@@ -129,33 +198,7 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
                 error = %err,
                 "crypto.salt",
             );
-            return Err(err).context(format!("failed to read salt file: {}", path.display()));
-        }
-    }
-
-    let salt: [u8; SALT_LEN] = rand::random();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).context("failed to create directory for salt file")?;
-    }
-    match write_restricted(path, &salt) {
-        Ok(()) => {
-            tracing::info!(
-                phase = "create",
-                result = "ok",
-                path = %path.display(),
-                "crypto.salt",
-            );
-            Ok(salt)
-        }
-        Err(err) => {
-            tracing::error!(
-                phase = "create",
-                result = "error",
-                path = %path.display(),
-                error = %err,
-                "crypto.salt",
-            );
-            Err(err)
+            Err(err).context(format!("failed to read salt file: {}", path.display()))
         }
     }
 }
@@ -269,6 +312,38 @@ mod tests {
         let salt1 = load_or_create_salt(&salt_path).expect("first call");
         let salt2 = load_or_create_salt(&salt_path).expect("second call");
         assert_eq!(salt1, salt2);
+    }
+
+    #[test]
+    fn load_or_create_salt_refuses_when_db_exists_without_salt() {
+        let dir = tempfile::tempdir().unwrap();
+        let salt_path = dir.path().join(".salt");
+        std::fs::write(dir.path().join("data.db"), b"pretend encrypted db").unwrap();
+
+        let err = load_or_create_salt(&salt_path).expect_err("must refuse to mint new salt");
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("refusing to create a new salt"),
+            "unexpected error: {message}"
+        );
+        assert!(
+            !salt_path.exists(),
+            "salt file must not be created when data.db already exists"
+        );
+    }
+
+    #[test]
+    fn create_restricted_refuses_to_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let salt_path = dir.path().join(".salt");
+
+        create_restricted(&salt_path, &[1u8; SALT_LEN]).expect("first write");
+        let err = create_restricted(&salt_path, &[2u8; SALT_LEN])
+            .expect_err("second write must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+
+        let on_disk = std::fs::read(&salt_path).expect("read salt");
+        assert_eq!(on_disk, vec![1u8; SALT_LEN], "winner's salt must survive");
     }
 
     #[test]

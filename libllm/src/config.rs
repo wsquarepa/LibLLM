@@ -436,7 +436,10 @@ impl Default for BackupConfig {
 /// Optional color overrides for TUI theme elements, specified as CSS-style hex strings.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ThemeColorOverrides {
-    pub user_message: Option<String>,
+    pub user_character_fg: Option<String>,
+    pub user_character_bg: Option<String>,
+    pub side_character_fg: Option<String>,
+    pub side_character_bg: Option<String>,
     pub assistant_message_fg: Option<String>,
     pub assistant_message_bg: Option<String>,
     pub system_message: Option<String>,
@@ -469,7 +472,10 @@ pub struct ThemeColorOverrides {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorLabel {
-    UserMessage,
+    UserCharacterFg,
+    UserCharacterBg,
+    SideCharacterFg,
+    SideCharacterBg,
     AssistantMessageFg,
     AssistantMessageBg,
     SystemMessage,
@@ -501,8 +507,11 @@ pub enum ColorLabel {
 }
 
 impl ColorLabel {
-    pub const ALL: [ColorLabel; 29] = [
-        Self::UserMessage,
+    pub const ALL: [ColorLabel; 32] = [
+        Self::UserCharacterFg,
+        Self::UserCharacterBg,
+        Self::SideCharacterFg,
+        Self::SideCharacterBg,
         Self::AssistantMessageFg,
         Self::AssistantMessageBg,
         Self::SystemMessage,
@@ -535,7 +544,10 @@ impl ColorLabel {
 
     pub const fn name(self) -> &'static str {
         match self {
-            Self::UserMessage => "user_message",
+            Self::UserCharacterFg => "user_character_fg",
+            Self::UserCharacterBg => "user_character_bg",
+            Self::SideCharacterFg => "side_character_fg",
+            Self::SideCharacterBg => "side_character_bg",
             Self::AssistantMessageFg => "assistant_message_fg",
             Self::AssistantMessageBg => "assistant_message_bg",
             Self::SystemMessage => "system_message",
@@ -575,7 +587,10 @@ impl ColorLabel {
 impl ThemeColorOverrides {
     pub fn get(&self, label: ColorLabel) -> Option<&str> {
         let slot = match label {
-            ColorLabel::UserMessage => &self.user_message,
+            ColorLabel::UserCharacterFg => &self.user_character_fg,
+            ColorLabel::UserCharacterBg => &self.user_character_bg,
+            ColorLabel::SideCharacterFg => &self.side_character_fg,
+            ColorLabel::SideCharacterBg => &self.side_character_bg,
             ColorLabel::AssistantMessageFg => &self.assistant_message_fg,
             ColorLabel::AssistantMessageBg => &self.assistant_message_bg,
             ColorLabel::SystemMessage => &self.system_message,
@@ -610,7 +625,10 @@ impl ThemeColorOverrides {
 
     pub fn set(&mut self, label: ColorLabel, value: Option<String>) {
         let slot = match label {
-            ColorLabel::UserMessage => &mut self.user_message,
+            ColorLabel::UserCharacterFg => &mut self.user_character_fg,
+            ColorLabel::UserCharacterBg => &mut self.user_character_bg,
+            ColorLabel::SideCharacterFg => &mut self.side_character_fg,
+            ColorLabel::SideCharacterBg => &mut self.side_character_bg,
             ColorLabel::AssistantMessageFg => &mut self.assistant_message_fg,
             ColorLabel::AssistantMessageBg => &mut self.assistant_message_bg,
             ColorLabel::SystemMessage => &mut self.system_message,

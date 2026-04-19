@@ -26,12 +26,14 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
     super::render_paged_list(
         f,
         dialog,
-        app.character_selected,
-        items,
-        " Select Character ",
         &app.theme,
-        Some(&app.dialog_search),
-        Some(unfiltered_total),
+        super::PagedListContent {
+            selected: app.character_selected,
+            items,
+            title_base: " Select Character ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
 
     let hints = if app.dialog_search.active {

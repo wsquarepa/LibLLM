@@ -30,12 +30,14 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
     super::render_paged_list(
         f,
         dialog,
-        app.branch_dialog_selected,
-        items,
-        " Select Branch ",
         &app.theme,
-        Some(&app.dialog_search),
-        Some(unfiltered_total),
+        super::PagedListContent {
+            selected: app.branch_dialog_selected,
+            items,
+            title_base: " Select Branch ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
 
     let hints = if app.dialog_search.active {

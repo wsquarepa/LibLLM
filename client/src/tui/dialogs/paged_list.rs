@@ -282,16 +282,21 @@ fn navigate_filtered(selected: &mut usize, filtered: &[usize], visible: usize, k
     *selected = filtered[new_pos];
 }
 
+pub(in crate::tui) struct PagedListContent<'a> {
+    pub selected: usize,
+    pub items: Vec<ListItem<'a>>,
+    pub title_base: &'a str,
+    pub search: Option<&'a SearchState>,
+    pub unfiltered_total: Option<usize>,
+}
+
 pub(in crate::tui) fn render_paged_list(
     f: &mut Frame,
     area: Rect,
-    selected: usize,
-    items: Vec<ListItem<'_>>,
-    title_base: &str,
     theme: &Theme,
-    search: Option<&SearchState>,
-    unfiltered_total: Option<usize>,
+    content: PagedListContent<'_>,
 ) {
+    let PagedListContent { selected, items, title_base, search, unfiltered_total } = content;
     let total = items.len();
     let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
     let (search_area, list_area) = if search_visible {

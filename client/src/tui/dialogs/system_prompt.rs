@@ -24,12 +24,14 @@ pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &
     super::render_paged_list(
         f,
         dialog,
-        app.system_prompt_selected,
-        items,
-        " System Prompts ",
         &app.theme,
-        Some(&app.dialog_search),
-        Some(unfiltered_total),
+        super::PagedListContent {
+            selected: app.system_prompt_selected,
+            items,
+            title_base: " System Prompts ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
 
     let hints = if app.dialog_search.active {

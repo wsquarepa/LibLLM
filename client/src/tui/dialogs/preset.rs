@@ -35,7 +35,18 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
         .map(|&i| ListItem::new(names[i].clone()))
         .collect();
 
-    super::render_paged_list(f, dialog, app.preset_picker_selected, items, title, &app.theme, Some(&app.dialog_search), Some(unfiltered_total));
+    super::render_paged_list(
+        f,
+        dialog,
+        &app.theme,
+        super::PagedListContent {
+            selected: app.preset_picker_selected,
+            items,
+            title_base: title,
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
+    );
 
     let hints = if app.dialog_search.active {
         vec![Line::from("Enter: apply  Esc: cancel  type to filter")]

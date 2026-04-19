@@ -54,12 +54,14 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
     super::render_paged_list(
         f,
         dialog,
-        app.worldbook_selected,
-        items,
-        " Worldbooks ",
         &app.theme,
-        Some(&app.dialog_search),
-        Some(unfiltered_total),
+        super::PagedListContent {
+            selected: app.worldbook_selected,
+            items,
+            title_base: " Worldbooks ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
 
     let hints = if app.dialog_search.active {

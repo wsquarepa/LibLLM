@@ -5,6 +5,14 @@
 
 use std::ops::Range;
 
+use crossterm::event::{KeyCode, KeyEvent};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::tui) enum PagedListAction {
+    Consumed,
+    Passthrough,
+}
+
 #[cfg_attr(not(test), expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands"))]
 pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) -> Range<usize> {
     if total == 0 {
@@ -33,6 +41,43 @@ pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chro
         desired.max(floor).min(terminal_height)
     } else {
         terminal_height
+    }
+}
+
+#[cfg_attr(not(test), expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands"))]
+pub(in crate::tui) fn handle_paged_list_key(
+    selected: &mut usize,
+    total: usize,
+    visible: usize,
+    key: KeyEvent,
+) -> PagedListAction {
+    let last = total.saturating_sub(1);
+    match key.code {
+        KeyCode::Up => {
+            *selected = selected.saturating_sub(1);
+            PagedListAction::Consumed
+        }
+        KeyCode::Down => {
+            *selected = (*selected + 1).min(last);
+            PagedListAction::Consumed
+        }
+        KeyCode::PageUp => {
+            *selected = selected.saturating_sub(visible.max(1));
+            PagedListAction::Consumed
+        }
+        KeyCode::PageDown => {
+            *selected = (*selected + visible.max(1)).min(last);
+            PagedListAction::Consumed
+        }
+        KeyCode::Home => {
+            *selected = 0;
+            PagedListAction::Consumed
+        }
+        KeyCode::End => {
+            *selected = last;
+            PagedListAction::Consumed
+        }
+        _ => PagedListAction::Passthrough,
     }
 }
 
@@ -122,5 +167,91 @@ mod tests {
         // Branch picker uses chrome = 3.
         // 10 items + 3 = 13 rows, fits under 70% of 50 = 35.
         assert_eq!(paged_list_height(10, 50, 3), 13);
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn key_up_decrements_and_clamps_at_zero() {
+        let mut sel = 3usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Up)), PagedListAction::Consumed);
+        assert_eq!(sel, 2);
+
+        sel = 0;
+        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Up)), PagedListAction::Consumed);
+        assert_eq!(sel, 0);
+    }
+
+    #[test]
+    fn key_down_increments_and_clamps_at_last() {
+        let mut sel = 3usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(sel, 4);
+
+        sel = 9;
+        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(sel, 9);
+    }
+
+    #[test]
+    fn key_page_down_jumps_by_visible_and_clamps() {
+        let mut sel = 0usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(sel, 5);
+
+        sel = 18;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(sel, 19);
+    }
+
+    #[test]
+    fn key_page_up_jumps_by_visible_and_clamps_at_zero() {
+        let mut sel = 15usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageUp)), PagedListAction::Consumed);
+        assert_eq!(sel, 10);
+
+        sel = 2;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageUp)), PagedListAction::Consumed);
+        assert_eq!(sel, 0);
+    }
+
+    #[test]
+    fn key_home_jumps_to_zero() {
+        let mut sel = 7usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Home)), PagedListAction::Consumed);
+        assert_eq!(sel, 0);
+    }
+
+    #[test]
+    fn key_end_jumps_to_last() {
+        let mut sel = 2usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::End)), PagedListAction::Consumed);
+        assert_eq!(sel, 19);
+
+        let mut sel_empty = 0usize;
+        assert_eq!(handle_paged_list_key(&mut sel_empty, 0, 5, key(KeyCode::End)), PagedListAction::Consumed);
+        assert_eq!(sel_empty, 0);
+    }
+
+    #[test]
+    fn unrelated_keys_pass_through_without_mutation() {
+        let mut sel = 5usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Enter)), PagedListAction::Passthrough);
+        assert_eq!(sel, 5);
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Esc)), PagedListAction::Passthrough);
+        assert_eq!(sel, 5);
+        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Char('a'))), PagedListAction::Passthrough);
+        assert_eq!(sel, 5);
+    }
+
+    #[test]
+    fn motion_on_empty_list_is_idempotent() {
+        let mut sel = 0usize;
+        assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(sel, 0);
+        assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(sel, 0);
     }
 }

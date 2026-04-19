@@ -70,22 +70,11 @@ pub async fn run(
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
     let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
 
-    {
-        let client = client.clone();
-        let tx = bg_tx.clone();
-        tokio::spawn(async move {
-            let result = client.fetch_model_name().await;
-            let _ = tx.send(BackgroundEvent::ModelFetched(result)).await;
-            if let Some(server_ctx) = client.fetch_server_context_size().await {
-                let _ = tx
-                    .send(BackgroundEvent::ServerContextSize(server_ctx))
-                    .await;
-            }
-        });
-    }
+    business::spawn_startup_probes(client.clone(), bg_tx.clone());
 
     let (tokenizer_tx, mut tokenizer_rx) = mpsc::channel::<libllm::tokenizer::TokenCountUpdate>(64);
-    let token_counter = libllm::tokenizer::TokenCounter::new(client.clone(), tokenizer_tx).await;
+    let token_counter =
+        libllm::tokenizer::TokenCounter::new(client.clone(), tokenizer_tx.clone()).await;
 
     let config = libllm::config::load();
 
@@ -110,6 +99,10 @@ pub async fn run(
         pending_save_deadline: None,
         pending_save_trigger: None,
         stop_tokens: instruct_preset.stop_tokens(),
+        reasoning_preset: config
+            .reasoning_preset
+            .as_deref()
+            .and_then(libllm::preset::resolve_reasoning_preset),
         instruct_preset,
         sampling,
         context_mgr: ContextManager::new(config.summarization.context_size),
@@ -192,6 +185,7 @@ pub async fn run(
         chat_content_cache: None,
         cached_token_count: None,
         token_counter,
+        tokenizer_tx,
         sidebar_cache: None,
         raw_edit_node: None,
         edit_original_content: String::new(),
@@ -307,6 +301,7 @@ pub async fn run(
                         app.summary_branch_head = None;
 
                         if current_head == expected_head
+                            && app.summarization_enabled
                             && let Ok(summary_text) = result {
                                 let dropped = app.summary_pending_dropped.take().unwrap_or(0);
 

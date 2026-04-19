@@ -188,6 +188,17 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 app.context_mgr.set_token_limit(size.min(local_limit));
             }
         }
+        BackgroundEvent::TokenizerReloaded(token_counter) => {
+            let is_heuristic = token_counter.is_heuristic();
+            app.token_counter = token_counter;
+            app.invalidate_chat_cache();
+            if is_heuristic {
+                app.set_status(
+                    "token counts approximate — llama.cpp /tokenize unavailable".to_owned(),
+                    StatusLevel::Warning,
+                );
+            }
+        }
         BackgroundEvent::TokenCountReady(update) => {
             tracing::trace!(
                 key = update.key,

@@ -19,6 +19,14 @@ pub struct ReasoningPreset {
     pub separator: String,
 }
 
+impl ReasoningPreset {
+    pub fn apply_prefix(&self, prompt: &str) -> String {
+        let mut prefixed = prompt.to_owned();
+        prefixed.push_str(&self.prefix);
+        prefixed
+    }
+}
+
 fn load_builtin_reasoning(name: &str) -> Option<ReasoningPreset> {
     let name_lower = name.to_lowercase();
     for (builtin_name, json) in BUILTIN_REASONING {
@@ -96,5 +104,17 @@ mod tests {
             names[0], "OFF",
             "first reasoning preset name should be \"OFF\", got: {names:?}"
         );
+    }
+
+    #[test]
+    fn apply_prefix_appends_reasoning_prefix() {
+        let preset = ReasoningPreset {
+            name: "DeepSeek".to_owned(),
+            prefix: "<think>\n".to_owned(),
+            suffix: "\n</think>".to_owned(),
+            separator: "\n\n".to_owned(),
+        };
+
+        assert_eq!(preset.apply_prefix("assistant:"), "assistant:<think>\n");
     }
 }

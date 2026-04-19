@@ -74,7 +74,12 @@ where
 /// messages removed. This is the exact byte stream that would be POSTed to `/completion`.
 /// Used by both the pre-send shrink loop and the chat pane's displayed-count path.
 pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> String {
-    build_rendered_prompt_common(app, dropped, |preset, refs, sys| preset.render(refs, sys))
+    let prompt =
+        build_rendered_prompt_common(app, dropped, |preset, refs, sys| preset.render(refs, sys));
+    match app.reasoning_preset.as_ref() {
+        Some(preset) => preset.apply_prefix(&prompt),
+        None => prompt,
+    }
 }
 
 /// Same as `build_rendered_prompt` but uses `InstructPreset::render_continuation` instead

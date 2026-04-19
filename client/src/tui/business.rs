@@ -1,10 +1,16 @@
 //! Business logic helpers for system prompt assembly, worldbook injection, and config management.
 
+use tokio::sync::mpsc;
+
+use libllm::client::ApiClient;
 use libllm::db::Database;
+use libllm::preset::InstructPreset;
+use libllm::sampling::SamplingParams;
 use libllm::session::{Message, Role, SaveMode, Session, SessionEntry};
+use libllm::tokenizer::{TokenCountUpdate, TokenCounter};
 use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
-use super::App;
+use super::{App, BackgroundEvent};
 
 const SIDEBAR_PREVIEW_CHARS: usize = 28;
 
@@ -482,42 +488,140 @@ fn parse_usize_clamped(value: &str, min: usize, max: usize) -> usize {
         .unwrap_or(min)
 }
 
-pub(super) fn apply_config(app: &mut App) {
-    let cfg = libllm::config::load();
-    let preset_name = app
-        .cli_overrides
+#[derive(Clone, Debug, PartialEq)]
+struct EffectiveConnectionConfig {
+    api_url: String,
+    tls_skip_verify: bool,
+    auth: libllm::config::Auth,
+}
+
+impl EffectiveConnectionConfig {
+    fn from_config(cfg: &libllm::config::Config, cli_overrides: &crate::cli::CliOverrides) -> Self {
+        Self {
+            api_url: cli_overrides
+                .api_url
+                .as_deref()
+                .unwrap_or(cfg.api_url())
+                .to_owned(),
+            tls_skip_verify: cli_overrides.tls_skip_verify || cfg.tls_skip_verify,
+            auth: libllm::config::resolve_auth(cfg, &cli_overrides.auth_overrides()),
+        }
+    }
+
+    fn build_client(&self) -> ApiClient {
+        ApiClient::new(&self.api_url, self.tls_skip_verify, self.auth.clone())
+    }
+}
+
+struct RuntimeReloadState {
+    config: libllm::config::Config,
+    instruct_preset: InstructPreset,
+    reasoning_preset: Option<libllm::preset::ReasoningPreset>,
+    stop_tokens: Vec<String>,
+    sampling: SamplingParams,
+    summarization_enabled: bool,
+    local_context_limit: usize,
+    theme: super::theme::Theme,
+    connection: EffectiveConnectionConfig,
+}
+
+fn load_runtime_reload_state(cli_overrides: &crate::cli::CliOverrides) -> RuntimeReloadState {
+    let config = libllm::config::load();
+    let preset_name = cli_overrides
         .template
         .as_deref()
-        .or(cfg.instruct_preset.as_deref())
+        .or(config.instruct_preset.as_deref())
         .unwrap_or("Mistral V3-Tekken");
-    app.instruct_preset = libllm::preset::resolve_instruct_preset(preset_name);
-    app.stop_tokens = app.instruct_preset.stop_tokens();
-    app.sampling = libllm::sampling::SamplingParams::default()
-        .with_overrides(&cfg.sampling)
-        .with_overrides(&app.cli_overrides.sampling);
-
-    let new_url = app
-        .cli_overrides
-        .api_url
+    let instruct_preset = libllm::preset::resolve_instruct_preset(preset_name);
+    let reasoning_preset = config
+        .reasoning_preset
         .as_deref()
-        .unwrap_or(cfg.api_url());
-    let new_tls_skip = app.cli_overrides.tls_skip_verify || cfg.tls_skip_verify;
-    let new_auth = libllm::config::resolve_auth(&cfg, &app.cli_overrides.auth_overrides());
-    app.client = libllm::client::ApiClient::new(new_url, new_tls_skip, new_auth);
-    app.model_name = None;
-    app.api_available = true;
-    app.api_error.clear();
-    let client = app.client.clone();
-    let tx = app.bg_tx.clone();
-    tokio::spawn(async move {
-        let result = client.fetch_model_name().await;
-        let _ = tx.send(super::BackgroundEvent::ModelFetched(result)).await;
-    });
+        .and_then(libllm::preset::resolve_reasoning_preset);
 
-    app.theme = super::theme::resolve_theme(&cfg);
-    app.config = cfg;
+    RuntimeReloadState {
+        reasoning_preset,
+        stop_tokens: instruct_preset.stop_tokens(),
+        sampling: libllm::sampling::SamplingParams::default()
+            .with_overrides(&config.sampling)
+            .with_overrides(&cli_overrides.sampling),
+        summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
+        local_context_limit: config.summarization.context_size,
+        theme: super::theme::resolve_theme(&config),
+        connection: EffectiveConnectionConfig::from_config(&config, cli_overrides),
+        config,
+        instruct_preset,
+    }
+}
+
+async fn emit_startup_probe_events(client: ApiClient, bg_tx: mpsc::Sender<BackgroundEvent>) {
+    let result = client.fetch_model_name().await;
+    let _ = bg_tx.send(BackgroundEvent::ModelFetched(result)).await;
+    if let Some(server_ctx) = client.fetch_server_context_size().await {
+        let _ = bg_tx
+            .send(BackgroundEvent::ServerContextSize(server_ctx))
+            .await;
+    }
+}
+
+pub(super) fn spawn_startup_probes(client: ApiClient, bg_tx: mpsc::Sender<BackgroundEvent>) {
+    tokio::spawn(async move {
+        emit_startup_probe_events(client, bg_tx).await;
+    });
+}
+
+pub(super) fn spawn_context_probe(client: ApiClient, bg_tx: mpsc::Sender<BackgroundEvent>) {
+    tokio::spawn(async move {
+        if let Some(server_ctx) = client.fetch_server_context_size().await {
+            let _ = bg_tx
+                .send(BackgroundEvent::ServerContextSize(server_ctx))
+                .await;
+        }
+    });
+}
+
+fn spawn_runtime_reload(
+    client: ApiClient,
+    tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
+) {
+    tokio::spawn(async move {
+        let token_counter = TokenCounter::new(client.clone(), tokenizer_tx).await;
+        let _ = bg_tx
+            .send(BackgroundEvent::TokenizerReloaded(token_counter))
+            .await;
+        emit_startup_probe_events(client, bg_tx).await;
+    });
+}
+
+pub(super) fn apply_config(app: &mut App) {
+    let previous_connection =
+        EffectiveConnectionConfig::from_config(&app.config, &app.cli_overrides);
+    let runtime = load_runtime_reload_state(&app.cli_overrides);
+
+    app.instruct_preset = runtime.instruct_preset;
+    app.reasoning_preset = runtime.reasoning_preset;
+    app.stop_tokens = runtime.stop_tokens;
+    app.sampling = runtime.sampling;
+    app.summarization_enabled = runtime.summarization_enabled;
+    app.context_mgr.set_token_limit(runtime.local_context_limit);
+    app.theme = runtime.theme;
+    app.config = runtime.config;
     app.invalidate_worldbook_cache();
     app.invalidate_chat_cache();
+
+    if runtime.connection != previous_connection {
+        app.client = runtime.connection.build_client();
+        app.model_name = None;
+        app.api_available = true;
+        app.api_error.clear();
+        spawn_runtime_reload(
+            app.client.clone(),
+            app.tokenizer_tx.clone(),
+            app.bg_tx.clone(),
+        );
+    } else {
+        spawn_context_probe(app.client.clone(), app.bg_tx.clone());
+    }
 }
 
 pub fn build_theme_color_overrides(
@@ -699,6 +803,8 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::cli::CliOverrides;
     use libllm::config::Config;
     use libllm::session::Session;
 
@@ -776,5 +882,89 @@ mod tests {
 
         let names = enabled_worldbook_names(&session, &cfg);
         assert!(names.is_empty());
+    }
+
+    #[test]
+    fn runtime_reload_state_applies_summarization_and_connection_overrides() {
+        let dir = tempfile::TempDir::new().unwrap();
+        libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+
+        let cfg = libllm::config::Config {
+            api_url: Some("http://config.example/v1".to_owned()),
+            tls_skip_verify: false,
+            summarization: libllm::config::SummarizationConfig {
+                enabled: true,
+                api_url: None,
+                context_size: 4096,
+                trigger_threshold: 10,
+                prompt: "summarize".to_owned(),
+            },
+            ..libllm::config::Config::default()
+        };
+        libllm::config::save(&cfg).unwrap();
+
+        let cli_overrides = CliOverrides {
+            api_url: Some("http://override.example/v1".to_owned()),
+            template: None,
+            tls_skip_verify: true,
+            sampling: libllm::sampling::SamplingOverrides::default(),
+            system_prompt: None,
+            persona: None,
+            no_summarize: true,
+            auth_type: None,
+            auth_basic_username: None,
+            auth_basic_password: None,
+            auth_bearer_token: None,
+            auth_header_name: None,
+            auth_header_value: None,
+            auth_query_name: None,
+            auth_query_value: None,
+        };
+
+        let runtime = load_runtime_reload_state(&cli_overrides);
+
+        assert_eq!(runtime.connection.api_url, "http://override.example/v1");
+        assert!(runtime.connection.tls_skip_verify);
+        assert_eq!(runtime.local_context_limit, 4096);
+        assert!(!runtime.summarization_enabled);
+    }
+
+    #[test]
+    fn effective_connection_config_resolves_auth_overrides() {
+        let cfg = Config {
+            api_url: Some("http://config.example/v1".to_owned()),
+            auth: libllm::config::Auth::Bearer {
+                token: "config-token".to_owned(),
+            },
+            ..Config::default()
+        };
+        let cli_overrides = CliOverrides {
+            api_url: None,
+            template: None,
+            tls_skip_verify: false,
+            sampling: libllm::sampling::SamplingOverrides::default(),
+            system_prompt: None,
+            persona: None,
+            no_summarize: false,
+            auth_type: Some(libllm::config::AuthKind::Header),
+            auth_basic_username: None,
+            auth_basic_password: None,
+            auth_bearer_token: None,
+            auth_header_name: Some("X-Test-Auth".to_owned()),
+            auth_header_value: Some("override-value".to_owned()),
+            auth_query_name: None,
+            auth_query_value: None,
+        };
+
+        let connection = EffectiveConnectionConfig::from_config(&cfg, &cli_overrides);
+
+        assert_eq!(connection.api_url, "http://config.example/v1");
+        assert_eq!(
+            connection.auth,
+            libllm::config::Auth::Header {
+                name: "X-Test-Auth".to_owned(),
+                value: "override-value".to_owned(),
+            }
+        );
     }
 }

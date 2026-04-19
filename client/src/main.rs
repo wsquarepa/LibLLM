@@ -174,6 +174,10 @@ async fn main() -> Result<()> {
         .or(cfg.instruct_preset.as_deref())
         .unwrap_or("Mistral V3-Tekken");
     let instruct_preset = preset::resolve_instruct_preset(preset_name);
+    let reasoning_preset = cfg
+        .reasoning_preset
+        .as_deref()
+        .and_then(preset::resolve_reasoning_preset);
     let template_preset_name = cfg.template_preset.as_deref().unwrap_or("Default");
     let template_preset = preset::resolve_template_preset(template_preset_name);
 
@@ -249,7 +253,14 @@ async fn main() -> Result<()> {
         let user_node = session.tree.push(parent, Message::new(Role::User, text));
 
         let branch_path = session.tree.branch_path();
-        let prompt_text = instruct_preset.render(&branch_path, effective_prompt.as_deref());
+        let prompt_text = reasoning_preset.as_ref().map_or_else(
+            || instruct_preset.render(&branch_path, effective_prompt.as_deref()),
+            |preset| {
+                preset.apply_prefix(
+                    &instruct_preset.render(&branch_path, effective_prompt.as_deref()),
+                )
+            },
+        );
         let stop_tokens = instruct_preset.stop_tokens();
         let stop_refs: Vec<&str> = stop_tokens.iter().map(String::as_str).collect();
         let mut stdout = io::stdout().lock();
@@ -286,7 +297,12 @@ async fn main() -> Result<()> {
     .await?;
 
     let effective_passkey = resolved_passkey.as_deref().or(args.passkey.as_deref());
-    try_backup(&config::data_dir(), effective_passkey, &cfg.backup);
+    let current_config = config::load();
+    try_backup(
+        &config::data_dir(),
+        effective_passkey,
+        &current_config.backup,
+    );
 
     Ok(())
 }

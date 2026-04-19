@@ -7,7 +7,7 @@ use tui_textarea::TextArea;
 use crate::cli::CliOverrides;
 use libllm::client::ApiClient;
 use libllm::context::ContextManager;
-use libllm::preset::InstructPreset;
+use libllm::preset::{InstructPreset, ReasoningPreset};
 use libllm::sampling::SamplingParams;
 use libllm::session::{NodeId, SaveMode, Session, SessionEntry};
 use libllm::worldinfo::RuntimeWorldBook;
@@ -131,6 +131,7 @@ pub(super) enum BackgroundEvent {
     PasskeySetFailed(String),
     ModelFetched(std::result::Result<String, String>),
     ServerContextSize(usize),
+    TokenizerReloaded(libllm::tokenizer::TokenCounter),
     TokenCountReady(libllm::tokenizer::TokenCountUpdate),
 }
 
@@ -162,6 +163,7 @@ pub(super) struct App<'a> {
     pub(super) pending_save_deadline: Option<std::time::Instant>,
     pub(super) pending_save_trigger: Option<SaveTrigger>,
     pub(super) instruct_preset: InstructPreset,
+    pub(super) reasoning_preset: Option<ReasoningPreset>,
     pub(super) stop_tokens: Vec<String>,
     pub(super) sampling: SamplingParams,
     pub(super) context_mgr: ContextManager,
@@ -248,6 +250,7 @@ pub(super) struct App<'a> {
     pub(super) chat_content_cache: Option<render::ChatContentCache>,
     pub(super) cached_token_count: Option<libllm::tokenizer::CountState>,
     pub(super) token_counter: libllm::tokenizer::TokenCounter,
+    pub(super) tokenizer_tx: mpsc::Sender<libllm::tokenizer::TokenCountUpdate>,
     pub(super) sidebar_cache: Option<render::SidebarCache>,
     pub(super) raw_edit_node: Option<NodeId>,
     pub(super) edit_original_content: String,

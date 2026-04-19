@@ -33,10 +33,10 @@ pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;
 pub(in crate::tui) use mouse::handle_dialog_mouse_click;
 pub(in crate::tui) use paged_list::{
-    PagedListAction, PagedListContent, SearchState, filter_indices,
-    filtered_selection_position, handle_paged_list_key, list_dialog_rect, map_list_click,
-    page_size, paged_list_height, render_paged_list, render_paged_list_inline,
-    search_title_line, search_title_width, visible_selection,
+    PagedListAction, PagedListContent, SearchState, filter_indices, filtered_selection_position,
+    handle_paged_list_key, list_dialog_rect, map_list_click, page_size, paged_list_height,
+    render_paged_list, render_paged_list_inline, search_title_line, search_title_width,
+    visible_selection,
 };
 pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub use validation::FieldValidation;

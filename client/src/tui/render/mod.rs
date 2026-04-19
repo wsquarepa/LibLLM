@@ -222,6 +222,7 @@ pub fn render_chat(
     area: Rect,
     chat_scroll: &mut u16,
     branch_ids: &[NodeId],
+    token_count: usize,
     scroll_dirty: bool,
     cache: &mut Option<ChatContentCache>,
 ) -> u16 {
@@ -248,6 +249,7 @@ pub fn render_chat(
     } else {
         "Assistant".to_owned()
     };
+    let worldbook_count = super::business::enabled_worldbook_names(app.session, &app.config).len();
 
     let cache_valid = cache.as_ref().is_some_and(|c| {
         c.branch_ids == branch_ids
@@ -491,6 +493,15 @@ pub fn render_chat(
     let mut chat_block = Block::default()
         .borders(Borders::ALL)
         .title(" Chat ")
+        .title(
+            Line::from(Span::styled(
+                format!(" {assistant_label} "),
+                Style::default()
+                    .fg(app.theme.assistant_message_fg)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .right_aligned(),
+        )
         .border_style(border_style(chat_focused, &app.theme));
     if app.is_streaming {
         chat_block = chat_block.title_bottom(
@@ -515,6 +526,32 @@ pub fn render_chat(
     } else if chat_focused {
         chat_block = chat_block
             .title_bottom(Line::from(" Up/Down: navigate, Left/Right: branch ").centered());
+    } else {
+        let worldbook_label = format_count(worldbook_count, "worldbook");
+        let model_label =
+            truncate_with_ellipsis(app.model_name.as_deref().unwrap_or("connecting..."), 50);
+        let model_style = if app.api_available {
+            Style::default().fg(app.theme.status_bar_fg)
+        } else {
+            Style::default().fg(app.theme.api_unavailable)
+        };
+        let token_label = format_count(token_count, "token");
+
+        chat_block = chat_block
+            .title_bottom(Line::from(Span::styled(
+                format!(" {worldbook_label} "),
+                Style::default().fg(app.theme.dimmed),
+            )))
+            .title_bottom(
+                Line::from(Span::styled(format!(" {model_label} "), model_style)).centered(),
+            )
+            .title_bottom(
+                Line::from(Span::styled(
+                    format!(" {token_label} "),
+                    Style::default().fg(app.theme.dimmed),
+                ))
+                .right_aligned(),
+            );
     }
 
     let paragraph = Paragraph::new(Text::from(lines))
@@ -548,6 +585,32 @@ pub fn render_chat(
     }
 
     max_scroll
+}
+
+fn format_count(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+fn truncate_with_ellipsis(text: &str, max_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_chars {
+        return text.to_owned();
+    }
+    if max_chars <= 3 {
+        return text.chars().take(max_chars).collect();
+    }
+
+    let visible_chars = max_chars - 3;
+    let end = text
+        .char_indices()
+        .nth(visible_chars)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len());
+    format!("{}...", &text[..end])
 }
 
 fn queue_user_label(app: &App) -> String {
@@ -686,4 +749,38 @@ pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, ch
 
     f.render_widget(ratatui::widgets::Clear, picker_area);
     f.render_stateful_widget(list, picker_area, &mut state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_count_uses_singular_for_one() {
+        assert_eq!(format_count(1, "token"), "1 token");
+    }
+
+    #[test]
+    fn format_count_uses_plural_for_zero_and_many() {
+        assert_eq!(format_count(0, "worldbook"), "0 worldbooks");
+        assert_eq!(format_count(2, "worldbook"), "2 worldbooks");
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_leaves_short_text_unchanged() {
+        assert_eq!(truncate_with_ellipsis("model", 10), "model");
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_caps_long_text() {
+        assert_eq!(
+            truncate_with_ellipsis("abcdefghijklmnopqrstuvwxyz", 10),
+            "abcdefg..."
+        );
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_skips_suffix_for_tiny_limit() {
+        assert_eq!(truncate_with_ellipsis("abcdef", 3), "abc");
+    }
 }

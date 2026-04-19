@@ -33,7 +33,7 @@ use libllm::client::{ApiClient, StreamToken};
 use libllm::context::ContextManager;
 use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
-use libllm::session::{SaveMode, Session};
+use libllm::session::{Message, Role, SaveMode, Session};
 
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
@@ -412,10 +412,12 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
 
     let input_focused = app.focus == Focus::Input;
+    let input_token_count = estimate_input_tokens(app);
     let border = render::border_style(input_focused, &app.theme);
     let mut input_block = Block::default()
         .borders(Borders::ALL)
         .title(" Input ")
+        .title(Line::from(format!(" {} ", format_token_count(input_token_count))).right_aligned())
         .border_style(border);
     if input_focused {
         let hint = if app.nav_cursor.is_some() {
@@ -445,7 +447,13 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let mut cache = app.chat_content_cache.take();
     {
         let branch_ids = app.session.tree.current_branch_ids();
-        let branch_info = app.session.tree.current_deepest_branch_info();
+        let token_count = *app.cached_token_count.get_or_insert_with(|| {
+            ContextManager::estimate_tokens_for_messages(
+                branch_ids
+                    .iter()
+                    .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
+            )
+        });
         let msg_count = branch_ids.len();
         tracing::trace!(node_count = msg_count, "chat.branch");
         {
@@ -457,6 +465,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 messages_area,
                 &mut chat_scroll,
                 branch_ids,
+                token_count,
                 scroll_dirty,
                 &mut cache,
             );
@@ -465,17 +474,9 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             }
         }
 
-        let token_count = *app.cached_token_count.get_or_insert_with(|| {
-            ContextManager::estimate_tokens_for_messages(
-                branch_ids
-                    .iter()
-                    .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
-            )
-        });
-
         {
             let _span = tracing::trace_span!("status", phase = "bar").entered();
-            render::render_status_bar(f, app, status_area, branch_info, token_count);
+            render::render_status_bar(f, app, status_area);
         }
     }
     app.chat_content_cache = cache;
@@ -530,6 +531,59 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         elapsed_ms = format!("{frame_ms:.3}"),
         "frame"
     );
+}
+
+fn estimate_input_tokens(app: &App) -> usize {
+    let input = app.textarea.lines().join("\n");
+    estimate_input_tokens_from_text(&input)
+}
+
+fn estimate_input_tokens_from_text(input: &str) -> usize {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+
+    let message = Message {
+        role: Role::User,
+        content: trimmed.to_owned(),
+        timestamp: String::new(),
+    };
+    ContextManager::estimate_tokens_for_messages(std::iter::once(&message))
+}
+
+fn format_token_count(count: usize) -> String {
+    if count == 1 {
+        "1 token".to_owned()
+    } else {
+        format!("{count} tokens")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn estimate_input_tokens_from_text_returns_zero_for_blank_input() {
+        assert_eq!(estimate_input_tokens_from_text("   \n\t  "), 0);
+    }
+
+    #[test]
+    fn estimate_input_tokens_from_text_trims_outer_whitespace() {
+        assert_eq!(estimate_input_tokens_from_text("  abcd  "), 5);
+    }
+
+    #[test]
+    fn estimate_input_tokens_from_text_counts_multiline_content() {
+        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh"), 6);
+    }
+
+    #[test]
+    fn format_token_count_uses_singular_and_plural() {
+        assert_eq!(format_token_count(1), "1 token");
+        assert_eq!(format_token_count(2), "2 tokens");
+    }
 }
 
 fn render_dialog(f: &mut ratatui::Frame, app: &App) {

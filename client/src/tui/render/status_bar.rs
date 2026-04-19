@@ -1,4 +1,4 @@
-//! Status bar renderer showing model info, token count, and temporary notifications.
+//! Status bar renderer showing version info and temporary notifications.
 
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Style};
@@ -7,13 +7,7 @@ use ratatui::widgets::Paragraph;
 
 use super::App;
 
-pub fn render_status_bar(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-    branch_info: Option<(usize, usize)>,
-    token_count: usize,
-) {
+pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let bg_style = Style::default()
         .fg(app.theme.status_bar_fg)
         .bg(app.theme.status_bar_bg);
@@ -31,28 +25,7 @@ pub fn render_status_bar(
         return;
     }
 
-    let branch_text = match branch_info {
-        Some((idx, total)) => format!("Branch {}/{total}", idx + 1),
-        None => "Linear".to_owned(),
-    };
-
-    let worldbook_text = if app.session.character.is_some() {
-        let mut count = app.config.worldbooks.len();
-        for name in &app.session.worldbooks {
-            if !app.config.worldbooks.contains(name) {
-                count += 1;
-            }
-        }
-        format!(" | {count} worldbooks")
-    } else {
-        String::new()
-    };
-
-    let display_name = app.model_name.as_deref().unwrap_or("connecting...");
-    let left_text = format!(
-        " {} | {} | ~{} tokens | {}{}",
-        display_name, app.instruct_preset.name, token_count, branch_text, worldbook_text,
-    );
+    let left_text = format!(" {}", crate::version::STATUS_BAR);
 
     let left_style = if !app.api_available {
         Style::default()

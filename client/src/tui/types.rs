@@ -182,6 +182,7 @@ pub(super) struct App<'a> {
     pub(super) is_summarizing: bool,
     pub(super) summary_receiver: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
     pub(super) summary_branch_head: Option<NodeId>,
+    pub(super) summary_pending_dropped: Option<usize>,
     pub(super) summarization_enabled: bool,
     pub(super) model_name: Option<String>,
     pub(super) api_available: bool,

@@ -13,15 +13,15 @@ pub(super) use streaming::{handle_stream_token, start_streaming};
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
-use libllm::session::{self, Message, Role, SaveMode};
+use libllm::session::{self, Role, SaveMode};
 
 use super::business::{self, refresh_sidebar};
 use super::{App, Focus, StatusLevel, dialogs};
 
-pub(super) fn handle_slash_command(
+pub(super) async fn handle_slash_command(
     cmd: &str,
     arg: &str,
-    app: &mut App,
+    app: &mut App<'_>,
     sender: mpsc::Sender<StreamToken>,
 ) {
     let cmd = libllm::commands::resolve_alias(cmd);
@@ -29,8 +29,8 @@ pub(super) fn handle_slash_command(
     match cmd {
         "/quit" => cmd_quit(app),
         "/clear" => cmd_clear(app),
-        "/retry" => cmd_retry(app, sender),
-        "/continue" => cmd_continue(app, sender),
+        "/retry" => cmd_retry(app, sender).await,
+        "/continue" => cmd_continue(app, sender).await,
         "/system" => cmd_system(app),
         "/config" => cmd_config(app),
         "/branch" => cmd_branch(app),
@@ -40,7 +40,7 @@ pub(super) fn handle_slash_command(
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
         "/export" => export::cmd_export(app, arg),
-        "/macro" => cmd_macro(app, arg, sender),
+        "/macro" => cmd_macro(app, arg, sender).await,
         "/report" => cmd_report(app),
         _ => {
             tracing::debug!(cmd, result = "unknown", "tui.command");
@@ -74,7 +74,7 @@ fn cmd_clear(app: &mut App) {
     refresh_sidebar(app);
 }
 
-fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
+async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.nav_cursor = None;
     app.session.retreat_trailing_assistant();
 
@@ -89,7 +89,7 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     match last_user_content {
         Some(content) => {
             app.session.tree.retreat_head();
-            streaming::start_streaming(app, &content, sender);
+            streaming::start_streaming(app, &content, sender).await;
         }
         None => {
             app.set_status("No user message to retry.".to_owned(), StatusLevel::Warning);
@@ -97,7 +97,7 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     }
 }
 
-fn cmd_continue(app: &mut App, sender: mpsc::Sender<StreamToken>) {
+async fn cmd_continue(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.nav_cursor = None;
 
     let head_is_assistant = app
@@ -115,10 +115,10 @@ fn cmd_continue(app: &mut App, sender: mpsc::Sender<StreamToken>) {
         return;
     }
 
-    start_continuation(app, sender);
+    start_continuation(app, sender).await;
 }
 
-fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
+async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     if app.model_name.is_none() {
         app.set_status(
             "Connecting to API server...".to_owned(),
@@ -139,23 +139,27 @@ fn start_continuation(app: &mut App, sender: mpsc::Sender<StreamToken>) {
     app.streaming_buffer.clear();
     app.auto_scroll = true;
 
-    let worldbooks = streaming::loaded_worldbooks(app);
+    streaming::loaded_worldbooks(app);
+    let budget = app.context_mgr.token_limit();
     let branch_path = app.session.tree.branch_path();
-    let truncated = app.context_mgr.truncated_path(&branch_path);
-    let effective_prompt =
-        super::business::build_effective_system_prompt(app.session, app.db.as_ref());
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
-    let injected = super::business::inject_loaded_worldbook_entries(
-        app.session,
-        truncated,
-        user_name,
-        &worldbooks,
-    );
-    let injected = super::business::replace_template_vars(app.session, injected, user_name);
-    let injected_refs: Vec<&Message> = injected.iter().collect();
-    let prompt = app
-        .instruct_preset
-        .render_continuation(&injected_refs, effective_prompt.as_deref());
+    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+    let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+
+    let render = |k: usize| -> String { streaming::build_rendered_prompt_continuation(app, k) };
+
+    let dropped =
+        match streaming::find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
+            Ok(k) => k,
+            Err(err) => {
+                tracing::warn!(
+                    result = "fallback_heuristic",
+                    error = %err,
+                    "continue.truncate"
+                );
+                0
+            }
+        };
+    let prompt = streaming::build_rendered_prompt_continuation(app, dropped);
     let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();
 
@@ -375,7 +379,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
     }
 }
 
-fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
+async fn cmd_macro(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken>) {
     let arg = arg.trim();
     if arg.is_empty() {
         let names: Vec<&String> = app.config.macros.keys().collect();
@@ -422,7 +426,7 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
                 expanded_bytes = expanded.len(),
                 "tui.command.macro"
             );
-            streaming::start_streaming(app, &expanded, sender)
+            streaming::start_streaming(app, &expanded, sender).await
         }
         Err(err) => {
             tracing::warn!(name, result = "error", error = %err, "tui.command.macro");

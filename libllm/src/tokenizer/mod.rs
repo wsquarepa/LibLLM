@@ -101,6 +101,7 @@ const DEFAULT_CACHE_CAPACITY: usize = 512;
 
 /// Facade over `TokenizerBackend` that exposes a sync read API and an async refresh pipeline.
 /// Lives on `App`; cloned refs are cheap (all internals are `Arc`-wrapped).
+#[derive(Clone)]
 pub struct TokenCounter {
     backend: Arc<TokenizerBackend>,
     fallback: HeuristicTokenizer,

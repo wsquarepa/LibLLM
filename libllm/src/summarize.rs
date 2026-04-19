@@ -63,8 +63,7 @@ impl Summarizer {
 
         let render_at = |k: usize| -> String {
             let subset = crate::context::drop_oldest_non_summary(messages, k);
-            let refs: Vec<&Message> = subset.iter().copied().collect();
-            Self::format_prompt(instruction, &refs)
+            Self::format_prompt(instruction, &subset)
         };
 
         // Fast path: no shedding needed.
@@ -120,8 +119,7 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let refs: Vec<&Message> = trimmed.iter().copied().collect();
-        let prompt = Self::format_prompt(&self.prompt_instruction, &refs);
+        let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed);
         tracing::info!(
             phase = "prompt",
             prompt_bytes = prompt.len(),

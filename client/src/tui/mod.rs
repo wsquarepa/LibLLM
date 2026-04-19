@@ -33,7 +33,7 @@ use libllm::client::{ApiClient, StreamToken};
 use libllm::context::ContextManager;
 use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
-use libllm::session::{Message, Role, SaveMode, Session};
+use libllm::session::{SaveMode, Session};
 
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
@@ -135,6 +135,7 @@ pub async fn run(
         is_summarizing: false,
         summary_receiver: None,
         summary_branch_head: None,
+        summary_pending_dropped: None,
         summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
         model_name: None,
         api_available: true,
@@ -266,7 +267,7 @@ pub async fn run(
                 {
                     let _span = tracing::trace_span!("event", phase = "handle").entered();
                     if let Some(action) = events::handle_event(event, &mut app, bg_tx.clone()) {
-                        events::process_action(action, &mut app, token_tx.clone());
+                        events::process_action(action, &mut app, token_tx.clone()).await;
                     }
                 }
                 if is_mouse_move {
@@ -277,9 +278,10 @@ pub async fn run(
                 }
             }
             Some(stream_token) = token_rx.recv() => {
-                libllm::timed_result!(tracing::Level::TRACE, "stream", phase = "token" ; {
-                    commands::handle_stream_token(stream_token, &mut app, token_tx.clone())
-                })?;
+                use tracing::Instrument;
+                commands::handle_stream_token(stream_token, &mut app, token_tx.clone())
+                    .instrument(tracing::trace_span!("stream", phase = "token"))
+                    .await?;
                 needs_redraw = true;
             }
             Some(bg_event) = bg_rx.recv() => {
@@ -306,11 +308,11 @@ pub async fn run(
 
                         if current_head == expected_head
                             && let Ok(summary_text) = result {
-                                let branch_path = app.session.tree.branch_path();
-                                let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-                                let dropped = app.context_mgr.dropped_message_count(&summary_aware);
+                                let dropped = app.summary_pending_dropped.take().unwrap_or(0);
 
                                 if dropped > 0 {
+                                    let branch_path = app.session.tree.branch_path();
+                                    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                                     let branch_ids = app.session.tree.branch_path_ids();
                                     let summary_boundary = branch_ids.len() - summary_aware.len();
                                     let insert_idx = summary_boundary + dropped - 1;
@@ -333,7 +335,7 @@ pub async fn run(
                             app.is_summarizing = false;
                             if !app.message_queue.is_empty() {
                                 let next = app.message_queue.remove(0);
-                                commands::start_streaming(&mut app, &next, token_tx.clone());
+                                commands::start_streaming(&mut app, &next, token_tx.clone()).await;
                                 if !app.is_streaming {
                                     app.message_queue.clear();
                                 }
@@ -466,13 +468,20 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let mut cache = app.chat_content_cache.take();
     {
         let branch_ids = app.session.tree.current_branch_ids();
-        let token_count = *app.cached_token_count.get_or_insert_with(|| {
-            ContextManager::estimate_tokens_for_messages(
-                branch_ids
-                    .iter()
-                    .filter_map(|&id| app.session.tree.node(id).map(|node| &node.message)),
-            )
-        });
+        let state = match app.cached_token_count {
+            Some(state) => state,
+            None => {
+                let text = commands::streaming::build_rendered_prompt(app, 0);
+                let state = app.token_counter.count_cached(&text);
+                app.cached_token_count = Some(state);
+                state
+            }
+        };
+        let token_count = match state {
+            libllm::tokenizer::CountState::Authoritative(n)
+            | libllm::tokenizer::CountState::Stale(n)
+            | libllm::tokenizer::CountState::Estimated(n) => n,
+        };
         let msg_count = branch_ids.len();
         tracing::trace!(node_count = msg_count, "chat.branch");
         {
@@ -556,21 +565,19 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
 
 fn estimate_input_tokens(app: &App) -> usize {
     let input = app.textarea.lines().join("\n");
-    estimate_input_tokens_from_text(&input)
+    estimate_input_tokens_from_text(&input, &app.token_counter)
 }
 
-fn estimate_input_tokens_from_text(input: &str) -> usize {
+fn estimate_input_tokens_from_text(
+    input: &str,
+    token_counter: &libllm::tokenizer::TokenCounter,
+) -> usize {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return 0;
     }
 
-    let message = Message {
-        role: Role::User,
-        content: trimmed.to_owned(),
-        timestamp: String::new(),
-    };
-    ContextManager::estimate_tokens_for_messages(std::iter::once(&message))
+    token_counter.heuristic_count(trimmed)
 }
 
 fn format_token_count(count: usize) -> String {
@@ -716,19 +723,32 @@ fn render_base_theme_picker(f: &mut ratatui::Frame, app: &App, area: ratatui::la
 mod tests {
     use super::*;
 
+    fn heuristic_counter() -> libllm::tokenizer::TokenCounter {
+        let (tx, _rx) = mpsc::channel(8);
+        libllm::tokenizer::TokenCounter::new_with_backend(
+            libllm::tokenizer::TokenizerBackend::Heuristic(
+                libllm::tokenizer::HeuristicTokenizer::standard(),
+            ),
+            tx,
+        )
+    }
+
     #[test]
     fn estimate_input_tokens_from_text_returns_zero_for_blank_input() {
-        assert_eq!(estimate_input_tokens_from_text("   \n\t  "), 0);
+        let counter = heuristic_counter();
+        assert_eq!(estimate_input_tokens_from_text("   \n\t  ", &counter), 0);
     }
 
     #[test]
     fn estimate_input_tokens_from_text_trims_outer_whitespace() {
-        assert_eq!(estimate_input_tokens_from_text("  abcd  "), 5);
+        let counter = heuristic_counter();
+        assert_eq!(estimate_input_tokens_from_text("  abcd  ", &counter), 5);
     }
 
     #[test]
     fn estimate_input_tokens_from_text_counts_multiline_content() {
-        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh"), 6);
+        let counter = heuristic_counter();
+        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh", &counter), 6);
     }
 
     #[test]

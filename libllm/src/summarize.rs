@@ -7,6 +7,10 @@ use crate::sampling::SamplingParams;
 use crate::session::{Message, Role};
 use anyhow::Result;
 
+/// Stop tokens that terminate summary generation when the model starts hallucinating
+/// additional roleplay turns that mimic the conversation block's `User:`/`Assistant:` labels.
+const SUMMARY_STOP_TOKENS: &[&str] = &["\nUser:", "\nAssistant:", "\nSystem:"];
+
 /// Formats messages into a summarization prompt and calls the LLM for a non-streaming summary.
 pub struct Summarizer {
     client: ApiClient,
@@ -22,10 +26,15 @@ impl Summarizer {
     }
 
     /// Formats messages into a summarization prompt.
+    ///
+    /// The conversation is rendered first inside a delimited block, then the instruction,
+    /// ending with a `Summary:` cue. This ordering is load-bearing: if the instruction
+    /// precedes the conversation, the model treats the trailing `Assistant:` line as an
+    /// ongoing turn and continues the roleplay instead of summarizing.
+    ///
     /// Excludes any `Role::Summary` messages from the input (no recursive summarization).
     pub fn format_prompt(instruction: &str, messages: &[&Message]) -> String {
-        let mut prompt = String::from(instruction);
-        prompt.push_str("\n\n");
+        let mut prompt = String::from("--- CONVERSATION ---\n");
         for msg in messages {
             let label = match msg.role {
                 Role::User => "User",
@@ -38,6 +47,9 @@ impl Summarizer {
             prompt.push_str(&msg.content);
             prompt.push('\n');
         }
+        prompt.push_str("--- END CONVERSATION ---\n\n");
+        prompt.push_str(instruction);
+        prompt.push_str("\n\nSummary:");
         prompt
     }
 
@@ -129,7 +141,10 @@ impl Summarizer {
             ..SamplingParams::default()
         };
 
-        let result = self.client.complete(&prompt, &[], &sampling).await;
+        let result = self
+            .client
+            .complete(&prompt, SUMMARY_STOP_TOKENS, &sampling)
+            .await;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         match &result {
             Ok(summary) => tracing::info!(
@@ -168,6 +183,20 @@ mod tests {
         assert!(prompt.contains("User: Hello"));
         assert!(prompt.contains("Assistant: Hi there!"));
         assert!(prompt.contains("User: How are you?"));
+        assert!(prompt.ends_with("\n\nSummary:"));
+    }
+
+    #[test]
+    fn format_prompt_places_conversation_before_instruction() {
+        let msgs = [Message::new(Role::User, "Hi".to_owned())];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let prompt = Summarizer::format_prompt("DO_SUMMARIZE", &refs);
+        let conversation_idx = prompt.find("User: Hi").expect("conversation body");
+        let instruction_idx = prompt.find("DO_SUMMARIZE").expect("instruction");
+        assert!(
+            conversation_idx < instruction_idx,
+            "conversation must precede instruction, got prompt: {prompt:?}"
+        );
     }
 
     #[test]

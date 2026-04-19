@@ -271,6 +271,7 @@ pub(super) struct App<'a> {
     pub(super) autosave_debug: AutosaveDebugState,
     pub(super) unlock_debug: Option<UnlockDebugState>,
     pub(super) input_reject_flash: Option<std::time::Instant>,
+    pub(super) last_terminal_height: u16,
 }
 
 pub(super) const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);

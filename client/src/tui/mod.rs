@@ -216,6 +216,7 @@ pub async fn run(
         },
         unlock_debug: None,
         input_reject_flash: None,
+        last_terminal_height: 0,
     };
 
     business::load_active_persona(&mut app);
@@ -371,6 +372,7 @@ pub async fn run(
 }
 
 fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
+    app.last_terminal_height = f.area().height;
     let _frame_start = std::time::Instant::now();
 
     let (outer, columns, right_split) = {

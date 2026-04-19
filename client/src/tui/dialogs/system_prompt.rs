@@ -2,49 +2,39 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::Paragraph;
+use ratatui::text::Line;
+use ratatui::widgets::ListItem;
 
-use super::{clear_centered, dialog_block, render_hints_below_dialog};
+use super::{clear_centered, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.system_prompt_list.len();
-    let dialog = clear_centered(
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
+
+    let items: Vec<ListItem<'_>> = app
+        .system_prompt_list
+        .iter()
+        .map(|name| ListItem::new(name.clone()))
+        .collect();
+
+    super::render_paged_list(
         f,
-        super::LIST_DIALOG_WIDTH,
-        count as u16 + super::LIST_DIALOG_TALL_PADDING,
-        area,
+        dialog,
+        app.system_prompt_selected,
+        items,
+        " System Prompts ",
+        &app.theme,
     );
-
-    let mut lines: Vec<Line> = vec![Line::from("")];
-
-    for (i, name) in app.system_prompt_list.iter().enumerate() {
-        let is_selected = i == app.system_prompt_selected;
-        let marker = if is_selected { "> " } else { "  " };
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::from(Span::styled(format!("{marker}{name}"), style)));
-    }
-
-    let paragraph =
-        Paragraph::new(Text::from(lines)).block(dialog_block(" System Prompts ", Color::Yellow));
-
-    f.render_widget(paragraph, dialog);
 
     render_hints_below_dialog(
         f,
         dialog,
         area,
         &[
-            Line::from("Up/Down: navigate  Enter: select  Right: edit"),
-            Line::from("a: add new  Del: delete  Esc: cancel"),
+            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
+            Line::from("Enter: select  Right: edit  a: add  Del: delete  Esc: cancel"),
             Line::from("Drop .txt to import"),
         ],
     );
@@ -61,16 +51,18 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
         return None;
     }
 
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
+    if super::handle_paged_list_key(
+        &mut app.system_prompt_selected,
+        app.system_prompt_list.len(),
+        visible,
+        key,
+    ) == super::PagedListAction::Consumed
+    {
+        return None;
+    }
+
     match key.code {
-        KeyCode::Up => {
-            super::move_selection_up(&mut app.system_prompt_selected);
-        }
-        KeyCode::Down => {
-            super::move_selection_down(
-                &mut app.system_prompt_selected,
-                app.system_prompt_list.len(),
-            );
-        }
         KeyCode::Enter => {
             let name = app.system_prompt_list[app.system_prompt_selected].clone();
             let content = app.db.as_ref().and_then(|db| db.load_prompt(&name).ok()).map(|p| p.content);

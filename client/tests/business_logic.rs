@@ -269,3 +269,42 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
     let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
     assert_eq!(result.len(), messages.len());
 }
+
+// ---------------------------------------------------------------------------
+// Side-character splitting
+// ---------------------------------------------------------------------------
+
+#[test]
+fn side_character_split_chains_three_user_nodes() {
+    use libllm::session::{Message, MessageTree, Role};
+
+    let raw = "User voice.\n\n[Alice]: hi.\n\n[Bob]: hello.";
+    let segments = libllm::side_character::split_user_input(raw);
+    assert_eq!(segments.len(), 3);
+
+    let mut tree = MessageTree::new();
+    let mut parent: Option<libllm::session::NodeId> = None;
+    for seg in &segments {
+        let id = tree.push(parent, Message::new(Role::User, seg.clone()));
+        parent = Some(id);
+    }
+
+    let ids = tree.current_branch_ids().to_vec();
+    assert_eq!(ids.len(), 3);
+    assert_eq!(
+        tree.node(ids[0]).unwrap().message.content,
+        "User voice."
+    );
+    assert_eq!(
+        tree.node(ids[1]).unwrap().message.content,
+        "[Alice]: hi."
+    );
+    assert_eq!(
+        tree.node(ids[2]).unwrap().message.content,
+        "[Bob]: hello."
+    );
+    for id in &ids {
+        assert_eq!(tree.node(*id).unwrap().message.role, Role::User);
+    }
+    assert_eq!(tree.head(), Some(ids[2]));
+}

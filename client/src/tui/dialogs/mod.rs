@@ -30,9 +30,8 @@ pub(in crate::tui) use builders::{
     DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
     LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
 };
-#[expect(unused_imports, reason = "callers added in follow-up commits; remove when first caller lands")]
 pub(in crate::tui) use paged_list::{
-    PagedListAction, handle_paged_list_key, paged_list_height, render_paged_list,
+    PagedListAction, handle_paged_list_key, page_size, paged_list_height, render_paged_list,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;

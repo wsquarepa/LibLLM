@@ -37,7 +37,6 @@ pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) ->
     start..start + visible
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands"))]
 pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chrome: u16) -> u16 {
     let cap = (terminal_height as f32 * 0.7) as u16;
     let content_sized = (items as u16).saturating_add(chrome);
@@ -51,7 +50,13 @@ pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chro
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands"))]
+pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16) -> usize {
+    terminal_height
+        .saturating_sub(chrome)
+        .saturating_sub(3)
+        .max(1) as usize
+}
+
 pub(in crate::tui) fn handle_paged_list_key(
     selected: &mut usize,
     total: usize,
@@ -88,7 +93,6 @@ pub(in crate::tui) fn handle_paged_list_key(
     }
 }
 
-#[expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands")]
 pub(in crate::tui) fn render_paged_list(
     f: &mut Frame,
     area: Rect,
@@ -341,5 +345,21 @@ mod tests {
     #[test]
     fn title_counter_clamps_when_selected_out_of_bounds() {
         assert_eq!(format_title(" Personas ", 42, 99, 10), " Personas [ 42 of 42 ] ");
+    }
+
+    #[test]
+    fn page_size_normal_terminal() {
+        assert_eq!(page_size(100, 4), 93);
+    }
+
+    #[test]
+    fn page_size_floors_at_one_for_tiny_terminal() {
+        assert_eq!(page_size(5, 4), 1);
+        assert_eq!(page_size(0, 4), 1);
+    }
+
+    #[test]
+    fn page_size_branch_chrome() {
+        assert_eq!(page_size(50, 3), 44);
     }
 }

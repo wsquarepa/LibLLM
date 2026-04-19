@@ -282,32 +282,33 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Enter => {
             if let Some(node_id) = app.nav_cursor
-                && let Some(node) = app.session.tree.node(node_id) {
-                    let branch_ids = app.session.tree.branch_path_ids();
-                    let node_idx = branch_ids.iter().position(|&id| id == node_id);
-                    let has_later_summary = node_idx.is_some_and(|idx| {
-                        branch_ids[idx + 1..].iter().any(|&id| {
-                            app.session
-                                .tree
-                                .node(id)
-                                .map(|n| n.message.role == Role::Summary)
-                                .unwrap_or(false)
-                        })
-                    });
+                && let Some(node) = app.session.tree.node(node_id)
+            {
+                let branch_ids = app.session.tree.branch_path_ids();
+                let node_idx = branch_ids.iter().position(|&id| id == node_id);
+                let has_later_summary = node_idx.is_some_and(|idx| {
+                    branch_ids[idx + 1..].iter().any(|&id| {
+                        app.session
+                            .tree
+                            .node(id)
+                            .map(|n| n.message.role == Role::Summary)
+                            .unwrap_or(false)
+                    })
+                });
 
-                    if has_later_summary && node.message.role != Role::Summary {
-                        app.set_status(
-                            "Cannot edit before a summary. Branch from this message instead."
-                                .to_owned(),
-                            StatusLevel::Warning,
-                        );
-                    } else {
-                        let content = node.message.content.clone();
-                        app.raw_edit_node = Some(node_id);
-                        super::dialog_handler::open_edit_dialog_with(app, &content);
-                        app.focus = super::Focus::EditDialog;
-                    }
+                if has_later_summary && node.message.role != Role::Summary {
+                    app.set_status(
+                        "Cannot edit before a summary. Branch from this message instead."
+                            .to_owned(),
+                        StatusLevel::Warning,
+                    );
+                } else {
+                    let content = node.message.content.clone();
+                    app.raw_edit_node = Some(node_id);
+                    super::dialog_handler::open_edit_dialog_with(app, &content);
+                    app.focus = super::Focus::EditDialog;
                 }
+            }
             None
         }
         _ => None,
@@ -387,7 +388,11 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             let last = visible_indices.len() - 1;
             let new_pos = match key.code {
                 KeyCode::Up => {
-                    if current_pos == 0 { last } else { current_pos - 1 }
+                    if current_pos == 0 {
+                        last
+                    } else {
+                        current_pos - 1
+                    }
                 }
                 KeyCode::Down => (current_pos + 1) % visible_indices.len(),
                 _ => current_pos,
@@ -439,7 +444,9 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         let new_id = session::generate_session_id();
         app.save_mode.set_id(new_id);
     } else {
-        let load_result = app.db.as_ref()
+        let load_result = app
+            .db
+            .as_ref()
             .map(|db| db.load_session(&session_id))
             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
         match load_result {

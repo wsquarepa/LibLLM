@@ -171,13 +171,14 @@ fn delete_selected_session(app: &mut App) {
     let is_current = app.save_mode.id() == Some(session_id.as_str());
 
     if let Some(ref db) = app.db
-        && let Err(e) = db.delete_session(&session_id) {
-            app.set_status(
-                format!("Error deleting: {e}"),
-                super::super::StatusLevel::Error,
-            );
-            return;
-        }
+        && let Err(e) = db.delete_session(&session_id)
+    {
+        app.set_status(
+            format!("Error deleting: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
 
     if is_current {
         app.discard_pending_session_save();
@@ -201,13 +202,14 @@ fn delete_selected_session(app: &mut App) {
 
 fn delete_character(app: &mut App, slug: &str) {
     if let Some(ref db) = app.db
-        && let Err(e) = db.delete_character(slug) {
-            app.set_status(
-                format!("Error deleting character: {e}"),
-                super::super::StatusLevel::Error,
-            );
-            return;
-        }
+        && let Err(e) = db.delete_character(slug)
+    {
+        app.set_status(
+            format!("Error deleting character: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
 
     maintenance::reload_character_picker(app);
     app.set_status(
@@ -218,13 +220,14 @@ fn delete_character(app: &mut App, slug: &str) {
 
 fn delete_persona(app: &mut App, slug: &str) {
     if let Some(ref db) = app.db
-        && let Err(e) = db.delete_persona(slug) {
-            app.set_status(
-                format!("Error deleting persona: {e}"),
-                super::super::StatusLevel::Error,
-            );
-            return;
-        }
+        && let Err(e) = db.delete_persona(slug)
+    {
+        app.set_status(
+            format!("Error deleting persona: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
 
     if app.session.persona.as_deref() == Some(slug) {
         app.active_persona_name = None;
@@ -243,13 +246,14 @@ fn delete_persona(app: &mut App, slug: &str) {
 fn delete_system_prompt(app: &mut App, name: &str) {
     let slug = libllm::character::slugify(name);
     if let Some(ref db) = app.db
-        && let Err(e) = db.delete_prompt(&slug) {
-            app.set_status(
-                format!("Error deleting prompt: {e}"),
-                super::super::StatusLevel::Error,
-            );
-            return;
-        }
+        && let Err(e) = db.delete_prompt(&slug)
+    {
+        app.set_status(
+            format!("Error deleting prompt: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
 
     maintenance::reload_system_prompt_picker(app);
     app.set_status(
@@ -261,13 +265,14 @@ fn delete_system_prompt(app: &mut App, name: &str) {
 fn delete_worldbook(app: &mut App, name: &str) {
     let slug = libllm::character::slugify(name);
     if let Some(ref db) = app.db
-        && let Err(e) = db.delete_worldbook(&slug) {
-            app.set_status(
-                format!("Error deleting worldbook: {e}"),
-                super::super::StatusLevel::Error,
-            );
-            return;
-        }
+        && let Err(e) = db.delete_worldbook(&slug)
+    {
+        app.set_status(
+            format!("Error deleting worldbook: {e}"),
+            super::super::StatusLevel::Error,
+        );
+        return;
+    }
 
     app.config.worldbooks.retain(|n| n != name);
     app.session.worldbooks.retain(|n| n != name);

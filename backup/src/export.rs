@@ -17,10 +17,7 @@ pub fn export_plaintext_db(db_path: &Path, key: Option<&DerivedKey>) -> Result<V
     let src = rusqlite::Connection::open(db_path)?;
 
     if let Some(derived_key) = key {
-        let pragma = Zeroizing::new(format!(
-            "PRAGMA key = \"x'{}'\";",
-            &*derived_key.hex()
-        ));
+        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", &*derived_key.hex()));
         src.execute_batch(&pragma)?;
         src.query_row("SELECT count(*) FROM sqlite_master;", [], |_| Ok(()))?;
     }
@@ -60,17 +57,22 @@ mod tests {
     fn create_simple_db(dir: &TempDir) -> std::path::PathBuf {
         let db_path = dir.path().join("test.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);").unwrap();
-        conn.execute_batch("INSERT INTO items (name) VALUES ('hello');").unwrap();
+        conn.execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);")
+            .unwrap();
+        conn.execute_batch("INSERT INTO items (name) VALUES ('hello');")
+            .unwrap();
         db_path
     }
 
     fn create_encrypted_db(dir: &TempDir, key: &DerivedKey) -> std::path::PathBuf {
         let db_path = dir.path().join("encrypted.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", &*key.hex())).unwrap();
-        conn.execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);").unwrap();
-        conn.execute_batch("INSERT INTO items (name) VALUES ('secret');").unwrap();
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", &*key.hex()))
+            .unwrap();
+        conn.execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);")
+            .unwrap();
+        conn.execute_batch("INSERT INTO items (name) VALUES ('secret');")
+            .unwrap();
         db_path
     }
 

@@ -137,11 +137,9 @@ mod tests {
         run_migrations(&conn).unwrap();
 
         let version: i64 = conn
-            .query_row(
-                "SELECT MAX(version) FROM schema_version",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(version, super::CURRENT_VERSION);
     }

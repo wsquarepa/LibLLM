@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use std::process::Command;
@@ -299,7 +302,10 @@ fn import_rejects_oversized_persona_file() {
         ])
         .output()
         .expect("spawn client");
-    assert!(!output.status.success(), "expected non-zero exit for oversized file");
+    assert!(
+        !output.status.success(),
+        "expected non-zero exit for oversized file"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("too large") || stderr.contains("limit"),

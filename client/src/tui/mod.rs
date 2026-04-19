@@ -77,7 +77,9 @@ pub async fn run(
             let result = client.fetch_model_name().await;
             let _ = tx.send(BackgroundEvent::ModelFetched(result)).await;
             if let Some(server_ctx) = client.fetch_server_context_size().await {
-                let _ = tx.send(BackgroundEvent::ServerContextSize(server_ctx)).await;
+                let _ = tx
+                    .send(BackgroundEvent::ServerContextSize(server_ctx))
+                    .await;
             }
         });
     }
@@ -85,8 +87,7 @@ pub async fn run(
     let config = libllm::config::load();
 
     let salt_exists = libllm::config::salt_path().exists();
-    let initial_passkey_setup =
-        save_mode.needs_passkey() && !salt_exists;
+    let initial_passkey_setup = save_mode.needs_passkey() && !salt_exists;
 
     let mut app = App {
         client,
@@ -234,7 +235,6 @@ pub async fn run(
     let mut terminal = Terminal::new(backend)?;
 
     let mut event_stream = EventStream::new();
-
 
     let mut frame_tick = tokio::time::interval(STREAM_REDRAW_INTERVAL);
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -449,7 +449,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         let msg_count = branch_ids.len();
         tracing::trace!(node_count = msg_count, "chat.branch");
         {
-            let _span = tracing::trace_span!("chat", message_count = msg_count, scroll_dirty).entered();
+            let _span =
+                tracing::trace_span!("chat", message_count = msg_count, scroll_dirty).entered();
             max_scroll = render::render_chat(
                 f,
                 app,
@@ -524,7 +525,11 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
 
     let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
-    tracing::trace!(phase = "frame", elapsed_ms = format!("{frame_ms:.3}"), "frame");
+    tracing::trace!(
+        phase = "frame",
+        elapsed_ms = format!("{frame_ms:.3}"),
+        "frame"
+    );
 }
 
 fn render_dialog(f: &mut ratatui::Frame, app: &App) {
@@ -623,11 +628,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
     }
 }
 
-fn render_base_theme_picker(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: ratatui::layout::Rect,
-) {
+fn render_base_theme_picker(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
     let names = &app.base_theme_picker_names;
     let count = names.len();
     let dialog = render::clear_centered(
@@ -661,4 +662,3 @@ fn render_base_theme_picker(
         &[Line::from("Up/Down: navigate  Enter: select  Esc: cancel")],
     );
 }
-

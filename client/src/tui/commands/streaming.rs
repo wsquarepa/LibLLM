@@ -11,7 +11,9 @@ use crate::tui::types::{SaveTrigger, StatusLevel, WorldbookCache};
 
 use super::App;
 
-pub(in crate::tui::commands) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
+pub(in crate::tui::commands) fn loaded_worldbooks(
+    app: &mut App,
+) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
     let enabled_names = business::enabled_worldbook_names(app.session, &app.config);
     let cache_stale = app
         .worldbook_cache
@@ -20,7 +22,13 @@ pub(in crate::tui::commands) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::
 
     if cache_stale {
         let books = {
-            let _span = tracing::debug_span!("worldbook.runtime", phase = "load", cache = "miss", enabled_count = enabled_names.len()).entered();
+            let _span = tracing::debug_span!(
+                "worldbook.runtime",
+                phase = "load",
+                cache = "miss",
+                enabled_count = enabled_names.len()
+            )
+            .entered();
             business::load_runtime_worldbooks(&enabled_names, app.db.as_ref())
         };
         app.worldbook_cache = Some(WorldbookCache {
@@ -28,17 +36,31 @@ pub(in crate::tui::commands) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::
             books,
         });
     } else if let Some(cache) = app.worldbook_cache.as_ref() {
-        tracing::debug!(phase = "load", cache = "hit", enabled_count = enabled_names.len(), book_count = cache.books.len(), "worldbook.runtime");
+        tracing::debug!(
+            phase = "load",
+            cache = "hit",
+            enabled_count = enabled_names.len(),
+            book_count = cache.books.len(),
+            "worldbook.runtime"
+        );
     }
 
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc::Sender<StreamToken>) {
+pub(in crate::tui) fn start_streaming(
+    app: &mut App,
+    content: &str,
+    sender: mpsc::Sender<StreamToken>,
+) {
     if app.summary_receiver.is_some() {
         app.is_summarizing = true;
         app.message_queue.push(content.to_owned());
-        tracing::debug!(phase = "queued_for_summary", queue_len = app.message_queue.len(), "stream.start");
+        tracing::debug!(
+            phase = "queued_for_summary",
+            queue_len = app.message_queue.len(),
+            "stream.start"
+        );
         return;
     }
     if app.model_name.is_none() {
@@ -50,7 +72,11 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
         return;
     }
     if !app.api_available {
-        tracing::debug!(phase = "blocked", reason = "api_unavailable", "stream.start");
+        tracing::debug!(
+            phase = "blocked",
+            reason = "api_unavailable",
+            "stream.start"
+        );
         app.set_status(
             "Cannot send: API server is not available".to_owned(),
             StatusLevel::Error,
@@ -76,12 +102,8 @@ pub(in crate::tui) fn start_streaming(app: &mut App, content: &str, sender: mpsc
     let truncated = app.context_mgr.truncated_path(&context_messages);
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
-    let injected = business::inject_loaded_worldbook_entries(
-        app.session,
-        truncated,
-        user_name,
-        &worldbooks,
-    );
+    let injected =
+        business::inject_loaded_worldbook_entries(app.session, truncated, user_name, &worldbooks);
     let injected = business::replace_template_vars(app.session, injected, user_name);
     let injected_refs: Vec<&Message> = injected.iter().collect();
     let prompt = app
@@ -140,7 +162,13 @@ pub(in crate::tui) fn handle_stream_token(
                     .tree
                     .push(Some(head), Message::new(Role::Assistant, full_response));
             }
-            tracing::info!(result = "ok", bytes = response_bytes, is_continuation, node_id = head, "stream.done");
+            tracing::info!(
+                result = "ok",
+                bytes = response_bytes,
+                is_continuation,
+                node_id = head,
+                "stream.done"
+            );
             app.mark_session_dirty(SaveTrigger::StreamDone, true);
             app.invalidate_chat_cache();
             app.streaming_buffer.clear();
@@ -178,7 +206,10 @@ pub(in crate::tui) fn handle_stream_token(
                             .api_url
                             .as_deref()
                             .unwrap_or(app.client.base_url());
-                        let summarizer_auth = libllm::config::resolve_auth(&app.config, &app.cli_overrides.auth_overrides());
+                        let summarizer_auth = libllm::config::resolve_auth(
+                            &app.config,
+                            &app.cli_overrides.auth_overrides(),
+                        );
                         let summarizer_client = libllm::client::ApiClient::new(
                             summarize_api_url,
                             app.config.tls_skip_verify || app.cli_overrides.tls_skip_verify,

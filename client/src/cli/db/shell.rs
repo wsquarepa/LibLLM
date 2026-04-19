@@ -16,9 +16,9 @@ use libllm::db::{Database, QueryRows};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
+use super::DbContext;
 use super::format::{Format, RowFormatter};
 use super::parser::{is_statement_complete, touches_query_only_pragma};
-use super::DbContext;
 
 const PROMPT_PRIMARY: &str = "libllm> ";
 const PROMPT_CONTINUE: &str = "   ...> ";
@@ -54,7 +54,11 @@ pub fn run(ctx: &DbContext, write: bool, private: bool) -> Result<()> {
         format: Format::Table,
         show_headers: true,
         timer: false,
-        history_path: if private { None } else { Some(ctx.data_dir.join(".db_shell_history")) },
+        history_path: if private {
+            None
+        } else {
+            Some(ctx.data_dir.join(".db_shell_history"))
+        },
     };
 
     let mut editor = DefaultEditor::new().context("failed to create line editor")?;
@@ -76,10 +80,8 @@ pub fn run(ctx: &DbContext, write: bool, private: bool) -> Result<()> {
         match editor.readline(prompt) {
             Ok(line) => {
                 if buffer.is_empty() {
-                    buffer_first_line_starts_with_space = line
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c == ' ' || c == '\t');
+                    buffer_first_line_starts_with_space =
+                        line.chars().next().is_some_and(|c| c == ' ' || c == '\t');
                     let trimmed = line.trim_start();
                     if trimmed.starts_with('.') {
                         match handle_dot_command(&mut state, trimmed) {
@@ -135,9 +137,9 @@ fn handle_dot_command(state: &mut ShellState, line: &str) -> Result<DotCommandOu
         }
         ".quit" | ".exit" => Ok(DotCommandOutcome::Quit),
         ".tables" => {
-            let rows = state.db.execute_query(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
-            )?;
+            let rows = state
+                .db
+                .execute_query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")?;
             print_rows(state, &rows);
             Ok(DotCommandOutcome::Continue)
         }
@@ -159,8 +161,8 @@ fn handle_dot_command(state: &mut ShellState, line: &str) -> Result<DotCommandOu
         }
         ".read" => {
             let path = arg.context(".read requires a file path")?;
-            let contents = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {path}"))?;
+            let contents =
+                std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
             let mut buffer = String::new();
             for raw_line in contents.lines() {
                 if !buffer.is_empty() {
@@ -195,8 +197,9 @@ fn handle_dot_command(state: &mut ShellState, line: &str) -> Result<DotCommandOu
         }
         ".mode" => {
             let value = arg.context(".mode requires a format name")?;
-            let format = Format::parse(value)
-                .with_context(|| format!("unknown mode: {value} (expected: table, pipe, csv, json)"))?;
+            let format = Format::parse(value).with_context(|| {
+                format!("unknown mode: {value} (expected: table, pipe, csv, json)")
+            })?;
             state.format = format;
             Ok(DotCommandOutcome::Continue)
         }

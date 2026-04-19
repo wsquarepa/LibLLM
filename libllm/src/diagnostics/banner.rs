@@ -57,13 +57,24 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
             ctx.system.kernel
         ),
     );
-    write_row(&mut out, "Arch", &format!("{} ({})", ctx.system.arch, ctx.system.family));
+    write_row(
+        &mut out,
+        "Arch",
+        &format!("{} ({})", ctx.system.arch, ctx.system.family),
+    );
     write_row(
         &mut out,
         "CPU",
-        &format!("{} ({} logical cores)", ctx.system.cpu_brand, ctx.system.logical_cpus),
+        &format!(
+            "{} ({} logical cores)",
+            ctx.system.cpu_brand, ctx.system.logical_cpus
+        ),
     );
-    write_row(&mut out, "Memory", &format_memory(ctx.system.total_memory_bytes));
+    write_row(
+        &mut out,
+        "Memory",
+        &format_memory(ctx.system.total_memory_bytes),
+    );
 
     writeln!(&mut out, "{}", subborder).unwrap();
     write_row(&mut out, "Terminal", &format_terminal(ctx.terminal));
@@ -76,11 +87,18 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     write_row(
         &mut out,
         "Filter",
-        &format!("{}  (source: {})", ctx.runtime.filter_directive, ctx.runtime.filter_source),
+        &format!(
+            "{}  (source: {})",
+            ctx.runtime.filter_directive, ctx.runtime.filter_source
+        ),
     );
 
     writeln!(&mut out, "{}", border).unwrap();
-    writeln!(&mut out, "Events (offsets are +hh:mm:ss.sss from run start):").unwrap();
+    writeln!(
+        &mut out,
+        "Events (offsets are +hh:mm:ss.sss from run start):"
+    )
+    .unwrap();
     writeln!(&mut out).unwrap();
     out
 }
@@ -193,8 +211,15 @@ mod tests {
         assert!(out.contains("Terminal      xterm-256color  (158 x 42)"));
         assert!(out.contains("Filter        info  (source: default)"));
         assert!(out.ends_with("Events (offsets are +hh:mm:ss.sss from run start):\n\n"));
-        for line in out.lines().take_while(|l| l.starts_with('=') || l.starts_with('-') || l.starts_with(' ')) {
-            assert!(line.chars().count() <= 80, "banner line exceeds 80 cols: {:?}", line);
+        for line in out
+            .lines()
+            .take_while(|l| l.starts_with('=') || l.starts_with('-') || l.starts_with(' '))
+        {
+            assert!(
+                line.chars().count() <= 80,
+                "banner line exceeds 80 cols: {:?}",
+                line
+            );
         }
     }
 

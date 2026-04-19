@@ -22,8 +22,17 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
     match event {
         BackgroundEvent::KeyDerived(key, db_path) => {
             if let Some(unlock_dbg) = app.unlock_debug.take() {
-                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
-                tracing::info!(phase = "ui_complete", kind = unlock_dbg.kind, result = "ok", elapsed_ms = elapsed_ms.as_str(), "unlock.phase");
+                let elapsed_ms = format!(
+                    "{:.3}",
+                    unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0
+                );
+                tracing::info!(
+                    phase = "ui_complete",
+                    kind = unlock_dbg.kind,
+                    result = "ok",
+                    elapsed_ms = elapsed_ms.as_str(),
+                    "unlock.phase"
+                );
             }
             match Database::open(&db_path, Some(&key)) {
                 Ok(db) => {
@@ -53,7 +62,10 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
         }
         BackgroundEvent::KeyDeriveFailed(err) => {
             if let Some(unlock_dbg) = app.unlock_debug.take() {
-                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
+                let elapsed_ms = format!(
+                    "{:.3}",
+                    unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0
+                );
                 tracing::warn!(phase = "ui_complete", kind = unlock_dbg.kind, result = "error", elapsed_ms = elapsed_ms.as_str(), error = %err, "unlock.phase");
             }
             app.passkey_deriving = false;
@@ -62,8 +74,17 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
         }
         BackgroundEvent::PasskeySet(new_key) => {
             if let Some(unlock_dbg) = app.unlock_debug.take() {
-                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
-                tracing::info!(phase = "ui_complete", kind = unlock_dbg.kind, result = "ok", elapsed_ms = elapsed_ms.as_str(), "unlock.phase");
+                let elapsed_ms = format!(
+                    "{:.3}",
+                    unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0
+                );
+                tracing::info!(
+                    phase = "ui_complete",
+                    kind = unlock_dbg.kind,
+                    result = "ok",
+                    elapsed_ms = elapsed_ms.as_str(),
+                    "unlock.phase"
+                );
             }
             app.set_passkey_deriving = false;
             app.invalidate_worldbook_cache();
@@ -119,7 +140,10 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
         }
         BackgroundEvent::PasskeySetFailed(err) => {
             if let Some(unlock_dbg) = app.unlock_debug.take() {
-                let elapsed_ms = format!("{:.3}", unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0);
+                let elapsed_ms = format!(
+                    "{:.3}",
+                    unlock_dbg.started_at.elapsed().as_secs_f64() * 1000.0
+                );
                 tracing::warn!(phase = "ui_complete", kind = unlock_dbg.kind, result = "error", elapsed_ms = elapsed_ms.as_str(), error = %err, "unlock.phase");
             }
             app.set_passkey_deriving = false;

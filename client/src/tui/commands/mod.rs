@@ -44,10 +44,7 @@ pub(super) fn handle_slash_command(
         "/report" => cmd_report(app),
         _ => {
             tracing::debug!(cmd, result = "unknown", "tui.command");
-            app.set_status(
-                format!("Unknown command: {cmd}"),
-                StatusLevel::Warning,
-            );
+            app.set_status(format!("Unknown command: {cmd}"), StatusLevel::Warning);
         }
     }
 }
@@ -95,10 +92,7 @@ fn cmd_retry(app: &mut App, sender: mpsc::Sender<StreamToken>) {
             streaming::start_streaming(app, &content, sender);
         }
         None => {
-            app.set_status(
-                "No user message to retry.".to_owned(),
-                StatusLevel::Warning,
-            );
+            app.set_status("No user message to retry.".to_owned(), StatusLevel::Warning);
         }
     }
 }
@@ -193,12 +187,13 @@ fn cmd_system(app: &mut App) {
         return;
     }
 
-    let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
+    let prompts = app
+        .db
+        .as_ref()
+        .and_then(|db| db.list_prompts().ok())
+        .unwrap_or_default();
     if prompts.is_empty() {
-        app.set_status(
-            "No system prompts found.".to_owned(),
-            StatusLevel::Warning,
-        );
+        app.set_status("No system prompts found.".to_owned(), StatusLevel::Warning);
     } else {
         app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
         app.system_prompt_selected = 0;
@@ -227,10 +222,7 @@ fn cmd_branch(app: &mut App) {
     };
 
     let Some(target_id) = target else {
-        app.set_status(
-            "No messages to branch.".to_owned(),
-            StatusLevel::Warning,
-        );
+        app.set_status("No messages to branch.".to_owned(), StatusLevel::Warning);
         return;
     };
 
@@ -271,7 +263,10 @@ fn cmd_branch(app: &mut App) {
 
 fn cmd_persona(app: &mut App) {
     if let Some(ref persona_slug) = app.cli_overrides.persona {
-        let pf = app.db.as_ref().and_then(|db| db.load_persona(persona_slug).ok());
+        let pf = app
+            .db
+            .as_ref()
+            .and_then(|db| db.load_persona(persona_slug).ok());
         let values = match pf {
             Some(pf) => vec![pf.name, pf.persona],
             None => vec![persona_slug.clone(), String::new()],
@@ -284,7 +279,11 @@ fn cmd_persona(app: &mut App) {
         return;
     }
 
-    let personas = app.db.as_ref().and_then(|db| db.list_personas().ok()).unwrap_or_default();
+    let personas = app
+        .db
+        .as_ref()
+        .and_then(|db| db.list_personas().ok())
+        .unwrap_or_default();
     app.persona_names = personas.iter().map(|(_, name)| name.clone()).collect();
     app.persona_slugs = personas.into_iter().map(|(slug, _)| slug).collect();
     app.persona_selected = 0;
@@ -292,14 +291,22 @@ fn cmd_persona(app: &mut App) {
 }
 
 fn cmd_worldbook(app: &mut App) {
-    let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
+    let books = app
+        .db
+        .as_ref()
+        .and_then(|db| db.list_worldbooks().ok())
+        .unwrap_or_default();
     app.worldbook_list = books.into_iter().map(|(_, name)| name).collect();
     app.worldbook_selected = 0;
     app.open_paged_dialog(Focus::WorldbookDialog);
 }
 
 fn cmd_character(app: &mut App) {
-    let chars = app.db.as_ref().and_then(|db| db.list_characters().ok()).unwrap_or_default();
+    let chars = app
+        .db
+        .as_ref()
+        .and_then(|db| db.list_characters().ok())
+        .unwrap_or_default();
     app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
     app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
     app.character_selected = 0;
@@ -318,10 +325,7 @@ fn cmd_passkey(app: &mut App) {
                 app.set_passkey_is_initial = false;
                 app.focus = Focus::SetPasskeyDialog;
             } else {
-                app.set_status(
-                    "Database not available.".to_owned(),
-                    StatusLevel::Error,
-                );
+                app.set_status("Database not available.".to_owned(), StatusLevel::Error);
             }
         }
         SaveMode::None => {
@@ -367,10 +371,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
             StatusLevel::Warning,
         );
     } else {
-        app.set_status(
-            format!("Switched to {arg} theme"),
-            StatusLevel::Info,
-        );
+        app.set_status(format!("Switched to {arg} theme"), StatusLevel::Info);
     }
 }
 
@@ -378,7 +379,11 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
     let arg = arg.trim();
     if arg.is_empty() {
         let names: Vec<&String> = app.config.macros.keys().collect();
-        tracing::debug!(result = "listed", macro_count = names.len(), "tui.command.macro");
+        tracing::debug!(
+            result = "listed",
+            macro_count = names.len(),
+            "tui.command.macro"
+        );
         if names.is_empty() {
             app.set_status(
                 "No macros defined. Add [macros] to config.toml".to_owned(),
@@ -390,10 +395,7 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
                 .map(|n| n.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            app.set_status(
-                format!("Available macros: {list}"),
-                StatusLevel::Info,
-            );
+            app.set_status(format!("Available macros: {list}"), StatusLevel::Info);
         }
         return;
     }
@@ -407,17 +409,19 @@ fn cmd_macro(app: &mut App, arg: &str, sender: mpsc::Sender<StreamToken>) {
         Some(t) => t.clone(),
         None => {
             tracing::debug!(name, result = "unknown", "tui.command.macro");
-            app.set_status(
-                format!("Unknown macro: {name}"),
-                StatusLevel::Warning,
-            );
+            app.set_status(format!("Unknown macro: {name}"), StatusLevel::Warning);
             return;
         }
     };
 
     match macros::expand_macro(&template, macro_args) {
         Ok(expanded) => {
-            tracing::debug!(name, result = "expanded", expanded_bytes = expanded.len(), "tui.command.macro");
+            tracing::debug!(
+                name,
+                result = "expanded",
+                expanded_bytes = expanded.len(),
+                "tui.command.macro"
+            );
             streaming::start_streaming(app, &expanded, sender)
         }
         Err(err) => {
@@ -442,7 +446,12 @@ fn cmd_report(app: &mut App) {
     let output_path = current_dir.join("debug.log");
     if output_path.exists() {
         let output_path_str = output_path.display().to_string();
-        tracing::error!(result = "error", reason = "collision", output_path = output_path_str.as_str(), "tui.command.report");
+        tracing::error!(
+            result = "error",
+            reason = "collision",
+            output_path = output_path_str.as_str(),
+            "tui.command.report"
+        );
         app.set_status(
             format!("Refusing to overwrite existing {}", output_path.display()),
             StatusLevel::Error,
@@ -453,7 +462,11 @@ fn cmd_report(app: &mut App) {
     match libllm::diagnostics::copy_current_log_to(&output_path) {
         Ok(()) => {
             let output_path_str = output_path.display().to_string();
-            tracing::info!(result = "ok", output_path = output_path_str.as_str(), "tui.command.report");
+            tracing::info!(
+                result = "ok",
+                output_path = output_path_str.as_str(),
+                "tui.command.report"
+            );
             app.set_status(
                 format!("Debug log copied to {}", output_path.display()),
                 StatusLevel::Info,

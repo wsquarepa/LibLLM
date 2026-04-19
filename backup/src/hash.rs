@@ -11,8 +11,8 @@ pub fn hash_bytes(data: &[u8]) -> String {
 
 /// Reads a file into memory and returns its BLAKE3 hash as a hex string.
 pub fn hash_file(path: &Path) -> Result<String> {
-    let data = std::fs::read(path)
-        .with_context(|| format!("failed to read file: {}", path.display()))?;
+    let data =
+        std::fs::read(path).with_context(|| format!("failed to read file: {}", path.display()))?;
     Ok(hash_bytes(&data))
 }
 

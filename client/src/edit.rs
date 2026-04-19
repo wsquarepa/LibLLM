@@ -1,10 +1,10 @@
 //! External editor integration for character cards and worldbooks.
 
 use anyhow::Result;
-use std::io::Write;
 use libllm::character;
 use libllm::config;
 use libllm::db::Database;
+use std::io::Write;
 
 pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> {
     let slug = character::slugify(name);
@@ -13,7 +13,12 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
         "worldbook" | "book" | "wb" => "worldbook",
         _ => "unknown",
     };
-    tracing::debug!(phase = "start", kind = normalized_kind, slug = slug.as_str(), "edit.run");
+    tracing::debug!(
+        phase = "start",
+        kind = normalized_kind,
+        slug = slug.as_str(),
+        "edit.run"
+    );
 
     let json_content = match kind {
         "character" | "char" => {
@@ -56,8 +61,16 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
     )?;
 
     if !status.success() {
-        let exit_code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "none".to_owned());
-        tracing::warn!(phase = "exit", result = "error", exit_code = exit_code.as_str(), "edit.editor");
+        let exit_code = status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "none".to_owned());
+        tracing::warn!(
+            phase = "exit",
+            result = "error",
+            exit_code = exit_code.as_str(),
+            "edit.editor"
+        );
         let cleanup = std::fs::remove_file(&temp_path);
         tracing::debug!(phase = "cleanup", result = if cleanup.is_ok() { "ok" } else { "error" }, path = %temp_path.display(), "edit.temp_file");
         anyhow::bail!("Editor exited with non-zero status");
@@ -82,7 +95,16 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
                 db.insert_character(&new_slug, &card)?;
                 "insert"
             };
-            tracing::info!(kind = "character", slug = slug.as_str(), new_slug = new_slug.as_str(), renamed = new_slug != slug, operation = operation, bytes = edited.len(), result = "ok", "edit.save");
+            tracing::info!(
+                kind = "character",
+                slug = slug.as_str(),
+                new_slug = new_slug.as_str(),
+                renamed = new_slug != slug,
+                operation = operation,
+                bytes = edited.len(),
+                result = "ok",
+                "edit.save"
+            );
             eprintln!("Saved character: {}", card.name);
         }
         "worldbook" | "book" | "wb" => {
@@ -99,7 +121,16 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
                 db.insert_worldbook(&new_slug, &wb)?;
                 "insert"
             };
-            tracing::info!(kind = "worldbook", slug = slug.as_str(), new_slug = new_slug.as_str(), renamed = new_slug != slug, operation = operation, bytes = edited.len(), result = "ok", "edit.save");
+            tracing::info!(
+                kind = "worldbook",
+                slug = slug.as_str(),
+                new_slug = new_slug.as_str(),
+                renamed = new_slug != slug,
+                operation = operation,
+                bytes = edited.len(),
+                result = "ok",
+                "edit.save"
+            );
             eprintln!("Saved worldbook: {}", wb.name);
         }
         _ => unreachable!(),

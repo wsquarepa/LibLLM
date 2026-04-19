@@ -288,9 +288,10 @@ impl MessageTree {
 
     fn rehydrate_runtime_state(&mut self) {
         if let Some(head) = self.head
-            && head >= self.nodes.len() {
-                self.head = None;
-            }
+            && head >= self.nodes.len()
+        {
+            self.head = None;
+        }
         self.validate_preferred_children();
         if self.preferred_child.is_empty() {
             self.update_preferred_children();
@@ -610,7 +611,6 @@ impl Session {
     }
 }
 
-
 pub fn generate_session_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -868,9 +868,15 @@ mod tests {
     fn current_deepest_branch_info_with_branches() {
         let mut tree = MessageTree::new();
         let root = tree.push(None, Message::new(Role::User, "root".into()));
-        tree.push(Some(root), Message::new(Role::Assistant, "sibling a".into()));
+        tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "sibling a".into()),
+        );
         tree.set_head(Some(root));
-        tree.push(Some(root), Message::new(Role::Assistant, "sibling b".into()));
+        tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "sibling b".into()),
+        );
 
         let info = tree.current_deepest_branch_info();
         assert!(info.is_some());

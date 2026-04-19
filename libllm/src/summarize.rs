@@ -49,10 +49,7 @@ impl Summarizer {
     /// Always keeps at least the last message.
     pub fn shed_to_fit<'a>(messages: &[&'a Message], token_budget: usize) -> Vec<&'a Message> {
         let estimate_tokens = |msgs: &[&Message]| -> usize {
-            msgs.iter()
-                .map(|m| m.content.len() / 4 + 4)
-                .sum::<usize>()
-                + 50
+            msgs.iter().map(|m| m.content.len() / 4 + 4).sum::<usize>() + 50
         };
 
         let mut start = 0;
@@ -66,11 +63,7 @@ impl Summarizer {
 
     /// Summarizes the given messages by calling the LLM.
     /// Sheds oldest messages if they exceed the token budget.
-    pub async fn summarize(
-        &self,
-        messages: &[&Message],
-        token_budget: usize,
-    ) -> Result<String> {
+    pub async fn summarize(&self, messages: &[&Message], token_budget: usize) -> Result<String> {
         let start = Instant::now();
         tracing::info!(
             phase = "start",
@@ -131,9 +124,11 @@ mod tests {
 
     #[test]
     fn format_prompt_basic() {
-        let msgs = [Message::new(Role::User, "Hello".to_owned()),
+        let msgs = [
+            Message::new(Role::User, "Hello".to_owned()),
             Message::new(Role::Assistant, "Hi there!".to_owned()),
-            Message::new(Role::User, "How are you?".to_owned())];
+            Message::new(Role::User, "How are you?".to_owned()),
+        ];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize this.", &refs);
         assert!(prompt.contains("Summarize this."));
@@ -144,8 +139,10 @@ mod tests {
 
     #[test]
     fn format_prompt_excludes_summary_role() {
-        let msgs = [Message::new(Role::Summary, "Old summary".to_owned()),
-            Message::new(Role::User, "New message".to_owned())];
+        let msgs = [
+            Message::new(Role::Summary, "Old summary".to_owned()),
+            Message::new(Role::User, "New message".to_owned()),
+        ];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize.", &refs);
         assert!(!prompt.contains("Old summary"));
@@ -154,8 +151,10 @@ mod tests {
 
     #[test]
     fn format_prompt_handles_system_messages() {
-        let msgs = [Message::new(Role::System, "You are helpful.".to_owned()),
-            Message::new(Role::User, "Hi".to_owned())];
+        let msgs = [
+            Message::new(Role::System, "You are helpful.".to_owned()),
+            Message::new(Role::User, "Hi".to_owned()),
+        ];
         let refs: Vec<&Message> = msgs.iter().collect();
         let prompt = Summarizer::format_prompt("Summarize.", &refs);
         assert!(prompt.contains("System: You are helpful."));
@@ -170,6 +169,9 @@ mod tests {
         let refs: Vec<&Message> = msgs.iter().collect();
         let trimmed = Summarizer::shed_to_fit(&refs, 8192);
         assert!(trimmed.len() < refs.len());
-        assert_eq!(trimmed.last().unwrap().content, refs.last().unwrap().content);
+        assert_eq!(
+            trimmed.last().unwrap().content,
+            refs.last().unwrap().content
+        );
     }
 }

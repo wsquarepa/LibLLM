@@ -286,7 +286,6 @@ impl<'a> App<'a> {
 pub(super) const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 pub(super) const NOTIFICATION_SLIDE_DURATION: std::time::Duration =
     std::time::Duration::from_millis(300);
-pub(super) const STREAM_REDRAW_INTERVAL: std::time::Duration =
-    std::time::Duration::from_millis(33);
+pub(super) const STREAM_REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
 pub(super) const AUTOSAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
 pub(super) const AUTOSAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);

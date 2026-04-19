@@ -275,10 +275,7 @@ mod tests {
     #[test]
     fn pipe_handles_real_and_blob() {
         let headers = vec!["r".to_owned(), "b".to_owned()];
-        let rows = vec![vec![
-            Value::Real(2.5),
-            Value::Blob(vec![0x00, 0x01, 0x02]),
-        ]];
+        let rows = vec![vec![Value::Real(2.5), Value::Blob(vec![0x00, 0x01, 0x02])]];
         let out = PipeFormatter.format(&headers, &rows, false);
         assert_eq!(out, "2.5|<blob:3 bytes>\n");
     }
@@ -286,10 +283,7 @@ mod tests {
     #[test]
     fn json_handles_real_and_blob() {
         let headers = vec!["r".to_owned(), "b".to_owned()];
-        let rows = vec![vec![
-            Value::Real(2.5),
-            Value::Blob(vec![0x00, 0x01, 0x02]),
-        ]];
+        let rows = vec![vec![Value::Real(2.5), Value::Blob(vec![0x00, 0x01, 0x02])]];
         let out = JsonFormatter.format(&headers, &rows, true);
         assert_eq!(out, "[{\"r\":2.5,\"b\":\"<blob:3 bytes>\"}]\n");
     }

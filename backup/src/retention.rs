@@ -5,8 +5,8 @@ use std::path::Path;
 
 use chrono::{Datelike, Duration, IsoWeek, Utc};
 
-use crate::index::{BackupEntry, BackupIndex, BackupType};
 use crate::BackupConfig;
+use crate::index::{BackupEntry, BackupIndex, BackupType};
 
 /// Returns IDs of entries that should be pruned based on the thinning schedule.
 ///
@@ -27,9 +27,9 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
 
     #[derive(PartialEq, Eq, Hash)]
     enum PeriodKey {
-        Daily(i32, u32),          // (year, ordinal day)
-        Weekly(i32, IsoWeek),     // (iso_year, iso_week)
-        Monthly(i32, u32),        // (year, month)
+        Daily(i32, u32),      // (year, ordinal day)
+        Weekly(i32, IsoWeek), // (iso_year, iso_week)
+        Monthly(i32, u32),    // (year, month)
     }
 
     let mut period_winners: HashMap<PeriodKey, &BackupEntry> = HashMap::new();
@@ -120,7 +120,11 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
 pub fn apply_prune(index: &mut BackupIndex, prunable_ids: &[String], backups_dir: &Path) {
     let id_set: HashSet<&str> = prunable_ids.iter().map(String::as_str).collect();
 
-    for entry in index.entries.iter().filter(|e| id_set.contains(e.id.as_str())) {
+    for entry in index
+        .entries
+        .iter()
+        .filter(|e| id_set.contains(e.id.as_str()))
+    {
         let file_path = backups_dir.join(&entry.filename);
         match std::fs::remove_file(&file_path) {
             Ok(()) => {}
@@ -191,11 +195,24 @@ mod tests {
 
         let mut index = BackupIndex::new();
         // Two base entries within keep_all_days -- neither should be pruned.
-        index.entries.push(make_entry("b1", BackupType::Base, None, now - Duration::days(1)));
-        index.entries.push(make_entry("b2", BackupType::Base, None, now - Duration::hours(6)));
+        index.entries.push(make_entry(
+            "b1",
+            BackupType::Base,
+            None,
+            now - Duration::days(1),
+        ));
+        index.entries.push(make_entry(
+            "b2",
+            BackupType::Base,
+            None,
+            now - Duration::hours(6),
+        ));
 
         let prunable = compute_prunable_entries(&index, &config);
-        assert!(prunable.is_empty(), "recent entries should not be pruned: {prunable:?}");
+        assert!(
+            prunable.is_empty(),
+            "recent entries should not be pruned: {prunable:?}"
+        );
     }
 
     #[test]
@@ -212,13 +229,26 @@ mod tests {
 
         let mut index = BackupIndex::new();
         // Older entry on that day.
-        index.entries.push(make_entry("older", BackupType::Base, None, day_15_ago));
+        index
+            .entries
+            .push(make_entry("older", BackupType::Base, None, day_15_ago));
         // More recent entry on the same day -- this should survive.
-        index.entries.push(make_entry("newer", BackupType::Base, None, day_15_ago_later));
+        index.entries.push(make_entry(
+            "newer",
+            BackupType::Base,
+            None,
+            day_15_ago_later,
+        ));
 
         let prunable = compute_prunable_entries(&index, &config);
-        assert!(prunable.contains(&"older".to_string()), "older same-day entry should be pruned");
-        assert!(!prunable.contains(&"newer".to_string()), "newer same-day entry should survive");
+        assert!(
+            prunable.contains(&"older".to_string()),
+            "older same-day entry should be pruned"
+        );
+        assert!(
+            !prunable.contains(&"newer".to_string()),
+            "newer same-day entry should survive"
+        );
     }
 
     #[test]
@@ -238,15 +268,24 @@ mod tests {
         let e3 = monday + Duration::days(2);
 
         let mut index = BackupIndex::new();
-        index.entries.push(make_entry("e1", BackupType::Base, None, e1));
-        index.entries.push(make_entry("e2", BackupType::Base, None, e2));
-        index.entries.push(make_entry("e3", BackupType::Base, None, e3));
+        index
+            .entries
+            .push(make_entry("e1", BackupType::Base, None, e1));
+        index
+            .entries
+            .push(make_entry("e2", BackupType::Base, None, e2));
+        index
+            .entries
+            .push(make_entry("e3", BackupType::Base, None, e3));
 
         let prunable = compute_prunable_entries(&index, &config);
 
         assert!(prunable.contains(&"e1".to_string()), "e1 should be pruned");
         assert!(prunable.contains(&"e2".to_string()), "e2 should be pruned");
-        assert!(!prunable.contains(&"e3".to_string()), "e3 (most recent) should survive");
+        assert!(
+            !prunable.contains(&"e3".to_string()),
+            "e3 (most recent) should survive"
+        );
     }
 
     #[test]
@@ -258,10 +297,15 @@ mod tests {
         let ancient = now - Duration::days(365);
 
         let mut index = BackupIndex::new();
-        index.entries.push(make_entry("sole_base", BackupType::Base, None, ancient));
+        index
+            .entries
+            .push(make_entry("sole_base", BackupType::Base, None, ancient));
 
         let prunable = compute_prunable_entries(&index, &config);
-        assert!(!prunable.contains(&"sole_base".to_string()), "sole base must never be pruned");
+        assert!(
+            !prunable.contains(&"sole_base".to_string()),
+            "sole base must never be pruned"
+        );
     }
 
     #[test]
@@ -277,16 +321,34 @@ mod tests {
 
         let mut index = BackupIndex::new();
         // old base and its diff -- both should be pruned.
-        index.entries.push(make_entry("old_base", BackupType::Base, None, old_time));
-        index.entries.push(make_entry("old_diff", BackupType::Diff, Some("old_base"), old_time + Duration::hours(1)));
+        index
+            .entries
+            .push(make_entry("old_base", BackupType::Base, None, old_time));
+        index.entries.push(make_entry(
+            "old_diff",
+            BackupType::Diff,
+            Some("old_base"),
+            old_time + Duration::hours(1),
+        ));
         // new base (sole recent backup) -- must survive.
-        index.entries.push(make_entry("new_base", BackupType::Base, None, new_time));
+        index
+            .entries
+            .push(make_entry("new_base", BackupType::Base, None, new_time));
 
         let prunable = compute_prunable_entries(&index, &config);
 
-        assert!(prunable.contains(&"old_base".to_string()), "old base should be pruned");
-        assert!(prunable.contains(&"old_diff".to_string()), "diff of pruned base should also be pruned");
-        assert!(!prunable.contains(&"new_base".to_string()), "new base should survive");
+        assert!(
+            prunable.contains(&"old_base".to_string()),
+            "old base should be pruned"
+        );
+        assert!(
+            prunable.contains(&"old_diff".to_string()),
+            "diff of pruned base should also be pruned"
+        );
+        assert!(
+            !prunable.contains(&"new_base".to_string()),
+            "new base should survive"
+        );
     }
 
     #[test]
@@ -311,9 +373,21 @@ mod tests {
         let new_time = now - Duration::days(1);
 
         let mut index = BackupIndex::new();
-        index.entries.push(make_entry("old_base", BackupType::Base, None, old_base_time));
-        index.entries.push(make_entry("old_base_newer", BackupType::Base, None, old_base_newer_time));
-        index.entries.push(make_entry("new_base", BackupType::Base, None, new_time));
+        index.entries.push(make_entry(
+            "old_base",
+            BackupType::Base,
+            None,
+            old_base_time,
+        ));
+        index.entries.push(make_entry(
+            "old_base_newer",
+            BackupType::Base,
+            None,
+            old_base_newer_time,
+        ));
+        index
+            .entries
+            .push(make_entry("new_base", BackupType::Base, None, new_time));
 
         // Write dummy files to disk.
         std::fs::write(backups_dir.join("old_base-base.bak"), b"data").unwrap();
@@ -321,18 +395,42 @@ mod tests {
         std::fs::write(backups_dir.join("new_base-base.bak"), b"data").unwrap();
 
         let prunable = compute_prunable_entries(&index, &config);
-        assert!(prunable.contains(&"old_base".to_string()), "old_base should be prunable");
-        assert!(!prunable.contains(&"old_base_newer".to_string()), "old_base_newer should survive as monthly winner");
-        assert!(!prunable.contains(&"new_base".to_string()), "new_base should survive (keep-all tier)");
+        assert!(
+            prunable.contains(&"old_base".to_string()),
+            "old_base should be prunable"
+        );
+        assert!(
+            !prunable.contains(&"old_base_newer".to_string()),
+            "old_base_newer should survive as monthly winner"
+        );
+        assert!(
+            !prunable.contains(&"new_base".to_string()),
+            "new_base should survive (keep-all tier)"
+        );
 
         apply_prune(&mut index, &prunable, backups_dir);
 
-        assert!(!backups_dir.join("old_base-base.bak").exists(), "old file should be deleted");
-        assert!(backups_dir.join("old_base_newer-base.bak").exists(), "monthly winner file should remain");
-        assert!(backups_dir.join("new_base-base.bak").exists(), "new file should remain");
+        assert!(
+            !backups_dir.join("old_base-base.bak").exists(),
+            "old file should be deleted"
+        );
+        assert!(
+            backups_dir.join("old_base_newer-base.bak").exists(),
+            "monthly winner file should remain"
+        );
+        assert!(
+            backups_dir.join("new_base-base.bak").exists(),
+            "new file should remain"
+        );
         assert_eq!(index.entries.len(), 2);
         let remaining_ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
-        assert!(remaining_ids.contains(&"old_base_newer"), "old_base_newer must remain in index");
-        assert!(remaining_ids.contains(&"new_base"), "new_base must remain in index");
+        assert!(
+            remaining_ids.contains(&"old_base_newer"),
+            "old_base_newer must remain in index"
+        );
+        assert!(
+            remaining_ids.contains(&"new_base"),
+            "new_base must remain in index"
+        );
     }
 }

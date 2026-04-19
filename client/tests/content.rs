@@ -1,9 +1,12 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use std::path::PathBuf;
 
-use client::import::{detect_import_type, handle_import_command, import_single_file, ImportType};
+use client::import::{ImportType, detect_import_type, handle_import_command, import_single_file};
 use libllm::db::Database;
 
 #[test]
@@ -35,10 +38,7 @@ fn import_worldbook_from_json() {
     let db = Database::open(&db_path, None).expect("open db");
 
     let wb_path = dir.path().join("mytome.json");
-    common::write_json_file(
-        &wb_path,
-        r#"{"name":"MyTome","entries":[]}"#,
-    );
+    common::write_json_file(&wb_path, r#"{"name":"MyTome","entries":[]}"#);
 
     import_single_file(&wb_path, &ImportType::Worldbook, &db)
         .expect("import worldbook should succeed");
@@ -127,7 +127,10 @@ fn import_batch_partial_failure() {
 
     let files: Vec<PathBuf> = vec![char_path, missing_path];
     let result = handle_import_command(&files, None, &db);
-    assert!(result.is_err(), "batch import with missing file should fail");
+    assert!(
+        result.is_err(),
+        "batch import with missing file should fail"
+    );
 }
 
 #[test]

@@ -6,13 +6,13 @@ mod reasoning;
 
 use std::path::{Path, PathBuf};
 
-pub use context::{ContextPreset, ContextVars, list_template_preset_names, resolve_template_preset};
+pub use context::{
+    ContextPreset, ContextVars, list_template_preset_names, resolve_template_preset,
+};
 pub use instruct::{
     InstructPreset, StopSequence, list_instruct_preset_names, resolve_instruct_preset,
 };
-pub use reasoning::{
-    ReasoningPreset, list_reasoning_preset_names, resolve_reasoning_preset,
-};
+pub use reasoning::{ReasoningPreset, list_reasoning_preset_names, resolve_reasoning_preset};
 
 pub(crate) const DEFAULT_INSTRUCT_PRESET: &str = "Mistral V3-Tekken";
 pub(crate) const REASONING_OFF: &str = "OFF";
@@ -31,8 +31,10 @@ pub(crate) const BUILTIN_INSTRUCT: &[(&str, &str)] = &[
     ("Alpaca", include_str!("../presets/instruct/alpaca.json")),
 ];
 
-pub(crate) const BUILTIN_REASONING: &[(&str, &str)] =
-    &[("DeepSeek", include_str!("../presets/reasoning/deepseek.json"))];
+pub(crate) const BUILTIN_REASONING: &[(&str, &str)] = &[(
+    "DeepSeek",
+    include_str!("../presets/reasoning/deepseek.json"),
+)];
 
 pub(crate) const DEFAULT_TEMPLATE_PRESET: &str = "Default";
 

@@ -72,8 +72,8 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
 
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
 
-    let plaintext = replay_chain(&backups_dir, &chain, &backup_key)
-        .context("failed to replay backup chain")?;
+    let plaintext =
+        replay_chain(&backups_dir, &chain, &backup_key).context("failed to replay backup chain")?;
 
     let target_entry = chain.last().expect("chain is non-empty");
     let actual_hash = crate::hash::hash_bytes(&plaintext);
@@ -102,8 +102,8 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
                 .context("failed to write restored database")?;
         }
         Some(pk) => {
-            let temp_plain = tempfile::NamedTempFile::new()
-                .context("failed to create temp file for restore")?;
+            let temp_plain =
+                tempfile::NamedTempFile::new().context("failed to create temp file for restore")?;
             let temp_plain_path = temp_plain.path().to_path_buf();
             std::fs::write(&temp_plain_path, &plaintext)
                 .context("failed to write plaintext to temp file")?;
@@ -241,12 +241,11 @@ mod tests {
         let pre_restore_exists = std::fs::read_dir(&backups_dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .any(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with("pre-restore-")
-            });
+            .any(|e| e.file_name().to_string_lossy().starts_with("pre-restore-"));
 
-        assert!(pre_restore_exists, "expected a pre-restore-* file in backups dir");
+        assert!(
+            pre_restore_exists,
+            "expected a pre-restore-* file in backups dir"
+        );
     }
 }

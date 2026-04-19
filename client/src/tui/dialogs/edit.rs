@@ -78,11 +78,7 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
     None
 }
 
-pub(in crate::tui) fn render_edit_confirm_dialog(
-    f: &mut ratatui::Frame,
-    app: &App,
-    area: Rect,
-) {
+pub(in crate::tui) fn render_edit_confirm_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, 6, area);
 
     let save_style = if app.edit_confirm_selected == 0 {
@@ -116,8 +112,8 @@ pub(in crate::tui) fn render_edit_confirm_dialog(
         Line::from(""),
     ];
 
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(dialog_block(" Unsaved Changes ", Color::Yellow));
+    let paragraph =
+        Paragraph::new(Text::from(lines)).block(dialog_block(" Unsaved Changes ", Color::Yellow));
 
     f.render_widget(paragraph, dialog);
 

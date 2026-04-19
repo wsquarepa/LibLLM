@@ -1,7 +1,7 @@
 //! Background key derivation and database open/rekey for passkey dialogs.
 
-use libllm::crypto::DerivedKey;
 use crate::tui::BackgroundEvent;
+use libllm::crypto::DerivedKey;
 
 fn log_phase(kind: &str, phase: &str, result: &str, elapsed: std::time::Duration) {
     let elapsed_ms = format!("{:.3}", elapsed.as_secs_f64() * 1000.0);

@@ -6,8 +6,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use super::{byte_pos_at_char, clear_centered, dialog_block, render_hints_below_dialog};
 use super::{LIST_DIALOG_TALL_PADDING, LIST_DIALOG_WIDTH};
+use super::{byte_pos_at_char, clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::types::{App, Focus, StatusLevel};
 use libllm::config::{Auth, AuthKind, AuthOverrides};
 
@@ -133,7 +133,11 @@ fn rows_for(kind: AuthKind) -> (Vec<&'static str>, Vec<FieldSlot>) {
         AuthKind::None => (vec!["Type"], vec![FieldSlot::Type]),
         AuthKind::Basic => (
             vec!["Type", "Username", "Password"],
-            vec![FieldSlot::Type, FieldSlot::BasicUsername, FieldSlot::BasicPassword],
+            vec![
+                FieldSlot::Type,
+                FieldSlot::BasicUsername,
+                FieldSlot::BasicPassword,
+            ],
         ),
         AuthKind::Bearer => (
             vec!["Type", "Token"],
@@ -141,7 +145,11 @@ fn rows_for(kind: AuthKind) -> (Vec<&'static str>, Vec<FieldSlot>) {
         ),
         AuthKind::Header => (
             vec!["Type", "Name", "Value"],
-            vec![FieldSlot::Type, FieldSlot::HeaderName, FieldSlot::HeaderValue],
+            vec![
+                FieldSlot::Type,
+                FieldSlot::HeaderName,
+                FieldSlot::HeaderValue,
+            ],
         ),
         AuthKind::Query => (
             vec!["Type", "Name", "Value"],
@@ -246,7 +254,9 @@ pub(in crate::tui) fn open_auth_dialog(app: &mut App) {
 }
 
 pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let Some(state) = app.auth_dialog.as_ref() else { return };
+    let Some(state) = app.auth_dialog.as_ref() else {
+        return;
+    };
     let height = (state.labels.len() as u16) + AUTH_DIALOG_PADDING;
     let dialog = clear_centered(f, AUTH_DIALOG_WIDTH, height, area);
 
@@ -265,9 +275,13 @@ pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area
         let style = if is_locked {
             Style::default().fg(Color::Red)
         } else if is_selected && state.editing {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else if is_selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -308,7 +322,9 @@ pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area
         f,
         dialog,
         area,
-        &[Line::from("Up/Down: navigate  Enter: edit/select  Esc: close")],
+        &[Line::from(
+            "Up/Down: navigate  Enter: edit/select  Esc: close",
+        )],
     );
 }
 
@@ -448,7 +464,9 @@ pub(in crate::tui) fn close_and_persist(app: &mut App) {
 }
 
 pub(in crate::tui) fn open_type_picker(app: &mut App) {
-    let Some(state) = app.auth_dialog.as_mut() else { return };
+    let Some(state) = app.auth_dialog.as_mut() else {
+        return;
+    };
     state.type_picker_selected = TYPE_PICKER_OPTIONS
         .iter()
         .position(|k| *k == state.active_type)
@@ -457,7 +475,9 @@ pub(in crate::tui) fn open_type_picker(app: &mut App) {
 }
 
 pub(in crate::tui) fn render_type_picker(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let Some(state) = app.auth_dialog.as_ref() else { return };
+    let Some(state) = app.auth_dialog.as_ref() else {
+        return;
+    };
     let count = TYPE_PICKER_OPTIONS.len() as u16;
     let dialog = clear_centered(f, LIST_DIALOG_WIDTH, count + LIST_DIALOG_TALL_PADDING, area);
 
@@ -466,11 +486,16 @@ pub(in crate::tui) fn render_type_picker(f: &mut ratatui::Frame, app: &App, area
         let is_selected = i == state.type_picker_selected;
         let marker = if is_selected { "> " } else { "  " };
         let style = if is_selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        lines.push(Line::from(Span::styled(format!("{marker}{}", auth_kind_label(*kind)), style)));
+        lines.push(Line::from(Span::styled(
+            format!("{marker}{}", auth_kind_label(*kind)),
+            style,
+        )));
     }
 
     let paragraph = Paragraph::new(lines).block(dialog_block(" Select Auth Type ", Color::Yellow));

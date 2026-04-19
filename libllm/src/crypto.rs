@@ -132,7 +132,10 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             let existing = read_salt_file(path)
-                .context(format!("failed to re-read salt after concurrent create: {}", path.display()))?
+                .context(format!(
+                    "failed to re-read salt after concurrent create: {}",
+                    path.display()
+                ))?
                 .context(format!(
                     "salt file vanished after AlreadyExists from create_new: {}",
                     path.display()
@@ -338,8 +341,8 @@ mod tests {
         let salt_path = dir.path().join(".salt");
 
         create_restricted(&salt_path, &[1u8; SALT_LEN]).expect("first write");
-        let err = create_restricted(&salt_path, &[2u8; SALT_LEN])
-            .expect_err("second write must fail");
+        let err =
+            create_restricted(&salt_path, &[2u8; SALT_LEN]).expect_err("second write must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
 
         let on_disk = std::fs::read(&salt_path).expect("read salt");
@@ -385,8 +388,20 @@ mod tests {
     #[test]
     fn argon2_params_use_reduced_values_under_cfg_test() {
         let params = argon2_params();
-        assert_eq!(params.m_cost(), 8, "m_cost should be reduced under cfg(test)");
-        assert_eq!(params.t_cost(), 1, "t_cost should be reduced under cfg(test)");
-        assert_eq!(params.p_cost(), 1, "p_cost should be reduced under cfg(test)");
+        assert_eq!(
+            params.m_cost(),
+            8,
+            "m_cost should be reduced under cfg(test)"
+        );
+        assert_eq!(
+            params.t_cost(),
+            1,
+            "t_cost should be reduced under cfg(test)"
+        );
+        assert_eq!(
+            params.p_cost(),
+            1,
+            "p_cost should be reduced under cfg(test)"
+        );
     }
 }

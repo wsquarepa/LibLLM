@@ -41,10 +41,7 @@ pub fn dispatch(args: &Args, command: &DbSubcommand) -> Result<()> {
 }
 
 fn resolve_context(args: &Args) -> Result<DbContext> {
-    let data_dir = args
-        .data
-        .clone()
-        .unwrap_or_else(libllm::config::data_dir);
+    let data_dir = args.data.clone().unwrap_or_else(libllm::config::data_dir);
     let db_path = data_dir.join("data.db");
 
     if args.no_encrypt {
@@ -83,8 +80,12 @@ pub fn wal_liveness_check(db_path: &Path, key: Option<&DerivedKey>) -> Result<()
     if !db_path.exists() {
         return Ok(());
     }
-    let conn = rusqlite::Connection::open(db_path)
-        .with_context(|| format!("failed to open database for liveness check: {}", db_path.display()))?;
+    let conn = rusqlite::Connection::open(db_path).with_context(|| {
+        format!(
+            "failed to open database for liveness check: {}",
+            db_path.display()
+        )
+    })?;
     if let Some(key) = key {
         let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()));
         conn.execute_batch(&pragma)

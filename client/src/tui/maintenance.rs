@@ -4,16 +4,14 @@ use libllm::session::SaveMode;
 
 use super::App;
 
-pub(super) fn spawn_startup_maintenance(
-    save_mode: &SaveMode,
-    app: &App,
-) {
+pub(super) fn spawn_startup_maintenance(save_mode: &SaveMode, app: &App) {
     match save_mode {
         SaveMode::Database { .. } => {
             if let Some(ref db) = app.db
-                && let Err(e) = db.ensure_builtin_prompts() {
-                    tracing::warn!(phase = "ensure_builtins", error = %e, "maintenance.warning");
-                }
+                && let Err(e) = db.ensure_builtin_prompts()
+            {
+                tracing::warn!(phase = "ensure_builtins", error = %e, "maintenance.warning");
+            }
         }
         SaveMode::None | SaveMode::PendingPasskey { .. } => {}
     }

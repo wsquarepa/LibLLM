@@ -32,11 +32,7 @@ pub struct TabSection {
 }
 
 impl TabSection {
-    pub fn new(
-        title: &'static str,
-        labels: &'static [&'static str],
-        values: Vec<String>,
-    ) -> Self {
+    pub fn new(title: &'static str, labels: &'static [&'static str], values: Vec<String>) -> Self {
         let original_values = values.clone();
         Self {
             title,
@@ -82,11 +78,7 @@ impl TabSection {
         self
     }
 
-    pub fn with_placeholder(
-        mut self,
-        fields: &'static [usize],
-        text: &'static str,
-    ) -> Self {
+    pub fn with_placeholder(mut self, fields: &'static [usize], text: &'static str) -> Self {
         self.placeholder_fields = fields;
         self.placeholder_text = Some(text);
         self
@@ -170,9 +162,7 @@ impl<'a> TabbedFieldDialog<'a> {
     }
 
     pub fn has_changes(&self) -> bool {
-        self.sections
-            .iter()
-            .any(|s| s.values != s.original_values)
+        self.sections.iter().any(|s| s.values != s.original_values)
     }
 
     fn next_tab(&mut self) {
@@ -340,7 +330,10 @@ impl<'a> TabbedFieldDialog<'a> {
                         .map(|v| v.accepts_char(&self.sections[tab].values[idx], c))
                         .unwrap_or(true);
                     if accept {
-                        let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
+                        let byte_pos = super::byte_pos_at_char(
+                            &self.sections[tab].values[idx],
+                            self.cursor_pos,
+                        );
                         self.sections[tab].values[idx].insert(byte_pos, c);
                         self.cursor_pos += 1;
                         self.value_changed = true;
@@ -350,14 +343,18 @@ impl<'a> TabbedFieldDialog<'a> {
                 }
                 KeyCode::Backspace if self.cursor_pos > 0 => {
                     self.cursor_pos -= 1;
-                    let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
+                    let byte_pos =
+                        super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
                     self.sections[tab].values[idx].remove(byte_pos);
                     self.value_changed = true;
                 }
                 KeyCode::Delete => {
                     let char_count = self.sections[tab].values[idx].chars().count();
                     if self.cursor_pos < char_count {
-                        let byte_pos = super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
+                        let byte_pos = super::byte_pos_at_char(
+                            &self.sections[tab].values[idx],
+                            self.cursor_pos,
+                        );
                         self.sections[tab].values[idx].remove(byte_pos);
                         self.value_changed = true;
                     }
@@ -411,8 +408,7 @@ impl<'a> TabbedFieldDialog<'a> {
                 } else if self.is_multiline(tab, idx) {
                     self.open_multiline_editor();
                 } else {
-                    self.cursor_pos =
-                        self.sections[tab].values[idx].chars().count();
+                    self.cursor_pos = self.sections[tab].values[idx].chars().count();
                     self.editing = true;
                 }
             }
@@ -548,8 +544,7 @@ impl<'a> TabbedFieldDialog<'a> {
 
         let flashing = is_selected && self.editing && is_flash_active(self.reject_flash);
         let is_color = section.color_preview_fields.contains(&i);
-        let value_is_invalid_color =
-            is_color && !value.is_empty() && parse_color(value).is_none();
+        let value_is_invalid_color = is_color && !value.is_empty() && parse_color(value).is_none();
 
         let value_style = if is_locked || value_is_invalid_color {
             Style::default().fg(Color::Red)
@@ -606,10 +601,7 @@ impl<'a> TabbedFieldDialog<'a> {
             } else {
                 section.placeholder_text.unwrap_or("")
             };
-            spans.push(Span::styled(
-                ph_text,
-                Style::default().fg(Color::DarkGray),
-            ));
+            spans.push(Span::styled(ph_text, Style::default().fg(Color::DarkGray)));
         } else if show_cursor {
             let chars: Vec<char> = display_value.chars().collect();
             let char_count = chars.len();
@@ -752,10 +744,7 @@ mod tests {
 
     #[test]
     fn tab_wraps_backward_via_backtab() {
-        let sections = vec![
-            make_section("A", &["f"]),
-            make_section("B", &["f"]),
-        ];
+        let sections = vec![make_section("A", &["f"]), make_section("B", &["f"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
         d.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(d.current_tab(), 1);
@@ -765,10 +754,7 @@ mod tests {
 
     #[test]
     fn tab_wraps_backward_via_shift_tab_char() {
-        let sections = vec![
-            make_section("A", &["f"]),
-            make_section("B", &["f"]),
-        ];
+        let sections = vec![make_section("A", &["f"]), make_section("B", &["f"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
         d.handle_key(KeyEvent::new(KeyCode::Char('\t'), KeyModifiers::SHIFT));
         assert_eq!(d.current_tab(), 1);
@@ -776,10 +762,7 @@ mod tests {
 
     #[test]
     fn has_changes_detects_edits_in_any_section() {
-        let sections = vec![
-            make_section("A", &["f"]),
-            make_section("B", &["f"]),
-        ];
+        let sections = vec![make_section("A", &["f"]), make_section("B", &["f"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
         assert!(!d.has_changes());
         d.sections[1].values[0] = "changed".to_owned();
@@ -804,10 +787,7 @@ mod tests {
 
     #[test]
     fn tab_disabled_while_editing() {
-        let sections = vec![
-            make_section("A", &["x"]),
-            make_section("B", &["y"]),
-        ];
+        let sections = vec![make_section("A", &["x"]), make_section("B", &["y"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
         d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(d.is_editing());
@@ -944,10 +924,7 @@ mod tests {
 
     #[test]
     fn tab_bar_highlights_current_tab() {
-        let sections = vec![
-            make_section("Alpha", &["x"]),
-            make_section("Beta", &["y"]),
-        ];
+        let sections = vec![make_section("Alpha", &["x"]), make_section("Beta", &["y"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
         let line = d.build_tab_bar_line();
         let rendered: String = line

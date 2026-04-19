@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use client::cli::CliOverrides;
@@ -14,8 +17,10 @@ use libllm::session::{Message, MessageTree, Role, Session};
 fn summarizer_excludes_summary_messages() {
     use libllm::summarize::Summarizer;
 
-    let msgs = [Message::new(Role::Summary, "Should not appear".to_owned()),
-        Message::new(Role::User, "Should appear".to_owned())];
+    let msgs = [
+        Message::new(Role::Summary, "Should not appear".to_owned()),
+        Message::new(Role::User, "Should appear".to_owned()),
+    ];
     let refs: Vec<&_> = msgs.iter().collect();
     let prompt = Summarizer::format_prompt("Instruction", &refs);
     assert!(!prompt.contains("Should not appear"));
@@ -27,11 +32,13 @@ fn summary_aware_path_with_context_manager() {
     use libllm::context::ContextManager;
 
     let ctx = ContextManager::new(8192);
-    let msgs = [Message::new(Role::User, "old msg 1".to_owned()),
+    let msgs = [
+        Message::new(Role::User, "old msg 1".to_owned()),
         Message::new(Role::Assistant, "old reply 1".to_owned()),
         Message::new(Role::Summary, "Summary of 2 earlier messages".to_owned()),
         Message::new(Role::User, "new msg".to_owned()),
-        Message::new(Role::Assistant, "new reply".to_owned())];
+        Message::new(Role::Assistant, "new reply".to_owned()),
+    ];
     let refs: Vec<&_> = msgs.iter().collect();
     let aware = ctx.summary_aware_path(&refs);
 
@@ -231,18 +238,17 @@ fn build_effective_system_prompt_custom_prompt_preserved_without_character() {
 #[test]
 fn inject_worldbook_entries_no_character_unchanged() {
     let session = empty_session();
-    let messages = [Message::new(Role::User, "Hello world".to_owned()),
-        Message::new(Role::Assistant, "Hi there".to_owned())];
+    let messages = [
+        Message::new(Role::User, "Hello world".to_owned()),
+        Message::new(Role::Assistant, "Hi there".to_owned()),
+    ];
     let refs: Vec<&Message> = messages.iter().collect();
 
     let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
     assert_eq!(result.len(), messages.len());
     for (original, returned) in messages.iter().zip(result.iter()) {
         assert_eq!(original.content, returned.content);
-        assert_eq!(
-            format!("{}", original.role),
-            format!("{}", returned.role)
-        );
+        assert_eq!(format!("{}", original.role), format!("{}", returned.role));
     }
 }
 
@@ -252,12 +258,13 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
         character: Some("TestChar".to_owned()),
         ..empty_session()
     };
-    let messages = [Message::new(Role::User, "trigger_keyword".to_owned()),
-        Message::new(Role::Assistant, "response".to_owned())];
+    let messages = [
+        Message::new(Role::User, "trigger_keyword".to_owned()),
+        Message::new(Role::Assistant, "response".to_owned()),
+    ];
     let refs: Vec<&Message> = messages.iter().collect();
 
     // No worldbooks, so messages pass through unchanged regardless of character.
     let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
     assert_eq!(result.len(), messages.len());
 }
-

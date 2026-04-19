@@ -176,7 +176,12 @@ pub struct Args {
     pub continue_session: Option<String>,
 
     /// Passkey for session encryption (or set LIBLLM_PASSKEY env var, requires -d)
-    #[arg(long, env = "LIBLLM_PASSKEY", hide_env_values = true, requires = "data")]
+    #[arg(
+        long,
+        env = "LIBLLM_PASSKEY",
+        hide_env_values = true,
+        requires = "data"
+    )]
     pub passkey: Option<String>,
 
     /// Disable session encryption (requires -d)

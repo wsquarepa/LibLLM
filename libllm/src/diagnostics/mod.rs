@@ -47,7 +47,9 @@ static DIAGNOSTICS: OnceLock<DiagnosticsState> = OnceLock::new();
 
 impl Drop for DiagnosticsGuard {
     fn drop(&mut self) {
-        let Some(state) = DIAGNOSTICS.get() else { return };
+        let Some(state) = DIAGNOSTICS.get() else {
+            return;
+        };
         if let Some(file) = state.debug_file.as_ref()
             && let Ok(mut file) = file.lock()
         {
@@ -216,7 +218,10 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
         let _ = file.flush();
     }
     let mut source = File::open(debug_path).with_context(|| {
-        format!("failed to open active debug log at {}", debug_path.display())
+        format!(
+            "failed to open active debug log at {}",
+            debug_path.display()
+        )
     })?;
     let mut destination = OpenOptions::new()
         .write(true)
@@ -235,9 +240,8 @@ pub fn copy_current_log_to(path: &Path) -> Result<()> {
 fn open_debug_file(debug_override: Option<&Path>) -> Result<(PathBuf, File)> {
     match debug_override {
         Some(path) => {
-            let file = create_output_file(path, false, true).with_context(|| {
-                format!("failed to create debug log at {}", path.display())
-            })?;
+            let file = create_output_file(path, false, true)
+                .with_context(|| format!("failed to create debug log at {}", path.display()))?;
             Ok((path.to_path_buf(), file))
         }
         None => {
@@ -246,9 +250,8 @@ fn open_debug_file(debug_override: Option<&Path>) -> Result<(PathBuf, File)> {
                 std::process::id(),
                 uuid::Uuid::new_v4()
             ));
-            let file = create_output_file(&path, true, false).with_context(|| {
-                format!("failed to create debug log at {}", path.display())
-            })?;
+            let file = create_output_file(&path, true, false)
+                .with_context(|| format!("failed to create debug log at {}", path.display()))?;
             Ok((path, file))
         }
     }

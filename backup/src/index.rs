@@ -100,10 +100,7 @@ impl BackupIndex {
 
         loop {
             if !visited.insert(current.id.as_str()) {
-                anyhow::bail!(
-                    "cycle detected in backup chain at id: {}",
-                    current.id
-                );
+                anyhow::bail!("cycle detected in backup chain at id: {}", current.id);
             }
             if chain.len() >= MAX_CHAIN_DEPTH {
                 anyhow::bail!(
@@ -115,9 +112,10 @@ impl BackupIndex {
             match current.entry_type {
                 BackupType::Base => break,
                 BackupType::Diff => {
-                    let base_id = current.base_id.as_deref().with_context(|| {
-                        format!("diff entry {} has no base_id", current.id)
-                    })?;
+                    let base_id = current
+                        .base_id
+                        .as_deref()
+                        .with_context(|| format!("diff entry {} has no base_id", current.id))?;
                     current = self.find_entry(base_id).with_context(|| {
                         format!(
                             "base_id {} referenced by {} not found in index",
@@ -191,7 +189,7 @@ pub fn load_index(path: &Path) -> Result<BackupIndex> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(BackupIndex::new()),
         Err(err) => {
             return Err(err)
-                .with_context(|| format!("failed to read index file: {}", path.display()))
+                .with_context(|| format!("failed to read index file: {}", path.display()));
         }
     };
 
@@ -200,10 +198,7 @@ pub fn load_index(path: &Path) -> Result<BackupIndex> {
 
     for entry in &index.entries {
         if !is_safe_backup_filename(&entry.filename) {
-            anyhow::bail!(
-                "backup index contains unsafe filename: {}",
-                entry.filename
-            );
+            anyhow::bail!("backup index contains unsafe filename: {}", entry.filename);
         }
     }
 
@@ -279,10 +274,7 @@ mod tests {
         let json = serde_json::to_string(&entry).unwrap();
         let restored: BackupEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.entry_type, BackupType::Diff);
-        assert_eq!(
-            restored.base_id.as_deref(),
-            Some("20260414T153000Z")
-        );
+        assert_eq!(restored.base_id.as_deref(), Some("20260414T153000Z"));
     }
 
     #[test]
@@ -291,7 +283,10 @@ mod tests {
         assert_eq!(id.len(), 20, "id must be 20 characters: {id}");
         assert!(id.ends_with('Z'), "id must end with Z: {id}");
         assert!(id.contains('T'), "id must contain T: {id}");
-        assert!(id.contains('.'), "id must contain millisecond separator: {id}");
+        assert!(
+            id.contains('.'),
+            "id must contain millisecond separator: {id}"
+        );
     }
 
     #[test]
@@ -350,7 +345,9 @@ mod tests {
 
         let mut index = BackupIndex::new();
         index.entries.push(make_base_entry("20260414T153000Z"));
-        index.entries.push(make_diff_entry("20260414T153001Z", "20260414T153000Z"));
+        index
+            .entries
+            .push(make_diff_entry("20260414T153001Z", "20260414T153000Z"));
 
         save_index(&path, &index).unwrap();
 
@@ -416,14 +413,20 @@ mod tests {
         index.entries.push(make_base_entry("20260414T153000Z"));
         assert_eq!(index.diffs_since_last_base(), 0);
 
-        index.entries.push(make_diff_entry("20260414T153001Z", "20260414T153000Z"));
-        index.entries.push(make_diff_entry("20260414T153002Z", "20260414T153000Z"));
+        index
+            .entries
+            .push(make_diff_entry("20260414T153001Z", "20260414T153000Z"));
+        index
+            .entries
+            .push(make_diff_entry("20260414T153002Z", "20260414T153000Z"));
         assert_eq!(index.diffs_since_last_base(), 2);
 
         index.entries.push(make_base_entry("20260414T153003Z"));
         assert_eq!(index.diffs_since_last_base(), 0);
 
-        index.entries.push(make_diff_entry("20260414T153004Z", "20260414T153003Z"));
+        index
+            .entries
+            .push(make_diff_entry("20260414T153004Z", "20260414T153003Z"));
         assert_eq!(index.diffs_since_last_base(), 1);
     }
 
@@ -433,9 +436,13 @@ mod tests {
         assert!(index.latest_base().is_none());
 
         index.entries.push(make_base_entry("20260414T150000Z"));
-        index.entries.push(make_diff_entry("20260414T150001Z", "20260414T150000Z"));
+        index
+            .entries
+            .push(make_diff_entry("20260414T150001Z", "20260414T150000Z"));
         index.entries.push(make_base_entry("20260414T160000Z"));
-        index.entries.push(make_diff_entry("20260414T160001Z", "20260414T160000Z"));
+        index
+            .entries
+            .push(make_diff_entry("20260414T160001Z", "20260414T160000Z"));
 
         let base = index.latest_base().unwrap();
         assert_eq!(base.id, "20260414T160000Z");

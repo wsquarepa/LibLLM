@@ -23,10 +23,7 @@ pub use libllm::template::apply_template_vars;
 /// Falls back to the builtin assistant or roleplay prompt when the session has no explicit
 /// system prompt. Appends persona description when a character session has a persona set.
 /// Returns `None` when neither a base prompt nor a persona is available.
-pub fn build_effective_system_prompt(
-    session: &Session,
-    db: Option<&Database>,
-) -> Option<String> {
+pub fn build_effective_system_prompt(session: &Session, db: Option<&Database>) -> Option<String> {
     let is_character = session.character.is_some();
 
     let session_prompt = session.system_prompt.as_deref().unwrap_or("");
@@ -36,9 +33,7 @@ pub fn build_effective_system_prompt(
     } else {
         libllm::system_prompt::BUILTIN_ASSISTANT
     };
-    let resolved_default = db.and_then(|db| {
-        db.load_prompt(builtin_name).ok().map(|p| p.content)
-    });
+    let resolved_default = db.and_then(|db| db.load_prompt(builtin_name).ok().map(|p| p.content));
     let config_default = resolved_default.as_deref().unwrap_or("");
 
     let base = if session_prompt.is_empty() {
@@ -47,9 +42,10 @@ pub fn build_effective_system_prompt(
         session_prompt
     };
 
-    let persona = session.persona.as_ref().and_then(|name| {
-        db.and_then(|db| db.load_persona(name).ok())
-    });
+    let persona = session
+        .persona
+        .as_ref()
+        .and_then(|name| db.and_then(|db| db.load_persona(name).ok()));
 
     let has_persona = is_character && persona.is_some();
 
@@ -104,12 +100,14 @@ pub fn enabled_worldbook_names(session: &Session, cfg: &libllm::config::Config) 
     enabled
 }
 
-pub fn load_runtime_worldbooks(
-    enabled: &[String],
-    db: Option<&Database>,
-) -> Vec<RuntimeWorldBook> {
+pub fn load_runtime_worldbooks(enabled: &[String], db: Option<&Database>) -> Vec<RuntimeWorldBook> {
     {
-        let _span = tracing::info_span!("worldbook.runtime", phase = "hydrate", enabled_count = enabled.len()).entered();
+        let _span = tracing::info_span!(
+            "worldbook.runtime",
+            phase = "hydrate",
+            enabled_count = enabled.len()
+        )
+        .entered();
         let Some(db) = db else { return Vec::new() };
         enabled
             .iter()
@@ -208,7 +206,10 @@ pub fn load_tabbed_config_sections(
             .unwrap_or(libllm::config::Config::default().api_url())
             .to_owned(),
         cfg.auth.display_label().to_owned(),
-        cfg.template_preset.as_deref().unwrap_or("Default").to_owned(),
+        cfg.template_preset
+            .as_deref()
+            .unwrap_or("Default")
+            .to_owned(),
         overrides
             .template
             .as_deref()
@@ -288,9 +289,7 @@ pub fn load_tabbed_config_sections(
     vec![general, sampling, backup, summarization]
 }
 
-pub fn config_locked_fields_by_section(
-    overrides: &crate::cli::CliOverrides,
-) -> Vec<Vec<usize>> {
+pub fn config_locked_fields_by_section(overrides: &crate::cli::CliOverrides) -> Vec<Vec<usize>> {
     let mut general: Vec<usize> = Vec::new();
     let mut sampling: Vec<usize> = Vec::new();
     if overrides.api_url.is_some() {
@@ -493,7 +492,11 @@ pub(super) fn apply_config(app: &mut App) {
         .with_overrides(&cfg.sampling)
         .with_overrides(&app.cli_overrides.sampling);
 
-    let new_url = app.cli_overrides.api_url.as_deref().unwrap_or(cfg.api_url());
+    let new_url = app
+        .cli_overrides
+        .api_url
+        .as_deref()
+        .unwrap_or(cfg.api_url());
     let new_tls_skip = app.cli_overrides.tls_skip_verify || cfg.tls_skip_verify;
     let new_auth = libllm::config::resolve_auth(&cfg, &app.cli_overrides.auth_overrides());
     app.client = libllm::client::ApiClient::new(new_url, new_tls_skip, new_auth);
@@ -513,9 +516,14 @@ pub(super) fn apply_config(app: &mut App) {
     app.invalidate_chat_cache();
 }
 
-pub fn build_theme_color_overrides(sections: &[Vec<String>]) -> libllm::config::ThemeColorOverrides {
+pub fn build_theme_color_overrides(
+    sections: &[Vec<String>],
+) -> libllm::config::ThemeColorOverrides {
     let mut overrides = libllm::config::ThemeColorOverrides::default();
-    for (tab_offset, labels) in crate::tui::dialogs::THEME_COLOR_TAB_LAYOUT.iter().enumerate() {
+    for (tab_offset, labels) in crate::tui::dialogs::THEME_COLOR_TAB_LAYOUT
+        .iter()
+        .enumerate()
+    {
         let section_idx = tab_offset + 1;
         for (field_idx, label) in labels.iter().enumerate() {
             overrides.set(*label, non_empty(&sections[section_idx][field_idx]));
@@ -533,7 +541,11 @@ pub fn apply_theme_color_sections(
 
     let cfg = libllm::config::Config {
         theme: Some(base_theme),
-        theme_colors: if overrides.any_set() { Some(overrides) } else { None },
+        theme_colors: if overrides.any_set() {
+            Some(overrides)
+        } else {
+            None
+        },
         ..existing
     };
 
@@ -543,11 +555,12 @@ pub fn apply_theme_color_sections(
 pub(super) fn load_active_persona(app: &mut App) {
     if let Some(ref name) = app.session.persona
         && let Some(ref db) = app.db
-            && let Ok(pf) = db.load_persona(name) {
-                app.active_persona_name = Some(pf.name);
-                app.active_persona_desc = Some(pf.persona);
-                return;
-            }
+        && let Ok(pf) = db.load_persona(name)
+    {
+        app.active_persona_name = Some(pf.name);
+        app.active_persona_desc = Some(pf.persona);
+        return;
+    }
     app.active_persona_name = None;
     app.active_persona_desc = None;
 }
@@ -565,7 +578,10 @@ pub fn new_chat_entry() -> SessionEntry {
 }
 
 fn truncate_preview(msg: &str) -> String {
-    let sanitized: String = msg.chars().filter(|c| !c.is_control() || *c == ' ').collect();
+    let sanitized: String = msg
+        .chars()
+        .filter(|c| !c.is_control() || *c == ' ')
+        .collect();
     let truncated: String = sanitized.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
     if sanitized.chars().count() > SIDEBAR_PREVIEW_CHARS {
         format!("  {truncated}...")
@@ -612,19 +628,20 @@ pub(super) fn refresh_sidebar(app: &mut App) {
     let current_id = app.save_mode.id().map(str::to_owned);
 
     if let Some(ref cid) = current_id
-        && let Some(current_entry) = sessions.iter_mut().find(|e| e.id == *cid) {
-            if let Some(ref character) = app.session.character {
-                current_entry.display_name.clone_from(character);
-            }
-            current_entry.message_count = Some(app.session.tree.node_count());
-            if current_entry.last_assistant_preview.is_none() {
-                current_entry.last_assistant_preview = app
-                    .session
-                    .tree
-                    .current_last_assistant_preview()
-                    .map(str::to_owned);
-            }
+        && let Some(current_entry) = sessions.iter_mut().find(|e| e.id == *cid)
+    {
+        if let Some(ref character) = app.session.character {
+            current_entry.display_name.clone_from(character);
         }
+        current_entry.message_count = Some(app.session.tree.node_count());
+        if current_entry.last_assistant_preview.is_none() {
+            current_entry.last_assistant_preview = app
+                .session
+                .tree
+                .current_last_assistant_preview()
+                .map(str::to_owned);
+        }
+    }
 
     let selected = current_id
         .and_then(|cid| sessions.iter().position(|s| s.id == cid))
@@ -643,7 +660,8 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) ->
         SaveMode::PendingPasskey { .. } => "pending_passkey",
     };
     let mut sessions = {
-        let _span = tracing::info_span!("startup.phase", phase = "sidebar_population", mode).entered();
+        let _span =
+            tracing::info_span!("startup.phase", phase = "sidebar_population", mode).entered();
         match save_mode {
             SaveMode::Database { .. } => {
                 let Some(db) = db else { return Vec::new() };

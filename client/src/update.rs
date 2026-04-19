@@ -151,7 +151,14 @@ pub async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Releas
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::UNAUTHORIZED {
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        tracing::warn!(url = url, result = "error", status = status.as_u16(), has_token = github_token().is_some(), elapsed_ms = elapsed_ms, "update.fetch_release");
+        tracing::warn!(
+            url = url,
+            result = "error",
+            status = status.as_u16(),
+            has_token = github_token().is_some(),
+            elapsed_ms = elapsed_ms,
+            "update.fetch_release"
+        );
         if github_token().is_none() {
             anyhow::bail!(
                 "GitHub API returned {status}. \
@@ -163,15 +170,31 @@ pub async fn fetch_release(client: &reqwest::Client, url: &str) -> Result<Releas
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        tracing::warn!(url = url, result = "error", status = status.as_u16(), body_bytes = body.len(), elapsed_ms = elapsed_ms, "update.fetch_release");
+        tracing::warn!(
+            url = url,
+            result = "error",
+            status = status.as_u16(),
+            body_bytes = body.len(),
+            elapsed_ms = elapsed_ms,
+            "update.fetch_release"
+        );
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
     let release: Result<Release> = resp.json().await.context("failed to parse release JSON");
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     match &release {
-        Ok(release) => tracing::info!(url = url, result = "ok", tag = release.tag_name.as_str(), asset_count = release.assets.len(), elapsed_ms = elapsed_ms, "update.fetch_release"),
-        Err(err) => tracing::warn!(url = url, result = "error", elapsed_ms = elapsed_ms, err = %err, "update.fetch_release"),
+        Ok(release) => tracing::info!(
+            url = url,
+            result = "ok",
+            tag = release.tag_name.as_str(),
+            asset_count = release.assets.len(),
+            elapsed_ms = elapsed_ms,
+            "update.fetch_release"
+        ),
+        Err(err) => {
+            tracing::warn!(url = url, result = "error", elapsed_ms = elapsed_ms, err = %err, "update.fetch_release")
+        }
     }
     release
 }
@@ -204,7 +227,14 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
         let status = download_resp.status();
         let body = download_resp.text().await.unwrap_or_default();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        tracing::warn!(asset = asset.name.as_str(), result = "error", status = status.as_u16(), body_bytes = body.len(), elapsed_ms = elapsed_ms, "update.download");
+        tracing::warn!(
+            asset = asset.name.as_str(),
+            result = "error",
+            status = status.as_u16(),
+            body_bytes = body.len(),
+            elapsed_ms = elapsed_ms,
+            "update.download"
+        );
         anyhow::bail!("download failed with status {status}: {body}");
     }
 
@@ -213,7 +243,13 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
         .await
         .context("failed to read download body")?;
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    tracing::info!(asset = asset.name.as_str(), result = "ok", bytes = bytes.len(), elapsed_ms = elapsed_ms, "update.download");
+    tracing::info!(
+        asset = asset.name.as_str(),
+        result = "ok",
+        bytes = bytes.len(),
+        elapsed_ms = elapsed_ms,
+        "update.download"
+    );
 
     let install_start = Instant::now();
     let exe_path = current_exe_path()?;
@@ -253,14 +289,20 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
     let asset = find_asset(&release)?;
 
     if let Some(body) = &release.body
-        && let Some(remote_hash) = parse_release_hash(body) {
-            let current_hash = env!("LIBLLM_COMMIT", "unknown");
-            if current_hash != "unknown" && current_hash == remote_hash {
-                tracing::info!(channel = "stable", result = "skipped", reason = "up_to_date", "update.check");
-                println!("Already up to date (commit {current_hash}).");
-                return Ok(());
-            }
+        && let Some(remote_hash) = parse_release_hash(body)
+    {
+        let current_hash = env!("LIBLLM_COMMIT", "unknown");
+        if current_hash != "unknown" && current_hash == remote_hash {
+            tracing::info!(
+                channel = "stable",
+                result = "skipped",
+                reason = "up_to_date",
+                "update.check"
+            );
+            println!("Already up to date (commit {current_hash}).");
+            return Ok(());
         }
+    }
 
     let expected_name = &asset.name;
     println!("Downloading {expected_name}...");
@@ -282,14 +324,20 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
 
     if CHANNEL == branch
         && let Some(body) = &release.body
-            && let Some(remote_hash) = parse_release_hash(body) {
-                let current_hash = env!("LIBLLM_COMMIT", "unknown");
-                if current_hash != "unknown" && current_hash == remote_hash {
-                    tracing::info!(channel = branch, result = "skipped", reason = "up_to_date", "update.check");
-                    println!("Already up to date on '{branch}' (commit {current_hash}).");
-                    return Ok(());
-                }
-            }
+        && let Some(remote_hash) = parse_release_hash(body)
+    {
+        let current_hash = env!("LIBLLM_COMMIT", "unknown");
+        if current_hash != "unknown" && current_hash == remote_hash {
+            tracing::info!(
+                channel = branch,
+                result = "skipped",
+                reason = "up_to_date",
+                "update.check"
+            );
+            println!("Already up to date on '{branch}' (commit {current_hash}).");
+            return Ok(());
+        }
+    }
 
     let expected_name = &asset.name;
     println!("Downloading {expected_name}...");
@@ -306,13 +354,25 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
 
 fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     if yes {
-        tracing::info!(from = CHANNEL, to = target, result = "confirmed", reason = "yes_flag", "update.channel_switch");
+        tracing::info!(
+            from = CHANNEL,
+            to = target,
+            result = "confirmed",
+            reason = "yes_flag",
+            "update.channel_switch"
+        );
         return Ok(true);
     }
 
     let stdin = io::stdin();
     if !stdin.is_terminal() {
-        tracing::warn!(from = CHANNEL, to = target, result = "error", reason = "non_interactive", "update.channel_switch");
+        tracing::warn!(
+            from = CHANNEL,
+            to = target,
+            result = "error",
+            reason = "non_interactive",
+            "update.channel_switch"
+        );
         anyhow::bail!(
             "Currently on '{CHANNEL}'. \
              Switching channels in a non-interactive terminal requires --yes."
@@ -331,7 +391,12 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     let mut answer = String::new();
     stdin.read_line(&mut answer)?;
     let confirmed = answer.trim().eq_ignore_ascii_case("y");
-    tracing::info!(from = CHANNEL, to = target, result = if confirmed { "confirmed" } else { "declined" }, "update.channel_switch");
+    tracing::info!(
+        from = CHANNEL,
+        to = target,
+        result = if confirmed { "confirmed" } else { "declined" },
+        "update.channel_switch"
+    );
     Ok(confirmed)
 }
 
@@ -346,7 +411,12 @@ async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        tracing::warn!(result = "error", status = status.as_u16(), body_bytes = body.len(), "update.fetch_prereleases");
+        tracing::warn!(
+            result = "error",
+            status = status.as_u16(),
+            body_bytes = body.len(),
+            "update.fetch_prereleases"
+        );
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
@@ -358,7 +428,11 @@ async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> 
         .map(|r| r.tag_name)
         .collect();
 
-    tracing::info!(tag_count = tags.len(), result = "ok", "update.fetch_prereleases");
+    tracing::info!(
+        tag_count = tags.len(),
+        result = "ok",
+        "update.fetch_prereleases"
+    );
 
     Ok(tags)
 }
@@ -385,17 +459,32 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
     };
 
     let selected = entries[index].name.clone();
-    tracing::debug!(phase = "branch_selected", branch = selected.as_str(), "update.interactive");
+    tracing::debug!(
+        phase = "branch_selected",
+        branch = selected.as_str(),
+        "update.interactive"
+    );
     Ok(Some(selected))
 }
 
 pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
     if CHANNEL == "unknown" {
-        tracing::warn!(phase = "start", result = "error", reason = "not_installed", "update.run");
+        tracing::warn!(
+            phase = "start",
+            result = "error",
+            reason = "not_installed",
+            "update.run"
+        );
         anyhow::bail!("This build was not installed from a release. Use install.sh to install.");
     }
 
-    tracing::info!(phase = "start", channel = CHANNEL, target = branch.as_deref().unwrap_or("stable"), interactive = crate::interactive::is_interactive(), "update.run");
+    tracing::info!(
+        phase = "start",
+        channel = CHANNEL,
+        target = branch.as_deref().unwrap_or("stable"),
+        interactive = crate::interactive::is_interactive(),
+        "update.run"
+    );
 
     let client = build_client()?;
 
@@ -410,7 +499,11 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
 
     let target = resolved.as_deref().unwrap_or("stable");
     if CHANNEL != target && !confirm_channel_switch(target, yes)? {
-        tracing::info!(phase = "cancel", reason = "channel_switch_declined", "update.run");
+        tracing::info!(
+            phase = "cancel",
+            reason = "channel_switch_declined",
+            "update.run"
+        );
         println!("Cancelled.");
         return Ok(());
     }
@@ -458,7 +551,10 @@ mod tests {
         let tags = vec!["feat/foo".to_string()];
         let result = build_branch_list(&tags, "master");
         assert_eq!(result[0].name, "stable");
-        assert!(result[0].current, "stable should be marked current when CHANNEL=master");
+        assert!(
+            result[0].current,
+            "stable should be marked current when CHANNEL=master"
+        );
         assert!(!result[1].current);
     }
 

@@ -7,7 +7,7 @@ use libllm::crypto::chmod_0600;
 use libllm::db::Database;
 
 use super::exit;
-use super::{confirm_yes, wal_liveness_check, DbContext};
+use super::{DbContext, confirm_yes, wal_liveness_check};
 
 pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
     if path.exists() && !yes {
@@ -34,9 +34,9 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
 
     let result = (|| -> Result<()> {
         let db = Database::open(&ctx.db_path, ctx.key.as_ref())?;
-        let tmp_str = tmp_path
-            .to_str()
-            .context("tmp path contains non-UTF-8 bytes; SQLCipher ATTACH requires a valid string path")?;
+        let tmp_str = tmp_path.to_str().context(
+            "tmp path contains non-UTF-8 bytes; SQLCipher ATTACH requires a valid string path",
+        )?;
         let script = format!(
             "ATTACH DATABASE '{}' AS plain KEY '';\n\
              SELECT sqlcipher_export('plain');\n\

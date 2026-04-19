@@ -215,7 +215,12 @@ pub fn handle_import_command(
         anyhow::bail!("No files specified. Usage: libllm import <file>...");
     }
 
-    tracing::info!(phase = "start", file_count = files.len(), explicit_kind = kind.is_some(), "import.run");
+    tracing::info!(
+        phase = "start",
+        file_count = files.len(),
+        explicit_kind = kind.is_some(),
+        "import.run"
+    );
 
     let mut had_errors = false;
     let mut success_count = 0usize;
@@ -258,7 +263,14 @@ pub fn handle_import_command(
         }
     }
 
-    tracing::info!(phase = "complete", file_count = files.len(), success_count = success_count, error_count = error_count, result = if had_errors { "error" } else { "ok" }, "import.run");
+    tracing::info!(
+        phase = "complete",
+        file_count = files.len(),
+        success_count = success_count,
+        error_count = error_count,
+        result = if had_errors { "error" } else { "ok" },
+        "import.run"
+    );
 
     if had_errors {
         anyhow::bail!("Some imports failed.");
@@ -272,14 +284,38 @@ mod tests {
 
     #[test]
     fn parse_import_kind_valid() {
-        assert!(matches!(parse_import_kind("character").unwrap(), ImportType::Character));
-        assert!(matches!(parse_import_kind("char").unwrap(), ImportType::Character));
-        assert!(matches!(parse_import_kind("worldbook").unwrap(), ImportType::Worldbook));
-        assert!(matches!(parse_import_kind("wb").unwrap(), ImportType::Worldbook));
-        assert!(matches!(parse_import_kind("book").unwrap(), ImportType::Worldbook));
-        assert!(matches!(parse_import_kind("persona").unwrap(), ImportType::Persona));
-        assert!(matches!(parse_import_kind("prompt").unwrap(), ImportType::SystemPrompt));
-        assert!(matches!(parse_import_kind("system-prompt").unwrap(), ImportType::SystemPrompt));
+        assert!(matches!(
+            parse_import_kind("character").unwrap(),
+            ImportType::Character
+        ));
+        assert!(matches!(
+            parse_import_kind("char").unwrap(),
+            ImportType::Character
+        ));
+        assert!(matches!(
+            parse_import_kind("worldbook").unwrap(),
+            ImportType::Worldbook
+        ));
+        assert!(matches!(
+            parse_import_kind("wb").unwrap(),
+            ImportType::Worldbook
+        ));
+        assert!(matches!(
+            parse_import_kind("book").unwrap(),
+            ImportType::Worldbook
+        ));
+        assert!(matches!(
+            parse_import_kind("persona").unwrap(),
+            ImportType::Persona
+        ));
+        assert!(matches!(
+            parse_import_kind("prompt").unwrap(),
+            ImportType::SystemPrompt
+        ));
+        assert!(matches!(
+            parse_import_kind("system-prompt").unwrap(),
+            ImportType::SystemPrompt
+        ));
     }
 
     #[test]
@@ -290,7 +326,10 @@ mod tests {
 
     #[test]
     fn sanitize_name_normal() {
-        assert_eq!(sanitize_name("hello-world_1"), Some("hello-world_1".to_string()));
+        assert_eq!(
+            sanitize_name("hello-world_1"),
+            Some("hello-world_1".to_string())
+        );
     }
 
     #[test]

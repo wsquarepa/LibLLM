@@ -64,7 +64,11 @@ impl ApiClient {
         let result: Result<String> = async {
             let resp = self
                 .auth
-                .apply(self.client.get(&url).timeout(std::time::Duration::from_secs(5)))
+                .apply(
+                    self.client
+                        .get(&url)
+                        .timeout(std::time::Duration::from_secs(5)),
+                )
                 .context("apply auth")?
                 .send()
                 .await
@@ -310,25 +314,25 @@ impl ApiClient {
             anyhow::bail!("API returned {status}: {text}");
         }
 
-        let json: serde_json::Value = match resp
-            .json()
-            .await
-            .context("failed to parse response JSON")
-        {
-            Ok(json) => json,
-            Err(err) => {
-                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                tracing::error!(
-                    phase = "done",
-                    result = "error",
-                    elapsed_ms = elapsed_ms,
-                    error = %err,
-                    "client.complete"
-                );
-                return Err(err);
-            }
-        };
-        let content = json["choices"][0]["text"].as_str().unwrap_or_default().to_owned();
+        let json: serde_json::Value =
+            match resp.json().await.context("failed to parse response JSON") {
+                Ok(json) => json,
+                Err(err) => {
+                    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    tracing::error!(
+                        phase = "done",
+                        result = "error",
+                        elapsed_ms = elapsed_ms,
+                        error = %err,
+                        "client.complete"
+                    );
+                    return Err(err);
+                }
+            };
+        let content = json["choices"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         tracing::info!(
             phase = "done",
@@ -488,9 +492,10 @@ where
             consumed = line_end + 1;
 
             if let Some(text) = parse_token_line(line_bytes)
-                && !on_token(&text)? {
-                    return Ok(());
-                }
+                && !on_token(&text)?
+            {
+                return Ok(());
+            }
         }
 
         if consumed > 0 {

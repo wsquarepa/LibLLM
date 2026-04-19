@@ -113,9 +113,9 @@ fn build_replacement(
     }
     conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
         .context("failed to set pragmas on tmp db")?;
-    let plain_str = plain_path
-        .to_str()
-        .context("plaintext path contains non-UTF-8 bytes; SQLCipher ATTACH requires a valid string path")?;
+    let plain_str = plain_path.to_str().context(
+        "plaintext path contains non-UTF-8 bytes; SQLCipher ATTACH requires a valid string path",
+    )?;
     let script = format!(
         "ATTACH DATABASE '{}' AS plain KEY '';\n\
          SELECT sqlcipher_export('main', 'plain');\n\

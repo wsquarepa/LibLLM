@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
 #[cfg(not(feature = "test-support"))]
 use anyhow::anyhow;
+use anyhow::{Context, Result};
 use reqwest::header::{HeaderName, HeaderValue, InvalidHeaderName, InvalidHeaderValue};
 use serde::{Deserialize, Serialize};
 
@@ -50,12 +50,22 @@ impl std::fmt::Display for AuthKind {
 pub enum Auth {
     #[default]
     None,
-    Basic { username: String, password: String },
-    Bearer { token: String },
-    Header { name: String, value: String },
-    Query { name: String, value: String },
+    Basic {
+        username: String,
+        password: String,
+    },
+    Bearer {
+        token: String,
+    },
+    Header {
+        name: String,
+        value: String,
+    },
+    Query {
+        name: String,
+        value: String,
+    },
 }
-
 
 impl Auth {
     pub fn kind(&self) -> AuthKind {
@@ -133,13 +143,17 @@ impl Auth {
     /// `HeaderValue` at runtime. Save-time validation prevents this in normal flows;
     /// a runtime failure here indicates corrupted state and is surfaced rather than
     /// silently dropped.
-    pub fn apply(&self, req: reqwest::RequestBuilder) -> std::result::Result<reqwest::RequestBuilder, AuthError> {
+    pub fn apply(
+        &self,
+        req: reqwest::RequestBuilder,
+    ) -> std::result::Result<reqwest::RequestBuilder, AuthError> {
         match self {
             Auth::None => Ok(req),
             Auth::Basic { username, password } => Ok(req.basic_auth(username, Some(password))),
             Auth::Bearer { token } => Ok(req.bearer_auth(token)),
             Auth::Header { name, value } => {
-                let n = HeaderName::from_bytes(name.as_bytes()).map_err(AuthError::InvalidHeaderName)?;
+                let n = HeaderName::from_bytes(name.as_bytes())
+                    .map_err(AuthError::InvalidHeaderName)?;
                 let v = HeaderValue::from_str(value).map_err(AuthError::InvalidHeaderValue)?;
                 Ok(req.header(n, v))
             }
@@ -152,25 +166,40 @@ impl Auth {
             Auth::None => Ok(()),
             Auth::Basic { username, password } => {
                 if username.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Basic, field: "username" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Basic,
+                        field: "username",
+                    });
                 }
                 if password.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Basic, field: "password" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Basic,
+                        field: "password",
+                    });
                 }
                 Ok(())
             }
             Auth::Bearer { token } => {
                 if token.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Bearer, field: "token" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Bearer,
+                        field: "token",
+                    });
                 }
                 Ok(())
             }
             Auth::Header { name, value } => {
                 if name.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Header, field: "name" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Header,
+                        field: "name",
+                    });
                 }
                 if value.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Header, field: "value" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Header,
+                        field: "value",
+                    });
                 }
                 HeaderName::from_bytes(name.as_bytes()).map_err(AuthError::InvalidHeaderName)?;
                 HeaderValue::from_str(value).map_err(AuthError::InvalidHeaderValue)?;
@@ -178,10 +207,16 @@ impl Auth {
             }
             Auth::Query { name, value } => {
                 if name.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Query, field: "name" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Query,
+                        field: "name",
+                    });
                 }
                 if value.is_empty() {
-                    return Err(AuthError::EmptyRequiredField { variant: AuthKind::Query, field: "value" });
+                    return Err(AuthError::EmptyRequiredField {
+                        variant: AuthKind::Query,
+                        field: "value",
+                    });
                 }
                 Ok(())
             }
@@ -191,7 +226,10 @@ impl Auth {
 
 #[derive(Debug)]
 pub enum AuthError {
-    EmptyRequiredField { variant: AuthKind, field: &'static str },
+    EmptyRequiredField {
+        variant: AuthKind,
+        field: &'static str,
+    },
     InvalidHeaderName(InvalidHeaderName),
     InvalidHeaderValue(InvalidHeaderValue),
 }
@@ -286,8 +324,7 @@ pub struct Config {
     pub auth: Auth,
 }
 
-const DEFAULT_SUMMARIZATION_PROMPT: &str =
-    "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
+const DEFAULT_SUMMARIZATION_PROMPT: &str = "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
 
 const DEFAULT_CONTEXT_SIZE: usize = 8192;
 
@@ -354,12 +391,24 @@ pub struct BackupConfig {
 }
 
 impl BackupConfig {
-    fn default_enabled() -> bool { true }
-    fn default_keep_all_days() -> u32 { 7 }
-    fn default_keep_daily_days() -> u32 { 30 }
-    fn default_keep_weekly_days() -> u32 { 90 }
-    fn default_rebase_threshold_percent() -> u32 { 50 }
-    fn default_rebase_hard_ceiling() -> u32 { 10 }
+    fn default_enabled() -> bool {
+        true
+    }
+    fn default_keep_all_days() -> u32 {
+        7
+    }
+    fn default_keep_daily_days() -> u32 {
+        30
+    }
+    fn default_keep_weekly_days() -> u32 {
+        90
+    }
+    fn default_rebase_threshold_percent() -> u32 {
+        50
+    }
+    fn default_rebase_hard_ceiling() -> u32 {
+        10
+    }
 }
 
 impl Default for BackupConfig {
@@ -641,15 +690,20 @@ pub(crate) fn migrate_config() {
     let old_path = match old_config_path() {
         Some(p) if p.exists() => p,
         _ => {
-            tracing::info!(result = "skipped", reason = "no_legacy_config", "config.migrate");
+            tracing::info!(
+                result = "skipped",
+                reason = "no_legacy_config",
+                "config.migrate"
+            );
             return;
         }
     };
 
     if let Some(parent) = new_path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!("Warning: failed to create config directory: {e}");
-        }
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("Warning: failed to create config directory: {e}");
+    }
 
     if std::fs::rename(&old_path, &new_path).is_ok() {
         tracing::info!(result = "ok", from = %old_path.display(), to = %new_path.display(), "config.migrate");
@@ -705,7 +759,14 @@ pub fn save(cfg: &Config) -> Result<()> {
     let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
     let serialize_elapsed_ms = serialize_start.elapsed().as_secs_f64() * 1000.0;
     let path_str = path.display().to_string();
-    tracing::info!(phase = "serialize", result = "ok", path = path_str.as_str(), bytes = toml_str.len(), elapsed_ms = serialize_elapsed_ms, "config.save");
+    tracing::info!(
+        phase = "serialize",
+        result = "ok",
+        path = path_str.as_str(),
+        bytes = toml_str.len(),
+        elapsed_ms = serialize_elapsed_ms,
+        "config.save"
+    );
     crate::timed_result!(
         tracing::Level::INFO,
         "config.save",
@@ -791,7 +852,10 @@ mod tests {
 
     #[test]
     fn auth_round_trips_through_toml_none() {
-        let cfg = Config { auth: Auth::None, ..Config::default() };
+        let cfg = Config {
+            auth: Auth::None,
+            ..Config::default()
+        };
         let s = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
         assert_eq!(back.auth, Auth::None);
@@ -800,45 +864,79 @@ mod tests {
     #[test]
     fn auth_round_trips_through_toml_basic() {
         let cfg = Config {
-            auth: Auth::Basic { username: "user".into(), password: "pw".into() },
+            auth: Auth::Basic {
+                username: "user".into(),
+                password: "pw".into(),
+            },
             ..Config::default()
         };
         let s = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(back.auth, Auth::Basic { username: "user".into(), password: "pw".into() });
+        assert_eq!(
+            back.auth,
+            Auth::Basic {
+                username: "user".into(),
+                password: "pw".into()
+            }
+        );
     }
 
     #[test]
     fn auth_round_trips_through_toml_bearer() {
         let cfg = Config {
-            auth: Auth::Bearer { token: "sk-xyz".into() },
+            auth: Auth::Bearer {
+                token: "sk-xyz".into(),
+            },
             ..Config::default()
         };
         let s = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(back.auth, Auth::Bearer { token: "sk-xyz".into() });
+        assert_eq!(
+            back.auth,
+            Auth::Bearer {
+                token: "sk-xyz".into()
+            }
+        );
     }
 
     #[test]
     fn auth_round_trips_through_toml_header() {
         let cfg = Config {
-            auth: Auth::Header { name: "X-Api-Key".into(), value: "abc".into() },
+            auth: Auth::Header {
+                name: "X-Api-Key".into(),
+                value: "abc".into(),
+            },
             ..Config::default()
         };
         let s = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(back.auth, Auth::Header { name: "X-Api-Key".into(), value: "abc".into() });
+        assert_eq!(
+            back.auth,
+            Auth::Header {
+                name: "X-Api-Key".into(),
+                value: "abc".into()
+            }
+        );
     }
 
     #[test]
     fn auth_round_trips_through_toml_query() {
         let cfg = Config {
-            auth: Auth::Query { name: "api_key".into(), value: "abc".into() },
+            auth: Auth::Query {
+                name: "api_key".into(),
+                value: "abc".into(),
+            },
             ..Config::default()
         };
         let s = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(back.auth, Auth::Query { name: "api_key".into(), value: "abc".into() });
+        assert_eq!(
+            back.auth,
+            Auth::Query {
+                name: "api_key".into(),
+                value: "abc".into()
+            }
+        );
     }
 
     #[test]
@@ -853,10 +951,37 @@ mod tests {
     #[test]
     fn auth_display_labels() {
         assert_eq!(Auth::None.display_label(), "None");
-        assert_eq!(Auth::Basic { username: String::new(), password: String::new() }.display_label(), "Basic");
-        assert_eq!(Auth::Bearer { token: String::new() }.display_label(), "Bearer");
-        assert_eq!(Auth::Header { name: String::new(), value: String::new() }.display_label(), "Header");
-        assert_eq!(Auth::Query { name: String::new(), value: String::new() }.display_label(), "Query");
+        assert_eq!(
+            Auth::Basic {
+                username: String::new(),
+                password: String::new()
+            }
+            .display_label(),
+            "Basic"
+        );
+        assert_eq!(
+            Auth::Bearer {
+                token: String::new()
+            }
+            .display_label(),
+            "Bearer"
+        );
+        assert_eq!(
+            Auth::Header {
+                name: String::new(),
+                value: String::new()
+            }
+            .display_label(),
+            "Header"
+        );
+        assert_eq!(
+            Auth::Query {
+                name: String::new(),
+                value: String::new()
+            }
+            .display_label(),
+            "Query"
+        );
     }
 
     #[test]
@@ -866,30 +991,107 @@ mod tests {
 
     #[test]
     fn auth_validate_basic_requires_both_fields() {
-        assert!(Auth::Basic { username: String::new(), password: "p".into() }.validate().is_err());
-        assert!(Auth::Basic { username: "u".into(), password: String::new() }.validate().is_err());
-        assert!(Auth::Basic { username: "u".into(), password: "p".into() }.validate().is_ok());
+        assert!(
+            Auth::Basic {
+                username: String::new(),
+                password: "p".into()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Auth::Basic {
+                username: "u".into(),
+                password: String::new()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Auth::Basic {
+                username: "u".into(),
+                password: "p".into()
+            }
+            .validate()
+            .is_ok()
+        );
     }
 
     #[test]
     fn auth_validate_bearer_requires_token() {
-        assert!(Auth::Bearer { token: String::new() }.validate().is_err());
+        assert!(
+            Auth::Bearer {
+                token: String::new()
+            }
+            .validate()
+            .is_err()
+        );
         assert!(Auth::Bearer { token: "t".into() }.validate().is_ok());
     }
 
     #[test]
     fn auth_validate_header_requires_both_fields_and_valid_header_name() {
-        assert!(Auth::Header { name: String::new(), value: "v".into() }.validate().is_err());
-        assert!(Auth::Header { name: "X-Key".into(), value: String::new() }.validate().is_err());
-        assert!(Auth::Header { name: "X Key".into(), value: "v".into() }.validate().is_err(), "spaces are invalid header chars");
-        assert!(Auth::Header { name: "X-Key".into(), value: "v".into() }.validate().is_ok());
+        assert!(
+            Auth::Header {
+                name: String::new(),
+                value: "v".into()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Auth::Header {
+                name: "X-Key".into(),
+                value: String::new()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Auth::Header {
+                name: "X Key".into(),
+                value: "v".into()
+            }
+            .validate()
+            .is_err(),
+            "spaces are invalid header chars"
+        );
+        assert!(
+            Auth::Header {
+                name: "X-Key".into(),
+                value: "v".into()
+            }
+            .validate()
+            .is_ok()
+        );
     }
 
     #[test]
     fn auth_validate_query_requires_both_fields() {
-        assert!(Auth::Query { name: String::new(), value: "v".into() }.validate().is_err());
-        assert!(Auth::Query { name: "k".into(), value: String::new() }.validate().is_err());
-        assert!(Auth::Query { name: "k".into(), value: "v".into() }.validate().is_ok());
+        assert!(
+            Auth::Query {
+                name: String::new(),
+                value: "v".into()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Auth::Query {
+                name: "k".into(),
+                value: String::new()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Auth::Query {
+                name: "k".into(),
+                value: "v".into()
+            }
+            .validate()
+            .is_ok()
+        );
     }
 
     #[test]
@@ -906,17 +1108,26 @@ mod tests {
 
     #[test]
     fn auth_field_accessors_for_basic() {
-        let b = Auth::Basic { username: "u".into(), password: "p".into() };
+        let b = Auth::Basic {
+            username: "u".into(),
+            password: "p".into(),
+        };
         assert_eq!(b.basic_username(), "u");
         assert_eq!(b.basic_password(), "p");
     }
 
     #[test]
     fn auth_field_accessors_for_header_query() {
-        let h = Auth::Header { name: "X".into(), value: "1".into() };
+        let h = Auth::Header {
+            name: "X".into(),
+            value: "1".into(),
+        };
         assert_eq!(h.header_name(), "X");
         assert_eq!(h.header_value(), "1");
-        let q = Auth::Query { name: "k".into(), value: "v".into() };
+        let q = Auth::Query {
+            name: "k".into(),
+            value: "v".into(),
+        };
         assert_eq!(q.query_name(), "k");
         assert_eq!(q.query_value(), "v");
     }
@@ -924,17 +1135,26 @@ mod tests {
     #[test]
     fn resolve_auth_uses_config_when_no_overrides() {
         let cfg = Config {
-            auth: Auth::Bearer { token: "disk-token".into() },
+            auth: Auth::Bearer {
+                token: "disk-token".into(),
+            },
             ..Config::default()
         };
         let overrides = AuthOverrides::default();
-        assert_eq!(resolve_auth(&cfg, &overrides), Auth::Bearer { token: "disk-token".into() });
+        assert_eq!(
+            resolve_auth(&cfg, &overrides),
+            Auth::Bearer {
+                token: "disk-token".into()
+            }
+        );
     }
 
     #[test]
     fn resolve_auth_cli_type_overrides_disk() {
         let cfg = Config {
-            auth: Auth::Bearer { token: "disk-token".into() },
+            auth: Auth::Bearer {
+                token: "disk-token".into(),
+            },
             ..Config::default()
         };
         let overrides = AuthOverrides {
@@ -947,14 +1167,21 @@ mod tests {
     #[test]
     fn resolve_auth_env_secret_overrides_disk_token() {
         let cfg = Config {
-            auth: Auth::Bearer { token: "disk-token".into() },
+            auth: Auth::Bearer {
+                token: "disk-token".into(),
+            },
             ..Config::default()
         };
         let overrides = AuthOverrides {
             auth_bearer_token: Some("env-token".into()),
             ..Default::default()
         };
-        assert_eq!(resolve_auth(&cfg, &overrides), Auth::Bearer { token: "env-token".into() });
+        assert_eq!(
+            resolve_auth(&cfg, &overrides),
+            Auth::Bearer {
+                token: "env-token".into()
+            }
+        );
     }
 
     #[test]
@@ -970,14 +1197,20 @@ mod tests {
         };
         assert_eq!(
             resolve_auth(&cfg, &overrides),
-            Auth::Basic { username: "u".into(), password: String::new() }
+            Auth::Basic {
+                username: "u".into(),
+                password: String::new()
+            }
         );
     }
 
     #[test]
     fn resolve_auth_mixes_cli_env_and_disk() {
         let cfg = Config {
-            auth: Auth::Header { name: "X-Disk".into(), value: "disk-val".into() },
+            auth: Auth::Header {
+                name: "X-Disk".into(),
+                value: "disk-val".into(),
+            },
             ..Config::default()
         };
         let overrides = AuthOverrides {
@@ -987,7 +1220,10 @@ mod tests {
         };
         assert_eq!(
             resolve_auth(&cfg, &overrides),
-            Auth::Header { name: "X-Cli".into(), value: "env-val".into() }
+            Auth::Header {
+                name: "X-Cli".into(),
+                value: "env-val".into()
+            }
         );
     }
 
@@ -1005,7 +1241,11 @@ mod tests {
     #[test]
     fn apply_none_adds_no_headers() {
         let client = test_client();
-        let req = Auth::None.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        let req = Auth::None
+            .apply(client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
         assert!(req.headers().get(reqwest::header::AUTHORIZATION).is_none());
         assert_eq!(req.url().query(), None);
     }
@@ -1013,8 +1253,15 @@ mod tests {
     #[test]
     fn apply_basic_sets_authorization_basic() {
         let client = test_client();
-        let auth = Auth::Basic { username: "user".into(), password: "pass".into() };
-        let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        let auth = Auth::Basic {
+            username: "user".into(),
+            password: "pass".into(),
+        };
+        let req = auth
+            .apply(client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
         let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
         assert_eq!(header.to_str().unwrap(), "Basic dXNlcjpwYXNz");
     }
@@ -1022,8 +1269,14 @@ mod tests {
     #[test]
     fn apply_bearer_sets_authorization_bearer() {
         let client = test_client();
-        let auth = Auth::Bearer { token: "sk-abc".into() };
-        let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
+        let auth = Auth::Bearer {
+            token: "sk-abc".into(),
+        };
+        let req = auth
+            .apply(client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
         let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
         assert_eq!(header.to_str().unwrap(), "Bearer sk-abc");
     }
@@ -1031,34 +1284,63 @@ mod tests {
     #[test]
     fn apply_header_sets_custom_header() {
         let client = test_client();
-        let auth = Auth::Header { name: "X-Api-Key".into(), value: "abc".into() };
-        let req = auth.apply(client.post("http://example.com/")).unwrap().build().unwrap();
-        assert_eq!(req.headers().get("x-api-key").unwrap().to_str().unwrap(), "abc");
+        let auth = Auth::Header {
+            name: "X-Api-Key".into(),
+            value: "abc".into(),
+        };
+        let req = auth
+            .apply(client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(
+            req.headers().get("x-api-key").unwrap().to_str().unwrap(),
+            "abc"
+        );
     }
 
     #[test]
     fn apply_header_invalid_name_returns_error() {
         let client = test_client();
-        let auth = Auth::Header { name: "bad name".into(), value: "v".into() };
+        let auth = Auth::Header {
+            name: "bad name".into(),
+            value: "v".into(),
+        };
         assert!(auth.apply(client.post("http://example.com/")).is_err());
     }
 
     #[test]
     fn apply_query_appends_url_encoded_pair() {
         let client = test_client();
-        let auth = Auth::Query { name: "api key".into(), value: "a/b c".into() };
-        let req = auth.apply(client.post("http://example.com/foo")).unwrap().build().unwrap();
+        let auth = Auth::Query {
+            name: "api key".into(),
+            value: "a/b c".into(),
+        };
+        let req = auth
+            .apply(client.post("http://example.com/foo"))
+            .unwrap()
+            .build()
+            .unwrap();
         // reqwest percent-encodes both name and value
         let query = req.url().query().unwrap();
-        assert!(query.contains("api+key=a%2Fb+c") || query.contains("api%20key=a%2Fb%20c"),
-                "unexpected query encoding: {query}");
+        assert!(
+            query.contains("api+key=a%2Fb+c") || query.contains("api%20key=a%2Fb%20c"),
+            "unexpected query encoding: {query}"
+        );
     }
 
     #[test]
     fn apply_query_preserves_existing_query_params() {
         let client = test_client();
-        let auth = Auth::Query { name: "k".into(), value: "v".into() };
-        let req = auth.apply(client.post("http://example.com/?existing=1")).unwrap().build().unwrap();
+        let auth = Auth::Query {
+            name: "k".into(),
+            value: "v".into(),
+        };
+        let req = auth
+            .apply(client.post("http://example.com/?existing=1"))
+            .unwrap()
+            .build()
+            .unwrap();
         let query = req.url().query().unwrap();
         assert!(query.contains("existing=1"));
         assert!(query.contains("k=v"));

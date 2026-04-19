@@ -1,8 +1,12 @@
 use std::process::Command;
 
 fn main() {
-    let hash = git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    let dirty = match Command::new("git").args(["diff-index", "--quiet", "HEAD", "--"]).status() {
+    let hash =
+        git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
+    let dirty = match Command::new("git")
+        .args(["diff-index", "--quiet", "HEAD", "--"])
+        .status()
+    {
         Ok(status) if status.success() => "",
         Ok(_) => "+dirty",
         Err(_) => "",

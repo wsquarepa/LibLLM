@@ -21,7 +21,10 @@ pub(super) struct FileLayer {
 
 impl FileLayer {
     pub(super) fn new(start: Instant, file: File) -> Self {
-        Self { start, file: Mutex::new(file) }
+        Self {
+            start,
+            file: Mutex::new(file),
+        }
     }
 
     fn write_line(&self, line: &str) {
@@ -39,7 +42,10 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         let offset = format_offset(elapsed.as_secs(), elapsed.subsec_millis());
         let level = format_level(event.metadata().level());
         let target = format_target(
-            event.metadata().module_path().unwrap_or(event.metadata().target()),
+            event
+                .metadata()
+                .module_path()
+                .unwrap_or(event.metadata().target()),
         );
 
         let mut visitor = FieldVisitor::default();
@@ -102,9 +108,9 @@ fn format_target(raw: &str) -> String {
 
 fn quote_if_needed(value: &str) -> String {
     let needs = value.is_empty()
-        || value.bytes().any(|b| {
-            !matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b'/')
-        });
+        || value.bytes().any(
+            |b| !matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b'/'),
+        );
     if !needs {
         return value.to_owned();
     }

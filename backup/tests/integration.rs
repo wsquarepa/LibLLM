@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::time::Duration;
 
+use backup::BackupConfig;
 use backup::index::{self, BackupType};
 use backup::restore;
 use backup::snapshot;
 use backup::verify;
-use backup::BackupConfig;
 
 fn setup_db(dir: &Path) -> std::path::PathBuf {
     let db_path = dir.join("data.db");
@@ -137,8 +137,7 @@ fn full_backup_restore_cycle_encrypted() {
     assert_eq!(idx.entries.len(), 1);
     assert!(idx.entries[0].encrypted, "expected entry to be encrypted");
 
-    let verify_result =
-        verify::verify_chain(dir.path(), Some("test-passkey"), false).unwrap();
+    let verify_result = verify::verify_chain(dir.path(), Some("test-passkey"), false).unwrap();
     assert!(
         verify_result.errors.is_empty(),
         "expected no verify errors, got: {:?}",
@@ -201,7 +200,10 @@ fn restore_with_wrong_passkey_fails() {
     let id = idx.entries[0].id.clone();
 
     let result = restore::restore_to_point(dir.path(), &id, Some("wrong-passkey"));
-    assert!(result.is_err(), "expected restore with wrong passkey to fail");
+    assert!(
+        result.is_err(),
+        "expected restore with wrong passkey to fail"
+    );
 
     // data.db must still be readable with the correct key and have 1 row.
     assert_eq!(count_notes_encrypted(&db_path, "correct-passkey"), 1);
@@ -216,7 +218,10 @@ fn restore_to_nonexistent_id_fails() {
     snapshot::create_snapshot(dir.path(), None, &config).unwrap();
 
     let result = restore::restore_to_point(dir.path(), "nonexistent-id", None);
-    assert!(result.is_err(), "expected restore to nonexistent id to fail");
+    assert!(
+        result.is_err(),
+        "expected restore to nonexistent id to fail"
+    );
 
     // data.db must still be intact.
     assert_eq!(count_notes(&db_path), 1);
@@ -258,7 +263,10 @@ fn corrupted_backup_file_fails_restore() {
         .clone();
 
     let result = restore::restore_to_point(dir.path(), &diff_id, None);
-    assert!(result.is_err(), "expected restore with corrupted base to fail");
+    assert!(
+        result.is_err(),
+        "expected restore with corrupted base to fail"
+    );
 
     // data.db must still reflect its pre-restore state (2 rows).
     assert_eq!(count_notes(&db_path), 2);
@@ -398,7 +406,9 @@ fn rebase_threshold_triggers_new_base() {
         for i in 0..200 {
             conn.execute(
                 "INSERT INTO big_data (payload) VALUES (?1)",
-                [format!("row-payload-{i}-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")],
+                [format!(
+                    "row-payload-{i}-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )],
             )
             .unwrap();
         }

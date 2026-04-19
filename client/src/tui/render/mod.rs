@@ -5,8 +5,8 @@ mod status_bar;
 mod text;
 
 pub use measurement::hit_test_chat_message;
-pub use status_bar::render_status_bar;
 use measurement::{measure_wrapped_height, measure_wrapped_offset, wrapped_line_height};
+pub use status_bar::render_status_bar;
 use text::parse_styled_line;
 
 use ratatui::layout::{Alignment, Rect};
@@ -180,7 +180,8 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
         ));
     }
     if sidebar_focused && !search_visible {
-        sidebar_block = sidebar_block.title_bottom(Line::from(" Del: delete  Ctrl+F: search ").right_aligned());
+        sidebar_block =
+            sidebar_block.title_bottom(Line::from(" Del: delete  Ctrl+F: search ").right_aligned());
     }
 
     let list_area = sidebar_block.inner(area);
@@ -310,8 +311,7 @@ pub fn render_chat(
 
                 let (content_lines, total_height) = if msg.role == Role::Summary {
                     let msg_count = idx;
-                    let summary_line =
-                        format!("--- Summary of {} earlier messages ---", msg_count);
+                    let summary_line = format!("--- Summary of {} earlier messages ---", msg_count);
                     let lines = vec![Line::from(Span::styled(
                         format!("  {summary_line}"),
                         Style::default()
@@ -454,7 +454,13 @@ pub fn render_chat(
 
     if scroll_dirty {
         {
-            let _span = tracing::trace_span!("scroll", phase = "adjust", dirty = scroll_dirty, auto = app.auto_scroll).entered();
+            let _span = tracing::trace_span!(
+                "scroll",
+                phase = "adjust",
+                dirty = scroll_dirty,
+                auto = app.auto_scroll
+            )
+            .entered();
             if app.auto_scroll {
                 tracing::trace!(content_height, visible_height, "chat.measure");
                 *chat_scroll = max_scroll;
@@ -547,17 +553,16 @@ pub fn render_chat(
 fn queue_user_label(app: &App) -> String {
     let has_replacements = app.session.character.is_some();
     if has_replacements && app.active_persona_name.is_some() {
-        app.active_persona_name.as_deref().unwrap_or("User").to_owned()
+        app.active_persona_name
+            .as_deref()
+            .unwrap_or("User")
+            .to_owned()
     } else {
         "You".to_owned()
     }
 }
 
-fn build_queue_lines(
-    queue: &[String],
-    user_label: &str,
-    theme: &Theme,
-) -> Vec<Line<'static>> {
+fn build_queue_lines(queue: &[String], user_label: &str, theme: &Theme) -> Vec<Line<'static>> {
     let dim_style = Style::default()
         .fg(theme.dimmed)
         .add_modifier(Modifier::ITALIC);
@@ -635,8 +640,10 @@ pub fn render_message_queue(f: &mut ratatui::Frame, app: &App, area: Rect) {
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
     let hidden: &[&str] = &[];
-    let matches =
-        libllm::commands::matching_commands(prefix.split_whitespace().next().unwrap_or("/"), hidden);
+    let matches = libllm::commands::matching_commands(
+        prefix.split_whitespace().next().unwrap_or("/"),
+        hidden,
+    );
     if matches.is_empty() {
         return;
     }
@@ -680,4 +687,3 @@ pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, ch
     f.render_widget(ratatui::widgets::Clear, picker_area);
     f.render_stateful_widget(list, picker_area, &mut state);
 }
-

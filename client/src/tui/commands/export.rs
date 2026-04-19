@@ -20,7 +20,9 @@ impl ExportFormat {
             "" | "html" => Ok(Self::Html),
             "md" | "markdown" => Ok(Self::Markdown),
             "jsonl" | "json" => Ok(Self::Jsonl),
-            other => Err(format!("Unknown export format: {other}. Use md, html, or jsonl")),
+            other => Err(format!(
+                "Unknown export format: {other}. Use md, html, or jsonl"
+            )),
         }
     }
 

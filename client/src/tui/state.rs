@@ -2,9 +2,12 @@
 
 use anyhow::Result;
 
-use super::dialogs;
-use super::types::{SaveTrigger, StatusLevel, StatusMessage, AUTOSAVE_DEBOUNCE, AUTOSAVE_RETRY_DELAY, NOTIFICATION_SLIDE_DURATION, STATUS_DURATION};
 use super::App;
+use super::dialogs;
+use super::types::{
+    AUTOSAVE_DEBOUNCE, AUTOSAVE_RETRY_DELAY, NOTIFICATION_SLIDE_DURATION, STATUS_DURATION,
+    SaveTrigger, StatusLevel, StatusMessage,
+};
 
 impl App<'_> {
     pub(super) fn can_persist_session(&self) -> bool {
@@ -22,23 +25,25 @@ impl App<'_> {
             }
         }
         if let Some(d) = self.config_dialog.as_mut()
-            && let Some(t) = d.reject_flash {
-                if dialogs::is_flash_active(Some(t)) {
-                    needs_redraw = true;
-                } else {
-                    d.reject_flash = None;
-                    needs_redraw = true;
-                }
+            && let Some(t) = d.reject_flash
+        {
+            if dialogs::is_flash_active(Some(t)) {
+                needs_redraw = true;
+            } else {
+                d.reject_flash = None;
+                needs_redraw = true;
             }
+        }
         if let Some(d) = self.theme_dialog.as_mut()
-            && let Some(t) = d.reject_flash {
-                if dialogs::is_flash_active(Some(t)) {
-                    needs_redraw = true;
-                } else {
-                    d.reject_flash = None;
-                    needs_redraw = true;
-                }
+            && let Some(t) = d.reject_flash
+        {
+            if dialogs::is_flash_active(Some(t)) {
+                needs_redraw = true;
+            } else {
+                d.reject_flash = None;
+                needs_redraw = true;
             }
+        }
         for dialog in [
             &mut self.persona_editor,
             &mut self.system_prompt_editor,
@@ -46,14 +51,15 @@ impl App<'_> {
             &mut self.worldbook_entry_editor,
         ] {
             if let Some(d) = dialog.as_mut()
-                && let Some(t) = d.reject_flash {
-                    if dialogs::is_flash_active(Some(t)) {
-                        needs_redraw = true;
-                    } else {
-                        d.reject_flash = None;
-                        needs_redraw = true;
-                    }
+                && let Some(t) = d.reject_flash
+            {
+                if dialogs::is_flash_active(Some(t)) {
+                    needs_redraw = true;
+                } else {
+                    d.reject_flash = None;
+                    needs_redraw = true;
                 }
+            }
         }
         needs_redraw
     }

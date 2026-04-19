@@ -108,9 +108,10 @@ impl Theme {
     pub fn apply_overrides(&mut self, overrides: &ThemeColorOverrides) {
         for label in ColorLabel::ALL {
             if let Some(s) = overrides.get(label)
-                && let Some(c) = parse_color(s) {
-                    self.set_color(label, c);
-                }
+                && let Some(c) = parse_color(s)
+            {
+                self.set_color(label, c);
+            }
         }
     }
 

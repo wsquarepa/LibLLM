@@ -121,7 +121,6 @@ pub fn matching_commands(prefix: &str, hidden: &[&str]) -> Vec<&'static CommandI
         })
         .collect();
     matches.sort_by_key(|c| {
-        
         std::iter::once(c.name)
             .chain(c.aliases.iter().copied())
             .filter(|n| n.starts_with(prefix))
@@ -169,7 +168,10 @@ mod tests {
     #[test]
     fn matching_commands_shorter_first() {
         let matches = matching_commands("/m", &[]);
-        assert!(matches.len() >= 2, "expected at least /macro and /persona (via /me)");
+        assert!(
+            matches.len() >= 2,
+            "expected at least /macro and /persona (via /me)"
+        );
         assert_eq!(
             matches[0].name, "/macro",
             "/macro (via /m alias) should rank before /persona (via /me)"

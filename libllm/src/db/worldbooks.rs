@@ -162,7 +162,10 @@ mod tests {
         let list = list_worldbooks(&conn).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0], ("alpha-lore".to_owned(), "Alpha Lore".to_owned()));
-        assert_eq!(list[1], ("zetton-lore".to_owned(), "Zetton Lore".to_owned()));
+        assert_eq!(
+            list[1],
+            ("zetton-lore".to_owned(), "Zetton Lore".to_owned())
+        );
     }
 
     #[test]

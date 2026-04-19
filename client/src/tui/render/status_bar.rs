@@ -19,16 +19,17 @@ pub fn render_status_bar(
         .bg(app.theme.status_bar_bg);
 
     if let Some(msg) = &app.status_message
-        && matches!(msg.level, super::super::StatusLevel::Error) {
-            let style = Style::default()
-                .fg(app.theme.status_error_fg)
-                .bg(app.theme.status_error_bg);
-            let paragraph = Paragraph::new(format!(" {} ", msg.text))
-                .style(style)
-                .alignment(Alignment::Center);
-            f.render_widget(paragraph, area);
-            return;
-        }
+        && matches!(msg.level, super::super::StatusLevel::Error)
+    {
+        let style = Style::default()
+            .fg(app.theme.status_error_fg)
+            .bg(app.theme.status_error_bg);
+        let paragraph = Paragraph::new(format!(" {} ", msg.text))
+            .style(style)
+            .alignment(Alignment::Center);
+        f.render_widget(paragraph, area);
+        return;
+    }
 
     let branch_text = match branch_info {
         Some((idx, total)) => format!("Branch {}/{total}", idx + 1),

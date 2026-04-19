@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use libllm::crypto;
@@ -16,7 +19,8 @@ fn session_database_round_trip() {
         common::assistant_msg("hi there"),
         common::user_msg("how are you?"),
     ]);
-    db.insert_session("plain-1", &session).expect("insert failed");
+    db.insert_session("plain-1", &session)
+        .expect("insert failed");
     let loaded = db.load_session("plain-1").expect("load failed");
 
     let messages = loaded.tree.branch_path();
@@ -103,7 +107,8 @@ fn session_empty_round_trip() {
     let mut db = Database::open(&db_path, None).expect("open db");
 
     let session = common::linear_session(vec![]);
-    db.insert_session("empty-1", &session).expect("insert empty");
+    db.insert_session("empty-1", &session)
+        .expect("insert empty");
     let loaded = db.load_session("empty-1").expect("load empty");
 
     assert_eq!(loaded.tree.branch_path().len(), 0);
@@ -195,10 +200,12 @@ fn worldbook_rename_insert_before_delete_preserves_old_on_failure() {
     let db = Database::open(&db_path, None).expect("open db");
 
     let original = common::worldbook("old", vec![common::worldbook_entry(vec!["key"], "lore")]);
-    db.insert_worldbook("old", &original).expect("insert original");
+    db.insert_worldbook("old", &original)
+        .expect("insert original");
 
     let conflicting = common::worldbook("conflict", vec![]);
-    db.insert_worldbook("conflict", &conflicting).expect("insert conflicting");
+    db.insert_worldbook("conflict", &conflicting)
+        .expect("insert conflicting");
 
     let new_wb = common::worldbook("old-renamed", vec![]);
     let insert_result = db.insert_worldbook("conflict", &new_wb);
@@ -222,11 +229,17 @@ fn worldbook_rename_insert_then_delete_completes_cleanly() {
     let db = Database::open(&db_path, None).expect("open db");
 
     let original = common::worldbook("old", vec![common::worldbook_entry(vec!["key"], "lore")]);
-    db.insert_worldbook("old", &original).expect("insert original");
+    db.insert_worldbook("old", &original)
+        .expect("insert original");
 
-    let renamed = common::worldbook("new-name", vec![common::worldbook_entry(vec!["key"], "lore")]);
-    db.insert_worldbook("new-name", &renamed).expect("insert with new slug succeeds");
-    db.delete_worldbook("old").expect("delete old slug succeeds");
+    let renamed = common::worldbook(
+        "new-name",
+        vec![common::worldbook_entry(vec!["key"], "lore")],
+    );
+    db.insert_worldbook("new-name", &renamed)
+        .expect("insert with new slug succeeds");
+    db.delete_worldbook("old")
+        .expect("delete old slug succeeds");
 
     assert!(db.load_worldbook("old").is_err(), "old slug must be gone");
     assert!(db.load_worldbook("new-name").is_ok(), "new slug must exist");

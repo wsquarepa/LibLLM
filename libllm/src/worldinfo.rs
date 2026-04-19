@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-
 /// A named collection of lorebook entries with keyword-activated content injection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldBook {
@@ -611,4 +610,3 @@ mod tests {
         assert_eq!(window, "third\nfourth");
     }
 }
-

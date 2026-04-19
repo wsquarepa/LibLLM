@@ -130,7 +130,12 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
             |row| row.get(0),
         )
         .context("failed to check session existence")?;
-    tracing::info!(session_id = id, result = "ok", found = count > 0, "db.session.exists");
+    tracing::info!(
+        session_id = id,
+        result = "ok",
+        found = count > 0,
+        "db.session.exists"
+    );
     Ok(count > 0)
 }
 
@@ -321,7 +326,9 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
 
 pub fn update_head(conn: &Connection, session_id: &str, head_id: Option<NodeId>) -> Result<()> {
     let now = now_iso8601();
-    let head_id_display = head_id.map(|h| h.to_string()).unwrap_or_else(|| "none".to_owned());
+    let head_id_display = head_id
+        .map(|h| h.to_string())
+        .unwrap_or_else(|| "none".to_owned());
     let result = conn
         .execute(
             "UPDATE sessions SET head_id = ?1, updated_at = ?2 WHERE id = ?3",
@@ -535,10 +542,7 @@ mod tests {
         assert_eq!(node2.children, vec![3]);
         assert_eq!(node2.parent, Some(0));
 
-        assert_eq!(
-            loaded.tree.preferred_child_map().get(&0),
-            Some(&2),
-        );
+        assert_eq!(loaded.tree.preferred_child_map().get(&0), Some(&2),);
     }
 
     #[test]

@@ -5,9 +5,9 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use libllm::db::Database;
 
+use super::DbContext;
 use super::format::Format;
 use super::parser::{is_single_statement, touches_query_only_pragma};
-use super::DbContext;
 
 pub fn run(ctx: &DbContext, write: bool, format: &str, query: &str) -> Result<()> {
     if !is_single_statement(query) {

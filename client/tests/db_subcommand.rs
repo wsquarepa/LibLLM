@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use std::io::Write as _;
@@ -83,7 +86,11 @@ fn import_rejects_schema_version_mismatch() {
 
     let after = Database::open(&db_path, None).expect("open data.db");
     let personas = after.list_personas().expect("list");
-    assert_eq!(personas.len(), 1, "import must not have touched the live db");
+    assert_eq!(
+        personas.len(),
+        1,
+        "import must not have touched the live db"
+    );
 }
 
 #[test]
@@ -109,9 +116,7 @@ fn import_round_trip_unencrypted() {
 
     {
         let plain = Database::open(&dump_path, None).expect("open dump");
-        plain
-            .delete_persona("alice")
-            .expect("delete alice in dump");
+        plain.delete_persona("alice").expect("delete alice in dump");
         plain
             .insert_persona(
                 "carol",
@@ -183,7 +188,10 @@ fn import_failure_leaves_original_intact() {
     assert!(!output.status.success(), "import should have failed");
 
     let after_bytes = std::fs::read(&db_path).expect("read post-import data.db");
-    assert_eq!(original_bytes, after_bytes, "data.db must be byte-identical");
+    assert_eq!(
+        original_bytes, after_bytes,
+        "data.db must be byte-identical"
+    );
 }
 
 #[test]
@@ -286,7 +294,11 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
         ])
         .output()
         .expect("spawn second dump");
-    assert_eq!(dump_output.status.code(), Some(4), "dump should exit 4 on busy");
+    assert_eq!(
+        dump_output.status.code(),
+        Some(4),
+        "dump should exit 4 on busy"
+    );
 
     let import_output = Command::new(client_bin())
         .args([
@@ -300,7 +312,11 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
         ])
         .output()
         .expect("spawn import");
-    assert_eq!(import_output.status.code(), Some(4), "import should exit 4 on busy");
+    assert_eq!(
+        import_output.status.code(),
+        Some(4),
+        "import should exit 4 on busy"
+    );
 
     drop(holder);
 }
@@ -405,7 +421,11 @@ fn sql_emits_csv_format() {
         ])
         .output()
         .expect("spawn client");
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout, "slug,name\nalice,Alice\n");
 }
@@ -506,7 +526,12 @@ fn shell_runs_scripted_select() {
         writeln!(stdin, ".quit").unwrap();
     }
     let output = child.wait_with_output().expect("wait");
-    assert!(output.status.success(), "exit: {:?} stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "exit: {:?} stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("alice"), "stdout: {stdout}");
 }
@@ -541,7 +566,10 @@ fn shell_history_respects_ignorespace() {
     let history = std::fs::read_to_string(data_dir.join(".db_shell_history"))
         .expect("history file should exist");
     assert!(history.contains("SELECT 1;"));
-    assert!(!history.contains("SELECT 2;"), "leading-space line must be excluded");
+    assert!(
+        !history.contains("SELECT 2;"),
+        "leading-space line must be excluded"
+    );
 }
 
 #[test]
@@ -572,7 +600,10 @@ fn shell_private_mode_writes_no_history() {
     let _ = child.wait_with_output().expect("wait");
 
     let history_path = data_dir.join(".db_shell_history");
-    assert!(!history_path.exists(), "private mode must not write a history file");
+    assert!(
+        !history_path.exists(),
+        "private mode must not write a history file"
+    );
 }
 
 #[test]

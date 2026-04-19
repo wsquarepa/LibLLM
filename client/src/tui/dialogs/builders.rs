@@ -112,8 +112,12 @@ pub fn open_config_editor(
 ) -> TabbedFieldDialog<'static> {
     let [general_vals, sampling_vals, backup_vals, summarization_vals]: [Vec<String>; 4] =
         sections.try_into().expect("expected 4 section vectors");
-    let [general_locked, sampling_locked, backup_locked, summarization_locked]: [Vec<usize>; 4] =
-        locked.try_into().expect("expected 4 lock vectors");
+    let [
+        general_locked,
+        sampling_locked,
+        backup_locked,
+        summarization_locked,
+    ]: [Vec<usize>; 4] = locked.try_into().expect("expected 4 lock vectors");
 
     let general = TabSection::new("General", GENERAL_LABELS, general_vals)
         .with_boolean_fields(GENERAL_BOOLEAN)
@@ -127,9 +131,21 @@ pub fn open_config_editor(
             (1, FieldValidation::Int { min: 1, max: 100 }),
             (2, FieldValidation::Float { min: 0.0, max: 1.0 }),
             (3, FieldValidation::Float { min: 0.0, max: 1.0 }),
-            (4, FieldValidation::Int { min: -1, max: 32767 }),
+            (
+                4,
+                FieldValidation::Int {
+                    min: -1,
+                    max: 32767,
+                },
+            ),
             (5, FieldValidation::Float { min: 0.0, max: 2.0 }),
-            (6, FieldValidation::Int { min: -1, max: 32767 }),
+            (
+                6,
+                FieldValidation::Int {
+                    min: -1,
+                    max: 32767,
+                },
+            ),
         ]);
 
     let backup = TabSection::new("Backup", BACKUP_LABELS, backup_vals)
@@ -143,16 +159,21 @@ pub fn open_config_editor(
             (5, FieldValidation::Int { min: 0, max: 100 }),
         ]);
 
-    let summarization =
-        TabSection::new("Summarization", SUMMARIZATION_LABELS, summarization_vals)
-            .with_multiline_fields(SUMMARIZATION_MULTILINE)
-            .with_boolean_fields(SUMMARIZATION_BOOLEAN)
-            .with_placeholder(SUMMARIZATION_PLACEHOLDER, "(inherit main api_url)")
-            .with_locked_fields(summarization_locked)
-            .with_validated_fields(vec![
-                (2, FieldValidation::Int { min: 512, max: 131072 }),
-                (3, FieldValidation::Int { min: 1, max: 100 }),
-            ]);
+    let summarization = TabSection::new("Summarization", SUMMARIZATION_LABELS, summarization_vals)
+        .with_multiline_fields(SUMMARIZATION_MULTILINE)
+        .with_boolean_fields(SUMMARIZATION_BOOLEAN)
+        .with_placeholder(SUMMARIZATION_PLACEHOLDER, "(inherit main api_url)")
+        .with_locked_fields(summarization_locked)
+        .with_validated_fields(vec![
+            (
+                2,
+                FieldValidation::Int {
+                    min: 512,
+                    max: 131072,
+                },
+            ),
+            (3, FieldValidation::Int { min: 1, max: 100 }),
+        ]);
 
     TabbedFieldDialog::new(
         " Configuration ",
@@ -331,20 +352,11 @@ const INDICATORS_LABELS: &[&str] = &[
 const INDICATORS_COLOR_FIELDS: &[usize] = &[0, 1, 2];
 
 pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'static> {
-    let overrides = config
-        .theme_colors
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
+    let overrides = config.theme_colors.as_ref().cloned().unwrap_or_default();
 
     let base_theme = config.theme.clone().unwrap_or_else(|| "dark".to_owned());
 
-    let theme_vals = vec![
-        base_theme,
-        String::new(),
-        String::new(),
-        String::new(),
-    ];
+    let theme_vals = vec![base_theme, String::new(), String::new(), String::new()];
     let theme_tab = TabSection::new("Theme", THEME_TAB_LABELS, theme_vals)
         .with_selector_fields(THEME_TAB_SELECTOR)
         .with_action_fields(THEME_TAB_ACTIONS)
@@ -391,4 +403,3 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
 fn color_validations(count: usize) -> Vec<(usize, FieldValidation)> {
     (0..count).map(|i| (i, FieldValidation::Color)).collect()
 }
-

@@ -3,8 +3,11 @@
 use crossterm::event::MouseEvent;
 use ratatui::layout::{Position, Rect};
 
-use super::{DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING, LIST_DIALOG_WIDTH};
 use super::SearchState;
+use super::{
+    DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
+    LIST_DIALOG_WIDTH,
+};
 
 pub(in crate::tui) enum ListDialogHit {
     Item(usize),
@@ -247,15 +250,17 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
         }
         crate::tui::Focus::ConfigDialog => {
             if let Some(ref mut d) = app.config_dialog
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::Input;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::Input;
+            }
         }
         crate::tui::Focus::ThemeDialog => {
             if let Some(ref mut d) = app.theme_dialog
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::Input;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::Input;
+            }
         }
         crate::tui::Focus::BaseThemePickerDialog => {
             let indices: Vec<usize> = (0..app.base_theme_picker_names.len()).collect();
@@ -280,33 +285,38 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
         }
         crate::tui::Focus::PresetEditorDialog => {
             if let Some(ref mut d) = app.preset_editor
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::ConfigDialog;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::ConfigDialog;
+            }
         }
         crate::tui::Focus::PersonaEditorDialog => {
             if let Some(ref mut d) = app.persona_editor
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::PersonaDialog;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::PersonaDialog;
+            }
         }
         crate::tui::Focus::CharacterEditorDialog => {
             if let Some(ref mut d) = app.character_editor
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::CharacterDialog;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::CharacterDialog;
+            }
         }
         crate::tui::Focus::SystemPromptEditorDialog => {
             if let Some(ref mut d) = app.system_prompt_editor
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::SystemPromptDialog;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::SystemPromptDialog;
+            }
         }
         crate::tui::Focus::WorldbookEntryEditorDialog => {
             if let Some(ref mut d) = app.worldbook_entry_editor
-                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row) {
-                    app.focus = crate::tui::Focus::WorldbookEditorDialog;
-                }
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::WorldbookEditorDialog;
+            }
         }
         crate::tui::Focus::WorldbookEditorDialog => {
             let entry_labels: Vec<String> = app
@@ -379,7 +389,12 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                     height: dialog.height.saturating_sub(2),
                 };
                 editor.cancel_selection();
-                crate::tui::events::move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+                crate::tui::events::move_textarea_cursor_to_mouse(
+                    editor,
+                    editor_area,
+                    mouse.column,
+                    mouse.row,
+                );
             }
         }
         _ => {}

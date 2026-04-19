@@ -175,10 +175,9 @@ impl InstructPreset {
             }
         }
 
-        if messages
-            .last()
-            .is_some_and(|m| m.role == Role::User || m.role == Role::System || m.role == Role::Summary)
-        {
+        if messages.last().is_some_and(|m| {
+            m.role == Role::User || m.role == Role::System || m.role == Role::Summary
+        }) {
             let seq = self.select_output_sequence(is_first_assistant, false);
             prompt.push_str(seq);
         }
@@ -351,9 +350,11 @@ mod tests {
     fn chatml_render() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = [system_msg("You are helpful."),
+        let msgs = [
+            system_msg("You are helpful."),
             user_msg("Hi"),
-            assistant_msg("Hello!")];
+            assistant_msg("Hello!"),
+        ];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 
@@ -480,16 +481,20 @@ mod tests {
     fn multi_turn_conversation() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = [user_msg("Turn 1"),
+        let msgs = [
+            user_msg("Turn 1"),
             assistant_msg("Reply 1"),
             user_msg("Turn 2"),
             assistant_msg("Reply 2"),
             user_msg("Turn 3"),
-            assistant_msg("Reply 3")];
+            assistant_msg("Reply 3"),
+        ];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 
-        for content in &["Turn 1", "Reply 1", "Turn 2", "Reply 2", "Turn 3", "Reply 3"] {
+        for content in &[
+            "Turn 1", "Reply 1", "Turn 2", "Reply 2", "Turn 3", "Reply 3",
+        ] {
             assert!(output.contains(content), "missing content: {content}");
         }
 
@@ -506,8 +511,10 @@ mod tests {
     fn special_characters_in_messages() {
         let _dir = setup_data_dir();
         let preset = resolve_instruct_preset("ChatML");
-        let msgs = [user_msg("line1\nline2\nline3"),
-            assistant_msg("<tag>content</tag> | pipe | test")];
+        let msgs = [
+            user_msg("line1\nline2\nline3"),
+            assistant_msg("<tag>content</tag> | pipe | test"),
+        ];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, None);
 

@@ -34,7 +34,10 @@ fn banner_and_event_lines_are_rendered() {
 fn assert_log_matches_shape(path: &Path) {
     let contents = std::fs::read_to_string(path).expect("read log");
     let first = contents.lines().next().expect("empty log");
-    assert!(first.starts_with("================"), "first line was {first:?}");
+    assert!(
+        first.starts_with("================"),
+        "first line was {first:?}"
+    );
     assert!(contents.contains("LibLLM version 9.9.9 (-abcdef0)"));
     assert!(contents.contains("Run mode      test"));
     assert!(contents.contains("Filter        info  (source: --log-filter)"));
@@ -45,7 +48,11 @@ fn assert_log_matches_shape(path: &Path) {
         if !line.starts_with("[+") {
             continue;
         }
-        assert_eq!(line[1..14].matches(':').count(), 2, "bad offset in {line:?}");
+        assert_eq!(
+            line[1..14].matches(':').count(),
+            2,
+            "bad offset in {line:?}"
+        );
         assert_eq!(&line[14..15], "]");
         assert_eq!(&line[15..16], " ");
         let level = &line[16..21];

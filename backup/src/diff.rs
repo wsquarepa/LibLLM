@@ -41,8 +41,8 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn decompress_with_cap(data: &[u8], cap: u64) -> Result<Vec<u8>> {
-    let mut decoder = zstd::stream::Decoder::new(data)
-        .context("failed to initialize zstd decoder")?;
+    let mut decoder =
+        zstd::stream::Decoder::new(data).context("failed to initialize zstd decoder")?;
     let mut out = Vec::new();
     let read = (&mut decoder)
         .take(cap + 1)
@@ -105,7 +105,12 @@ mod tests {
 
     #[test]
     fn decompress_rejects_payload_exceeding_cap() {
-        let repetitive: Vec<u8> = b"aaaaaaaaaaaaaaaa".iter().cycle().take(1_024).copied().collect();
+        let repetitive: Vec<u8> = b"aaaaaaaaaaaaaaaa"
+            .iter()
+            .cycle()
+            .take(1_024)
+            .copied()
+            .collect();
         let compressed = compress(&repetitive).unwrap();
 
         let result = decompress_with_cap(&compressed, 512);

@@ -6,21 +6,24 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::RngCore;
 
-use crate::index::{
-    BackupEntry, BackupIndex, BackupType, backup_filename, generate_backup_id, is_safe_backup_filename,
-    load_index, parse_backup_filename, save_index,
-};
 use crate::BackupConfig;
+use crate::index::{
+    BackupEntry, BackupIndex, BackupType, backup_filename, generate_backup_id,
+    is_safe_backup_filename, load_index, parse_backup_filename, save_index,
+};
 
 /// Creates a new backup snapshot (base or diff) of the database at `data_dir/data.db`.
 ///
 /// Automatically decides between a base and diff snapshot based on the rebase threshold
 /// and hard ceiling in `config`. Runs retention thinning after writing the snapshot.
-pub fn create_snapshot(data_dir: &Path, passkey: Option<&str>, config: &BackupConfig) -> Result<()> {
+pub fn create_snapshot(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    config: &BackupConfig,
+) -> Result<()> {
     let db_path = data_dir.join("data.db");
     let backups_dir = data_dir.join("backups");
-    std::fs::create_dir_all(&backups_dir)
-        .context("failed to create backups directory")?;
+    std::fs::create_dir_all(&backups_dir).context("failed to create backups directory")?;
 
     let index_path = backups_dir.join("index.json");
     let mut index = load_index(&index_path)?;
@@ -165,11 +168,18 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
 
     let mut file_entries: Vec<(std::time::SystemTime, String)> = Vec::new();
 
-    for dir_entry in std::fs::read_dir(backups_dir)
-        .with_context(|| format!("failed to read backups directory: {}", backups_dir.display()))?
-    {
-        let dir_entry = dir_entry
-            .with_context(|| format!("failed to read directory entry in {}", backups_dir.display()))?;
+    for dir_entry in std::fs::read_dir(backups_dir).with_context(|| {
+        format!(
+            "failed to read backups directory: {}",
+            backups_dir.display()
+        )
+    })? {
+        let dir_entry = dir_entry.with_context(|| {
+            format!(
+                "failed to read directory entry in {}",
+                backups_dir.display()
+            )
+        })?;
 
         let filename = dir_entry.file_name().to_string_lossy().into_owned();
 
@@ -256,7 +266,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                 let base_entry = match index.latest_base() {
                     Some(e) => e.clone(),
                     None => {
-                        eprintln!("Warning: skipping {filename}: no base entry found before this diff");
+                        eprintln!(
+                            "Warning: skipping {filename}: no base entry found before this diff"
+                        );
                         continue;
                     }
                 };
@@ -272,13 +284,16 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                 };
 
                 let chain_refs: Vec<&BackupEntry> = chain.iter().collect();
-                let base_plaintext = match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("Warning: skipping {filename}: failed to replay base chain: {e}");
-                        continue;
-                    }
-                };
+                let base_plaintext =
+                    match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: skipping {filename}: failed to replay base chain: {e}"
+                            );
+                            continue;
+                        }
+                    };
 
                 let diff_decrypted = match &backup_key {
                     Some(key) => match crate::crypto::decrypt_payload(&file_bytes, key) {
@@ -441,7 +456,11 @@ mod tests {
         let backups_dir = dir.path().join("backups");
         for entry in &idx.entries {
             let file_path = backups_dir.join(&entry.filename);
-            assert!(file_path.exists(), "backup file missing: {}", entry.filename);
+            assert!(
+                file_path.exists(),
+                "backup file missing: {}",
+                entry.filename
+            );
         }
     }
 
@@ -517,8 +536,14 @@ mod tests {
             diff_rebuilt.plaintext_size, expected_size,
             "rebuilt diff plaintext_size must match original"
         );
-        assert!(!diff_rebuilt.plaintext_hash.is_empty(), "diff hash must not be empty");
-        assert!(diff_rebuilt.plaintext_size > 0, "diff size must not be zero");
+        assert!(
+            !diff_rebuilt.plaintext_hash.is_empty(),
+            "diff hash must not be empty"
+        );
+        assert!(
+            diff_rebuilt.plaintext_size > 0,
+            "diff size must not be zero"
+        );
     }
 
     #[test]

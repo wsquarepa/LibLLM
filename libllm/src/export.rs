@@ -23,39 +23,39 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
     let _span = tracing::info_span!("export.html", message_count = messages.len()).entered();
     {
         let mut body = String::new();
-            for msg in messages {
-                let role_label = match msg.role {
-                    Role::User => user_name,
-                    Role::Assistant => char_name,
-                    Role::System | Role::Summary => "System",
-                };
-                let content = template::apply_template_vars(&msg.content, char_name, user_name);
-                let formatted = html_format_content(&content);
-                let class = match msg.role {
-                    Role::User => "user",
-                    Role::Assistant => "assistant",
-                    Role::System | Role::Summary => "system",
-                };
-                let tag = match msg.role {
-                    Role::System | Role::Summary => "em",
-                    _ => "span",
-                };
-                body.push_str(&format!(
-                    "    <article class=\"message {class}\">\n\
+        for msg in messages {
+            let role_label = match msg.role {
+                Role::User => user_name,
+                Role::Assistant => char_name,
+                Role::System | Role::Summary => "System",
+            };
+            let content = template::apply_template_vars(&msg.content, char_name, user_name);
+            let formatted = html_format_content(&content);
+            let class = match msg.role {
+                Role::User => "user",
+                Role::Assistant => "assistant",
+                Role::System | Role::Summary => "system",
+            };
+            let tag = match msg.role {
+                Role::System | Role::Summary => "em",
+                _ => "span",
+            };
+            body.push_str(&format!(
+                "    <article class=\"message {class}\">\n\
                      \x20     <div class=\"role\">{}</div>\n\
                      \x20     <div class=\"content\"><{tag}>{formatted}</{tag}></div>\n\
                      \x20     <time>{}</time>\n\
                      \x20   </article>\n",
-                    html_escape(role_label),
-                    html_escape(&msg.timestamp),
-                ));
-            }
+                html_escape(role_label),
+                html_escape(&msg.timestamp),
+            ));
+        }
 
-            let char_escaped = html_escape(char_name);
-            let user_escaped = html_escape(user_name);
+        let char_escaped = html_escape(char_name);
+        let user_escaped = html_escape(user_name);
 
-            let out = format!(
-        r#"<!DOCTYPE html>
+        let out = format!(
+            r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -209,7 +209,7 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
 </body>
 </html>
 "#
-            );
+        );
         tracing::info!(phase = "done", output_bytes = out.len(), "export.html");
         out
     }
@@ -229,25 +229,29 @@ fn html_format_line(line: &str) -> String {
     let mut i = 0;
 
     while i < bytes.len() {
-        if bytes[i] == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'*'
-            && let Some(end) = find_delimiter(&escaped[i + 2..], "**") {
-                let inner = &escaped[i + 2..i + 2 + end];
-                out.push_str("<strong>");
-                out.push_str(inner);
-                out.push_str("</strong>");
-                i += 2 + end + 2;
-                continue;
-            }
+        if bytes[i] == b'*'
+            && i + 1 < bytes.len()
+            && bytes[i + 1] == b'*'
+            && let Some(end) = find_delimiter(&escaped[i + 2..], "**")
+        {
+            let inner = &escaped[i + 2..i + 2 + end];
+            out.push_str("<strong>");
+            out.push_str(inner);
+            out.push_str("</strong>");
+            i += 2 + end + 2;
+            continue;
+        }
 
         if bytes[i] == b'*'
-            && let Some(end) = find_delimiter(&escaped[i + 1..], "*") {
-                let inner = &escaped[i + 1..i + 1 + end];
-                out.push_str("<em>");
-                out.push_str(inner);
-                out.push_str("</em>");
-                i += 1 + end + 1;
-                continue;
-            }
+            && let Some(end) = find_delimiter(&escaped[i + 1..], "*")
+        {
+            let inner = &escaped[i + 1..i + 1 + end];
+            out.push_str("<em>");
+            out.push_str(inner);
+            out.push_str("</em>");
+            i += 1 + end + 1;
+            continue;
+        }
 
         if bytes[i] == b'&' && escaped[i..].starts_with("&quot;") {
             let after = i + 6;

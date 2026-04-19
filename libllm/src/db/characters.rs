@@ -212,7 +212,10 @@ mod tests {
         assert_eq!(loaded.first_mes, card.first_mes);
         assert_eq!(loaded.mes_example, card.mes_example);
         assert_eq!(loaded.system_prompt, card.system_prompt);
-        assert_eq!(loaded.post_history_instructions, card.post_history_instructions);
+        assert_eq!(
+            loaded.post_history_instructions,
+            card.post_history_instructions
+        );
         assert_eq!(loaded.alternate_greetings, card.alternate_greetings);
     }
 

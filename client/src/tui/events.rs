@@ -9,12 +9,12 @@ use tui_textarea::{CursorMove, TextArea};
 
 use libllm::client::StreamToken;
 
+use super::dialog_handler::{
+    DialogKind, cancel_generation, configure_textarea, handle_field_dialog_key,
+    live_apply_theme_dialog,
+};
 use super::types::*;
 use super::{clipboard, commands, dialogs, input, render};
-use super::dialog_handler::{
-    cancel_generation, configure_textarea, handle_field_dialog_key, live_apply_theme_dialog,
-    DialogKind,
-};
 
 pub(super) fn handle_event(
     event: Event,
@@ -117,13 +117,14 @@ pub(super) fn process_action(action: Action, app: &mut App, token_tx: mpsc::Send
         }
         Action::EditMessage { node_id, content } => {
             if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
-                && app.session.tree.set_message_content(new_root, content) {
-                    app.session.tree.switch_to(new_root);
-                    app.invalidate_chat_cache();
-                    app.nav_cursor = Some(new_root);
-                    app.focus = Focus::Chat;
-                    app.mark_session_dirty(SaveTrigger::Debounced, false);
-                }
+                && app.session.tree.set_message_content(new_root, content)
+            {
+                app.session.tree.switch_to(new_root);
+                app.invalidate_chat_cache();
+                app.nav_cursor = Some(new_root);
+                app.focus = Focus::Chat;
+                app.mark_session_dirty(SaveTrigger::Debounced, false);
+            }
         }
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx);
@@ -421,10 +422,11 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                     cumulative += item_height;
                 }
                 if let Some(index) = hit_index
-                    && selected_idx != Some(index) {
-                        app.sidebar_state.select(Some(index));
-                        input::load_sidebar_selection(app);
-                    }
+                    && selected_idx != Some(index)
+                {
+                    app.sidebar_state.select(Some(index));
+                    input::load_sidebar_selection(app);
+                }
             } else if chat.contains(pos) {
                 app.sidebar_search.commit();
                 app.focus = Focus::Chat;
@@ -459,22 +461,23 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 move_textarea_cursor_to_mouse(&mut app.textarea, input, mouse.column, mouse.row);
             } else if app.focus == Focus::EditDialog
                 && let Some(ref mut editor) = app.edit_editor
-                    && let Ok((tw, th)) = crossterm::terminal::size() {
-                        let terminal_area = Rect::new(0, 0, tw, th);
-                        let width = (tw as f32 * dialogs::DIALOG_WIDTH_RATIO) as u16;
-                        let height = (th as f32 * dialogs::DIALOG_HEIGHT_RATIO) as u16;
-                        let dialog = render::centered_rect(width, height, terminal_area);
-                        let editor_area = Rect {
-                            x: dialog.x + 2,
-                            y: dialog.y + 1,
-                            width: dialog.width.saturating_sub(4),
-                            height: dialog.height.saturating_sub(2),
-                        };
-                        if editor.selection_range().is_none() {
-                            editor.start_selection();
-                        }
-                        move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
-                    }
+                && let Ok((tw, th)) = crossterm::terminal::size()
+            {
+                let terminal_area = Rect::new(0, 0, tw, th);
+                let width = (tw as f32 * dialogs::DIALOG_WIDTH_RATIO) as u16;
+                let height = (th as f32 * dialogs::DIALOG_HEIGHT_RATIO) as u16;
+                let dialog = render::centered_rect(width, height, terminal_area);
+                let editor_area = Rect {
+                    x: dialog.x + 2,
+                    y: dialog.y + 1,
+                    width: dialog.width.saturating_sub(4),
+                    height: dialog.height.saturating_sub(2),
+                };
+                if editor.selection_range().is_none() {
+                    editor.start_selection();
+                }
+                move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+            }
             None
         }
         MouseEventKind::ScrollUp => {

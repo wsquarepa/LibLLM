@@ -25,7 +25,10 @@ pub(crate) struct OwnedField {
 
 impl OwnedField {
     pub(crate) fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { key: key.into(), value: value.into() }
+        Self {
+            key: key.into(),
+            value: value.into(),
+        }
     }
 }
 
@@ -66,8 +69,16 @@ impl TimingCollector {
 
     pub(crate) fn record(&mut self, category: &str, fields: Vec<OwnedField>, elapsed_ms: f64) {
         let operation = operation_name(category, &fields);
-        let result = fields.iter().find(|f| f.key == "result").map(|f| f.value.clone());
-        self.samples.push(TimingSample { operation, elapsed_ms, result, fields });
+        let result = fields
+            .iter()
+            .find(|f| f.key == "result")
+            .map(|f| f.value.clone());
+        self.samples.push(TimingSample {
+            operation,
+            elapsed_ms,
+            result,
+            fields,
+        });
     }
 
     pub(super) fn write_report(&mut self, debug_path: &Path) -> Result<()> {
@@ -138,13 +149,21 @@ impl TimingCollector {
 
         let mut slowest: Vec<&TimingSample> = self.samples.iter().collect();
         slowest.sort_by(|l, r| {
-            r.elapsed_ms.partial_cmp(&l.elapsed_ms).unwrap_or(Ordering::Equal)
+            r.elapsed_ms
+                .partial_cmp(&l.elapsed_ms)
+                .unwrap_or(Ordering::Equal)
         });
 
         writeln!(file)?;
         writeln!(file, "Slowest Samples")?;
         for (i, sample) in slowest.into_iter().take(25).enumerate() {
-            writeln!(file, "{}. {:.3} ms | {}", i + 1, sample.elapsed_ms, sample.operation)?;
+            writeln!(
+                file,
+                "{}. {:.3} ms | {}",
+                i + 1,
+                sample.elapsed_ms,
+                sample.operation
+            )?;
             let detail = build_kv(&sample.fields, &["elapsed_ms"]);
             if !detail.is_empty() {
                 writeln!(file, "   {}", detail)?;
@@ -187,9 +206,13 @@ where
 
     fn on_close(&self, id: Id, ctx: LayerContext<'_, S>) {
         let Some(span) = ctx.span(&id) else { return };
-        let Some(timing) = span.extensions_mut().remove::<SpanTiming>() else { return };
+        let Some(timing) = span.extensions_mut().remove::<SpanTiming>() else {
+            return;
+        };
         let elapsed_ms = timing.opened_at.elapsed().as_secs_f64() * 1000.0;
-        let Ok(mut collector) = self.collector.lock() else { return };
+        let Ok(mut collector) = self.collector.lock() else {
+            return;
+        };
         collector.record(&timing.category, timing.fields, elapsed_ms);
     }
 }
@@ -204,19 +227,24 @@ impl tracing::field::Visit for SpanFieldVisitor {
         self.fields.push(OwnedField::new(field.name(), value));
     }
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.fields.push(OwnedField::new(field.name(), format!("{value:?}")));
+        self.fields
+            .push(OwnedField::new(field.name(), format!("{value:?}")));
     }
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.fields.push(OwnedField::new(field.name(), value.to_string()));
+        self.fields
+            .push(OwnedField::new(field.name(), value.to_string()));
     }
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.fields.push(OwnedField::new(field.name(), value.to_string()));
+        self.fields
+            .push(OwnedField::new(field.name(), value.to_string()));
     }
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.fields.push(OwnedField::new(field.name(), value.to_string()));
+        self.fields
+            .push(OwnedField::new(field.name(), value.to_string()));
     }
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.fields.push(OwnedField::new(field.name(), value.to_string()));
+        self.fields
+            .push(OwnedField::new(field.name(), value.to_string()));
     }
 }
 

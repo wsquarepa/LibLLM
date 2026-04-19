@@ -86,7 +86,10 @@ pub(in crate::tui) fn handle_passkey_key(
     match key.code {
         KeyCode::Enter => {
             let passkey = app.passkey_input.clone();
-            if !matches!(&app.save_mode, libllm::session::SaveMode::PendingPasskey { .. }) {
+            if !matches!(
+                &app.save_mode,
+                libllm::session::SaveMode::PendingPasskey { .. }
+            ) {
                 return None;
             }
             let db_path = libllm::config::data_dir().join("data.db");
@@ -122,9 +125,7 @@ pub(in crate::tui) fn handle_passkey_key(
                                 let key = std::sync::Arc::new(derived_key);
                                 BackgroundEvent::KeyDerived(key, db_path)
                             }
-                            Err(_) => {
-                                BackgroundEvent::KeyDeriveFailed("Wrong passkey.".to_owned())
-                            }
+                            Err(_) => BackgroundEvent::KeyDeriveFailed("Wrong passkey.".to_owned()),
                         }
                     })
                 })

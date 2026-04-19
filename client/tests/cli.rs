@@ -74,8 +74,7 @@ fn parse_import_with_type() {
 
 #[test]
 fn parse_import_with_type_long_form() {
-    let args =
-        Args::try_parse_from(["libllm", "import", "--type", "persona", "note.txt"]).unwrap();
+    let args = Args::try_parse_from(["libllm", "import", "--type", "persona", "note.txt"]).unwrap();
     match args.command {
         Some(Command::Import { kind, .. }) => {
             assert_eq!(kind, Some("persona".to_string()));
@@ -102,7 +101,10 @@ fn parse_persona_without_character_errors() {
 #[test]
 fn parse_no_encrypt_without_data_errors() {
     let result = Args::try_parse_from(["libllm", "--no-encrypt"]);
-    assert!(result.is_err(), "--no-encrypt without -d should be rejected");
+    assert!(
+        result.is_err(),
+        "--no-encrypt without -d should be rejected"
+    );
 }
 
 #[test]
@@ -136,7 +138,9 @@ fn parse_recover_without_subcommand() {
 fn parse_recover_with_list_subcommand() {
     let args = Args::try_parse_from(["libllm", "recover", "list"]).unwrap();
     match args.command {
-        Some(Command::Recover { command: Some(RecoverCommand::List) }) => {}
+        Some(Command::Recover {
+            command: Some(RecoverCommand::List),
+        }) => {}
         _ => panic!("expected Command::Recover with Some(RecoverCommand::List)"),
     }
 }
@@ -164,8 +168,7 @@ fn parse_update_with_branch() {
 
 #[test]
 fn cli_overrides_persona_is_slugified() {
-    let args =
-        Args::try_parse_from(["libllm", "-c", "Example", "-p", "Alice Cooper"]).unwrap();
+    let args = Args::try_parse_from(["libllm", "-c", "Example", "-p", "Alice Cooper"]).unwrap();
     let overrides = args.cli_overrides();
     assert_eq!(
         overrides.persona.as_deref(),
@@ -214,7 +217,10 @@ fn parse_auth_type_accepts_all_variants() {
 #[test]
 fn parse_auth_type_rejects_invalid_value() {
     let result = Args::try_parse_from(["libllm", "--auth-type", "garbage"]);
-    let stderr = result.err().expect("invalid auth-type value should be rejected").to_string();
+    let stderr = result
+        .err()
+        .expect("invalid auth-type value should be rejected")
+        .to_string();
     assert!(
         stderr.contains("auth-type") || stderr.contains("possible values"),
         "error message should mention auth-type or possible values: {stderr}"

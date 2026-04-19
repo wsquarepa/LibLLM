@@ -109,7 +109,8 @@ pub(super) fn scan_template(template: &str) -> Result<Vec<ScanItem>, String> {
     let bytes = template.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'\\' && i + 2 < bytes.len() && bytes[i + 1] == b'{' && bytes[i + 2] == b'{' {
+        if bytes[i] == b'\\' && i + 2 < bytes.len() && bytes[i + 1] == b'{' && bytes[i + 2] == b'{'
+        {
             result.push(ScanItem::Escaped(i, i + 1));
             i += 1;
             continue;

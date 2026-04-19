@@ -99,10 +99,9 @@ pub fn verify_chain(
         let replay_result = crate::restore::replay_chain(&backups_dir, &chain, &backup_key);
         match replay_result {
             Err(e) => {
-                result.errors.push(format!(
-                    "chain replay failed for id {}: {e}",
-                    entry.id
-                ));
+                result
+                    .errors
+                    .push(format!("chain replay failed for id {}: {e}", entry.id));
             }
             Ok(plaintext) => {
                 let actual_hash = crate::hash::hash_bytes(&plaintext);

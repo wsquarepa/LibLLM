@@ -52,7 +52,13 @@ pub(super) fn collect_terminal() -> TerminalInfo {
     let locale = std::env::var("LC_ALL")
         .or_else(|_| std::env::var("LANG"))
         .unwrap_or_else(|_| "unknown".to_owned());
-    TerminalInfo { term, columns, rows, shell, locale }
+    TerminalInfo {
+        term,
+        columns,
+        rows,
+        shell,
+        locale,
+    }
 }
 
 fn terminal_size() -> (Option<u16>, Option<u16>) {

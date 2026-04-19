@@ -200,12 +200,13 @@ async fn main() -> Result<()> {
         if let Some(ref sp) = args.system_prompt {
             session.system_prompt = Some(sp.clone());
         } else if session.system_prompt.is_none()
-            && let Some(ref db) = db {
-                session.system_prompt = db
-                    .load_prompt(libllm::system_prompt::BUILTIN_ASSISTANT)
-                    .ok()
-                    .map(|p| p.content);
-            }
+            && let Some(ref db) = db
+        {
+            session.system_prompt = db
+                .load_prompt(libllm::system_prompt::BUILTIN_ASSISTANT)
+                .ok()
+                .map(|p| p.content);
+        }
 
         if let Some(ref char_arg) = args.character {
             let card = libllm::timed_result!(
@@ -242,8 +243,7 @@ async fn main() -> Result<()> {
             message.clone()
         };
 
-        let effective_prompt =
-            tui::build_effective_system_prompt_standalone(&session, db.as_ref());
+        let effective_prompt = tui::build_effective_system_prompt_standalone(&session, db.as_ref());
 
         let parent = session.tree.head();
         let user_node = session.tree.push(parent, Message::new(Role::User, text));
@@ -325,14 +325,18 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
             let session = db.load_session(uuid)?;
             return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
         }
-        return Ok((session::Session::default(), SaveMode::Database { id }, Some(db)));
+        return Ok((
+            session::Session::default(),
+            SaveMode::Database { id },
+            Some(db),
+        ));
     }
 
     if let Some(ref passkey) = args.passkey {
         let salt = crypto::load_or_create_salt(&config::salt_path())?;
         let key = crypto::derive_key(passkey, &salt)?;
-        let db = Database::open(&db_path, Some(&key))
-            .context("Wrong passkey (or corrupt database).")?;
+        let db =
+            Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
         preset::ensure_default_presets();
         let id = session::generate_session_id();
@@ -340,17 +344,22 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
             let session = db.load_session(uuid)?;
             return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
         }
-        return Ok((session::Session::default(), SaveMode::Database { id }, Some(db)));
+        return Ok((
+            session::Session::default(),
+            SaveMode::Database { id },
+            Some(db),
+        ));
     }
 
     let id = session::generate_session_id();
-    Ok((session::Session::default(), SaveMode::PendingPasskey { id }, None))
+    Ok((
+        session::Session::default(),
+        SaveMode::PendingPasskey { id },
+        None,
+    ))
 }
 
-fn resolve_character(
-    char_arg: &str,
-    db: Option<&Database>,
-) -> Result<character::CharacterCard> {
+fn resolve_character(char_arg: &str, db: Option<&Database>) -> Result<character::CharacterCard> {
     let path = std::path::Path::new(char_arg);
     if path.exists() {
         let card = character::import_card(path)?;
@@ -363,9 +372,10 @@ fn resolve_character(
 
     let slug = character::slugify(char_arg);
     if let Some(db) = db
-        && let Ok(card) = db.load_character(&slug) {
-            return Ok(card);
-        }
+        && let Ok(card) = db.load_character(&slug)
+    {
+        return Ok(card);
+    }
 
     anyhow::bail!("Character not found: {char_arg}");
 }
@@ -423,8 +433,7 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
 
     let salt = crypto::load_or_create_salt(&config::salt_path())?;
     let key = crypto::derive_key(&passkey, &salt)?;
-    Database::open(&db_path, Some(&key))
-        .context("Wrong passkey (or corrupt database).")
+    Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")
 }
 
 fn try_backup(
@@ -470,4 +479,3 @@ mod tests {
         );
     }
 }
-

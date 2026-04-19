@@ -26,6 +26,8 @@ pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &
         items,
         " System Prompts ",
         &app.theme,
+        None,
+        None,
     );
 
     render_hints_below_dialog(

@@ -27,6 +27,8 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
         items,
         " Select Branch ",
         &app.theme,
+        None,
+        None,
     );
 
     render_hints_below_dialog(

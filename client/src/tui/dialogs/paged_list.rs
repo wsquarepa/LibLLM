@@ -204,12 +204,28 @@ pub(in crate::tui) fn render_paged_list(
     items: Vec<ListItem<'_>>,
     title_base: &str,
     theme: &Theme,
+    search: Option<&SearchState>,
+    unfiltered_total: Option<usize>,
 ) {
     let total = items.len();
-    let visible = visible_rows(area);
+    let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
+    let (search_area, list_area) = if search_visible {
+        let inner_search = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: 1 };
+        let list_area = Rect {
+            x: area.x,
+            y: area.y + 1,
+            width: area.width,
+            height: area.height.saturating_sub(1),
+        };
+        (Some(inner_search), list_area)
+    } else {
+        (None, area)
+    };
+
+    let visible = visible_rows(list_area);
     let range = viewport(total, selected, visible);
 
-    let title = format_title(title_base, total, selected, visible, None);
+    let title = format_title(title_base, total, selected, visible, unfiltered_total);
     let block = dialog_block(Line::from(title), theme.border_focused).padding(Padding::horizontal(1));
 
     let clamped_selected = selected.min(total.saturating_sub(1));
@@ -231,7 +247,7 @@ pub(in crate::tui) fn render_paged_list(
     if total > 0 {
         list_state.select(Some(relative_selected));
     }
-    f.render_stateful_widget(list, area, &mut list_state);
+    f.render_stateful_widget(list, list_area, &mut list_state);
 
     if total > visible && visible > 0 {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -241,9 +257,13 @@ pub(in crate::tui) fn render_paged_list(
             ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
         f.render_stateful_widget(
             scrollbar,
-            area.inner(Margin { horizontal: 0, vertical: 1 }),
+            list_area.inner(Margin { horizontal: 0, vertical: 1 }),
             &mut scrollbar_state,
         );
+    }
+
+    if let (Some(search_area), Some(state)) = (search_area, search) {
+        render_search_field(f, search_area, state, theme);
     }
 }
 
@@ -253,9 +273,24 @@ pub(in crate::tui) fn render_paged_list_inline(
     selected: usize,
     items: Vec<ListItem<'_>>,
     theme: &Theme,
+    search: Option<&SearchState>,
 ) {
     let total = items.len();
-    let visible = area.height as usize;
+    let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
+    let (search_area, list_area) = if search_visible {
+        let s_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: 1 };
+        let l_area = Rect {
+            x: area.x,
+            y: area.y + 1,
+            width: area.width,
+            height: area.height.saturating_sub(1),
+        };
+        (Some(s_area), l_area)
+    } else {
+        (None, area)
+    };
+
+    let visible = list_area.height as usize;
     let range = viewport(total, selected, visible);
 
     let clamped_selected = selected.min(total.saturating_sub(1));
@@ -277,8 +312,8 @@ pub(in crate::tui) fn render_paged_list_inline(
     if total > 0 && selected != usize::MAX {
         list_state.select(Some(relative_selected));
     }
-    let list_area = area.inner(Margin { horizontal: 1, vertical: 0 });
-    f.render_stateful_widget(list, list_area, &mut list_state);
+    let inner_list_area = list_area.inner(Margin { horizontal: 1, vertical: 0 });
+    f.render_stateful_widget(list, inner_list_area, &mut list_state);
 
     if total > visible && visible > 0 {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -286,8 +321,30 @@ pub(in crate::tui) fn render_paged_list_inline(
             .end_symbol(None);
         let mut scrollbar_state =
             ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
-        f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+        f.render_stateful_widget(scrollbar, list_area, &mut scrollbar_state);
     }
+
+    if let (Some(search_area), Some(state)) = (search_area, search) {
+        render_search_field(f, search_area, state, theme);
+    }
+}
+
+fn render_search_field(f: &mut Frame, area: Rect, state: &SearchState, theme: &Theme) {
+    use ratatui::text::Span;
+    use ratatui::widgets::Paragraph;
+
+    let fg = if state.compile_error() {
+        theme.status_error_fg
+    } else if state.active {
+        theme.sidebar_highlight_fg
+    } else {
+        theme.dimmed
+    };
+
+    let cursor = if state.active { "_" } else { "" };
+    let text = format!("/{}{}", state.query, cursor);
+    let para = Paragraph::new(Line::from(Span::styled(text, Style::default().fg(fg))));
+    f.render_widget(para, area);
 }
 
 fn visible_rows(area: Rect) -> usize {

@@ -29,7 +29,7 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
 
     let items: Vec<ListItem<'_>> = names.iter().map(|name| ListItem::new(name.clone())).collect();
 
-    super::render_paged_list(f, dialog, app.preset_picker_selected, items, title, &app.theme);
+    super::render_paged_list(f, dialog, app.preset_picker_selected, items, title, &app.theme, None, None);
 
     render_hints_below_dialog(
         f,

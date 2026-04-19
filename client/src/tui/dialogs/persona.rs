@@ -28,7 +28,7 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
         })
         .collect();
 
-    super::render_paged_list(f, dialog, app.persona_selected, items, " Personas ", &app.theme);
+    super::render_paged_list(f, dialog, app.persona_selected, items, " Personas ", &app.theme, None, None);
 
     render_hints_below_dialog(
         f,

@@ -48,7 +48,7 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         })
         .collect();
 
-    super::render_paged_list(f, dialog, app.worldbook_selected, items, " Worldbooks ", &app.theme);
+    super::render_paged_list(f, dialog, app.worldbook_selected, items, " Worldbooks ", &app.theme, None, None);
 
     render_hints_below_dialog(
         f,
@@ -242,7 +242,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         app.worldbook_editor_selected
     };
 
-    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme);
+    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme, None);
 
     render_hints_below_dialog(
         f,

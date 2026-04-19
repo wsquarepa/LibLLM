@@ -28,6 +28,8 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         items,
         " Select Character ",
         &app.theme,
+        None,
+        None,
     );
 
     render_hints_below_dialog(

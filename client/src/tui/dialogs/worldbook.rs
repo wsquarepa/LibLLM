@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{ListItem, Paragraph};
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
@@ -27,39 +27,28 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let dialog = clear_centered(
-        f,
-        super::LIST_DIALOG_WIDTH,
-        count as u16 + super::LIST_DIALOG_TALL_PADDING,
-        area,
-    );
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let mut lines: Vec<Line> = vec![Line::from("")];
+    let items: Vec<ListItem<'_>> = app
+        .worldbook_list
+        .iter()
+        .map(|name| {
+            let state = worldbook_state(app, name);
+            let (checkbox, color) = match state {
+                WorldbookState::Global => ("[G]", Color::Green),
+                WorldbookState::Session => ("[S]", Color::Cyan),
+                WorldbookState::Off => ("[ ]", Color::Reset),
+            };
+            let line = Line::from(Span::styled(
+                format!("{checkbox} {name}"),
+                Style::default().fg(color),
+            ));
+            ListItem::new(line)
+        })
+        .collect();
 
-    for (i, name) in app.worldbook_list.iter().enumerate() {
-        let is_selected = i == app.worldbook_selected;
-        let state = worldbook_state(app, name);
-        let (checkbox, color) = match state {
-            WorldbookState::Global => ("[G]", Color::Green),
-            WorldbookState::Session => ("[S]", Color::Cyan),
-            WorldbookState::Off => ("[ ]", Color::Reset),
-        };
-        let marker = if is_selected { "> " } else { "  " };
-        let style = if is_selected {
-            Style::default().fg(color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(color)
-        };
-        lines.push(Line::from(Span::styled(
-            format!("{marker}{checkbox} {name}"),
-            style,
-        )));
-    }
-
-    let paragraph =
-        Paragraph::new(Text::from(lines)).block(dialog_block(" Worldbooks ", Color::Yellow));
-
-    f.render_widget(paragraph, dialog);
+    super::render_paged_list(f, dialog, app.worldbook_selected, items, " Worldbooks ", &app.theme);
 
     render_hints_below_dialog(
         f,
@@ -67,8 +56,8 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         area,
         &[
             Line::from("[G] Global  [S] Session  [ ] Off"),
-            Line::from("Up/Down: navigate  Enter: cycle  Right: edit"),
-            Line::from("a: add new  Del: delete  Esc: close"),
+            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
+            Line::from("Enter: cycle  Right: edit  a: add  Del: delete  Esc: close"),
             Line::from("Drop .json to import"),
         ],
     );
@@ -88,13 +77,18 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
+    if super::handle_paged_list_key(
+        &mut app.worldbook_selected,
+        app.worldbook_list.len(),
+        visible,
+        key,
+    ) == super::PagedListAction::Consumed
+    {
+        return None;
+    }
+
     match key.code {
-        KeyCode::Up => {
-            super::move_selection_up(&mut app.worldbook_selected);
-        }
-        KeyCode::Down => {
-            super::move_selection_down(&mut app.worldbook_selected, app.worldbook_list.len());
-        }
         KeyCode::Enter | KeyCode::Char(' ') => {
             let name = app.worldbook_list[app.worldbook_selected].clone();
             match worldbook_state(app, &name) {

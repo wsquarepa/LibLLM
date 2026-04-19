@@ -310,7 +310,9 @@ pub fn render_chat(
                     .message;
                 let (role_label, base_role_style) = match msg.role {
                     Role::User => {
-                        let (fg, bg) = if is_side_character(&msg.content) {
+                        let is_side = app.session.character.is_some()
+                            && is_side_character(&msg.content);
+                        let (fg, bg) = if is_side {
                             (app.theme.side_character_fg, app.theme.side_character_bg)
                         } else {
                             (app.theme.user_character_fg, app.theme.user_character_bg)

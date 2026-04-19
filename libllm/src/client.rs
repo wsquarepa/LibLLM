@@ -425,6 +425,84 @@ impl ApiClient {
         n_ctx
     }
 
+    /// Calls `POST {server}/tokenize` with the given text and returns the token count.
+    /// When `add_special` is true, BOS/EOS tokens are included in the count.
+    pub async fn tokenize(&self, text: &str, add_special: bool) -> anyhow::Result<usize> {
+        let url = format!("{}/tokenize", self.base_url.trim_end_matches("/v1"));
+        let start = Instant::now();
+        let body = serde_json::json!({
+            "content": text,
+            "add_special": add_special,
+        });
+        let builder = self
+            .auth
+            .apply(self.client.post(&url).json(&body))
+            .map_err(|err| {
+                tracing::error!(
+                    phase = "auth",
+                    result = "error",
+                    error = %err,
+                    "client.tokenize"
+                );
+                anyhow::anyhow!("auth apply failed: {err}")
+            })?;
+
+        let resp = builder.send().await.map_err(|err| {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                error = %err,
+                "client.tokenize"
+            );
+            anyhow::anyhow!("tokenize request failed: {err}")
+        })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                status = status.as_u16(),
+                "client.tokenize"
+            );
+            return Err(anyhow::anyhow!(
+                "tokenize returned HTTP {}",
+                status.as_u16()
+            ));
+        }
+
+        let json: serde_json::Value = resp.json().await.map_err(|err| {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                error = %err,
+                "client.tokenize"
+            );
+            anyhow::anyhow!("tokenize response parse failed: {err}")
+        })?;
+
+        let count = json["tokens"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("tokenize response missing `tokens` array"))?
+            .len();
+
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        tracing::debug!(
+            phase = "request",
+            result = "ok",
+            elapsed_ms = elapsed_ms,
+            count = count,
+            "client.tokenize"
+        );
+        Ok(count)
+    }
+
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -526,4 +604,44 @@ fn parse_token_line(line_bytes: &[u8]) -> Option<String> {
     let event: SseEvent = serde_json::from_str(data).ok()?;
     let text = event.choices.first().and_then(|c| c.text.as_deref())?;
     (!text.is_empty()).then(|| text.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn tokenize_returns_token_count() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": [1, 2, 3, 4, 5]
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        let count = client.tokenize("hello world", true).await.unwrap();
+        assert_eq!(count, 5);
+    }
+
+    #[tokio::test]
+    async fn tokenize_returns_error_on_server_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        assert!(client.tokenize("hello", true).await.is_err());
+    }
 }

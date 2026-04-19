@@ -131,6 +131,7 @@ pub(super) enum BackgroundEvent {
     PasskeySetFailed(String),
     ModelFetched(std::result::Result<String, String>),
     ServerContextSize(usize),
+    TokenCountReady(libllm::tokenizer::TokenCountUpdate),
 }
 
 #[derive(PartialEq, Eq)]
@@ -181,6 +182,7 @@ pub(super) struct App<'a> {
     pub(super) is_summarizing: bool,
     pub(super) summary_receiver: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
     pub(super) summary_branch_head: Option<NodeId>,
+    pub(super) summary_pending_dropped: Option<usize>,
     pub(super) summarization_enabled: bool,
     pub(super) model_name: Option<String>,
     pub(super) api_available: bool,
@@ -244,7 +246,8 @@ pub(super) struct App<'a> {
     pub(super) worldbook_entry_editor_index: usize,
 
     pub(super) chat_content_cache: Option<render::ChatContentCache>,
-    pub(super) cached_token_count: Option<usize>,
+    pub(super) cached_token_count: Option<libllm::tokenizer::CountState>,
+    pub(super) token_counter: libllm::tokenizer::TokenCounter,
     pub(super) sidebar_cache: Option<render::SidebarCache>,
     pub(super) raw_edit_node: Option<NodeId>,
     pub(super) edit_original_content: String,

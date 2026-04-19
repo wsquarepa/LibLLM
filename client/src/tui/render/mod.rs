@@ -49,6 +49,12 @@ pub struct ChatRenderState<'a> {
     pub cache: &'a mut Option<ChatContentCache>,
 }
 
+pub struct TokenDisplayParams {
+    pub token_state: libllm::tokenizer::CountState,
+    pub is_heuristic: bool,
+    pub budget: usize,
+}
+
 pub fn border_style(focused: bool, theme: &Theme) -> Style {
     if focused {
         Style::default().fg(theme.border_focused)
@@ -227,7 +233,7 @@ pub fn render_chat(
     app: &App,
     area: Rect,
     branch_ids: &[NodeId],
-    token_count: usize,
+    token_display: TokenDisplayParams,
     state: ChatRenderState<'_>,
 ) -> u16 {
     let ChatRenderState {
@@ -235,6 +241,11 @@ pub fn render_chat(
         scroll_dirty,
         cache,
     } = state;
+    let TokenDisplayParams {
+        token_state,
+        is_heuristic,
+        budget,
+    } = token_display;
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let has_replacements = app.session.character.is_some();
@@ -544,7 +555,17 @@ pub fn render_chat(
         } else {
             Style::default().fg(app.theme.api_unavailable)
         };
-        let token_label = format_count(token_count, "token");
+        let (count, from_estimate) = match token_state {
+            libllm::tokenizer::CountState::Authoritative(n) => (n, false),
+            libllm::tokenizer::CountState::Stale(n) => (n, false),
+            libllm::tokenizer::CountState::Estimated(n) => (n, true),
+        };
+        let show_est_prefix = from_estimate || is_heuristic;
+        let prefix = if show_est_prefix { "Est. " } else { "" };
+        let effective_budget = budget.max(1);
+        let pct = (count as f64 / effective_budget as f64) * 100.0;
+        let token_color = token_band_color(&app.theme, pct);
+        let token_label = format!(" {prefix}{count} tokens ({pct:.0}%) ");
 
         chat_block = chat_block
             .title_bottom(Line::from(Span::styled(
@@ -555,11 +576,8 @@ pub fn render_chat(
                 Line::from(Span::styled(format!(" {model_label} "), model_style)).centered(),
             )
             .title_bottom(
-                Line::from(Span::styled(
-                    format!(" {token_label} "),
-                    Style::default().fg(app.theme.dimmed),
-                ))
-                .right_aligned(),
+                Line::from(Span::styled(token_label, Style::default().fg(token_color)))
+                    .right_aligned(),
             );
     }
 
@@ -594,6 +612,19 @@ pub fn render_chat(
     }
 
     max_scroll
+}
+
+const TOKEN_BAND_WARN_PCT: f64 = 90.0;
+const TOKEN_BAND_OVER_PCT: f64 = 110.0;
+
+fn token_band_color(theme: &crate::tui::theme::Theme, pct: f64) -> ratatui::style::Color {
+    if pct < TOKEN_BAND_WARN_PCT {
+        theme.token_band_ok
+    } else if pct < TOKEN_BAND_OVER_PCT {
+        theme.token_band_warn
+    } else {
+        theme.token_band_over
+    }
 }
 
 fn format_count(count: usize, noun: &str) -> String {
@@ -791,5 +822,26 @@ mod tests {
     #[test]
     fn truncate_with_ellipsis_skips_suffix_for_tiny_limit() {
         assert_eq!(truncate_with_ellipsis("abcdef", 3), "abc");
+    }
+
+    #[test]
+    fn token_band_color_picks_ok_below_warn() {
+        let theme = crate::tui::theme::Theme::dark();
+        assert_eq!(token_band_color(&theme, 0.0), theme.token_band_ok);
+        assert_eq!(token_band_color(&theme, 89.9), theme.token_band_ok);
+    }
+
+    #[test]
+    fn token_band_color_picks_warn_between_90_and_110() {
+        let theme = crate::tui::theme::Theme::dark();
+        assert_eq!(token_band_color(&theme, 90.0), theme.token_band_warn);
+        assert_eq!(token_band_color(&theme, 109.9), theme.token_band_warn);
+    }
+
+    #[test]
+    fn token_band_color_picks_over_at_110_and_above() {
+        let theme = crate::tui::theme::Theme::dark();
+        assert_eq!(token_band_color(&theme, 110.0), theme.token_band_over);
+        assert_eq!(token_band_color(&theme, 200.0), theme.token_band_over);
     }
 }

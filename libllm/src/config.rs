@@ -453,6 +453,9 @@ pub struct ThemeColorOverrides {
     pub streaming_indicator: Option<String>,
     pub api_unavailable: Option<String>,
     pub summary_indicator: Option<String>,
+    pub token_band_ok: Option<String>,
+    pub token_band_warn: Option<String>,
+    pub token_band_over: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -483,10 +486,13 @@ pub enum ColorLabel {
     StreamingIndicator,
     ApiUnavailable,
     SummaryIndicator,
+    TokenBandOk,
+    TokenBandWarn,
+    TokenBandOver,
 }
 
 impl ColorLabel {
-    pub const ALL: [ColorLabel; 26] = [
+    pub const ALL: [ColorLabel; 29] = [
         Self::UserMessage,
         Self::AssistantMessageFg,
         Self::AssistantMessageBg,
@@ -513,6 +519,9 @@ impl ColorLabel {
         Self::StreamingIndicator,
         Self::ApiUnavailable,
         Self::SummaryIndicator,
+        Self::TokenBandOk,
+        Self::TokenBandWarn,
+        Self::TokenBandOver,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -543,6 +552,9 @@ impl ColorLabel {
             Self::StreamingIndicator => "streaming_indicator",
             Self::ApiUnavailable => "api_unavailable",
             Self::SummaryIndicator => "summary_indicator",
+            Self::TokenBandOk => "token_band_ok",
+            Self::TokenBandWarn => "token_band_warn",
+            Self::TokenBandOver => "token_band_over",
         }
     }
 
@@ -580,6 +592,9 @@ impl ThemeColorOverrides {
             ColorLabel::StreamingIndicator => &self.streaming_indicator,
             ColorLabel::ApiUnavailable => &self.api_unavailable,
             ColorLabel::SummaryIndicator => &self.summary_indicator,
+            ColorLabel::TokenBandOk => &self.token_band_ok,
+            ColorLabel::TokenBandWarn => &self.token_band_warn,
+            ColorLabel::TokenBandOver => &self.token_band_over,
         };
         slot.as_deref()
     }
@@ -612,6 +627,9 @@ impl ThemeColorOverrides {
             ColorLabel::StreamingIndicator => &mut self.streaming_indicator,
             ColorLabel::ApiUnavailable => &mut self.api_unavailable,
             ColorLabel::SummaryIndicator => &mut self.summary_indicator,
+            ColorLabel::TokenBandOk => &mut self.token_band_ok,
+            ColorLabel::TokenBandWarn => &mut self.token_band_warn,
+            ColorLabel::TokenBandOver => &mut self.token_band_over,
         };
         *slot = value;
     }

@@ -4,6 +4,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
+use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
 
 use crate::tui::business;
@@ -48,8 +49,92 @@ pub(in crate::tui::commands) fn loaded_worldbooks(
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-pub(in crate::tui) fn start_streaming(
-    app: &mut App,
+fn build_rendered_prompt_common<F>(app: &crate::tui::App, dropped: usize, render: F) -> String
+where
+    F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
+{
+    let worldbooks = cached_worldbooks(app);
+    let branch_path = app.session.tree.branch_path();
+    let context_messages = app.context_mgr.summary_aware_path(&branch_path);
+    let trimmed = libllm::context::drop_oldest_non_summary(&context_messages, dropped);
+    let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
+    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
+    let injected =
+        business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
+    let injected = business::replace_template_vars(app.session, injected, user_name);
+    let injected_refs: Vec<&libllm::session::Message> = injected.iter().collect();
+    render(
+        &app.instruct_preset,
+        &injected_refs,
+        effective_prompt.as_deref(),
+    )
+}
+
+/// Builds the final prompt string for streaming, with the `dropped` oldest non-summary
+/// messages removed. This is the exact byte stream that would be POSTed to `/completion`.
+/// Used by both the pre-send shrink loop and the chat pane's displayed-count path.
+pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> String {
+    build_rendered_prompt_common(app, dropped, |preset, refs, sys| preset.render(refs, sys))
+}
+
+/// Same as `build_rendered_prompt` but uses `InstructPreset::render_continuation` instead
+/// of `render`. Used by the `/continue` command path in `commands/mod.rs`.
+pub(in crate::tui) fn build_rendered_prompt_continuation(
+    app: &crate::tui::App,
+    dropped: usize,
+) -> String {
+    build_rendered_prompt_common(app, dropped, |preset, refs, sys| {
+        preset.render_continuation(refs, sys)
+    })
+}
+
+/// Read-only view of the worldbook cache for `build_rendered_prompt*`. The cache is
+/// always populated by a prior `loaded_worldbooks` call in the same request path; a miss
+/// yields an empty slice, which is a correct (if degraded) rendering.
+fn cached_worldbooks(app: &crate::tui::App) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
+    app.worldbook_cache
+        .as_ref()
+        .map(|cache| cache.books.clone())
+        .unwrap_or_default()
+}
+
+/// Binary-searches the smallest `k ∈ [0, max_drop]` such that
+/// `counter.count_authoritative(&render(k)).await? ≤ budget`. Returns `max_drop` if no
+/// value satisfies the budget (defensive fallback; the caller logs this as a warning).
+pub(in crate::tui) async fn find_smallest_drop<F>(
+    counter: &libllm::tokenizer::TokenCounter,
+    budget: usize,
+    max_drop: usize,
+    render: &F,
+) -> anyhow::Result<usize>
+where
+    F: Fn(usize) -> String,
+{
+    let full_count = counter.count_authoritative(&render(0)).await?;
+    if full_count <= budget {
+        return Ok(0);
+    }
+
+    let (mut lo, mut hi) = (1usize, max_drop);
+    let mut best = max_drop;
+    while lo <= hi {
+        let mid = lo + (hi - lo) / 2;
+        let count = counter.count_authoritative(&render(mid)).await?;
+        if count <= budget {
+            best = mid;
+            if mid == 0 {
+                break;
+            }
+            hi = mid - 1;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    Ok(best)
+}
+
+pub(in crate::tui) async fn start_streaming(
+    app: &mut App<'_>,
     content: &str,
     sender: mpsc::Sender<StreamToken>,
 ) {
@@ -97,26 +182,34 @@ pub(in crate::tui) fn start_streaming(
     app.auto_scroll = true;
 
     let worldbooks = loaded_worldbooks(app);
+    let budget = app.context_mgr.token_limit();
     let branch_path = app.session.tree.branch_path();
-    let context_messages = app.context_mgr.summary_aware_path(&branch_path);
-    let truncated = app.context_mgr.truncated_path(&context_messages);
+    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+    let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+
+    let render = |k: usize| -> String { build_rendered_prompt(app, k) };
+
+    let dropped = match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
+        Ok(k) => k,
+        Err(err) => {
+            tracing::warn!(
+                result = "fallback_heuristic",
+                error = %err,
+                "stream.truncate"
+            );
+            0
+        }
+    };
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
-    let injected =
-        business::inject_loaded_worldbook_entries(app.session, truncated, user_name, &worldbooks);
-    let injected = business::replace_template_vars(app.session, injected, user_name);
-    let injected_refs: Vec<&Message> = injected.iter().collect();
-    let prompt = app
-        .instruct_preset
-        .render(&injected_refs, effective_prompt.as_deref());
+    let prompt = build_rendered_prompt(app, dropped);
     let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();
 
     tracing::info!(
         phase = "dispatch",
         branch_len = branch_path.len(),
-        summary_aware_len = context_messages.len(),
-        truncated_len = truncated.len(),
+        summary_aware_len = summary_aware.len(),
+        dropped = dropped,
         worldbook_count = worldbooks.len(),
         has_system_prompt = effective_prompt.is_some(),
         stop_token_count = stop_tokens.len(),
@@ -135,9 +228,9 @@ pub(in crate::tui) fn start_streaming(
     app.streaming_task = Some(handle);
 }
 
-pub(in crate::tui) fn handle_stream_token(
+pub(in crate::tui) async fn handle_stream_token(
     token: StreamToken,
-    app: &mut App,
+    app: &mut App<'_>,
     sender: mpsc::Sender<StreamToken>,
 ) -> Result<()> {
     if !app.is_streaming {
@@ -177,9 +270,23 @@ pub(in crate::tui) fn handle_stream_token(
             app.flush_session_save(SaveTrigger::StreamDone)?;
             business::refresh_sidebar(app);
             if app.summarization_enabled && app.summary_receiver.is_none() {
+                let budget = app.context_mgr.token_limit();
                 let branch_path = app.session.tree.branch_path();
                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-                let dropped = app.context_mgr.dropped_message_count(&summary_aware);
+                let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+                let render = |k: usize| -> String { build_rendered_prompt(app, k) };
+                let dropped =
+                    match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
+                        Ok(k) => k,
+                        Err(err) => {
+                            tracing::warn!(
+                                result = "fallback_heuristic",
+                                error = %err,
+                                "stream.summary.truncate"
+                            );
+                            0
+                        }
+                    };
                 let trigger_threshold = app.config.summarization.trigger_threshold;
 
                 if dropped >= trigger_threshold {
@@ -225,10 +332,14 @@ pub(in crate::tui) fn handle_stream_token(
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         app.summary_receiver = Some(rx);
                         app.summary_branch_head = current_head;
+                        app.summary_pending_dropped = Some(dropped);
 
+                        let summary_counter = app.token_counter.clone();
                         tokio::spawn(async move {
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
-                            let result = summarizer.summarize(&refs, token_budget).await;
+                            let result = summarizer
+                                .summarize(&refs, token_budget, &summary_counter)
+                                .await;
                             let _ = tx.send(result.map_err(|e| e.to_string()));
                         });
                     }
@@ -236,7 +347,7 @@ pub(in crate::tui) fn handle_stream_token(
             }
             if !app.message_queue.is_empty() {
                 let next = app.message_queue.remove(0);
-                start_streaming(app, &next, sender);
+                Box::pin(start_streaming(app, &next, sender)).await;
                 if !app.is_streaming {
                     app.message_queue.clear();
                 }
@@ -252,4 +363,45 @@ pub(in crate::tui) fn handle_stream_token(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn find_smallest_drop_binary_search() {
+        use libllm::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
+
+        let render_at = |k: usize| -> String {
+            let chars = 400usize.saturating_sub(40 * k);
+            "a".repeat(chars)
+        };
+
+        let k = find_smallest_drop(&counter, 60, 8, &render_at)
+            .await
+            .unwrap();
+        assert_eq!(k, 5);
+    }
+
+    #[tokio::test]
+    async fn find_smallest_drop_zero_when_fits() {
+        use libllm::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
+        let render_at = |_k: usize| -> String { "x".repeat(40) };
+        let k = find_smallest_drop(&counter, 100, 8, &render_at)
+            .await
+            .unwrap();
+        assert_eq!(k, 0);
+    }
 }

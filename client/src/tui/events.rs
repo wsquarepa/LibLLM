@@ -106,14 +106,18 @@ fn clean_pasted_path(raw: &str) -> String {
     }
 }
 
-pub(super) fn process_action(action: Action, app: &mut App, token_tx: mpsc::Sender<StreamToken>) {
+pub(super) async fn process_action(
+    action: Action,
+    app: &mut App<'_>,
+    token_tx: mpsc::Sender<StreamToken>,
+) {
     match action {
         Action::Quit => {
             app.should_quit = true;
         }
         Action::SendMessage(text) => {
             app.nav_cursor = None;
-            commands::start_streaming(app, &text, token_tx);
+            commands::start_streaming(app, &text, token_tx).await;
         }
         Action::EditMessage { node_id, content } => {
             if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
@@ -127,7 +131,7 @@ pub(super) fn process_action(action: Action, app: &mut App, token_tx: mpsc::Send
             }
         }
         Action::SlashCommand(cmd, arg) => {
-            commands::handle_slash_command(&cmd, &arg, app, token_tx);
+            commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
     }
 }

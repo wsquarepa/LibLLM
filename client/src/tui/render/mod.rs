@@ -331,20 +331,19 @@ pub fn render_chat(
                     String::new()
                 };
 
-                let (content_lines, total_height) = if msg.role == Role::Summary {
-                    let msg_count = idx;
-                    let summary_line = format!("--- Summary of {} earlier messages ---", msg_count);
-                    let lines = vec![Line::from(Span::styled(
+                let content_lines: Vec<Line<'static>> = if msg.role == Role::Summary {
+                    let summary_line =
+                        format!("--- Summary of {} earlier messages ---", idx);
+                    vec![Line::from(Span::styled(
                         format!("  {summary_line}"),
                         Style::default()
                             .fg(app.theme.summary_indicator)
                             .add_modifier(Modifier::DIM),
-                    ))];
-                    (lines, 2u16)
+                    ))]
                 } else {
                     let content = replace_vars(&msg.content);
                     let dialogue_color = app.theme.dialogue;
-                    let lines: Vec<Line<'static>> = content
+                    content
                         .lines()
                         .map(|line| {
                             let styled = parse_styled_line(line, dialogue_color);
@@ -352,14 +351,14 @@ pub fn render_chat(
                             indented.extend(styled.spans);
                             Line::from(indented)
                         })
-                        .collect();
-                    let height = lines
-                        .iter()
-                        .map(|line| wrapped_line_height(line, area))
-                        .sum::<u16>()
-                        + 2;
-                    (lines, height)
+                        .collect()
                 };
+
+                let total_height = content_lines
+                    .iter()
+                    .map(|line| wrapped_line_height(line, area))
+                    .sum::<u16>()
+                    + 2;
 
                 CachedMessageLines {
                     role_label,

@@ -438,7 +438,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let mut input_block = Block::default()
         .borders(Borders::ALL)
         .title(" Input ")
-        .title(Line::from(format!(" {} ", format_token_count(input_token_count))).right_aligned())
+        .title(Line::from(format!(" Est. {} ", format_token_count(input_token_count))).right_aligned())
         .border_style(border);
     if input_focused {
         let hint = if app.nav_cursor.is_some() {
@@ -477,11 +477,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 state
             }
         };
-        let token_count = match state {
-            libllm::tokenizer::CountState::Authoritative(n)
-            | libllm::tokenizer::CountState::Stale(n)
-            | libllm::tokenizer::CountState::Estimated(n) => n,
-        };
         let msg_count = branch_ids.len();
         tracing::trace!(node_count = msg_count, "chat.branch");
         {
@@ -492,7 +487,11 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 app,
                 messages_area,
                 branch_ids,
-                token_count,
+                render::TokenDisplayParams {
+                    token_state: state,
+                    is_heuristic: app.token_counter.is_heuristic(),
+                    budget: app.context_mgr.token_limit(),
+                },
                 render::ChatRenderState {
                     chat_scroll: &mut chat_scroll,
                     scroll_dirty,

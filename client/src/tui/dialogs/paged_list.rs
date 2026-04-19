@@ -15,6 +15,62 @@ use ratatui::widgets::{List, ListItem, ListState, Padding, Scrollbar, ScrollbarO
 use crate::tui::render::dialog_block;
 use crate::tui::theme::Theme;
 
+pub(in crate::tui) struct SearchState {
+    pub query: String,
+    pub active: bool,
+    pre_search_selected: Option<usize>,
+}
+
+impl SearchState {
+    pub fn new() -> Self {
+        Self {
+            query: String::new(),
+            active: false,
+            pre_search_selected: None,
+        }
+    }
+
+    pub fn enter(&mut self, current_selected: usize) {
+        self.active = true;
+        if self.pre_search_selected.is_none() {
+            self.pre_search_selected = Some(current_selected);
+        }
+    }
+
+    pub fn commit(&mut self) {
+        self.active = false;
+    }
+
+    pub fn cancel(&mut self) -> Option<usize> {
+        self.active = false;
+        self.query.clear();
+        self.pre_search_selected.take()
+    }
+
+    pub fn push_char(&mut self, c: char) {
+        self.query.push(c);
+    }
+
+    pub fn pop_char(&mut self) {
+        self.query.pop();
+    }
+
+    pub fn is_filtering(&self) -> bool {
+        !self.query.is_empty()
+    }
+
+    #[cfg(test)]
+    pub fn pre_search_selected(&self) -> Option<usize> {
+        self.pre_search_selected
+    }
+}
+
+impl Default for SearchState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tui) enum PagedListAction {
     Consumed,
@@ -411,5 +467,77 @@ mod tests {
     #[test]
     fn page_size_branch_chrome() {
         assert_eq!(page_size(50, 3), 44);
+    }
+
+    #[test]
+    fn search_state_new_is_inactive_and_empty() {
+        let s = SearchState::new();
+        assert!(!s.active);
+        assert!(s.query.is_empty());
+        assert!(!s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_enter_activates_and_snapshots_selection() {
+        let mut s = SearchState::new();
+        s.enter(7);
+        assert!(s.active);
+        assert_eq!(s.pre_search_selected(), Some(7));
+    }
+
+    #[test]
+    fn search_state_commit_deactivates_and_keeps_query() {
+        let mut s = SearchState::new();
+        s.enter(0);
+        s.push_char('a');
+        s.commit();
+        assert!(!s.active);
+        assert_eq!(s.query, "a");
+        assert!(s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_cancel_clears_query_and_returns_snapshot() {
+        let mut s = SearchState::new();
+        s.enter(3);
+        s.push_char('a');
+        s.push_char('b');
+        let restored = s.cancel();
+        assert_eq!(restored, Some(3));
+        assert!(!s.active);
+        assert!(s.query.is_empty());
+        assert!(!s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_cancel_without_enter_returns_none() {
+        let mut s = SearchState::new();
+        assert_eq!(s.cancel(), None);
+    }
+
+    #[test]
+    fn search_state_push_pop_char_edits_query() {
+        let mut s = SearchState::new();
+        s.push_char('a');
+        s.push_char('b');
+        s.push_char('c');
+        assert_eq!(s.query, "abc");
+        s.pop_char();
+        assert_eq!(s.query, "ab");
+        s.pop_char();
+        s.pop_char();
+        s.pop_char();
+        assert_eq!(s.query, "");
+    }
+
+    #[test]
+    fn search_state_is_filtering_independent_of_active() {
+        let mut s = SearchState::new();
+        s.push_char('x');
+        assert!(s.is_filtering());
+        assert!(!s.active);
+        s.enter(0);
+        assert!(s.is_filtering());
+        assert!(s.active);
     }
 }

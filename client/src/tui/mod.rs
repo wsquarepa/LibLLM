@@ -84,6 +84,9 @@ pub async fn run(
         });
     }
 
+    let (tokenizer_tx, mut tokenizer_rx) = mpsc::channel::<libllm::tokenizer::TokenCountUpdate>(64);
+    let token_counter = libllm::tokenizer::TokenCounter::new(client.clone(), tokenizer_tx).await;
+
     let config = libllm::config::load();
 
     let salt_exists = libllm::config::salt_path().exists();
@@ -187,6 +190,7 @@ pub async fn run(
         worldbook_entry_editor_index: 0,
         chat_content_cache: None,
         cached_token_count: None,
+        token_counter,
         sidebar_cache: None,
         raw_edit_node: None,
         edit_original_content: String::new(),
@@ -221,6 +225,13 @@ pub async fn run(
         sidebar_search: dialogs::SearchState::new(),
         last_terminal_height: 0,
     };
+
+    if app.token_counter.is_heuristic() {
+        app.set_status(
+            "token counts approximate — llama.cpp /tokenize unavailable".to_owned(),
+            StatusLevel::Warning,
+        );
+    }
 
     business::load_active_persona(&mut app);
 
@@ -273,6 +284,14 @@ pub async fn run(
             }
             Some(bg_event) = bg_rx.recv() => {
                 commands::handle_background_event(bg_event, &mut app);
+                terminal.draw(|f| render_frame(f, &mut app))?;
+                needs_redraw = false;
+            }
+            Some(update) = tokenizer_rx.recv() => {
+                commands::handle_background_event(
+                    BackgroundEvent::TokenCountReady(update),
+                    &mut app,
+                );
                 terminal.draw(|f| render_frame(f, &mut app))?;
                 needs_redraw = false;
             }

@@ -245,7 +245,8 @@ pub(super) struct App<'a> {
     pub(super) worldbook_entry_editor_index: usize,
 
     pub(super) chat_content_cache: Option<render::ChatContentCache>,
-    pub(super) cached_token_count: Option<usize>,
+    pub(super) cached_token_count: Option<libllm::tokenizer::CountState>,
+    pub(super) token_counter: libllm::tokenizer::TokenCounter,
     pub(super) sidebar_cache: Option<render::SidebarCache>,
     pub(super) raw_edit_node: Option<NodeId>,
     pub(super) edit_original_content: String,

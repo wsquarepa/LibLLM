@@ -75,6 +75,14 @@ Roleplay mode is activated by passing both `-c` (character) and `-p` (persona) o
 
 Worldbooks (lorebooks) provide keyword-activated context injection. Each entry has a set of trigger keywords; when those keywords appear in the conversation, the entry's content is injected into the prompt. This lets you build persistent lore, facts, or instructions that activate only when relevant.
 
+### Auto-summarization
+
+Long conversations are summarized in the background so older turns can be compressed into a single `Summary` node instead of being dropped outright. The summarizer kicks in once enough new messages have accumulated past the context budget (`trigger_threshold`), runs a non-streaming completion against the main API (or a separate `api_url` under `[summarization]`), and inserts the result into the tree. Summary nodes render as a compact dimmed line. Disable for a single run with `--no-summarize`, or set `enabled = false` under `[summarization]` in `config.toml`.
+
+### Token counting
+
+LibLLM probes the configured API at startup to pick a tokenizer backend: llama.cpp's `/tokenize`, KoboldCPP's `/api/extra/tokencount`, or a 4-chars-per-token heuristic when neither is available. The chat pane shows the authoritative token total with a percent-of-context indicator colored by the `token_band_ok` / `token_band_warn` / `token_band_over` theme keys. While you are typing, the input box shows an `Est.` prefix; the count becomes authoritative once the server tokenizer confirms it.
+
 ### Encryption
 
 By default, LibLLM stores all data in a SQLite database encrypted with SQLCipher (AES-256). The encryption key is derived from your passkey using Argon2id. You set your passkey on first launch, and it is required each time you start the TUI.
@@ -146,6 +154,26 @@ LIBLLM_PASSKEY=mypasskey libllm -d ./data
 libllm -d ./data --passkey mypasskey
 ```
 
+### Authenticate to a protected API
+
+LibLLM supports five outbound authentication schemes for the llama.cpp-compatible API: `none`, `basic`, `bearer`, `header`, and `query`. Configure them through the `[auth]` section of `config.toml`, the `/config` → Authentication sub-dialog, or CLI flags. Secrets must come from the config file or environment variables -- they have no CLI flag so they do not leak into process listings.
+
+```sh
+# Bearer token (secret in env, type selected on CLI)
+LIBLLM_AUTH_BEARER_TOKEN=sk-... libllm --auth-type bearer
+
+# Basic auth
+LIBLLM_AUTH_BASIC_PASSWORD=hunter2 libllm --auth-type basic --auth-basic-username alice
+
+# Custom header
+LIBLLM_AUTH_HEADER_VALUE=my-value libllm --auth-type header --auth-header-name X-Api-Key
+
+# Query-string parameter
+LIBLLM_AUTH_QUERY_VALUE=my-value libllm --auth-type query --auth-query-name api_key
+```
+
+Precedence for each field is CLI/env > `[auth]` in `config.toml`. Non-secret fields (type, basic username, header/query name) persist to the config file when edited through `/config`; secrets persist only when entered through the TUI dialog.
+
 ## Other install methods
 
 ### Install script options
@@ -216,6 +244,11 @@ The bare `libllm recover` opens an action menu on a TTY. In non-interactive shel
 | `--repeat-penalty` | Repeat penalty strength |
 | `--max-tokens` | Maximum tokens to generate (`-1` for unlimited) |
 | `--tls-skip-verify` | Skip TLS certificate verification |
+| `--no-summarize` | Disable background auto-summarization for this run |
+| `--auth-type` | API authentication scheme: `none`, `basic`, `bearer`, `header`, `query` |
+| `--auth-basic-username` | Username for Basic auth (password via `LIBLLM_AUTH_BASIC_PASSWORD`) |
+| `--auth-header-name` | Header name for Header auth (value via `LIBLLM_AUTH_HEADER_VALUE`) |
+| `--auth-query-name` | Query-parameter name for Query auth (value via `LIBLLM_AUTH_QUERY_VALUE`) |
 | `--debug` | Write debug log to a specific path instead of an auto-generated temp file |
 | `--timings` | Write a timings report to `./timings.log` or an optional custom path |
 | `--cleanup` | Remove LibLLM temporary debug logs and exit |
@@ -269,6 +302,8 @@ Flags that overlap with `/config` fields (`--api-url`, `--template`, `--temperat
 | Enter | Chat | Open edit dialog for selected message |
 | Up/Down | Sidebar | Browse sessions |
 | Delete | Sidebar | Delete selected session |
+| Ctrl+F | Sidebar | Filter sessions by name (regex) |
+| Ctrl+F | Picker dialogs | Filter items in character/persona/worldbook/system prompt/preset/branch pickers (regex) |
 | Ctrl+C | Input/Editor | Copy selection to system clipboard |
 | Ctrl+X | Input/Editor | Cut selection to system clipboard |
 | Ctrl+V | Input/Editor | Paste from system clipboard |
@@ -322,6 +357,24 @@ min_p = 0.05
 repeat_last_n = 64
 repeat_penalty = 1.0
 max_tokens = -1
+
+[auth]
+type = "none"  # none | basic | bearer | header | query
+
+[summarization]
+enabled = true
+context_size = 131072          # max tokens before truncation
+trigger_threshold = 5          # pending messages that trigger a summary
+# api_url = "http://..."       # optional separate endpoint for the summarizer
+# prompt = "Summarize..."      # override the default summarization prompt
+
+[backup]
+enabled = true
+keep_all_days = 7              # keep every snapshot this many days
+keep_daily_days = 30           # thin to one per day after keep_all_days
+keep_weekly_days = 90          # thin to one per week after keep_daily_days
+rebase_threshold_percent = 50  # collapse the chain when deltas exceed this
+rebase_hard_ceiling = 10       # always collapse after this many deltas
 ```
 
 System prompts and user personas are stored in the database and managed via the `/system` and `/persona` TUI commands, not in `config.toml`.
@@ -366,9 +419,13 @@ assistant_message_bg = "#2a1f4e"
 border_focused = "cyan"
 dialogue = "light_blue"
 hover_bg = "indexed(236)"
+summary_indicator = "dark_gray"
+token_band_ok = "green"
+token_band_warn = "yellow"
+token_band_over = "red"
 ```
 
-Color values can be named colors (`red`, `dark_gray`, `light_blue`, etc.), hex (`#RRGGBB`), or 256-color indexed (`indexed(N)`).
+Color values can be named colors (`red`, `dark_gray`, `light_blue`, etc.), hex (`#RRGGBB`), or 256-color indexed (`indexed(N)`). Every field on `ThemeColorOverrides` in `libllm/src/config.rs` can be set here; the `/theme` command and `theme = "dark"` / `"light"` select the base palette that these overrides sit on top of.
 
 ### Export
 

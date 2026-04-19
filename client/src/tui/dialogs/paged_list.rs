@@ -203,7 +203,7 @@ pub(in crate::tui) fn render_paged_list(
     let visible = visible_rows(area);
     let range = viewport(total, selected, visible);
 
-    let title = format_title(title_base, total, selected, visible);
+    let title = format_title(title_base, total, selected, visible, None);
     let block = dialog_block(Line::from(title), theme.border_focused).padding(Padding::horizontal(1));
 
     let clamped_selected = selected.min(total.saturating_sub(1));
@@ -288,11 +288,25 @@ fn visible_rows(area: Rect) -> usize {
     area.height.saturating_sub(2) as usize
 }
 
-fn format_title(base: &str, total: usize, selected: usize, visible: usize) -> String {
+fn format_title(
+    base: &str,
+    total: usize,
+    selected: usize,
+    visible: usize,
+    unfiltered_total: Option<usize>,
+) -> String {
+    let trimmed = base.trim_end();
+    let is_filtered = unfiltered_total.is_some_and(|u| u > total);
+
+    if is_filtered {
+        let unfiltered = unfiltered_total.unwrap();
+        let display_position = if total == 0 { 0 } else { selected.min(total - 1) + 1 };
+        return format!("{trimmed} [ {display_position} of {total} filtered / {unfiltered} ] ");
+    }
+
     if total <= visible {
         return base.to_owned();
     }
-    let trimmed = base.trim_end();
     let display_position = selected.min(total.saturating_sub(1)) + 1;
     format!("{trimmed} [ {display_position} of {total} ] ")
 }
@@ -479,19 +493,43 @@ mod tests {
 
     #[test]
     fn title_omits_counter_when_list_fits() {
-        assert_eq!(format_title(" Personas ", 5, 0, 10), " Personas ");
-        assert_eq!(format_title(" Personas ", 10, 0, 10), " Personas ");
+        assert_eq!(format_title(" Personas ", 5, 0, 10, None), " Personas ");
+        assert_eq!(format_title(" Personas ", 10, 0, 10, None), " Personas ");
     }
 
     #[test]
     fn title_injects_counter_when_list_overflows() {
-        assert_eq!(format_title(" Personas ", 42, 2, 10), " Personas [ 3 of 42 ] ");
-        assert_eq!(format_title(" Personas ", 42, 41, 10), " Personas [ 42 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 2, 10, None), " Personas [ 3 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 41, 10, None), " Personas [ 42 of 42 ] ");
     }
 
     #[test]
     fn title_counter_clamps_when_selected_out_of_bounds() {
-        assert_eq!(format_title(" Personas ", 42, 99, 10), " Personas [ 42 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 99, 10, None), " Personas [ 42 of 42 ] ");
+    }
+
+    #[test]
+    fn title_shows_filtered_counter_when_subset_matches() {
+        assert_eq!(
+            format_title(" Personas ", 12, 0, 10, Some(87)),
+            " Personas [ 1 of 12 filtered / 87 ] "
+        );
+    }
+
+    #[test]
+    fn title_shows_filtered_counter_when_zero_matches() {
+        assert_eq!(
+            format_title(" Personas ", 0, 0, 10, Some(87)),
+            " Personas [ 0 of 0 filtered / 87 ] "
+        );
+    }
+
+    #[test]
+    fn title_omits_filtered_when_all_match() {
+        assert_eq!(
+            format_title(" Personas ", 87, 0, 10, Some(87)),
+            " Personas [ 1 of 87 ] "
+        );
     }
 
     #[test]

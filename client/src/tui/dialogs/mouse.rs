@@ -81,7 +81,10 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 Some(&app.dialog_search),
             ) {
                 ListDialogHit::Item(i) => app.character_selected = i,
-                ListDialogHit::Outside => app.focus = crate::tui::Focus::Input,
+                ListDialogHit::Outside => {
+                    app.dialog_search.commit();
+                    app.focus = crate::tui::Focus::Input;
+                }
                 ListDialogHit::SearchTitle => {
                     activate_search_for_dialog(&mut app.dialog_search, app.character_selected);
                 }
@@ -105,7 +108,10 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 Some(&app.dialog_search),
             ) {
                 ListDialogHit::Item(i) => app.persona_selected = i,
-                ListDialogHit::Outside => app.focus = crate::tui::Focus::Input,
+                ListDialogHit::Outside => {
+                    app.dialog_search.commit();
+                    app.focus = crate::tui::Focus::Input;
+                }
                 ListDialogHit::SearchTitle => {
                     activate_search_for_dialog(&mut app.dialog_search, app.persona_selected);
                 }
@@ -130,6 +136,7 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
             ) {
                 ListDialogHit::Item(i) => app.system_prompt_selected = i,
                 ListDialogHit::Outside => {
+                    app.dialog_search.commit();
                     app.focus = app.system_editor_return_focus;
                 }
                 ListDialogHit::SearchTitle => {
@@ -160,7 +167,10 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 Some(&app.dialog_search),
             ) {
                 ListDialogHit::Item(i) => app.branch_dialog_selected = i,
-                ListDialogHit::Outside => app.focus = crate::tui::Focus::Input,
+                ListDialogHit::Outside => {
+                    app.dialog_search.commit();
+                    app.focus = crate::tui::Focus::Input;
+                }
                 ListDialogHit::SearchTitle => {
                     activate_search_for_dialog(&mut app.dialog_search, app.branch_dialog_selected);
                 }
@@ -184,7 +194,10 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 Some(&app.dialog_search),
             ) {
                 ListDialogHit::Item(i) => app.worldbook_selected = i,
-                ListDialogHit::Outside => app.focus = crate::tui::Focus::Input,
+                ListDialogHit::Outside => {
+                    app.dialog_search.commit();
+                    app.focus = crate::tui::Focus::Input;
+                }
                 ListDialogHit::SearchTitle => {
                     activate_search_for_dialog(&mut app.dialog_search, app.worldbook_selected);
                 }
@@ -208,7 +221,10 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 Some(&app.dialog_search),
             ) {
                 ListDialogHit::Item(i) => app.preset_picker_selected = i,
-                ListDialogHit::Outside => app.focus = crate::tui::Focus::ConfigDialog,
+                ListDialogHit::Outside => {
+                    app.dialog_search.commit();
+                    app.focus = crate::tui::Focus::ConfigDialog;
+                }
                 ListDialogHit::SearchTitle => {
                     activate_search_for_dialog(&mut app.dialog_search, app.preset_picker_selected);
                 }
@@ -315,6 +331,7 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
             );
             let pos = Position::new(mouse.column, mouse.row);
             if !dialog.contains(pos) {
+                app.dialog_search.commit();
                 app.focus = crate::tui::Focus::WorldbookDialog;
             } else if mouse.row + 1 == dialog.y + dialog.height
                 && hit_search_region(&app.dialog_search, dialog, mouse.column)

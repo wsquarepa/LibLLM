@@ -426,6 +426,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                         input::load_sidebar_selection(app);
                     }
             } else if chat.contains(pos) {
+                app.sidebar_search.commit();
                 app.focus = Focus::Chat;
                 if let Some(ref cache) = app.chat_content_cache {
                     let branch_ids = app.session.tree.current_branch_ids();
@@ -441,6 +442,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 }
                 app.auto_scroll = false;
             } else if input.contains(pos) {
+                app.sidebar_search.commit();
                 app.focus = Focus::Input;
                 app.nav_cursor = None;
                 app.auto_scroll = true;

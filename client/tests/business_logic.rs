@@ -269,3 +269,82 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
     let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
     assert_eq!(result.len(), messages.len());
 }
+
+// ---------------------------------------------------------------------------
+// Side-character splitting
+// ---------------------------------------------------------------------------
+
+#[test]
+fn side_character_split_chains_three_user_nodes() {
+    use libllm::session::{Message, MessageTree, Role};
+
+    let raw = "User voice.\n\n[Alice]: hi.\n\n[Bob]: hello.";
+    let segments = libllm::side_character::split_user_input(raw);
+    assert_eq!(segments.len(), 3);
+
+    let mut tree = MessageTree::new();
+    let mut parent: Option<libllm::session::NodeId> = None;
+    for seg in &segments {
+        let id = tree.push(parent, Message::new(Role::User, seg.clone()));
+        parent = Some(id);
+    }
+
+    let ids = tree.current_branch_ids().to_vec();
+    assert_eq!(ids.len(), 3);
+    assert_eq!(
+        tree.node(ids[0]).unwrap().message.content,
+        "User voice."
+    );
+    assert_eq!(
+        tree.node(ids[1]).unwrap().message.content,
+        "[Alice]: hi."
+    );
+    assert_eq!(
+        tree.node(ids[2]).unwrap().message.content,
+        "[Bob]: hello."
+    );
+    for id in &ids {
+        assert_eq!(tree.node(*id).unwrap().message.role, Role::User);
+    }
+    assert_eq!(tree.head(), Some(ids[2]));
+}
+
+#[test]
+fn remove_middle_message_preserves_descendants() {
+    use libllm::session::{Message, MessageTree, Role};
+
+    let mut tree = MessageTree::new();
+    let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+    let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+    let m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
+    let m4 = tree.push(Some(m3), Message::new(Role::Assistant, "m4".to_owned()));
+
+    let removed = tree.remove_node(m2);
+    assert!(removed);
+
+    let branch: Vec<String> = tree
+        .current_branch_ids()
+        .iter()
+        .map(|&id| tree.node(id).unwrap().message.content.clone())
+        .collect();
+    assert_eq!(branch, vec!["m1", "m3", "m4"]);
+    assert!(tree.head().is_some());
+
+    let _ = (m1, m3, m4);
+}
+
+#[test]
+fn remove_head_moves_head_to_parent() {
+    use libllm::session::{Message, MessageTree, Role};
+
+    let mut tree = MessageTree::new();
+    let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+    let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+
+    assert_eq!(tree.head(), Some(m2));
+    let removed = tree.remove_node(m2);
+    assert!(removed);
+
+    let survivor = tree.head().expect("head must move to parent after leaf delete");
+    assert_eq!(tree.node(survivor).unwrap().message.content, "m1");
+}

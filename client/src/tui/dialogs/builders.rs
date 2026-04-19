@@ -278,20 +278,26 @@ pub(in crate::tui) const THEME_COLOR_TAB_LAYOUT: &[&[libllm::config::ColorLabel]
 ];
 
 const MESSAGES_LABEL_IDS: &[libllm::config::ColorLabel] = &[
-    libllm::config::ColorLabel::UserMessage,
+    libllm::config::ColorLabel::UserCharacterFg,
+    libllm::config::ColorLabel::UserCharacterBg,
+    libllm::config::ColorLabel::SideCharacterFg,
+    libllm::config::ColorLabel::SideCharacterBg,
     libllm::config::ColorLabel::AssistantMessageFg,
     libllm::config::ColorLabel::AssistantMessageBg,
     libllm::config::ColorLabel::SystemMessage,
     libllm::config::ColorLabel::Dialogue,
 ];
 const MESSAGES_LABELS: &[&str] = &[
-    libllm::config::ColorLabel::UserMessage.name(),
+    libllm::config::ColorLabel::UserCharacterFg.name(),
+    libllm::config::ColorLabel::UserCharacterBg.name(),
+    libllm::config::ColorLabel::SideCharacterFg.name(),
+    libllm::config::ColorLabel::SideCharacterBg.name(),
     libllm::config::ColorLabel::AssistantMessageFg.name(),
     libllm::config::ColorLabel::AssistantMessageBg.name(),
     libllm::config::ColorLabel::SystemMessage.name(),
     libllm::config::ColorLabel::Dialogue.name(),
 ];
-const MESSAGES_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4];
+const MESSAGES_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7];
 
 const BORDERS_STATUS_LABEL_IDS: &[libllm::config::ColorLabel] = &[
     libllm::config::ColorLabel::BorderFocused,

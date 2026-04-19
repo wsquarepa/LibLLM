@@ -400,6 +400,85 @@ impl MessageTree {
         new_id
     }
 
+    /// Remove `node_id` from the tree, re-parenting its children to its parent
+    /// (or promoting them to roots if parent is `None`). If `head == Some(node_id)`,
+    /// head moves to the removed node's parent (which may be `None`).
+    /// The arena is compacted so every surviving node remains reachable from a
+    /// root. Returns `true` if the node existed and was removed.
+    pub fn remove_node(&mut self, node_id: NodeId) -> bool {
+        if node_id >= self.nodes.len() {
+            return false;
+        }
+        let parent = self.nodes[node_id].parent;
+        let children = self.nodes[node_id].children.clone();
+
+        if let Some(parent_id) = parent {
+            self.nodes[parent_id].children.retain(|&c| c != node_id);
+            for &child in &children {
+                self.nodes[parent_id].children.push(child);
+            }
+        }
+        for &child in &children {
+            self.nodes[child].parent = parent;
+        }
+        self.nodes[node_id].parent = None;
+        self.nodes[node_id].children.clear();
+
+        if self.head == Some(node_id) {
+            self.head = parent;
+        }
+        self.preferred_child.remove(&node_id);
+        self.preferred_child.retain(|_, &mut v| v != node_id);
+
+        self.compact_arena(node_id);
+        self.update_preferred_children();
+        self.refresh_runtime_caches();
+        true
+    }
+
+    fn compact_arena(&mut self, detached: NodeId) {
+        let mut reachable: Vec<NodeId> = Vec::new();
+        let mut stack: Vec<NodeId> = (0..self.nodes.len())
+            .filter(|&id| self.nodes[id].parent.is_none() && id != detached)
+            .collect();
+        while let Some(id) = stack.pop() {
+            reachable.push(id);
+            for &child in &self.nodes[id].children {
+                stack.push(child);
+            }
+        }
+
+        let mut remap: HashMap<NodeId, NodeId> = HashMap::with_capacity(reachable.len());
+        for (new_id, &old_id) in reachable.iter().enumerate() {
+            remap.insert(old_id, new_id);
+        }
+
+        let mut new_nodes: Vec<Node> = Vec::with_capacity(reachable.len());
+        for (new_id, &old_id) in reachable.iter().enumerate() {
+            let old = &self.nodes[old_id];
+            let new_parent = old.parent.and_then(|p| remap.get(&p).copied());
+            let new_children: Vec<NodeId> = old
+                .children
+                .iter()
+                .filter_map(|c| remap.get(c).copied())
+                .collect();
+            new_nodes.push(Node {
+                id: new_id,
+                parent: new_parent,
+                children: new_children,
+                message: old.message.clone(),
+            });
+        }
+        self.nodes = new_nodes;
+        self.head = self.head.and_then(|h| remap.get(&h).copied());
+        let old_preferred = std::mem::take(&mut self.preferred_child);
+        for (parent_id, child_id) in old_preferred {
+            if let (Some(&np), Some(&nc)) = (remap.get(&parent_id), remap.get(&child_id)) {
+                self.preferred_child.insert(np, nc);
+            }
+        }
+    }
+
     pub fn branch_path(&self) -> Vec<&Message> {
         self.messages_for_ids(self.current_branch_ids())
     }
@@ -880,6 +959,113 @@ mod tests {
         assert_eq!(tree.node(alt_a).unwrap().parent, Some(summary_id));
         assert_eq!(tree.node(alt_b).unwrap().parent, Some(summary_id));
         assert_eq!(tree.head(), Some(alt_a));
+    }
+
+    #[test]
+    fn remove_node_on_leaf_moves_head_to_parent() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+
+        let removed = tree.remove_node(m2);
+        assert!(removed);
+        assert_eq!(tree.head(), Some(0), "head must move to remapped parent");
+        assert_eq!(tree.nodes().len(), 1);
+        assert_eq!(tree.node(0).unwrap().message.content, "m1");
+        assert!(tree.node(0).unwrap().children.is_empty());
+    }
+
+    #[test]
+    fn remove_node_in_middle_reparents_children_to_grandparent() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+        let m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
+        let m4 = tree.push(Some(m3), Message::new(Role::Assistant, "m4".to_owned()));
+
+        let removed = tree.remove_node(m2);
+        assert!(removed);
+        assert_eq!(tree.nodes().len(), 3);
+        assert_eq!(tree.head(), Some(2));
+
+        let branch = tree.current_branch_ids();
+        assert_eq!(branch.len(), 3);
+        let contents: Vec<&str> = branch
+            .iter()
+            .map(|&id| tree.node(id).unwrap().message.content.as_str())
+            .collect();
+        assert_eq!(contents, vec!["m1", "m3", "m4"]);
+
+        let _ = (m2, m3, m4);
+    }
+
+    #[test]
+    fn remove_node_on_root_with_single_child_promotes_child() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
+        let child = tree.push(Some(root), Message::new(Role::Assistant, "child".to_owned()));
+
+        let removed = tree.remove_node(root);
+        assert!(removed);
+        assert_eq!(tree.nodes().len(), 1);
+        assert_eq!(tree.node(0).unwrap().message.content, "child");
+        assert_eq!(tree.node(0).unwrap().parent, None);
+        assert_eq!(tree.head(), Some(0));
+
+        let _ = child;
+    }
+
+    #[test]
+    fn remove_node_on_root_with_multiple_children_leaves_multiple_roots() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
+        let alt_a = tree.push(Some(root), Message::new(Role::Assistant, "alt_a".to_owned()));
+        let _alt_b = tree.push(Some(root), Message::new(Role::Assistant, "alt_b".to_owned()));
+        tree.set_head(Some(alt_a));
+
+        let removed = tree.remove_node(root);
+        assert!(removed);
+        assert_eq!(tree.nodes().len(), 2);
+        for node in tree.nodes() {
+            assert_eq!(node.parent, None, "both survivors must be roots");
+        }
+        assert!(tree.head().is_some());
+        let head_content = tree
+            .node(tree.head().unwrap())
+            .unwrap()
+            .message
+            .content
+            .clone();
+        assert_eq!(head_content, "alt_a");
+    }
+
+    #[test]
+    fn remove_node_drops_preferred_child_entries_pointing_at_removed_id() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+        let _m3 = tree.push(Some(m1), Message::new(Role::Assistant, "m3".to_owned()));
+        tree.set_head(Some(m2));
+
+        let removed = tree.remove_node(m2);
+        assert!(removed);
+        for (&parent_id, &child_id) in tree.preferred_child_map() {
+            assert!(
+                tree.node(parent_id).is_some(),
+                "preferred_child parent must be a live node"
+            );
+            assert!(
+                tree.node(child_id).is_some(),
+                "preferred_child must point at a live node"
+            );
+        }
+    }
+
+    #[test]
+    fn remove_node_returns_false_for_unknown_id() {
+        let mut tree = MessageTree::new();
+        tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        assert!(!tree.remove_node(42));
     }
 
     #[test]

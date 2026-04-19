@@ -71,6 +71,26 @@ Character cards define an AI persona with a name, description, personality, and 
 
 Roleplay mode is activated by passing both `-c` (character) and `-p` (persona) on the command line. Both flags are required together -- you cannot use one without the other. In roleplay mode, the `/system` and `/persona` TUI commands become read-only viewers.
 
+### Side characters (roleplay only)
+
+When a character card is attached to the session, a single user input can introduce one or more ad-hoc side characters by appending bracketed headers after a blank line:
+
+```
+I walk into the tavern.
+
+[Barkeep]: Welcome, stranger. What'll it be?
+
+[Patron]: Eh, same thing I always order.
+```
+
+Each bracketed block is pushed as its own user message and rendered in a
+distinct colour. To include a literal `[Name]:` line without triggering
+the parser, escape the bracket: `\[not a header]: ...`. The leading `\`
+is stripped from the stored text.
+
+This feature only activates when `session.character` is set. In plain
+assistant chats, the input is sent verbatim.
+
 ### Worldbooks
 
 Worldbooks (lorebooks) provide keyword-activated context injection. Each entry has a set of trigger keywords; when those keywords appear in the conversation, the entry's content is injected into the prompt. This lets you build persistent lore, facts, or instructions that activate only when relevant.
@@ -414,7 +434,10 @@ Override individual colors with a `[theme_colors]` section:
 
 ```toml
 [theme_colors]
-user_message = "green"
+user_character_fg = "green"
+user_character_bg = "#2a1f4e"
+side_character_fg = "red"
+side_character_bg = "#2a1f4e"
 assistant_message_fg = "white"
 assistant_message_bg = "#2a1f4e"
 border_focused = "cyan"
@@ -425,6 +448,8 @@ token_band_ok = "green"
 token_band_warn = "yellow"
 token_band_over = "red"
 ```
+
+> **Breaking (1.3.x -> next):** the `user_message` key in `[theme_colors]` was removed. It is replaced by `user_character_fg` and `user_character_bg`; two new keys `side_character_fg` and `side_character_bg` were added for side-character messages (default red). Users with a `user_message` override must re-set it under `user_character_fg`.
 
 Color values can be named colors (`red`, `dark_gray`, `light_blue`, etc.), hex (`#RRGGBB`), or 256-color indexed (`indexed(N)`). Every field on `ThemeColorOverrides` in `libllm/src/config.rs` can be set here; the `/theme` command and `theme = "dark"` / `"light"` select the base palette that these overrides sit on top of.
 

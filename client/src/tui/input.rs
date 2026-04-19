@@ -319,6 +319,39 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             }
             None
         }
+        KeyCode::Delete => {
+            let node_id = app.nav_cursor?;
+            let node = app.session.tree.node(node_id)?;
+            let role = node.message.role;
+            let preview = chat_message_preview(&node.message.content);
+
+            let branch_ids = app.session.tree.current_branch_ids();
+            let node_idx = branch_ids.iter().position(|&id| id == node_id);
+            let has_later_summary = node_idx.is_some_and(|idx| {
+                branch_ids[idx + 1..].iter().any(|&id| {
+                    app.session
+                        .tree
+                        .node(id)
+                        .map(|n| n.message.role == Role::Summary)
+                        .unwrap_or(false)
+                })
+            });
+
+            if has_later_summary && role != Role::Summary {
+                app.set_status(
+                    "Cannot edit before a summary. Branch from this message instead."
+                        .to_owned(),
+                    StatusLevel::Warning,
+                );
+                return None;
+            }
+
+            app.delete_confirm_selected = 0;
+            app.delete_confirm_filename = preview;
+            app.delete_context = super::DeleteContext::ChatMessage { node_id };
+            app.focus = super::Focus::DeleteConfirmDialog;
+            None
+        }
         _ => None,
     }
 }
@@ -482,4 +515,18 @@ pub fn handle_sidebar_paste(_path: &std::path::Path, _ext: &str, app: &mut App) 
         StatusLevel::Warning,
     );
     true
+}
+
+fn chat_message_preview(content: &str) -> String {
+    const MAX_LEN: usize = 40;
+    let single_line: String = content
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    let trimmed = single_line.trim();
+    if trimmed.chars().count() <= MAX_LEN {
+        return trimmed.to_owned();
+    }
+    let take: String = trimmed.chars().take(MAX_LEN).collect();
+    format!("{take}...")
 }

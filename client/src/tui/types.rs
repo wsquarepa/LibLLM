@@ -66,6 +66,7 @@ pub(super) enum DeleteContext {
     Worldbook { name: String },
     Preset { kind: dialogs::preset::PresetKind },
     ThemeResetColors,
+    ChatMessage { node_id: NodeId },
 }
 
 #[derive(Clone, Copy)]

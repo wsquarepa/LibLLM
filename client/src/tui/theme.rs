@@ -6,7 +6,10 @@ use libllm::config::{ColorLabel, Config, ThemeColorOverrides};
 
 #[derive(PartialEq)]
 pub struct Theme {
-    pub user_message: Color,
+    pub user_character_fg: Color,
+    pub user_character_bg: Color,
+    pub side_character_fg: Color,
+    pub side_character_bg: Color,
     pub assistant_message_fg: Color,
     pub assistant_message_bg: Color,
     pub system_message: Color,
@@ -40,7 +43,10 @@ pub struct Theme {
 impl Theme {
     pub fn dark() -> Self {
         Self {
-            user_message: Color::Green,
+            user_character_fg: Color::Green,
+            user_character_bg: Color::Reset,
+            side_character_fg: Color::Red,
+            side_character_bg: Color::Reset,
             assistant_message_fg: Color::White,
             assistant_message_bg: Color::Blue,
             system_message: Color::DarkGray,
@@ -74,7 +80,10 @@ impl Theme {
 
     pub fn light() -> Self {
         Self {
-            user_message: Color::Blue,
+            user_character_fg: Color::Blue,
+            user_character_bg: Color::Reset,
+            side_character_fg: Color::Red,
+            side_character_bg: Color::Reset,
             assistant_message_fg: Color::White,
             assistant_message_bg: Color::Magenta,
             system_message: Color::DarkGray,
@@ -126,7 +135,10 @@ impl Theme {
 
     pub fn color_at(&self, label: ColorLabel) -> Color {
         match label {
-            ColorLabel::UserMessage => self.user_message,
+            ColorLabel::UserCharacterFg => self.user_character_fg,
+            ColorLabel::UserCharacterBg => self.user_character_bg,
+            ColorLabel::SideCharacterFg => self.side_character_fg,
+            ColorLabel::SideCharacterBg => self.side_character_bg,
             ColorLabel::AssistantMessageFg => self.assistant_message_fg,
             ColorLabel::AssistantMessageBg => self.assistant_message_bg,
             ColorLabel::SystemMessage => self.system_message,
@@ -160,7 +172,10 @@ impl Theme {
 
     fn set_color(&mut self, label: ColorLabel, color: Color) {
         let slot = match label {
-            ColorLabel::UserMessage => &mut self.user_message,
+            ColorLabel::UserCharacterFg => &mut self.user_character_fg,
+            ColorLabel::UserCharacterBg => &mut self.user_character_bg,
+            ColorLabel::SideCharacterFg => &mut self.side_character_fg,
+            ColorLabel::SideCharacterBg => &mut self.side_character_bg,
             ColorLabel::AssistantMessageFg => &mut self.assistant_message_fg,
             ColorLabel::AssistantMessageBg => &mut self.assistant_message_bg,
             ColorLabel::SystemMessage => &mut self.system_message,
@@ -324,7 +339,10 @@ mod tests {
     fn resolve_default() {
         let config = Config::default();
         let t = resolve_theme(&config);
-        assert_eq!(t.user_message, Color::Green);
+        assert_eq!(t.user_character_fg, Color::Green);
+        assert_eq!(t.user_character_bg, Color::Reset);
+        assert_eq!(t.side_character_fg, Color::Red);
+        assert_eq!(t.side_character_bg, Color::Reset);
     }
 
     #[test]
@@ -334,33 +352,33 @@ mod tests {
             ..Config::default()
         };
         let t = resolve_theme(&config);
-        assert_eq!(t.user_message, Color::Blue);
+        assert_eq!(t.user_character_fg, Color::Blue);
     }
 
     #[test]
     fn resolve_with_overrides() {
         let config = Config {
             theme_colors: Some(ThemeColorOverrides {
-                user_message: Some("red".to_owned()),
+                user_character_fg: Some("red".to_owned()),
                 ..Default::default()
             }),
             ..Config::default()
         };
         let t = resolve_theme(&config);
-        assert_eq!(t.user_message, Color::Red);
+        assert_eq!(t.user_character_fg, Color::Red);
     }
 
     #[test]
     fn resolve_invalid_override_ignored() {
         let config = Config {
             theme_colors: Some(ThemeColorOverrides {
-                user_message: Some("notacolor".to_owned()),
+                user_character_fg: Some("notacolor".to_owned()),
                 ..Default::default()
             }),
             ..Config::default()
         };
         let t = resolve_theme(&config);
-        assert_eq!(t.user_message, Color::Green);
+        assert_eq!(t.user_character_fg, Color::Green);
     }
 
     #[test]

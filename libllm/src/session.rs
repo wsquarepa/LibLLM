@@ -883,6 +883,106 @@ mod tests {
     }
 
     #[test]
+    fn remove_node_on_leaf_moves_head_to_parent() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+
+        let removed = tree.remove_node(m2);
+        assert!(removed);
+        assert_eq!(tree.head(), Some(0), "head must move to remapped parent");
+        assert_eq!(tree.nodes().len(), 1);
+        assert_eq!(tree.node(0).unwrap().message.content, "m1");
+        assert!(tree.node(0).unwrap().children.is_empty());
+    }
+
+    #[test]
+    fn remove_node_in_middle_reparents_children_to_grandparent() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+        let m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
+        let m4 = tree.push(Some(m3), Message::new(Role::Assistant, "m4".to_owned()));
+
+        let removed = tree.remove_node(m2);
+        assert!(removed);
+        assert_eq!(tree.nodes().len(), 3);
+
+        let branch = tree.current_branch_ids();
+        assert_eq!(branch.len(), 3);
+        let contents: Vec<&str> = branch
+            .iter()
+            .map(|&id| tree.node(id).unwrap().message.content.as_str())
+            .collect();
+        assert_eq!(contents, vec!["m1", "m3", "m4"]);
+
+        let _ = (m2, m3, m4);
+    }
+
+    #[test]
+    fn remove_node_on_root_with_single_child_promotes_child() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
+        let child = tree.push(Some(root), Message::new(Role::Assistant, "child".to_owned()));
+
+        let removed = tree.remove_node(root);
+        assert!(removed);
+        assert_eq!(tree.nodes().len(), 1);
+        assert_eq!(tree.node(0).unwrap().message.content, "child");
+        assert_eq!(tree.node(0).unwrap().parent, None);
+        assert_eq!(tree.head(), Some(0));
+
+        let _ = child;
+    }
+
+    #[test]
+    fn remove_node_on_root_with_multiple_children_leaves_multiple_roots() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
+        let alt_a = tree.push(Some(root), Message::new(Role::Assistant, "alt_a".to_owned()));
+        let _alt_b = tree.push(Some(root), Message::new(Role::Assistant, "alt_b".to_owned()));
+        tree.set_head(Some(alt_a));
+
+        let removed = tree.remove_node(root);
+        assert!(removed);
+        assert_eq!(tree.nodes().len(), 2);
+        for node in tree.nodes() {
+            assert_eq!(node.parent, None, "both survivors must be roots");
+        }
+        assert!(tree.head().is_some());
+        let head_content = tree
+            .node(tree.head().unwrap())
+            .unwrap()
+            .message
+            .content
+            .clone();
+        assert_eq!(head_content, "alt_a");
+    }
+
+    #[test]
+    fn remove_node_drops_preferred_child_entries_pointing_at_removed_id() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+        let _m3 = tree.push(Some(m1), Message::new(Role::Assistant, "m3".to_owned()));
+        tree.set_head(Some(m2));
+
+        let removed = tree.remove_node(m2);
+        assert!(removed);
+        for (&parent_id, &child_id) in tree.preferred_child_map() {
+            assert!(parent_id < tree.nodes().len());
+            assert!(child_id < tree.nodes().len());
+        }
+    }
+
+    #[test]
+    fn remove_node_returns_false_for_unknown_id() {
+        let mut tree = MessageTree::new();
+        tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        assert!(!tree.remove_node(42));
+    }
+
+    #[test]
     fn save_mode_id_returns_none_for_none() {
         assert_eq!(SaveMode::None.id(), None);
     }

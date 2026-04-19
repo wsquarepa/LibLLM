@@ -6,6 +6,14 @@
 use std::ops::Range;
 
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
+use ratatui::layout::{Margin, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::Line;
+use ratatui::widgets::{List, ListItem, ListState, Scrollbar, ScrollbarOrientation, ScrollbarState};
+
+use crate::tui::render::dialog_block;
+use crate::tui::theme::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tui) enum PagedListAction {
@@ -13,7 +21,6 @@ pub(in crate::tui) enum PagedListAction {
     Passthrough,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands"))]
 pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) -> Range<usize> {
     if total == 0 {
         return 0..0;
@@ -79,6 +86,70 @@ pub(in crate::tui) fn handle_paged_list_key(
         }
         _ => PagedListAction::Passthrough,
     }
+}
+
+#[expect(dead_code, reason = "callers in this module are added in follow-up commits; remove this attribute when the first caller lands")]
+pub(in crate::tui) fn render_paged_list(
+    f: &mut Frame,
+    area: Rect,
+    selected: usize,
+    items: Vec<ListItem<'_>>,
+    title_base: &str,
+    theme: &Theme,
+) {
+    let total = items.len();
+    let visible = visible_rows(area);
+    let range = viewport(total, selected, visible);
+
+    let title = format_title(title_base, total, selected, visible);
+    let block = dialog_block(Line::from(title), theme.border_focused);
+
+    let clamped_selected = selected.min(total.saturating_sub(1));
+    let relative_selected = clamped_selected.saturating_sub(range.start);
+    let visible_items: Vec<ListItem<'_>> = items
+        .into_iter()
+        .skip(range.start)
+        .take(range.end - range.start)
+        .collect();
+
+    let list = List::new(visible_items).block(block).highlight_style(
+        Style::default()
+            .fg(theme.sidebar_highlight_fg)
+            .bg(theme.sidebar_highlight_bg)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    let mut list_state = ListState::default();
+    if total > 0 {
+        list_state.select(Some(relative_selected));
+    }
+    f.render_stateful_widget(list, area, &mut list_state);
+
+    if total > visible && visible > 0 {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        let mut scrollbar_state =
+            ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
+        f.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { horizontal: 0, vertical: 1 }),
+            &mut scrollbar_state,
+        );
+    }
+}
+
+fn visible_rows(area: Rect) -> usize {
+    area.height.saturating_sub(2) as usize
+}
+
+fn format_title(base: &str, total: usize, selected: usize, visible: usize) -> String {
+    if total <= visible {
+        return base.to_owned();
+    }
+    let trimmed = base.trim_end();
+    let display_position = selected.min(total.saturating_sub(1)) + 1;
+    format!("{trimmed} [ {display_position} of {total} ] ")
 }
 
 #[cfg(test)]
@@ -253,5 +324,22 @@ mod tests {
         assert_eq!(sel, 0);
         assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
         assert_eq!(sel, 0);
+    }
+
+    #[test]
+    fn title_omits_counter_when_list_fits() {
+        assert_eq!(format_title(" Personas ", 5, 0, 10), " Personas ");
+        assert_eq!(format_title(" Personas ", 10, 0, 10), " Personas ");
+    }
+
+    #[test]
+    fn title_injects_counter_when_list_overflows() {
+        assert_eq!(format_title(" Personas ", 42, 2, 10), " Personas [ 3 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 41, 10), " Personas [ 42 of 42 ] ");
+    }
+
+    #[test]
+    fn title_counter_clamps_when_selected_out_of_bounds() {
+        assert_eq!(format_title(" Personas ", 42, 99, 10), " Personas [ 42 of 42 ] ");
     }
 }

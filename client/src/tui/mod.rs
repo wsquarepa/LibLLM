@@ -313,8 +313,8 @@ pub async fn run(
                                     let insert_idx = summary_boundary + dropped - 1;
                                     if insert_idx < branch_ids.len() {
                                         let parent_node_id = branch_ids[insert_idx];
-                                        app.session.tree.push(
-                                            Some(parent_node_id),
+                                        app.session.tree.splice_between(
+                                            parent_node_id,
                                             libllm::session::Message::new(
                                                 libllm::session::Role::Summary,
                                                 summary_text,

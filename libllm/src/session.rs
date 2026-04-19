@@ -374,6 +374,32 @@ impl MessageTree {
         id
     }
 
+    /// Splices a new node into the tree between `parent_id` and its current children, so
+    /// that after the call `parent_id.children == [new_id]` and `new_id.children` is the
+    /// former child list (with each reparented to the new node). Head is preserved — the
+    /// descendants below the former children remain reachable from `head`.
+    ///
+    /// Used by auto-summarization to replace a prefix of the conversation with a single
+    /// `Role::Summary` node while keeping the continuation in-path.
+    pub fn splice_between(&mut self, parent_id: NodeId, message: Message) -> NodeId {
+        let old_children = std::mem::take(&mut self.nodes[parent_id].children);
+        let new_id = self.nodes.len();
+        self.nodes.push(Node {
+            id: new_id,
+            parent: Some(parent_id),
+            children: old_children.clone(),
+            message,
+        });
+        self.nodes[parent_id].children = vec![new_id];
+        for &child_id in &old_children {
+            self.nodes[child_id].parent = Some(new_id);
+        }
+        self.preferred_child.remove(&parent_id);
+        self.update_preferred_children();
+        self.refresh_runtime_caches();
+        new_id
+    }
+
     pub fn branch_path(&self) -> Vec<&Message> {
         self.messages_for_ids(self.current_branch_ids())
     }
@@ -781,6 +807,79 @@ mod tests {
 
         loaded.tree.switch_to(ids.branch_parent);
         assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+    }
+
+    #[test]
+    fn splice_between_preserves_head_and_keeps_continuation_in_branch() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+        let m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
+        let m4 = tree.push(Some(m3), Message::new(Role::Assistant, "m4".to_owned()));
+        let m5 = tree.push(Some(m4), Message::new(Role::User, "m5".to_owned()));
+        let m6 = tree.push(Some(m5), Message::new(Role::Assistant, "m6".to_owned()));
+
+        let summary_id = tree.splice_between(
+            m3,
+            Message::new(Role::Summary, "prefix summary".to_owned()),
+        );
+
+        assert_eq!(tree.head(), Some(m6), "head must remain the original leaf");
+        assert_eq!(
+            tree.current_branch_ids(),
+            &[m1, m2, m3, summary_id, m4, m5, m6],
+            "summary must appear in-path between parent and former children"
+        );
+        assert_eq!(tree.node(m3).unwrap().children, vec![summary_id]);
+        assert_eq!(tree.node(summary_id).unwrap().children, vec![m4]);
+        assert_eq!(tree.node(m4).unwrap().parent, Some(summary_id));
+    }
+
+    #[test]
+    fn splice_between_produces_no_sibling_pagination_on_new_node() {
+        let mut tree = MessageTree::new();
+        let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
+        let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
+        let _m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
+
+        let summary_id = tree.splice_between(
+            m1,
+            Message::new(Role::Summary, "sole summary".to_owned()),
+        );
+
+        let (_, total) = tree.sibling_info(summary_id);
+        assert_eq!(
+            total, 1,
+            "spliced summary must be the sole child of its parent"
+        );
+    }
+
+    #[test]
+    fn splice_between_reparents_all_existing_children_including_alt_branches() {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
+        let alt_a = tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "alt a".to_owned()),
+        );
+        let alt_b = tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "alt b".to_owned()),
+        );
+        tree.set_head(Some(alt_a));
+
+        let summary_id =
+            tree.splice_between(root, Message::new(Role::Summary, "sum".to_owned()));
+
+        assert_eq!(tree.node(root).unwrap().children, vec![summary_id]);
+        assert_eq!(
+            tree.node(summary_id).unwrap().children,
+            vec![alt_a, alt_b],
+            "both alternates must reparent to the new node"
+        );
+        assert_eq!(tree.node(alt_a).unwrap().parent, Some(summary_id));
+        assert_eq!(tree.node(alt_b).unwrap().parent, Some(summary_id));
+        assert_eq!(tree.head(), Some(alt_a));
     }
 
     #[test]

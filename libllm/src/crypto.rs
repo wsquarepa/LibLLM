@@ -81,6 +81,19 @@ impl DerivedKey {
     pub fn hex(&self) -> Zeroizing<String> {
         Zeroizing::new(self.bytes.iter().map(|b| format!("{b:02x}")).collect())
     }
+
+    /// Builds the `PRAGMA key = "x'<hex>'";` statement used to unlock an
+    /// SQLCipher database. The returned string zeroizes on drop.
+    pub fn key_pragma(&self) -> Zeroizing<String> {
+        Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", &*self.hex()))
+    }
+
+    /// Builds the `PRAGMA rekey = "x'<hex>'";` statement used to rotate the
+    /// encryption key of an open SQLCipher database. The returned string
+    /// zeroizes on drop.
+    pub fn rekey_pragma(&self) -> Zeroizing<String> {
+        Zeroizing::new(format!("PRAGMA rekey = \"x'{}'\";", &*self.hex()))
+    }
 }
 
 /// Reads an existing 16-byte salt from `path`, or generates a cryptographically random one and writes it.
@@ -261,26 +274,10 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
         path = path_str.as_str(),
         bytes = data.len()
         ; {
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-
-            let mut file = options.open(&temp_path).context(format!(
-                "failed to create temp file: {}",
-                temp_path.display()
-            ))?;
-            file.write_all(data).context(format!(
+            create_restricted(&temp_path, data).context(format!(
                 "failed to write temp file: {}",
                 temp_path.display()
             ))?;
-            file.sync_all()
-                .context(format!("failed to sync temp file: {}", temp_path.display()))?;
-            drop(file);
 
             std::fs::rename(&temp_path, path).context(format!(
                 "failed to replace file atomically: {}",

@@ -5,7 +5,7 @@
 
 use std::ops::Range;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -191,8 +191,6 @@ pub(in crate::tui) fn handle_paged_list_key(
     key: KeyEvent,
     search: Option<&mut SearchState>,
 ) -> PagedListAction {
-    use crossterm::event::KeyModifiers;
-
     if let Some(state) = search {
         let is_ctrl_f =
             key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);

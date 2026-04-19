@@ -284,7 +284,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             if let Some(node_id) = app.nav_cursor
                 && let Some(node) = app.session.tree.node(node_id)
             {
-                let branch_ids = app.session.tree.branch_path_ids();
+                let branch_ids = app.session.tree.current_branch_ids();
                 let node_idx = branch_ids.iter().position(|&id| id == node_id);
                 let has_later_summary = node_idx.is_some_and(|idx| {
                     branch_ids[idx + 1..].iter().any(|&id| {

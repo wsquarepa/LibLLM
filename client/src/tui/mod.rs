@@ -308,7 +308,7 @@ pub async fn run(
                                 if dropped > 0 {
                                     let branch_path = app.session.tree.branch_path();
                                     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-                                    let branch_ids = app.session.tree.branch_path_ids();
+                                    let branch_ids = app.session.tree.current_branch_ids();
                                     let summary_boundary = branch_ids.len() - summary_aware.len();
                                     let insert_idx = summary_boundary + dropped - 1;
                                     if insert_idx < branch_ids.len() {

@@ -78,16 +78,6 @@ impl Auth {
         }
     }
 
-    pub fn display_label(&self) -> &'static str {
-        match self.kind() {
-            AuthKind::None => "None",
-            AuthKind::Basic => "Basic",
-            AuthKind::Bearer => "Bearer",
-            AuthKind::Header => "Header",
-            AuthKind::Query => "Query",
-        }
-    }
-
     pub fn basic_username(&self) -> String {
         match self {
             Auth::Basic { username, .. } => username.clone(),
@@ -331,6 +321,13 @@ const DEFAULT_CONTEXT_SIZE: usize = MAX_SUMMARIZATION_CONTEXT_SIZE;
 
 const DEFAULT_TRIGGER_THRESHOLD: usize = 5;
 
+const DEFAULT_BACKUP_ENABLED: bool = true;
+const DEFAULT_BACKUP_KEEP_ALL_DAYS: u32 = 7;
+const DEFAULT_BACKUP_KEEP_DAILY_DAYS: u32 = 30;
+const DEFAULT_BACKUP_KEEP_WEEKLY_DAYS: u32 = 90;
+const DEFAULT_BACKUP_REBASE_THRESHOLD_PERCENT: u32 = 50;
+const DEFAULT_BACKUP_REBASE_HARD_CEILING: u32 = 10;
+
 fn default_summarization_enabled() -> bool {
     true
 }
@@ -393,34 +390,34 @@ pub struct BackupConfig {
 
 impl BackupConfig {
     fn default_enabled() -> bool {
-        true
+        DEFAULT_BACKUP_ENABLED
     }
     fn default_keep_all_days() -> u32 {
-        7
+        DEFAULT_BACKUP_KEEP_ALL_DAYS
     }
     fn default_keep_daily_days() -> u32 {
-        30
+        DEFAULT_BACKUP_KEEP_DAILY_DAYS
     }
     fn default_keep_weekly_days() -> u32 {
-        90
+        DEFAULT_BACKUP_KEEP_WEEKLY_DAYS
     }
     fn default_rebase_threshold_percent() -> u32 {
-        50
+        DEFAULT_BACKUP_REBASE_THRESHOLD_PERCENT
     }
     fn default_rebase_hard_ceiling() -> u32 {
-        10
+        DEFAULT_BACKUP_REBASE_HARD_CEILING
     }
 }
 
 impl Default for BackupConfig {
     fn default() -> Self {
         Self {
-            enabled: Self::default_enabled(),
-            keep_all_days: Self::default_keep_all_days(),
-            keep_daily_days: Self::default_keep_daily_days(),
-            keep_weekly_days: Self::default_keep_weekly_days(),
-            rebase_threshold_percent: Self::default_rebase_threshold_percent(),
-            rebase_hard_ceiling: Self::default_rebase_hard_ceiling(),
+            enabled: DEFAULT_BACKUP_ENABLED,
+            keep_all_days: DEFAULT_BACKUP_KEEP_ALL_DAYS,
+            keep_daily_days: DEFAULT_BACKUP_KEEP_DAILY_DAYS,
+            keep_weekly_days: DEFAULT_BACKUP_KEEP_WEEKLY_DAYS,
+            rebase_threshold_percent: DEFAULT_BACKUP_REBASE_THRESHOLD_PERCENT,
+            rebase_hard_ceiling: DEFAULT_BACKUP_REBASE_HARD_CEILING,
         }
     }
 }
@@ -968,39 +965,12 @@ mod tests {
     }
 
     #[test]
-    fn auth_display_labels() {
-        assert_eq!(Auth::None.display_label(), "None");
-        assert_eq!(
-            Auth::Basic {
-                username: String::new(),
-                password: String::new()
-            }
-            .display_label(),
-            "Basic"
-        );
-        assert_eq!(
-            Auth::Bearer {
-                token: String::new()
-            }
-            .display_label(),
-            "Bearer"
-        );
-        assert_eq!(
-            Auth::Header {
-                name: String::new(),
-                value: String::new()
-            }
-            .display_label(),
-            "Header"
-        );
-        assert_eq!(
-            Auth::Query {
-                name: String::new(),
-                value: String::new()
-            }
-            .display_label(),
-            "Query"
-        );
+    fn auth_kind_display() {
+        assert_eq!(AuthKind::None.to_string(), "None");
+        assert_eq!(AuthKind::Basic.to_string(), "Basic");
+        assert_eq!(AuthKind::Bearer.to_string(), "Bearer");
+        assert_eq!(AuthKind::Header.to_string(), "Header");
+        assert_eq!(AuthKind::Query.to_string(), "Query");
     }
 
     #[test]

@@ -9,11 +9,17 @@ pub fn hash_bytes(data: &[u8]) -> String {
     blake3::hash(data).to_hex().to_string()
 }
 
-/// Reads a file into memory and returns its BLAKE3 hash as a hex string.
+/// Streams a file through BLAKE3 and returns its hash as a hex string.
+///
+/// Copies the file through the hasher with `std::io::copy` so large files
+/// (multi-hundred-MB backups) are not materialized into a heap buffer.
 pub fn hash_file(path: &Path) -> Result<String> {
-    let data =
-        std::fs::read(path).with_context(|| format!("failed to read file: {}", path.display()))?;
-    Ok(hash_bytes(&data))
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("failed to open file: {}", path.display()))?;
+    let mut hasher = blake3::Hasher::new();
+    std::io::copy(&mut file, &mut hasher)
+        .with_context(|| format!("failed to read file: {}", path.display()))?;
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 #[cfg(test)]

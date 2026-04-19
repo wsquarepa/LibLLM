@@ -211,7 +211,7 @@ pub fn load_tabbed_config_sections(
             .or(cfg.api_url.as_deref())
             .unwrap_or(libllm::config::Config::default().api_url())
             .to_owned(),
-        cfg.auth.display_label().to_owned(),
+        cfg.auth.kind().to_string(),
         cfg.template_preset
             .as_deref()
             .unwrap_or("Default")

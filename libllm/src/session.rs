@@ -378,10 +378,6 @@ impl MessageTree {
         self.messages_for_ids(self.current_branch_ids())
     }
 
-    pub fn branch_path_ids(&self) -> Vec<NodeId> {
-        self.current_branch_ids().to_vec()
-    }
-
     pub fn current_branch_ids(&self) -> &[NodeId] {
         #[cfg(debug_assertions)]
         self.bump_cache_hit("current_branch_ids", &self.runtime.debug.branch_hits);
@@ -457,8 +453,8 @@ impl MessageTree {
             return;
         };
 
-        let path = self.branch_path_ids();
-        let branch_node = path
+        let branch_node = self
+            .current_branch_ids()
             .iter()
             .rev()
             .find(|&&id| {
@@ -615,7 +611,7 @@ pub fn generate_session_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-pub fn now_compact() -> String {
+fn wall_clock_parts() -> (u64, u64, u64, u64, u64, u64) {
     let duration = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -624,22 +620,17 @@ pub fn now_compact() -> String {
     let hours = time_secs / 3600;
     let minutes = (time_secs % 3600) / 60;
     let seconds = time_secs % 60;
-
     let (year, month, day) = days_to_ymd(secs / 86400);
+    (year, month, day, hours, minutes, seconds)
+}
+
+pub fn now_compact() -> String {
+    let (year, month, day, hours, minutes, seconds) = wall_clock_parts();
     format!("{year:04}{month:02}{day:02}-{hours:02}{minutes:02}{seconds:02}")
 }
 
 pub fn now_iso8601() -> String {
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let minutes = (time_secs % 3600) / 60;
-    let seconds = time_secs % 60;
-
-    let (year, month, day) = days_to_ymd(secs / 86400);
+    let (year, month, day, hours, minutes, seconds) = wall_clock_parts();
     format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 

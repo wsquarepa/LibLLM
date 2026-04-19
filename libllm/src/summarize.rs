@@ -27,9 +27,6 @@ impl Summarizer {
         let mut prompt = String::from(instruction);
         prompt.push_str("\n\n");
         for msg in messages {
-            if msg.role == Role::Summary {
-                continue;
-            }
             let label = match msg.role {
                 Role::User => "User",
                 Role::Assistant => "Assistant",

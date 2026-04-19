@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use libllm::crypto::DerivedKey;
-use zeroize::Zeroizing;
 
 /// Export a SQLite database (possibly encrypted with SQLCipher) to plaintext bytes.
 ///
@@ -17,8 +16,7 @@ pub fn export_plaintext_db(db_path: &Path, key: Option<&DerivedKey>) -> Result<V
     let src = rusqlite::Connection::open(db_path)?;
 
     if let Some(derived_key) = key {
-        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", &*derived_key.hex()));
-        src.execute_batch(&pragma)?;
+        src.execute_batch(&derived_key.key_pragma())?;
         src.query_row("SELECT count(*) FROM sqlite_master;", [], |_| Ok(()))?;
     }
 

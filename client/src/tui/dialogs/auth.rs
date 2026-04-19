@@ -458,7 +458,7 @@ pub(in crate::tui) fn close_and_persist(app: &mut App) {
     }
     crate::tui::business::apply_config(app);
     if let Some(dialog) = app.config_dialog.as_mut() {
-        dialog.set_value(0, 1, app.config.auth.display_label().to_owned());
+        dialog.set_value(0, 1, app.config.auth.kind().to_string());
     }
     app.focus = Focus::ConfigDialog;
 }

@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use libllm::crypto::{self, DerivedKey};
-use zeroize::Zeroizing;
 
 use crate::cli::{Args, DbSubcommand};
 
@@ -87,8 +86,7 @@ pub fn wal_liveness_check(db_path: &Path, key: Option<&DerivedKey>) -> Result<()
         )
     })?;
     if let Some(key) = key {
-        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()));
-        conn.execute_batch(&pragma)
+        conn.execute_batch(&key.key_pragma())
             .context("failed to set encryption key for liveness check")?;
     }
     conn.busy_timeout(std::time::Duration::from_millis(0))

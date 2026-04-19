@@ -6,7 +6,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use libllm::config::BackupConfig;
-use zeroize::Zeroizing;
 
 use super::exit;
 use super::{DbContext, confirm_yes, wal_liveness_check};
@@ -107,8 +106,7 @@ fn build_replacement(
     let conn = rusqlite::Connection::open(tmp_path)
         .with_context(|| format!("failed to open tmp db: {}", tmp_path.display()))?;
     if let Some(key) = key {
-        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()));
-        conn.execute_batch(&pragma)
+        conn.execute_batch(&key.key_pragma())
             .context("failed to set encryption key on tmp db")?;
     }
     conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")

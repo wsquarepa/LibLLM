@@ -166,7 +166,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
 
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
 
-    let mut file_entries: Vec<(std::time::SystemTime, String)> = Vec::new();
+    let mut file_entries: Vec<(std::time::SystemTime, String, String, BackupType)> = Vec::new();
 
     for dir_entry in std::fs::read_dir(backups_dir).with_context(|| {
         format!(
@@ -187,28 +187,24 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
             continue;
         }
 
-        if parse_backup_filename(&filename).is_none() {
+        let Some((id, entry_type)) = parse_backup_filename(&filename) else {
             continue;
-        }
+        };
 
         let mtime = dir_entry
             .metadata()
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-        file_entries.push((mtime, filename));
+        file_entries.push((mtime, filename, id, entry_type));
     }
 
-    file_entries.sort_by_key(|(mtime, _)| *mtime);
+    file_entries.sort_by_key(|(mtime, _, _, _)| *mtime);
 
     let mut index = BackupIndex::new();
 
-    for (_mtime, filename) in &file_entries {
-        let Some((id, entry_type)) = parse_backup_filename(filename) else {
-            continue;
-        };
-
-        let file_path = backups_dir.join(filename);
+    for (_mtime, filename, id, entry_type) in file_entries {
+        let file_path = backups_dir.join(&filename);
         let file_bytes = match std::fs::read(&file_path) {
             Ok(b) => b,
             Err(e) => {

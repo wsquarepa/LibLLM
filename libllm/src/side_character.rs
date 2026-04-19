@@ -18,8 +18,101 @@
 /// A line whose first non-whitespace sequence is `\[` is never a header;
 /// the leading `\` is stripped from that line in the produced segment.
 pub fn split_user_input(raw: &str) -> Vec<String> {
-    let _ = raw;
-    unimplemented!("split_user_input is implemented in Task 8")
+    let lines: Vec<&str> = raw.split('\n').collect();
+
+    let mut header_indices: Vec<usize> = Vec::new();
+    let mut prev_blank = true;
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        let is_blank = trimmed.is_empty();
+        if prev_blank && is_header_line(trimmed) {
+            header_indices.push(idx);
+        }
+        prev_blank = is_blank;
+    }
+
+    if header_indices.is_empty() {
+        let trimmed = raw.trim_end();
+        if trimmed.trim().is_empty() {
+            return Vec::new();
+        }
+        let unescaped = strip_escape_on_first_line(trimmed);
+        return vec![unescaped];
+    }
+
+    let mut segments: Vec<String> = Vec::new();
+
+    let first_header = header_indices[0];
+    if first_header > 0 {
+        let user_text = lines[..first_header].join("\n");
+        let trimmed = user_text.trim_end();
+        if !trimmed.trim().is_empty() {
+            segments.push(strip_escape_on_first_line(trimmed));
+        }
+    }
+
+    for (i, &start) in header_indices.iter().enumerate() {
+        let end = header_indices
+            .get(i + 1)
+            .copied()
+            .unwrap_or(lines.len());
+        let block_lines = &lines[start..end];
+        let mut block = block_lines.join("\n");
+        block = block.trim_end().to_owned();
+        if !block.is_empty() {
+            segments.push(block);
+        }
+    }
+
+    segments
+}
+
+fn is_header_line(trimmed: &str) -> bool {
+    if trimmed.starts_with("\\[") {
+        return false;
+    }
+    if !trimmed.starts_with('[') {
+        return false;
+    }
+    let Some(close_idx) = trimmed.find("]:") else {
+        return false;
+    };
+    close_idx > 1
+}
+
+fn strip_escape_on_first_line(text: &str) -> String {
+    let mut lines = text.split('\n');
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    let rest: Vec<&str> = lines.collect();
+    let first_rewritten = rewrite_escape(first);
+    if rest.is_empty() {
+        return first_rewritten;
+    }
+    let mut out = first_rewritten;
+    for line in rest {
+        out.push('\n');
+        out.push_str(&rewrite_escape(line));
+    }
+    out
+}
+
+fn rewrite_escape(line: &str) -> String {
+    let leading_ws_end = line
+        .char_indices()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(i, _)| i)
+        .unwrap_or(line.len());
+    let (ws, tail) = line.split_at(leading_ws_end);
+    if tail.starts_with("\\[") {
+        let mut out = String::with_capacity(line.len());
+        out.push_str(ws);
+        out.push_str(&tail[1..]);
+        out
+    } else {
+        line.to_owned()
+    }
 }
 
 #[cfg(test)]

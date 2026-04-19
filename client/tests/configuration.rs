@@ -135,6 +135,7 @@ fn summarization_config_defaults() {
         libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE
     );
     assert_eq!(config.summarization.trigger_threshold, 5);
+    assert_eq!(config.summarization.keep_last, 4);
     assert!(config.summarization.api_url.is_none());
     assert!(!config.summarization.prompt.is_empty());
 }
@@ -147,6 +148,7 @@ enabled = false
 api_url = "http://other:8080/v1"
 context_size = 16384
 trigger_threshold = 10
+keep_last = 6
 prompt = "Custom prompt"
 "#;
     let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
@@ -157,6 +159,7 @@ prompt = "Custom prompt"
     );
     assert_eq!(config.summarization.context_size, 16384);
     assert_eq!(config.summarization.trigger_threshold, 10);
+    assert_eq!(config.summarization.keep_last, 6);
     assert_eq!(config.summarization.prompt, "Custom prompt");
 }
 

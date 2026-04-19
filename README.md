@@ -365,6 +365,7 @@ type = "none"  # none | basic | bearer | header | query
 enabled = true
 context_size = 131072          # max tokens before truncation
 trigger_threshold = 5          # pending messages that trigger a summary
+keep_last = 4                  # non-summary messages kept verbatim after a summary fires
 # api_url = "http://..."       # optional separate endpoint for the summarizer
 # prompt = "Summarize..."      # override the default summarization prompt
 

@@ -295,6 +295,10 @@ pub(in crate::tui) async fn handle_stream_token(
                 let trigger_threshold = app.config.summarization.trigger_threshold;
 
                 if dropped >= trigger_threshold {
+                    let keep_last = app.config.summarization.keep_last;
+                    let droppable = libllm::context::droppable_count(&summary_aware);
+                    let aggressive = droppable.saturating_sub(keep_last);
+                    let dropped = aggressive.max(dropped).min(max_drop);
                     let summary_boundary = branch_path.len() - summary_aware.len();
                     let messages_to_summarize: Vec<Message> = branch_path
                         [..summary_boundary + dropped]

@@ -289,6 +289,7 @@ pub fn load_tabbed_config_sections(
         cfg.summarization.api_url.clone().unwrap_or_default(),
         cfg.summarization.context_size.to_string(),
         cfg.summarization.trigger_threshold.to_string(),
+        cfg.summarization.keep_last.to_string(),
         cfg.summarization.prompt.clone(),
     ];
 
@@ -431,7 +432,8 @@ pub fn apply_tabbed_config_fields(
             libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE,
         ),
         trigger_threshold: parse_usize_clamped(&summarization[3], 1, 100),
-        prompt: summarization[4].clone(),
+        keep_last: parse_usize_clamped(&summarization[4], 1, 100),
+        prompt: summarization[5].clone(),
     };
 
     let cfg = libllm::config::Config {
@@ -897,6 +899,7 @@ mod tests {
                 api_url: None,
                 context_size: 4096,
                 trigger_threshold: 10,
+                keep_last: 4,
                 prompt: "summarize".to_owned(),
             },
             ..libllm::config::Config::default()

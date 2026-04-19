@@ -46,10 +46,11 @@ const SUMMARIZATION_LABELS: &[&str] = &[
     "API URL",
     "Max Context Size",
     "Trigger Threshold",
+    "Keep Last Messages",
     "Prompt",
 ];
 const SUMMARIZATION_BOOLEAN: &[usize] = &[0];
-const SUMMARIZATION_MULTILINE: &[usize] = &[4];
+const SUMMARIZATION_MULTILINE: &[usize] = &[5];
 const SUMMARIZATION_PLACEHOLDER: &[usize] = &[1];
 
 const TEMPLATE_EDITOR_FIELDS: &[&str] =
@@ -173,6 +174,7 @@ pub fn open_config_editor(
                 },
             ),
             (3, FieldValidation::Int { min: 1, max: 100 }),
+            (4, FieldValidation::Int { min: 1, max: 100 }),
         ]);
 
     TabbedFieldDialog::new(

@@ -320,6 +320,7 @@ pub const MAX_SUMMARIZATION_CONTEXT_SIZE: usize = 131_072;
 const DEFAULT_CONTEXT_SIZE: usize = MAX_SUMMARIZATION_CONTEXT_SIZE;
 
 const DEFAULT_TRIGGER_THRESHOLD: usize = 5;
+const DEFAULT_KEEP_LAST: usize = 4;
 
 const DEFAULT_BACKUP_ENABLED: bool = true;
 const DEFAULT_BACKUP_KEEP_ALL_DAYS: u32 = 7;
@@ -340,6 +341,10 @@ fn default_trigger_threshold() -> usize {
     DEFAULT_TRIGGER_THRESHOLD
 }
 
+fn default_keep_last() -> usize {
+    DEFAULT_KEEP_LAST
+}
+
 fn default_summarization_prompt() -> String {
     DEFAULT_SUMMARIZATION_PROMPT.to_owned()
 }
@@ -355,6 +360,11 @@ pub struct SummarizationConfig {
     pub context_size: usize,
     #[serde(default = "default_trigger_threshold")]
     pub trigger_threshold: usize,
+    /// Number of most-recent non-Summary messages preserved verbatim after a summary
+    /// fires. Once the trigger fires, the summary collapses every older non-Summary
+    /// message so subsequent turns do not re-summarize after just a message or two.
+    #[serde(default = "default_keep_last")]
+    pub keep_last: usize,
     #[serde(default = "default_summarization_prompt")]
     pub prompt: String,
 }
@@ -366,6 +376,7 @@ impl Default for SummarizationConfig {
             api_url: None,
             context_size: DEFAULT_CONTEXT_SIZE,
             trigger_threshold: DEFAULT_TRIGGER_THRESHOLD,
+            keep_last: DEFAULT_KEEP_LAST,
             prompt: DEFAULT_SUMMARIZATION_PROMPT.to_owned(),
         }
     }

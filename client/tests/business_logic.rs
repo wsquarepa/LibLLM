@@ -93,7 +93,7 @@ fn load_tabbed_config_sections_defaults() {
     assert_eq!(sections[0].len(), 6, "General tab");
     assert_eq!(sections[1].len(), 7, "Sampling tab");
     assert_eq!(sections[2].len(), 6, "Backup tab");
-    assert_eq!(sections[3].len(), 5, "Summarization tab");
+    assert_eq!(sections[3].len(), 6, "Summarization tab");
     assert_eq!(sections[0][0], "http://localhost:5001/v1");
     assert_eq!(sections[1][0], "0.8"); // default temperature
     assert_eq!(sections[2][0], "true"); // backup enabled
@@ -172,6 +172,7 @@ fn apply_tabbed_config_fields_preserves_locked() {
             "".to_owned(),
             "8192".to_owned(),
             "5".to_owned(),
+            "4".to_owned(),
             "Summarize.".to_owned(),
         ],
     ];

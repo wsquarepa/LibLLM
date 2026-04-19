@@ -131,6 +131,7 @@ pub(super) enum BackgroundEvent {
     PasskeySetFailed(String),
     ModelFetched(std::result::Result<String, String>),
     ServerContextSize(usize),
+    TokenCountReady(libllm::tokenizer::TokenCountUpdate),
 }
 
 #[derive(PartialEq, Eq)]

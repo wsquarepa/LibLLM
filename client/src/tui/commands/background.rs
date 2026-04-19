@@ -188,5 +188,14 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 app.context_mgr.set_token_limit(size.min(local_limit));
             }
         }
+        BackgroundEvent::TokenCountReady(update) => {
+            tracing::trace!(
+                key = update.key,
+                result_is_ok = update.result.is_ok(),
+                "tokenizer.update"
+            );
+            app.token_counter.apply_update(update);
+            app.invalidate_chat_cache();
+        }
     }
 }

@@ -3,12 +3,16 @@
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::Result;
 use lru::LruCache;
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 use crate::client::ApiClient;
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Identifies which backend a `TokenCounter` is using. Exposed for UI prefix logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,7 +167,13 @@ impl TokenCounter {
     /// this counter.
     pub async fn new(client: ApiClient, refresh_tx: mpsc::Sender<TokenCountUpdate>) -> Self {
         let llama = ServerTokenizer::new(client.clone(), ServerTokenizeFlavor::LlamaCpp);
-        let backend = match llama.count("probe").await {
+        let llama_probe = match timeout(PROBE_TIMEOUT, llama.count("probe")).await {
+            Ok(result) => result,
+            Err(_) => Err(anyhow::anyhow!(
+                "llama.cpp /tokenize probe timed out after {PROBE_TIMEOUT:?}"
+            )),
+        };
+        let backend = match llama_probe {
             Ok(_) => {
                 tracing::info!(
                     phase = "probe",
@@ -176,7 +186,13 @@ impl TokenCounter {
             }
             Err(llama_err) => {
                 let kobold = ServerTokenizer::new(client, ServerTokenizeFlavor::KoboldCpp);
-                match kobold.count("probe").await {
+                let kobold_probe = match timeout(PROBE_TIMEOUT, kobold.count("probe")).await {
+                    Ok(result) => result,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "KoboldCPP /api/extra/tokencount probe timed out after {PROBE_TIMEOUT:?}"
+                    )),
+                };
+                match kobold_probe {
                     Ok(_) => {
                         tracing::info!(
                             phase = "probe",

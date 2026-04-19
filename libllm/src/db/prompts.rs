@@ -105,6 +105,36 @@ pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -
     )
 }
 
+pub fn rename_prompt(
+    conn: &Connection,
+    old_slug: &str,
+    new_slug: &str,
+    prompt: &SystemPromptFile,
+) -> Result<()> {
+    let content_bytes = prompt.content.len();
+    crate::timed_result!(
+        tracing::Level::INFO,
+        "db.prompt.rename",
+        old_slug = old_slug,
+        new_slug = new_slug,
+        content_bytes = content_bytes
+        ; {
+            let now = now_iso8601();
+            let affected = conn
+                .execute(
+                    "UPDATE system_prompts SET slug = ?1, name = ?2, content = ?3, updated_at = ?4 WHERE slug = ?5",
+                    params![new_slug, prompt.name, prompt.content, now, old_slug],
+                )
+                .context("failed to rename system prompt")?;
+            tracing::info!(old_slug = old_slug, new_slug = new_slug, affected = affected, "db.prompt.rename");
+            if affected == 0 {
+                anyhow::bail!("system prompt not found: {old_slug}");
+            }
+            Ok(())
+        }
+    )
+}
+
 pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.prompt.delete", slug = slug ; {
         let affected = conn
@@ -222,5 +252,26 @@ mod tests {
         assert_eq!(assistant.name, BUILTIN_ASSISTANT);
         let roleplay = load_prompt(&conn, BUILTIN_ROLEPLAY).unwrap();
         assert_eq!(roleplay.name, BUILTIN_ROLEPLAY);
+    }
+
+    #[test]
+    fn rename_prompt_updates_slug_and_content() {
+        let conn = setup_db();
+        let prompt = SystemPromptFile {
+            name: "Original".to_owned(),
+            content: "before".to_owned(),
+        };
+        insert_prompt(&conn, "original", &prompt, false).unwrap();
+
+        let renamed = SystemPromptFile {
+            name: "Renamed".to_owned(),
+            content: "after".to_owned(),
+        };
+        rename_prompt(&conn, "original", "renamed", &renamed).unwrap();
+
+        assert!(load_prompt(&conn, "original").is_err());
+        let loaded = load_prompt(&conn, "renamed").unwrap();
+        assert_eq!(loaded.name, "Renamed");
+        assert_eq!(loaded.content, "after");
     }
 }

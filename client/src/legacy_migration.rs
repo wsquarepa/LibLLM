@@ -1,11 +1,21 @@
 //! Legacy file-based storage detection and migration utility download.
 
-use anyhow::{Context, Result};
-use std::io::{self, IsTerminal, Write};
-use libllm::config;
 use crate::update;
+use anyhow::{Context, Result};
+use libllm::config;
+use std::io::{self, IsTerminal, Write};
 
 const LEGACY_DIRS: [&str; 5] = ["sessions", "characters", "worldinfo", "system", "personas"];
+
+pub(crate) fn has_legacy_data(data_dir: &std::path::Path) -> bool {
+    LEGACY_DIRS.iter().any(|dir| {
+        let path = data_dir.join(dir);
+        path.is_dir()
+            && std::fs::read_dir(&path)
+                .map(|mut d| d.next().is_some())
+                .unwrap_or(false)
+    })
+}
 
 pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) -> Result<()> {
     let data_dir = config::data_dir();
@@ -13,7 +23,13 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
     let db_exists = db_path.exists();
 
     if db_exists {
-        tracing::debug!(phase = "check", result = "skipped", reason = "db_present", db_exists = true, "legacy.migration");
+        tracing::debug!(
+            phase = "check",
+            result = "skipped",
+            reason = "db_present",
+            db_exists = true,
+            "legacy.migration"
+        );
         return Ok(());
     }
 
@@ -27,12 +43,23 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
                     .unwrap_or(false)
         })
         .count();
-    let has_legacy = legacy_dirs_found > 0;
+    let has_legacy = has_legacy_data(&data_dir);
 
-    tracing::debug!(phase = "check", db_exists = db_exists, has_legacy = has_legacy, legacy_dirs_found = legacy_dirs_found, "legacy.migration");
+    tracing::debug!(
+        phase = "check",
+        db_exists = db_exists,
+        has_legacy = has_legacy,
+        legacy_dirs_found = legacy_dirs_found,
+        "legacy.migration"
+    );
 
     if !has_legacy {
-        tracing::debug!(phase = "skipped", result = "skipped", reason = "no_legacy_data", "legacy.migration");
+        tracing::debug!(
+            phase = "skipped",
+            result = "skipped",
+            reason = "no_legacy_data",
+            "legacy.migration"
+        );
         return Ok(());
     }
 
@@ -53,7 +80,12 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         .map(|d| d.join(migrate_name))
         .filter(|p| p.exists());
 
-    tracing::debug!(phase = "locate_utility", found = migrate_path.is_some(), channel = update::CHANNEL, "legacy.migration");
+    tracing::debug!(
+        phase = "locate_utility",
+        found = migrate_path.is_some(),
+        channel = update::CHANNEL,
+        "legacy.migration"
+    );
 
     let (migrate_path, was_downloaded) = if let Some(path) = migrate_path {
         (path, false)
@@ -84,7 +116,11 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         let mut answer = String::new();
         stdin.read_line(&mut answer)?;
         let accepted = answer.trim().is_empty() || answer.trim().eq_ignore_ascii_case("y");
-        tracing::debug!(phase = "prompt_download", result = if accepted { "accepted" } else { "declined" }, "legacy.migration");
+        tracing::debug!(
+            phase = "prompt_download",
+            result = if accepted { "accepted" } else { "declined" },
+            "legacy.migration"
+        );
         if !accepted {
             anyhow::bail!("Migration required. Cannot continue without migrating data.");
         }
@@ -121,11 +157,24 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
 
     if was_downloaded {
         let removed = std::fs::remove_file(&migrate_path).is_ok();
-        tracing::debug!(phase = "cleanup", was_downloaded = true, removed = removed, "legacy.migration");
+        tracing::debug!(
+            phase = "cleanup",
+            was_downloaded = true,
+            removed = removed,
+            "legacy.migration"
+        );
     }
 
-    let exit_code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "none".to_owned());
-    tracing::info!(phase = "exit", exit_code = exit_code.as_str(), result = if status.success() { "ok" } else { "error" }, "legacy.migration.run");
+    let exit_code = status
+        .code()
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "none".to_owned());
+    tracing::info!(
+        phase = "exit",
+        exit_code = exit_code.as_str(),
+        result = if status.success() { "ok" } else { "error" },
+        "legacy.migration.run"
+    );
 
     if !status.success() {
         anyhow::bail!(
@@ -175,7 +224,13 @@ async fn download_migrate_binary(dest: &std::path::Path) -> Result<()> {
     if !resp.status().is_success() {
         let status = resp.status();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        tracing::warn!(asset = asset.name.as_str(), result = "error", status = status.as_u16(), elapsed_ms = elapsed_ms, "legacy.migration.download");
+        tracing::warn!(
+            asset = asset.name.as_str(),
+            result = "error",
+            status = status.as_u16(),
+            elapsed_ms = elapsed_ms,
+            "legacy.migration.download"
+        );
         anyhow::bail!("download failed with status {status}");
     }
 

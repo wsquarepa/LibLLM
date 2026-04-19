@@ -15,10 +15,8 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let filtered_selected = visible_indices
-        .iter()
-        .position(|&i| i == app.persona_selected)
-        .unwrap_or(0);
+    let filtered_selected =
+        super::filtered_selection_position(&visible_indices, app.persona_selected).unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
@@ -52,7 +50,9 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
+            Line::from(
+                "Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel",
+            ),
             Line::from("Drop .txt to import"),
         ]
     };
@@ -81,13 +81,28 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
         key,
         Some(&mut app.dialog_search),
     );
-    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
+    if matches!(
+        action,
+        super::PagedListAction::Consumed
+            | super::PagedListAction::EnteredSearch
+            | super::PagedListAction::ExitedSearch
+    ) {
         return None;
     }
 
+    let visible_indices = super::filter_indices(&app.persona_names, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.persona_selected) else {
+        if key.code == KeyCode::Char('a') {
+            create_and_edit_persona(app);
+        } else if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    };
+
     match key.code {
         KeyCode::Enter => {
-            let slug = app.persona_slugs[app.persona_selected].clone();
+            let slug = app.persona_slugs[selected].clone();
             match app.db.as_ref().and_then(|db| db.load_persona(&slug).ok()) {
                 Some(pf) => {
                     let display_name = pf.name.clone();
@@ -119,15 +134,15 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
             app.focus = Focus::Input;
         }
         KeyCode::Right => {
-            let slug = app.persona_slugs[app.persona_selected].clone();
+            let slug = app.persona_slugs[selected].clone();
             open_persona_editor(app, &slug);
         }
         KeyCode::Char('a') => {
             create_and_edit_persona(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.persona_names[app.persona_selected].clone();
-            let slug = app.persona_slugs[app.persona_selected].clone();
+            let name = app.persona_names[selected].clone();
+            let slug = app.persona_slugs[selected].clone();
             app.delete_confirm_filename = name;
             app.delete_confirm_selected = 0;
             app.delete_context = DeleteContext::Persona { slug };
@@ -161,7 +176,12 @@ fn create_and_edit_persona(app: &mut App) {
         persona: String::new(),
     };
     let slug = libllm::character::slugify(&new_name);
-    if let Err(e) = app.db.as_ref().map(|db| db.insert_persona(&slug, &persona)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+    if let Err(e) = app
+        .db
+        .as_ref()
+        .map(|db| db.insert_persona(&slug, &persona))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+    {
         app.set_status(
             format!("Failed to create persona: {e}"),
             super::super::StatusLevel::Error,
@@ -240,9 +260,18 @@ pub(in crate::tui) fn handle_persona_paste(
         persona: content,
     };
     let slug = libllm::character::slugify(&name);
-    match app.db.as_ref().map(|db| db.insert_persona(&slug, &persona)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+    match app
+        .db
+        .as_ref()
+        .map(|db| db.insert_persona(&slug, &persona))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+    {
         Ok(()) => {
-            let personas = app.db.as_ref().and_then(|db| db.list_personas().ok()).unwrap_or_default();
+            let personas = app
+                .db
+                .as_ref()
+                .and_then(|db| db.list_personas().ok())
+                .unwrap_or_default();
             app.persona_names = personas.iter().map(|(_, n)| n.clone()).collect();
             app.persona_slugs = personas.into_iter().map(|(s, _)| s).collect();
             app.persona_selected = 0;

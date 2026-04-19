@@ -29,10 +29,9 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let filtered_selected = visible_indices
-        .iter()
-        .position(|&i| i == app.preset_picker_selected)
-        .unwrap_or(0);
+    let filtered_selected =
+        super::filtered_selection_position(&visible_indices, app.preset_picker_selected)
+            .unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
@@ -57,7 +56,9 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
+            Line::from(
+                "Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel",
+            ),
         ]
     };
     render_hints_below_dialog(f, dialog, area, &hints);
@@ -88,18 +89,34 @@ pub(in crate::tui) fn handle_preset_dialog_key(
         key,
         Some(&mut app.dialog_search),
     );
-    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
+    if matches!(
+        action,
+        super::PagedListAction::Consumed
+            | super::PagedListAction::EnteredSearch
+            | super::PagedListAction::ExitedSearch
+    ) {
         return None;
     }
 
+    let visible_indices = super::filter_indices(&app.preset_picker_names, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.preset_picker_selected)
+    else {
+        if key.code == KeyCode::Char('a') {
+            create_and_edit_preset(app);
+        } else if key.code == KeyCode::Esc {
+            app.focus = Focus::ConfigDialog;
+        }
+        return None;
+    };
+
     match key.code {
         KeyCode::Enter => {
-            let chosen = app.preset_picker_names[app.preset_picker_selected].clone();
+            let chosen = app.preset_picker_names[selected].clone();
             apply_preset_selection(app, chosen);
             app.focus = Focus::ConfigDialog;
         }
         KeyCode::Right => {
-            let name = app.preset_picker_names[app.preset_picker_selected].clone();
+            let name = app.preset_picker_names[selected].clone();
             if name == "OFF" || name == "Raw" {
                 return None;
             }
@@ -109,7 +126,7 @@ pub(in crate::tui) fn handle_preset_dialog_key(
             create_and_edit_preset(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.preset_picker_names[app.preset_picker_selected].clone();
+            let name = app.preset_picker_names[selected].clone();
             if name == "OFF" || name == "Raw" {
                 return None;
             }
@@ -353,13 +370,15 @@ pub(in crate::tui) fn save_preset_from_editor(
     );
     std::fs::write(&path, json)?;
 
-    if !original_name.is_empty() && original_name != name
-        && let Some(safe_original) = sanitize_preset_name(original_name) {
-            let old_path = dir.join(format!("{safe_original}.json"));
-            if old_path.starts_with(&dir) && old_path != path {
-                let _ = std::fs::remove_file(&old_path);
-            }
+    if !original_name.is_empty()
+        && original_name != name
+        && let Some(safe_original) = sanitize_preset_name(original_name)
+    {
+        let old_path = dir.join(format!("{safe_original}.json"));
+        if old_path.starts_with(&dir) && old_path != path {
+            let _ = std::fs::remove_file(&old_path);
         }
+    }
 
     Ok(())
 }

@@ -21,10 +21,9 @@ pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, ar
     let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
 
-    let filtered_selected = visible_indices
-        .iter()
-        .position(|&i| i == app.branch_dialog_selected)
-        .unwrap_or(0);
+    let filtered_selected =
+        super::filtered_selection_position(&visible_indices, app.branch_dialog_selected)
+            .unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
@@ -77,13 +76,27 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
         key,
         Some(&mut app.dialog_search),
     );
-    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
+    if matches!(
+        action,
+        super::PagedListAction::Consumed
+            | super::PagedListAction::EnteredSearch
+            | super::PagedListAction::ExitedSearch
+    ) {
         return None;
     }
 
+    let visible_indices = super::filter_indices(&labels, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.branch_dialog_selected)
+    else {
+        if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    };
+
     match key.code {
         KeyCode::Enter => {
-            let (node_id, _) = app.branch_dialog_items[app.branch_dialog_selected];
+            let (node_id, _) = app.branch_dialog_items[selected];
             app.session.tree.switch_to(node_id);
             app.invalidate_chat_cache();
             app.nav_cursor = None;

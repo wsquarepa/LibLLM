@@ -4,14 +4,15 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-const LIBLLM_MARKERS: &[&str] = &["config.toml", "data.db"];
+const LIBLLM_MARKER_FILES: &[&str] = &["config.toml", "data.db"];
 
 /// Check whether a non-empty directory looks like a libllm data directory.
 ///
-/// Returns `true` when at least one known marker file is present.
-/// The recognised markers are: `config.toml` and `data.db`.
+/// Returns `true` when at least one known marker file is present or when the
+/// directory contains legacy file-based storage that can be migrated.
 pub fn is_libllm_data_dir(path: &Path) -> bool {
-    LIBLLM_MARKERS.iter().any(|m| path.join(m).exists())
+    LIBLLM_MARKER_FILES.iter().any(|m| path.join(m).exists())
+        || crate::legacy_migration::has_legacy_data(path)
 }
 
 /// Validate and prepare a `--data` directory.

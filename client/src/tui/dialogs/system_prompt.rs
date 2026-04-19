@@ -15,10 +15,9 @@ pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let filtered_selected = visible_indices
-        .iter()
-        .position(|&i| i == app.system_prompt_selected)
-        .unwrap_or(0);
+    let filtered_selected =
+        super::filtered_selection_position(&visible_indices, app.system_prompt_selected)
+            .unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
@@ -43,7 +42,9 @@ pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
+            Line::from(
+                "Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel",
+            ),
             Line::from("Drop .txt to import"),
         ]
     };
@@ -69,14 +70,32 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
         key,
         Some(&mut app.dialog_search),
     );
-    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
+    if matches!(
+        action,
+        super::PagedListAction::Consumed
+            | super::PagedListAction::EnteredSearch
+            | super::PagedListAction::ExitedSearch
+    ) {
         return None;
     }
 
+    let visible_indices = super::filter_indices(&app.system_prompt_list, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.system_prompt_selected)
+    else {
+        if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    };
+
     match key.code {
         KeyCode::Enter => {
-            let name = app.system_prompt_list[app.system_prompt_selected].clone();
-            let content = app.db.as_ref().and_then(|db| db.load_prompt(&name).ok()).map(|p| p.content);
+            let name = app.system_prompt_list[selected].clone();
+            let content = app
+                .db
+                .as_ref()
+                .and_then(|db| db.load_prompt(&name).ok())
+                .map(|p| p.content);
 
             app.session.system_prompt = content;
             app.invalidate_chat_cache();
@@ -88,7 +107,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             app.focus = Focus::Input;
         }
         KeyCode::Right => {
-            let name = app.system_prompt_list[app.system_prompt_selected].clone();
+            let name = app.system_prompt_list[selected].clone();
             open_prompt_editor(app, &name);
         }
         KeyCode::Char('a') => {
@@ -100,7 +119,12 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
                 content: String::new(),
             };
             let slug = libllm::character::slugify(&new_name);
-            if let Err(e) = app.db.as_ref().map(|db| db.insert_prompt(&slug, &prompt, false)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+            if let Err(e) = app
+                .db
+                .as_ref()
+                .map(|db| db.insert_prompt(&slug, &prompt, false))
+                .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+            {
                 app.set_status(
                     format!("Failed to create prompt: {e}"),
                     super::super::StatusLevel::Error,
@@ -112,7 +136,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             open_prompt_editor(app, &new_name);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.system_prompt_list[app.system_prompt_selected].clone();
+            let name = app.system_prompt_list[selected].clone();
             if name == libllm::system_prompt::BUILTIN_ASSISTANT
                 || name == libllm::system_prompt::BUILTIN_ROLEPLAY
             {
@@ -136,7 +160,9 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
 }
 
 fn open_prompt_editor(app: &mut App, name: &str) {
-    let content = app.db.as_ref()
+    let content = app
+        .db
+        .as_ref()
         .and_then(|db| db.load_prompt(name).ok())
         .map(|p| p.content)
         .unwrap_or_default();
@@ -223,9 +249,18 @@ pub(in crate::tui) fn handle_system_prompt_paste(
         content,
     };
     let slug = libllm::character::slugify(&name);
-    match app.db.as_ref().map(|db| db.insert_prompt(&slug, &prompt, false)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+    match app
+        .db
+        .as_ref()
+        .map(|db| db.insert_prompt(&slug, &prompt, false))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+    {
         Ok(()) => {
-            let prompts = app.db.as_ref().and_then(|db| db.list_prompts().ok()).unwrap_or_default();
+            let prompts = app
+                .db
+                .as_ref()
+                .and_then(|db| db.list_prompts().ok())
+                .unwrap_or_default();
             app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
             app.system_prompt_selected = 0;
             app.set_status(

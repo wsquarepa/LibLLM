@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use std::process::Command;
@@ -215,6 +218,101 @@ fn recover_rebuild_index_after_index_deletion() {
     assert!(
         stdout.contains('T') && stdout.contains('Z'),
         "expected backup entries in list after rebuild, got: {stdout}"
+    );
+}
+
+#[test]
+fn recover_rebuild_index_preserves_diff_restore_points() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+    let db_path = data_dir.join("data.db");
+    seed_db(&db_path);
+
+    let config = BackupConfig::default();
+    create_snapshot(data_dir, None, &config).expect("base snapshot");
+
+    {
+        let db = Database::open(&db_path, None).expect("open db for diff mutation");
+        db.insert_persona(
+            "bob",
+            &PersonaFile {
+                name: "bob".to_owned(),
+                persona: "wise".to_owned(),
+            },
+        )
+        .expect("insert bob");
+    }
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    create_snapshot(data_dir, None, &config).expect("diff snapshot");
+
+    let index_path = data_dir.join("backups").join("index.json");
+    let original_index = load_index(&index_path).expect("load original index");
+    let diff_id = original_index
+        .entries
+        .iter()
+        .find(|entry| entry.entry_type == backup::index::BackupType::Diff)
+        .expect("diff entry")
+        .id
+        .clone();
+
+    std::fs::remove_file(&index_path).expect("remove index.json");
+
+    let rebuild_output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "recover",
+            "rebuild-index",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(
+        rebuild_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&rebuild_output.stderr)
+    );
+
+    {
+        let db = Database::open(&db_path, None).expect("open db for post-diff mutation");
+        db.insert_persona(
+            "carol",
+            &PersonaFile {
+                name: "carol".to_owned(),
+                persona: "calm".to_owned(),
+            },
+        )
+        .expect("insert carol");
+    }
+
+    let restore_output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "recover",
+            "restore",
+            &diff_id,
+            "--yes",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(
+        restore_output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&restore_output.stderr)
+    );
+
+    let db = Database::open(&db_path, None).expect("reopen db after restore");
+    let personas = db.list_personas().expect("list personas");
+    assert_eq!(
+        personas,
+        vec![
+            ("alice".to_owned(), "alice".to_owned()),
+            ("bob".to_owned(), "bob".to_owned()),
+        ],
+        "restore after rebuild must preserve diff snapshot state"
     );
 }
 

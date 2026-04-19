@@ -51,7 +51,11 @@ pub fn suppress_sqlcipher_log() {
     });
 }
 
-fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Result<Vec<(String, String)>> {
+fn query_slug_name_pairs(
+    conn: &Connection,
+    sql: &str,
+    err_context: &str,
+) -> Result<Vec<(String, String)>> {
     let err_owned = err_context.to_owned();
     let mut stmt = conn.prepare(sql).with_context(|| err_owned.clone())?;
     let rows = stmt
@@ -59,7 +63,8 @@ fn query_slug_name_pairs(conn: &Connection, sql: &str, err_context: &str) -> Res
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
         .with_context(|| err_owned.clone())?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 /// Result set returned by `Database::execute_query`.
@@ -212,7 +217,12 @@ impl Database {
         worldbooks::delete_worldbook(&self.conn, slug)
     }
 
-    pub fn insert_prompt(&self, slug: &str, prompt: &SystemPromptFile, builtin: bool) -> Result<()> {
+    pub fn insert_prompt(
+        &self,
+        slug: &str,
+        prompt: &SystemPromptFile,
+        builtin: bool,
+    ) -> Result<()> {
         prompts::insert_prompt(&self.conn, slug, prompt, builtin)
     }
 
@@ -226,6 +236,15 @@ impl Database {
 
     pub fn update_prompt(&self, slug: &str, prompt: &SystemPromptFile) -> Result<()> {
         prompts::update_prompt(&self.conn, slug, prompt)
+    }
+
+    pub fn rename_prompt(
+        &self,
+        old_slug: &str,
+        new_slug: &str,
+        prompt: &SystemPromptFile,
+    ) -> Result<()> {
+        prompts::rename_prompt(&self.conn, old_slug, new_slug, prompt)
     }
 
     pub fn delete_prompt(&self, slug: &str) -> Result<()> {
@@ -382,11 +401,9 @@ mod tests {
 
         let version: i64 = db
             .conn()
-            .query_row(
-                "SELECT MAX(version) FROM schema_version",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(version, super::schema::CURRENT_VERSION);
     }
@@ -402,7 +419,11 @@ mod tests {
             db.conn()
                 .execute(
                     "INSERT INTO sessions (id, created_at, updated_at) VALUES (?1, ?2, ?3)",
-                    rusqlite::params!["test-session-id", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+                    rusqlite::params![
+                        "test-session-id",
+                        "2026-01-01T00:00:00Z",
+                        "2026-01-01T00:00:00Z"
+                    ],
                 )
                 .unwrap();
         }
@@ -439,7 +460,11 @@ mod tests {
             db.conn()
                 .execute(
                     "INSERT INTO sessions (id, created_at, updated_at) VALUES (?1, ?2, ?3)",
-                    rusqlite::params!["plain-session-id", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+                    rusqlite::params![
+                        "plain-session-id",
+                        "2026-01-01T00:00:00Z",
+                        "2026-01-01T00:00:00Z"
+                    ],
                 )
                 .unwrap();
         }

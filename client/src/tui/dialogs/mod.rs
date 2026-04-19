@@ -20,24 +20,25 @@ mod paged_list;
 mod tabbed_field;
 mod validation;
 
+pub(in crate::tui) use builders::{
+    DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
+    LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
+};
 pub use builders::{
     open_character_editor, open_config_editor, open_entry_editor, open_entry_editor_non_selective,
     open_instruct_editor, open_persona_editor, open_reasoning_editor, open_system_prompt_editor,
     open_template_editor, open_theme_editor,
 };
-pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
-pub(in crate::tui) use builders::{
-    DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, FIELD_DIALOG_DEFAULT_WIDTH, LIST_DIALOG_TALL_PADDING,
-    LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
-};
-pub(in crate::tui) use paged_list::{
-    PagedListAction, PagedListContent, SearchState, filter_indices, handle_paged_list_key,
-    list_dialog_rect, map_list_click, page_size, paged_list_height, render_paged_list,
-    render_paged_list_inline, search_title_line, search_title_width,
-};
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;
 pub(in crate::tui) use mouse::handle_dialog_mouse_click;
+pub(in crate::tui) use paged_list::{
+    PagedListAction, PagedListContent, SearchState, filter_indices,
+    filtered_selection_position, handle_paged_list_key, list_dialog_rect, map_list_click,
+    page_size, paged_list_height, render_paged_list, render_paged_list_inline,
+    search_title_line, search_title_width, visible_selection,
+};
+pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub use validation::FieldValidation;
 
 use crossterm::event::{KeyCode, KeyEvent};
@@ -71,7 +72,6 @@ pub(in crate::tui) fn generate_unique_name(
         i += 1;
     }
 }
-
 
 pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
     let cleaned: String = raw
@@ -134,8 +134,16 @@ pub(in crate::tui) fn render_multiline_editor(
         height: inner.height.saturating_sub(3),
     };
     f.render_widget(editor, editor_area);
-    f.render_widget(crate::tui::render::dialog_block(title, ratatui::style::Color::Yellow), dialog);
-    crate::tui::render::render_hints_below_dialog(f, dialog, area, &[ratatui::text::Line::from("Esc: done editing")]);
+    f.render_widget(
+        crate::tui::render::dialog_block(title, ratatui::style::Color::Yellow),
+        dialog,
+    );
+    crate::tui::render::render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[ratatui::text::Line::from("Esc: done editing")],
+    );
 }
 
 pub(in crate::tui) const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
@@ -470,7 +478,8 @@ impl<'a> FieldDialog<'a> {
                         .map(|v| v.accepts_char(&self.values[self.selected], c))
                         .unwrap_or(true);
                     if accept {
-                        let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
+                        let byte_pos =
+                            byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
                         self.values[self.selected].insert(byte_pos, c);
                         self.cursor_pos += 1;
                     } else {
@@ -485,7 +494,8 @@ impl<'a> FieldDialog<'a> {
                 KeyCode::Delete => {
                     let char_count = self.values[self.selected].chars().count();
                     if self.cursor_pos < char_count {
-                        let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
+                        let byte_pos =
+                            byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
                         self.values[self.selected].remove(byte_pos);
                     }
                 }
@@ -624,4 +634,3 @@ impl<'a> FieldDialog<'a> {
         }
     }
 }
-

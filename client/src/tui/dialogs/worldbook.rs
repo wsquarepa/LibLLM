@@ -32,10 +32,8 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let filtered_selected = visible_indices
-        .iter()
-        .position(|&i| i == app.worldbook_selected)
-        .unwrap_or(0);
+    let filtered_selected =
+        super::filtered_selection_position(&visible_indices, app.worldbook_selected).unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
@@ -74,7 +72,9 @@ pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App,
         vec![
             Line::from("[G] Global  [S] Session  [ ] Off"),
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: cycle  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: close"),
+            Line::from(
+                "Enter: cycle  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: close",
+            ),
             Line::from("Drop .json to import"),
         ]
     };
@@ -103,13 +103,28 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         key,
         Some(&mut app.dialog_search),
     );
-    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
+    if matches!(
+        action,
+        super::PagedListAction::Consumed
+            | super::PagedListAction::EnteredSearch
+            | super::PagedListAction::ExitedSearch
+    ) {
         return None;
     }
 
+    let visible_indices = super::filter_indices(&app.worldbook_list, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.worldbook_selected) else {
+        if key.code == KeyCode::Char('a') {
+            create_and_edit_worldbook(app);
+        } else if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    };
+
     match key.code {
         KeyCode::Enter | KeyCode::Char(' ') => {
-            let name = app.worldbook_list[app.worldbook_selected].clone();
+            let name = app.worldbook_list[selected].clone();
             match worldbook_state(app, &name) {
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
@@ -141,7 +156,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
             }
         }
         KeyCode::Right => {
-            let name = app.worldbook_list[app.worldbook_selected].clone();
+            let name = app.worldbook_list[selected].clone();
             let slug = libllm::character::slugify(&name);
             match app.db.as_ref().and_then(|db| db.load_worldbook(&slug).ok()) {
                 Some(wb) => {
@@ -155,7 +170,10 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                     app.focus = Focus::WorldbookEditorDialog;
                 }
                 None => {
-                    app.set_status("Worldbook not found.".to_owned(), super::super::StatusLevel::Error);
+                    app.set_status(
+                        "Worldbook not found.".to_owned(),
+                        super::super::StatusLevel::Error,
+                    );
                 }
             }
         }
@@ -163,7 +181,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
             create_and_edit_worldbook(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.worldbook_list[app.worldbook_selected].clone();
+            let name = app.worldbook_list[selected].clone();
             app.delete_confirm_filename = name.clone();
             app.delete_confirm_selected = 0;
             app.delete_context = DeleteContext::Worldbook { name };
@@ -199,17 +217,22 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     let title = format!(" Worldbook ({} entries) ", entry_labels.len());
     f.render_widget(ratatui::widgets::Clear, dialog);
     let search_max = dialog.width.saturating_sub(2);
-    let block = dialog_block(title, app.theme.border_focused).title_bottom(super::search_title_line(
-        &app.dialog_search,
-        app.theme.border_focused,
-        &app.theme,
-        search_max,
-    ));
+    let block =
+        dialog_block(title, app.theme.border_focused).title_bottom(super::search_title_line(
+            &app.dialog_search,
+            app.theme.border_focused,
+            &app.theme,
+            search_max,
+        ));
     f.render_widget(block, dialog);
 
     let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
     let name_editing = app.worldbook_editor_name_editing;
-    let name_marker = if name_selected || name_editing { "> " } else { "  " };
+    let name_marker = if name_selected || name_editing {
+        "> "
+    } else {
+        "  "
+    };
     let name_flashing = name_editing && super::is_flash_active(app.input_reject_flash);
     let name_style = if name_flashing {
         Style::default()
@@ -480,7 +503,12 @@ fn create_and_edit_worldbook(app: &mut App) {
         entries: Vec::new(),
     };
     let slug = libllm::character::slugify(&new_name);
-    if let Err(e) = app.db.as_ref().map(|db| db.insert_worldbook(&slug, &wb)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+    if let Err(e) = app
+        .db
+        .as_ref()
+        .map(|db| db.insert_worldbook(&slug, &wb))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+    {
         app.set_status(
             format!("Failed to create worldbook: {e}"),
             super::super::StatusLevel::Error,
@@ -622,17 +650,21 @@ fn save_worldbook_editor(app: &mut App) {
     let old_slug = libllm::character::slugify(&original);
     let is_rename = !original.is_empty() && original != new_name;
     let save_result = if is_rename {
-        app.db.as_ref()
+        app.db
+            .as_ref()
             .map(|db| db.insert_worldbook(&slug, &wb))
             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     } else {
-        app.db.as_ref().map(|db| {
-            if db.load_worldbook(&slug).is_ok() {
-                db.update_worldbook(&slug, &wb)
-            } else {
-                db.insert_worldbook(&slug, &wb)
-            }
-        }).unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+        app.db
+            .as_ref()
+            .map(|db| {
+                if db.load_worldbook(&slug).is_ok() {
+                    db.update_worldbook(&slug, &wb)
+                } else {
+                    db.insert_worldbook(&slug, &wb)
+                }
+            })
+            .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     };
     match save_result {
         Ok(()) => {
@@ -649,7 +681,11 @@ fn save_worldbook_editor(app: &mut App) {
                 }
             }
             app.invalidate_worldbook_cache();
-            let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
+            let books = app
+                .db
+                .as_ref()
+                .and_then(|db| db.list_worldbooks().ok())
+                .unwrap_or_default();
             app.worldbook_list = books.into_iter().map(|(_, n)| n).collect();
             app.worldbook_selected = app
                 .worldbook_list
@@ -681,10 +717,14 @@ pub(in crate::tui) fn handle_worldbook_paste(
         return true;
     }
 
-    let fallback_name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let fallback_name = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     match std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!(e))
-        .and_then(|s| libllm::worldinfo::parse_worldbook_json(&s, &fallback_name)) {
+        .and_then(|s| libllm::worldinfo::parse_worldbook_json(&s, &fallback_name))
+    {
         Ok(wb) => {
             if wb.name.chars().count() > super::MAX_NAME_LENGTH {
                 app.set_status(
@@ -699,9 +739,18 @@ pub(in crate::tui) fn handle_worldbook_paste(
             }
             let name = wb.name.clone();
             let slug = libllm::character::slugify(&name);
-            match app.db.as_ref().map(|db| db.insert_worldbook(&slug, &wb)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+            match app
+                .db
+                .as_ref()
+                .map(|db| db.insert_worldbook(&slug, &wb))
+                .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+            {
                 Ok(()) => {
-                    let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
+                    let books = app
+                        .db
+                        .as_ref()
+                        .and_then(|db| db.list_worldbooks().ok())
+                        .unwrap_or_default();
                     app.worldbook_list = books.into_iter().map(|(_, n)| n).collect();
                     app.worldbook_selected = 0;
                     app.invalidate_worldbook_cache();

@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use client::validation;
@@ -145,7 +148,10 @@ prompt = "Custom prompt"
 "#;
     let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
     assert!(!config.summarization.enabled);
-    assert_eq!(config.summarization.api_url.as_deref(), Some("http://other:8080/v1"));
+    assert_eq!(
+        config.summarization.api_url.as_deref(),
+        Some("http://other:8080/v1")
+    );
     assert_eq!(config.summarization.context_size, 16384);
     assert_eq!(config.summarization.trigger_threshold, 10);
     assert_eq!(config.summarization.prompt, "Custom prompt");
@@ -160,7 +166,6 @@ fn migrate_config_path_is_callable() {
     let _dir = setup_data_dir();
     migration::migrate_config_path();
 }
-
 
 #[test]
 fn config_survives_migration() {
@@ -234,6 +239,17 @@ fn validate_data_dir_accepts_dir_with_data_db() {
 }
 
 #[test]
+fn validate_data_dir_accepts_legacy_sessions_directory() {
+    let dir = common::temp_dir();
+    let sessions_dir = dir.path().join("sessions");
+    std::fs::create_dir(&sessions_dir).unwrap();
+    std::fs::write(sessions_dir.join("session.json"), "{}").unwrap();
+
+    let is_existing = validation::validate_data_dir(dir.path()).unwrap();
+    assert!(is_existing);
+}
+
+#[test]
 fn validate_data_dir_rejects_file_path() {
     let dir = common::temp_dir();
     let file_path = dir.path().join("not_a_dir");
@@ -263,6 +279,15 @@ fn is_libllm_data_dir_detects_config_toml() {
 }
 
 #[test]
+fn is_libllm_data_dir_detects_legacy_data() {
+    let dir = common::temp_dir();
+    let sessions_dir = dir.path().join("sessions");
+    std::fs::create_dir(&sessions_dir).unwrap();
+    std::fs::write(sessions_dir.join("session.json"), "{}").unwrap();
+    assert!(validation::is_libllm_data_dir(dir.path()));
+}
+
+#[test]
 fn theme_editor_covers_all_color_override_fields() {
     let config = libllm::config::Config::default();
     let dialog = client::tui::dialogs::open_theme_editor(&config);
@@ -273,7 +298,10 @@ fn theme_editor_covers_all_color_override_fields() {
         .skip(1)
         .map(|s| s.labels.len())
         .sum();
-    assert_eq!(color_field_count, 26, "tabs 2-5 must cover all 26 ThemeColorOverrides fields");
+    assert_eq!(
+        color_field_count, 26,
+        "tabs 2-5 must cover all 26 ThemeColorOverrides fields"
+    );
 }
 
 #[test]
@@ -283,8 +311,19 @@ fn theme_overrides_apply_round_trip() {
     libllm::config::ensure_dirs().unwrap();
 
     let sections = vec![
-        vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
-        vec!["#ff0000".to_owned(), "".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec![
+            "dark".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+        ],
+        vec![
+            "#ff0000".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+        ],
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 8],
         vec!["".to_owned(); 3],
@@ -314,8 +353,19 @@ fn empty_theme_override_drops_to_none() {
     };
 
     let sections = vec![
-        vec!["dark".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
-        vec!["".to_owned(), "".to_owned(), "".to_owned(), "".to_owned(), "".to_owned()],
+        vec![
+            "dark".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+        ],
+        vec![
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+            "".to_owned(),
+        ],
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 8],
         vec!["".to_owned(); 3],
@@ -330,7 +380,10 @@ fn empty_theme_override_drops_to_none() {
 fn log_filter_without_debug_is_a_parse_error() {
     use clap::Parser;
     let result = client::cli::Args::try_parse_from(["libllm", "--log-filter", "info"]);
-    assert!(result.is_err(), "expected parse failure but parsing succeeded");
+    assert!(
+        result.is_err(),
+        "expected parse failure but parsing succeeded"
+    );
     let err = result.err().unwrap().to_string();
     assert!(
         err.contains("--debug") || err.contains("debug"),
@@ -360,12 +413,19 @@ fn config_auth_roundtrip_bearer() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
     let cfg = Config {
-        auth: Auth::Bearer { token: "sk-abc".into() },
+        auth: Auth::Bearer {
+            token: "sk-abc".into(),
+        },
         ..Config::default()
     };
     config::save(&cfg).unwrap();
     let loaded = config::load();
-    assert_eq!(loaded.auth, Auth::Bearer { token: "sk-abc".into() });
+    assert_eq!(
+        loaded.auth,
+        Auth::Bearer {
+            token: "sk-abc".into()
+        }
+    );
 }
 
 #[test]
@@ -373,12 +433,21 @@ fn config_auth_roundtrip_basic() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
     let cfg = Config {
-        auth: Auth::Basic { username: "u".into(), password: "p".into() },
+        auth: Auth::Basic {
+            username: "u".into(),
+            password: "p".into(),
+        },
         ..Config::default()
     };
     config::save(&cfg).unwrap();
     let loaded = config::load();
-    assert_eq!(loaded.auth, Auth::Basic { username: "u".into(), password: "p".into() });
+    assert_eq!(
+        loaded.auth,
+        Auth::Basic {
+            username: "u".into(),
+            password: "p".into()
+        }
+    );
 }
 
 #[test]
@@ -386,12 +455,21 @@ fn config_auth_roundtrip_header() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
     let cfg = Config {
-        auth: Auth::Header { name: "X-Key".into(), value: "v".into() },
+        auth: Auth::Header {
+            name: "X-Key".into(),
+            value: "v".into(),
+        },
         ..Config::default()
     };
     config::save(&cfg).unwrap();
     let loaded = config::load();
-    assert_eq!(loaded.auth, Auth::Header { name: "X-Key".into(), value: "v".into() });
+    assert_eq!(
+        loaded.auth,
+        Auth::Header {
+            name: "X-Key".into(),
+            value: "v".into()
+        }
+    );
 }
 
 #[test]
@@ -399,12 +477,21 @@ fn config_auth_roundtrip_query() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
     let cfg = Config {
-        auth: Auth::Query { name: "api_key".into(), value: "v".into() },
+        auth: Auth::Query {
+            name: "api_key".into(),
+            value: "v".into(),
+        },
         ..Config::default()
     };
     config::save(&cfg).unwrap();
     let loaded = config::load();
-    assert_eq!(loaded.auth, Auth::Query { name: "api_key".into(), value: "v".into() });
+    assert_eq!(
+        loaded.auth,
+        Auth::Query {
+            name: "api_key".into(),
+            value: "v".into()
+        }
+    );
 }
 
 #[test]

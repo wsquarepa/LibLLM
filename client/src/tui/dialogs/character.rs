@@ -6,9 +6,9 @@ use ratatui::text::Line;
 use ratatui::widgets::ListItem;
 
 use super::{clear_centered, render_hints_below_dialog};
-use libllm::session::{self, Message, Role};
 use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, DeleteContext, Focus};
+use libllm::session::{self, Message, Role};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
@@ -17,10 +17,8 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let filtered_selected = visible_indices
-        .iter()
-        .position(|&i| i == app.character_selected)
-        .unwrap_or(0);
+    let filtered_selected =
+        super::filtered_selection_position(&visible_indices, app.character_selected).unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
@@ -45,7 +43,9 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
+            Line::from(
+                "Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel",
+            ),
             Line::from("Drop .png/.json to import"),
         ]
     };
@@ -74,16 +74,29 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         key,
         Some(&mut app.dialog_search),
     );
-    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
+    if matches!(
+        action,
+        super::PagedListAction::Consumed
+            | super::PagedListAction::EnteredSearch
+            | super::PagedListAction::ExitedSearch
+    ) {
         return None;
     }
+
+    let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.character_selected) else {
+        if key.code == KeyCode::Esc {
+            app.focus = Focus::Input;
+        }
+        return None;
+    };
 
     match key.code {
         KeyCode::Enter => {
             if !app.flush_session_before_transition() {
                 return None;
             }
-            let slug = app.character_slugs[app.character_selected].clone();
+            let slug = app.character_slugs[selected].clone();
             let load_result = app.db.as_ref().and_then(|db| db.load_character(&slug).ok());
             match load_result {
                 Some(card) => {
@@ -116,13 +129,16 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     refresh_sidebar(app);
                 }
                 None => {
-                    app.set_status("Character not found.".to_owned(), super::super::StatusLevel::Error);
+                    app.set_status(
+                        "Character not found.".to_owned(),
+                        super::super::StatusLevel::Error,
+                    );
                     app.focus = Focus::Input;
                 }
             }
         }
         KeyCode::Right => {
-            let slug = app.character_slugs[app.character_selected].clone();
+            let slug = app.character_slugs[selected].clone();
             match app.db.as_ref().and_then(|db| db.load_character(&slug).ok()) {
                 Some(card) => {
                     let values = vec![
@@ -140,13 +156,16 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.focus = Focus::CharacterEditorDialog;
                 }
                 None => {
-                    app.set_status("Character not found.".to_owned(), super::super::StatusLevel::Error);
+                    app.set_status(
+                        "Character not found.".to_owned(),
+                        super::super::StatusLevel::Error,
+                    );
                 }
             }
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.character_names[app.character_selected].clone();
-            let slug = app.character_slugs[app.character_selected].clone();
+            let name = app.character_names[selected].clone();
+            let slug = app.character_slugs[selected].clone();
             app.delete_confirm_filename = name;
             app.delete_confirm_selected = 0;
             app.delete_context = DeleteContext::Character { slug };
@@ -178,7 +197,12 @@ fn create_and_edit_character(app: &mut App) {
         alternate_greetings: Vec::new(),
     };
     let slug = libllm::character::slugify(&new_name);
-    if let Err(e) = app.db.as_ref().map(|db| db.insert_character(&slug, &card)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+    if let Err(e) = app
+        .db
+        .as_ref()
+        .map(|db| db.insert_character(&slug, &card))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+    {
         app.set_status(
             format!("Failed to create character: {e}"),
             super::super::StatusLevel::Error,
@@ -232,9 +256,18 @@ pub(in crate::tui) fn handle_character_paste(
             }
             let name = card.name.clone();
             let slug = libllm::character::slugify(&name);
-            match app.db.as_ref().map(|db| db.insert_character(&slug, &card)).unwrap_or_else(|| Err(anyhow::anyhow!("no database"))) {
+            match app
+                .db
+                .as_ref()
+                .map(|db| db.insert_character(&slug, &card))
+                .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+            {
                 Ok(()) => {
-                    let chars = app.db.as_ref().and_then(|db| db.list_characters().ok()).unwrap_or_default();
+                    let chars = app
+                        .db
+                        .as_ref()
+                        .and_then(|db| db.list_characters().ok())
+                        .unwrap_or_default();
                     app.character_names = chars.iter().map(|(_, n)| n.clone()).collect();
                     app.character_slugs = chars.into_iter().map(|(s, _)| s).collect();
                     app.character_selected = 0;

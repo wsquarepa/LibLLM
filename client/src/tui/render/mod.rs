@@ -20,6 +20,18 @@ use super::App;
 
 use super::theme::Theme;
 
+fn is_side_character(content: &str) -> bool {
+    let first_line = content.trim_start().lines().next().unwrap_or("");
+    let trimmed = first_line.trim_start();
+    if !trimmed.starts_with('[') {
+        return false;
+    }
+    match trimmed.find("]:") {
+        Some(close_idx) => close_idx > 1,
+        None => false,
+    }
+}
+
 pub struct SidebarCache {
     selected_idx: Option<usize>,
     filter_query: String,
@@ -297,12 +309,20 @@ pub fn render_chat(
                     .expect("branch id should resolve to a message node")
                     .message;
                 let (role_label, base_role_style) = match msg.role {
-                    Role::User => (
-                        user_label.clone(),
-                        Style::default()
-                            .fg(app.theme.user_message)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Role::User => {
+                        let (fg, bg) = if is_side_character(&msg.content) {
+                            (app.theme.side_character_fg, app.theme.side_character_bg)
+                        } else {
+                            (app.theme.user_character_fg, app.theme.user_character_bg)
+                        };
+                        (
+                            user_label.clone(),
+                            Style::default()
+                                .fg(fg)
+                                .bg(bg)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    }
                     Role::Assistant => (
                         assistant_label.clone(),
                         Style::default()
@@ -676,7 +696,7 @@ fn build_queue_lines(queue: &[String], user_label: &str, theme: &Theme) -> Vec<L
         lines.push(Line::from(vec![Span::styled(
             format!("{user_label}:"),
             Style::default()
-                .fg(theme.user_message)
+                .fg(theme.user_character_fg)
                 .add_modifier(Modifier::BOLD)
                 .add_modifier(Modifier::DIM),
         )]));

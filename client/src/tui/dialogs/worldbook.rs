@@ -172,11 +172,26 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 }
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let count = app.worldbook_editor_entries.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2, false);
+    let entry_labels: Vec<String> = app
+        .worldbook_editor_entries
+        .iter()
+        .map(|entry| {
+            let enabled = if entry.enabled { "+" } else { "-" };
+            let keys_str = if entry.keys.is_empty() {
+                "(no keys)".to_owned()
+            } else {
+                entry.keys.join(", ")
+            };
+            format!("[{enabled}] {keys_str}")
+        })
+        .collect();
+    let visible_indices = super::filter_indices(&entry_labels, &app.dialog_search);
+    let count = visible_indices.len();
+    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2, search_visible);
     let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, height, area);
 
-    let title = format!(" Worldbook ({count} entries) ");
+    let title = format!(" Worldbook ({} entries) ", entry_labels.len());
     f.render_widget(ratatui::widgets::Clear, dialog);
     f.render_widget(dialog_block(title, app.theme.border_focused), dialog);
 
@@ -211,7 +226,6 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         name_row,
     );
 
-    // Entries area is the rest of the inner dialog, below the name row and spacer.
     let list_area = Rect {
         x: dialog.x + 1,
         y: dialog.y + 3,
@@ -219,10 +233,10 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         height: dialog.height.saturating_sub(4),
     };
 
-    let items: Vec<ListItem<'_>> = app
-        .worldbook_editor_entries
+    let items: Vec<ListItem<'_>> = visible_indices
         .iter()
-        .map(|entry| {
+        .map(|&i| {
+            let entry = &app.worldbook_editor_entries[i];
             let enabled = if entry.enabled { "+" } else { "-" };
             let label = if entry.keys.is_empty() {
                 format!("[{enabled}] (no keys)")
@@ -248,27 +262,67 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
         })
         .collect();
 
-    // Name row focus is signaled by usize::MAX so no entry row highlights.
     let effective_selected = if app.worldbook_editor_name_selected {
         usize::MAX
     } else {
         app.worldbook_editor_selected
     };
 
-    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme, None);
+    super::render_paged_list_inline(f, list_area, effective_selected, items, &app.theme, Some(&app.dialog_search));
 
-    render_hints_below_dialog(
-        f,
-        dialog,
-        area,
-        &[
+    let hints = if app.dialog_search.active {
+        vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
+    } else {
+        vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Right/Enter: edit  a: add  Del: delete  Esc: save & close"),
-        ],
-    );
+            Line::from("Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Esc: save & close"),
+        ]
+    };
+    render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    use crossterm::event::KeyModifiers;
+
+    let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
+    if app.dialog_search.active || is_ctrl_f {
+        let labels: Vec<String> = app
+            .worldbook_editor_entries
+            .iter()
+            .map(|entry| {
+                let enabled = if entry.enabled { "+" } else { "-" };
+                let keys_str = if entry.keys.is_empty() {
+                    "(no keys)".to_owned()
+                } else {
+                    entry.keys.join(", ")
+                };
+                format!("[{enabled}] {keys_str}")
+            })
+            .collect();
+        let visible = super::page_size(
+            app.last_terminal_height,
+            super::LIST_DIALOG_TALL_PADDING + 2,
+        );
+        if is_ctrl_f && !app.dialog_search.active {
+            app.worldbook_editor_name_selected = false;
+        }
+        let action = super::handle_paged_list_key(
+            &mut app.worldbook_editor_selected,
+            &labels,
+            visible,
+            key,
+            Some(&mut app.dialog_search),
+        );
+        if matches!(
+            action,
+            super::PagedListAction::Consumed
+                | super::PagedListAction::EnteredSearch
+                | super::PagedListAction::ExitedSearch
+        ) {
+            return None;
+        }
+    }
+
     if app.worldbook_editor_name_editing {
         match key.code {
             KeyCode::Char(c) => {
@@ -328,20 +382,29 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
+    let labels: Vec<String> = app
+        .worldbook_editor_entries
+        .iter()
+        .map(|entry| {
+            let enabled = if entry.enabled { "+" } else { "-" };
+            let keys_str = if entry.keys.is_empty() {
+                "(no keys)".to_owned()
+            } else {
+                entry.keys.join(", ")
+            };
+            format!("[{enabled}] {keys_str}")
+        })
+        .collect();
+
     match key.code {
         KeyCode::Up => {
-            if app.worldbook_editor_selected == 0 {
+            if app.worldbook_editor_selected == 0 && !app.dialog_search.is_filtering() {
                 app.worldbook_editor_name_selected = true;
             } else {
                 let visible = super::page_size(
                     app.last_terminal_height,
                     super::LIST_DIALOG_TALL_PADDING + 2,
                 );
-                let labels: Vec<String> = app
-                    .worldbook_editor_entries
-                    .iter()
-                    .map(|entry| entry.keys.join(", "))
-                    .collect();
                 super::handle_paged_list_key(
                     &mut app.worldbook_editor_selected,
                     &labels,
@@ -356,11 +419,6 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                 app.last_terminal_height,
                 super::LIST_DIALOG_TALL_PADDING + 2,
             );
-            let labels: Vec<String> = app
-                .worldbook_editor_entries
-                .iter()
-                .map(|entry| entry.keys.join(", "))
-                .collect();
             super::handle_paged_list_key(
                 &mut app.worldbook_editor_selected,
                 &labels,

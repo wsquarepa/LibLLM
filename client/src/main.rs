@@ -319,6 +319,7 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
     if args.no_encrypt {
         let db = Database::open(&db_path, None)?;
         db.ensure_builtin_prompts()?;
+        preset::ensure_default_presets();
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;
@@ -333,6 +334,7 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
         let db = Database::open(&db_path, Some(&key))
             .context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
+        preset::ensure_default_presets();
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;

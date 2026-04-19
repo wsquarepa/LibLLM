@@ -620,10 +620,7 @@ pub fn salt_path() -> PathBuf {
 }
 
 pub fn ensure_dirs() -> Result<()> {
-    std::fs::create_dir_all(data_dir()).context("failed to create data directory")?;
-    crate::preset::ensure_default_presets();
-    std::fs::create_dir_all(crate::preset::template_presets_dir())
-        .context("failed to create template presets directory")
+    std::fs::create_dir_all(data_dir()).context("failed to create data directory")
 }
 
 pub fn config_path() -> PathBuf {

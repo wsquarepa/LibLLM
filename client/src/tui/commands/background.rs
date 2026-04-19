@@ -30,6 +30,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                     if let Err(e) = db.ensure_builtin_prompts() {
                         app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
                     }
+                    libllm::preset::ensure_default_presets();
                     let id = match &app.save_mode {
                         SaveMode::PendingPasskey { id } => id.clone(),
                         _ => session::generate_session_id(),
@@ -73,6 +74,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         if let Err(e) = db.ensure_builtin_prompts() {
                             app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
                         }
+                        libllm::preset::ensure_default_presets();
                         let id = match &app.save_mode {
                             SaveMode::PendingPasskey { id } => id.clone(),
                             _ => session::generate_session_id(),

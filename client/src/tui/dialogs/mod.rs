@@ -145,7 +145,7 @@ pub(in crate::tui) fn render_multiline_editor(
     crate::tui::render::render_hints_below_dialog(f, dialog, area, &[ratatui::text::Line::from("Esc: done editing")]);
 }
 
-const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
+pub(in crate::tui) const FIELD_DIALOG_PADDING_ROWS: u16 = 3;
 const FIELD_DIALOG_EDITOR_EXTRA: u16 = 8;
 const API_ERROR_DIALOG_WIDTH: u16 = 60;
 const API_ERROR_DIALOG_HEIGHT: u16 = 6;

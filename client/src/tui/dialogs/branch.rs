@@ -2,47 +2,40 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::Paragraph;
+use ratatui::text::Line;
+use ratatui::widgets::ListItem;
 
-use super::{clear_centered, dialog_block, render_hints_below_dialog};
+use super::{clear_centered, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.branch_dialog_items.len();
-    let dialog = clear_centered(
+    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS);
+    let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
+    let dialog = clear_centered(f, width, height, area);
+
+    let items: Vec<ListItem<'_>> = app
+        .branch_dialog_items
+        .iter()
+        .map(|(_node_id, label)| ListItem::new(label.clone()))
+        .collect();
+
+    super::render_paged_list(
         f,
-        (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16,
-        count as u16 + super::FIELD_DIALOG_PADDING_ROWS,
-        area,
+        dialog,
+        app.branch_dialog_selected,
+        items,
+        " Select Branch ",
+        &app.theme,
     );
-
-    let mut lines: Vec<Line> = vec![Line::from("")];
-
-    for (i, (_node_id, label)) in app.branch_dialog_items.iter().enumerate() {
-        let is_selected = i == app.branch_dialog_selected;
-        let marker = if is_selected { "> " } else { "  " };
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::from(Span::styled(format!("{marker}{label}"), style)));
-    }
-
-    let paragraph =
-        Paragraph::new(Text::from(lines)).block(dialog_block(" Select Branch ", Color::Yellow));
-
-    f.render_widget(paragraph, dialog);
 
     render_hints_below_dialog(
         f,
         dialog,
         area,
-        &[Line::from("Up/Down: navigate  Enter: select  Esc: cancel")],
+        &[Line::from(
+            "Up/Down: navigate  PgUp/PgDn: page  Home/End: jump  Enter: select  Esc: cancel",
+        )],
     );
 }
 
@@ -54,16 +47,18 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
         return None;
     }
 
+    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS);
+    if super::handle_paged_list_key(
+        &mut app.branch_dialog_selected,
+        app.branch_dialog_items.len(),
+        visible,
+        key,
+    ) == super::PagedListAction::Consumed
+    {
+        return None;
+    }
+
     match key.code {
-        KeyCode::Up => {
-            super::move_selection_up(&mut app.branch_dialog_selected);
-        }
-        KeyCode::Down => {
-            super::move_selection_down(
-                &mut app.branch_dialog_selected,
-                app.branch_dialog_items.len(),
-            );
-        }
         KeyCode::Enter => {
             let (node_id, _) = app.branch_dialog_items[app.branch_dialog_selected];
             app.session.tree.switch_to(node_id);

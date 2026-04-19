@@ -277,6 +277,13 @@ pub(super) struct App<'a> {
     pub(super) last_terminal_height: u16,
 }
 
+impl<'a> App<'a> {
+    pub(super) fn open_paged_dialog(&mut self, focus: Focus) {
+        self.dialog_search = dialogs::SearchState::new();
+        self.focus = focus;
+    }
+}
+
 pub(super) const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 pub(super) const NOTIFICATION_SLIDE_DURATION: std::time::Duration =
     std::time::Duration::from_millis(300);

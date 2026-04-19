@@ -400,6 +400,86 @@ impl MessageTree {
         new_id
     }
 
+    /// Remove `node_id` from the tree, re-parenting its children to its parent
+    /// (or promoting them to roots if parent is `None`). If `head == Some(node_id)`,
+    /// head moves to the removed node's parent (which may be `None`).
+    /// The arena is compacted so every surviving node remains reachable from a
+    /// root. Returns `true` if the node existed and was removed.
+    pub fn remove_node(&mut self, node_id: NodeId) -> bool {
+        if node_id >= self.nodes.len() {
+            return false;
+        }
+        let parent = self.nodes[node_id].parent;
+        let children = self.nodes[node_id].children.clone();
+
+        if let Some(parent_id) = parent {
+            self.nodes[parent_id].children.retain(|&c| c != node_id);
+            for &child in &children {
+                self.nodes[parent_id].children.push(child);
+            }
+        }
+        for &child in &children {
+            self.nodes[child].parent = parent;
+        }
+        self.nodes[node_id].parent = None;
+        self.nodes[node_id].children.clear();
+
+        if self.head == Some(node_id) {
+            self.head = parent;
+        }
+        self.preferred_child.remove(&node_id);
+        self.preferred_child.retain(|_, &mut v| v != node_id);
+
+        self.compact_arena(Some(node_id));
+        self.refresh_runtime_caches();
+        true
+    }
+
+    fn compact_arena(&mut self, detached: Option<NodeId>) {
+        let mut reachable: Vec<NodeId> = Vec::new();
+        let mut stack: Vec<NodeId> = (0..self.nodes.len())
+            .filter(|&id| {
+                self.nodes[id].parent.is_none() && Some(id) != detached
+            })
+            .collect();
+        while let Some(id) = stack.pop() {
+            reachable.push(id);
+            for &child in &self.nodes[id].children {
+                stack.push(child);
+            }
+        }
+
+        let mut remap: HashMap<NodeId, NodeId> = HashMap::with_capacity(reachable.len());
+        for (new_id, &old_id) in reachable.iter().enumerate() {
+            remap.insert(old_id, new_id);
+        }
+
+        let mut new_nodes: Vec<Node> = Vec::with_capacity(reachable.len());
+        for (new_id, &old_id) in reachable.iter().enumerate() {
+            let old = &self.nodes[old_id];
+            let new_parent = old.parent.and_then(|p| remap.get(&p).copied());
+            let new_children: Vec<NodeId> = old
+                .children
+                .iter()
+                .filter_map(|c| remap.get(c).copied())
+                .collect();
+            new_nodes.push(Node {
+                id: new_id,
+                parent: new_parent,
+                children: new_children,
+                message: old.message.clone(),
+            });
+        }
+        self.nodes = new_nodes;
+        self.head = self.head.and_then(|h| remap.get(&h).copied());
+        let old_preferred = std::mem::take(&mut self.preferred_child);
+        for (parent_id, child_id) in old_preferred {
+            if let (Some(&np), Some(&nc)) = (remap.get(&parent_id), remap.get(&child_id)) {
+                self.preferred_child.insert(np, nc);
+            }
+        }
+    }
+
     pub fn branch_path(&self) -> Vec<&Message> {
         self.messages_for_ids(self.current_branch_ids())
     }

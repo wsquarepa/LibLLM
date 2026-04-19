@@ -430,17 +430,16 @@ impl MessageTree {
         self.preferred_child.remove(&node_id);
         self.preferred_child.retain(|_, &mut v| v != node_id);
 
-        self.compact_arena(Some(node_id));
+        self.compact_arena(node_id);
+        self.update_preferred_children();
         self.refresh_runtime_caches();
         true
     }
 
-    fn compact_arena(&mut self, detached: Option<NodeId>) {
+    fn compact_arena(&mut self, detached: NodeId) {
         let mut reachable: Vec<NodeId> = Vec::new();
         let mut stack: Vec<NodeId> = (0..self.nodes.len())
-            .filter(|&id| {
-                self.nodes[id].parent.is_none() && Some(id) != detached
-            })
+            .filter(|&id| self.nodes[id].parent.is_none() && id != detached)
             .collect();
         while let Some(id) = stack.pop() {
             reachable.push(id);

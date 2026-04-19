@@ -9,15 +9,22 @@ use super::{clear_centered, render_hints_below_dialog};
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let count = app.persona_names.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let visible_indices = super::filter_indices(&app.persona_names, &app.dialog_search);
+    let unfiltered_total = app.persona_names.len();
+    let count = visible_indices.len();
+    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let items: Vec<ListItem<'_>> = app
-        .persona_names
+    let filtered_selected = visible_indices
         .iter()
-        .enumerate()
-        .map(|(i, name)| {
+        .position(|&i| i == app.persona_selected)
+        .unwrap_or(0);
+
+    let items: Vec<ListItem<'_>> = visible_indices
+        .iter()
+        .map(|&i| {
+            let name = &app.persona_names[i];
             let slug = app.persona_slugs.get(i).map(String::as_str).unwrap_or("");
             let active_marker = if app.session.persona.as_deref() == Some(slug) {
                 " *"
@@ -28,22 +35,33 @@ pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, a
         })
         .collect();
 
-    super::render_paged_list(f, dialog, app.persona_selected, items, " Personas ", &app.theme);
-
-    render_hints_below_dialog(
+    super::render_paged_list(
         f,
         dialog,
-        area,
-        &[
-            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Esc: cancel"),
-            Line::from("Drop .txt to import"),
-        ],
+        &app.theme,
+        super::PagedListContent {
+            selected: filtered_selected,
+            items,
+            title_base: " Personas ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
+
+    let hints = if app.dialog_search.active {
+        vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
+    } else {
+        vec![
+            Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
+            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
+            Line::from("Drop .txt to import"),
+        ]
+    };
+    render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.persona_slugs.is_empty() {
+    if app.persona_slugs.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_persona(app);
@@ -56,14 +74,15 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
-    if super::handle_paged_list_key(
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
+    let action = super::handle_paged_list_key(
         &mut app.persona_selected,
-        app.persona_slugs.len(),
+        &app.persona_names,
         visible,
         key,
-    ) == super::PagedListAction::Consumed
-    {
+        Some(&mut app.dialog_search),
+    );
+    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
         return None;
     }
 

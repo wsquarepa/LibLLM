@@ -216,6 +216,8 @@ pub async fn run(
         },
         unlock_debug: None,
         input_reject_flash: None,
+        dialog_search: dialogs::SearchState::new(),
+        sidebar_search: dialogs::SearchState::new(),
         last_terminal_height: 0,
     };
 

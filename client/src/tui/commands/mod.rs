@@ -202,7 +202,7 @@ fn cmd_system(app: &mut App) {
     } else {
         app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
         app.system_prompt_selected = 0;
-        app.focus = Focus::SystemPromptDialog;
+        app.open_paged_dialog(Focus::SystemPromptDialog);
     }
 }
 
@@ -266,7 +266,7 @@ fn cmd_branch(app: &mut App) {
 
     let current_idx = siblings.iter().position(|&s| s == target_id).unwrap_or(0);
     app.branch_dialog_selected = current_idx;
-    app.focus = Focus::BranchDialog;
+    app.open_paged_dialog(Focus::BranchDialog);
 }
 
 fn cmd_persona(app: &mut App) {
@@ -288,14 +288,14 @@ fn cmd_persona(app: &mut App) {
     app.persona_names = personas.iter().map(|(_, name)| name.clone()).collect();
     app.persona_slugs = personas.into_iter().map(|(slug, _)| slug).collect();
     app.persona_selected = 0;
-    app.focus = Focus::PersonaDialog;
+    app.open_paged_dialog(Focus::PersonaDialog);
 }
 
 fn cmd_worldbook(app: &mut App) {
     let books = app.db.as_ref().and_then(|db| db.list_worldbooks().ok()).unwrap_or_default();
     app.worldbook_list = books.into_iter().map(|(_, name)| name).collect();
     app.worldbook_selected = 0;
-    app.focus = Focus::WorldbookDialog;
+    app.open_paged_dialog(Focus::WorldbookDialog);
 }
 
 fn cmd_character(app: &mut App) {
@@ -303,7 +303,7 @@ fn cmd_character(app: &mut App) {
     app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
     app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
     app.character_selected = 0;
-    app.focus = Focus::CharacterDialog;
+    app.open_paged_dialog(Focus::CharacterDialog);
 }
 
 fn cmd_passkey(app: &mut App) {

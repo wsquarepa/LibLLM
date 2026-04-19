@@ -6,6 +6,7 @@
 use std::ops::Range;
 
 use crossterm::event::{KeyCode, KeyEvent};
+use regex::{Regex, RegexBuilder};
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::{Modifier, Style};
@@ -15,10 +16,108 @@ use ratatui::widgets::{List, ListItem, ListState, Padding, Scrollbar, ScrollbarO
 use crate::tui::render::dialog_block;
 use crate::tui::theme::Theme;
 
+pub(in crate::tui) struct SearchState {
+    pub query: String,
+    pub active: bool,
+    compiled: Option<Result<Regex, regex::Error>>,
+    pre_search_selected: Option<usize>,
+}
+
+impl SearchState {
+    pub fn new() -> Self {
+        Self {
+            query: String::new(),
+            active: false,
+            compiled: None,
+            pre_search_selected: None,
+        }
+    }
+
+    pub fn enter(&mut self, current_selected: usize) {
+        self.active = true;
+        if self.pre_search_selected.is_none() {
+            self.pre_search_selected = Some(current_selected);
+        }
+    }
+
+    pub fn commit(&mut self) {
+        self.active = false;
+    }
+
+    pub fn cancel(&mut self) -> Option<usize> {
+        self.active = false;
+        self.query.clear();
+        self.compiled = None;
+        self.pre_search_selected.take()
+    }
+
+    pub fn push_char(&mut self, c: char) {
+        self.query.push(c);
+        self.recompile();
+    }
+
+    pub fn pop_char(&mut self) {
+        self.query.pop();
+        self.recompile();
+    }
+
+    pub fn is_filtering(&self) -> bool {
+        !self.query.is_empty()
+    }
+
+    pub fn matches(&self, label: &str) -> bool {
+        match &self.compiled {
+            None => true,
+            Some(Ok(re)) => re.is_match(label),
+            Some(Err(_)) => false,
+        }
+    }
+
+    pub fn compile_error(&self) -> bool {
+        matches!(&self.compiled, Some(Err(_)))
+    }
+
+    fn recompile(&mut self) {
+        if self.query.is_empty() {
+            self.compiled = None;
+            return;
+        }
+        self.compiled = Some(
+            RegexBuilder::new(&self.query)
+                .case_insensitive(true)
+                .build(),
+        );
+    }
+
+    #[cfg(test)]
+    pub fn pre_search_selected(&self) -> Option<usize> {
+        self.pre_search_selected
+    }
+}
+
+impl Default for SearchState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub(in crate::tui) fn filter_indices(labels: &[String], state: &SearchState) -> Vec<usize> {
+    if !state.is_filtering() {
+        return (0..labels.len()).collect();
+    }
+    labels
+        .iter()
+        .enumerate()
+        .filter_map(|(i, label)| if state.matches(label) { Some(i) } else { None })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tui) enum PagedListAction {
     Consumed,
     Passthrough,
+    EnteredSearch,
+    ExitedSearch,
 }
 
 pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) -> Range<usize> {
@@ -38,7 +137,13 @@ pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) ->
     start..start + visible
 }
 
-pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chrome: u16) -> u16 {
+pub(in crate::tui) fn paged_list_height(
+    items: usize,
+    terminal_height: u16,
+    chrome: u16,
+    search_visible: bool,
+) -> u16 {
+    let chrome = if search_visible { chrome.saturating_add(1) } else { chrome };
     let cap = (terminal_height as f32 * 0.7) as u16;
     let content_sized = (items as u16).saturating_add(chrome);
     let desired = cap.min(content_sized);
@@ -51,7 +156,8 @@ pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chro
     }
 }
 
-pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16) -> usize {
+pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16, search_visible: bool) -> usize {
+    let chrome = if search_visible { chrome.saturating_add(1) } else { chrome };
     terminal_height
         .saturating_sub(chrome)
         .saturating_sub(3)
@@ -60,10 +166,75 @@ pub(in crate::tui) fn page_size(terminal_height: u16, chrome: u16) -> usize {
 
 pub(in crate::tui) fn handle_paged_list_key(
     selected: &mut usize,
-    total: usize,
+    labels: &[String],
     visible: usize,
     key: KeyEvent,
+    search: Option<&mut SearchState>,
 ) -> PagedListAction {
+    use crossterm::event::KeyModifiers;
+
+    if let Some(state) = search {
+        let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
+        if is_ctrl_f {
+            if state.active {
+                return PagedListAction::Consumed;
+            }
+            state.enter(*selected);
+            return PagedListAction::EnteredSearch;
+        }
+
+        if state.active {
+            match key.code {
+                KeyCode::Esc => {
+                    if let Some(restored) = state.cancel() {
+                        *selected = restored.min(labels.len().saturating_sub(1));
+                    }
+                    return PagedListAction::ExitedSearch;
+                }
+                KeyCode::Enter => {
+                    state.commit();
+                    return PagedListAction::ExitedSearch;
+                }
+                KeyCode::Backspace => {
+                    state.pop_char();
+                    return PagedListAction::Consumed;
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.push_char(c);
+                    return PagedListAction::Consumed;
+                }
+                KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Home
+                | KeyCode::End => {
+                    let filtered = filter_indices(labels, state);
+                    navigate_filtered(selected, &filtered, visible, key);
+                    return PagedListAction::Consumed;
+                }
+                _ => return PagedListAction::Consumed,
+            }
+        }
+
+        if state.is_filtering()
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+            )
+        {
+            let filtered = filter_indices(labels, state);
+            navigate_filtered(selected, &filtered, visible, key);
+            return PagedListAction::Consumed;
+        }
+    }
+
+    let total = labels.len();
     let last = total.saturating_sub(1);
     match key.code {
         KeyCode::Up => {
@@ -94,19 +265,58 @@ pub(in crate::tui) fn handle_paged_list_key(
     }
 }
 
+fn navigate_filtered(selected: &mut usize, filtered: &[usize], visible: usize, key: KeyEvent) {
+    if filtered.is_empty() {
+        return;
+    }
+    let current_pos = filtered.iter().position(|&i| i == *selected).unwrap_or(0);
+    let last = filtered.len() - 1;
+    let new_pos = match key.code {
+        KeyCode::Up => current_pos.saturating_sub(1),
+        KeyCode::Down => (current_pos + 1).min(last),
+        KeyCode::PageUp => current_pos.saturating_sub(visible.max(1)),
+        KeyCode::PageDown => (current_pos + visible.max(1)).min(last),
+        KeyCode::Home => 0,
+        KeyCode::End => last,
+        _ => current_pos,
+    };
+    *selected = filtered[new_pos];
+}
+
+pub(in crate::tui) struct PagedListContent<'a> {
+    pub selected: usize,
+    pub items: Vec<ListItem<'a>>,
+    pub title_base: &'a str,
+    pub search: Option<&'a SearchState>,
+    pub unfiltered_total: Option<usize>,
+}
+
 pub(in crate::tui) fn render_paged_list(
     f: &mut Frame,
     area: Rect,
-    selected: usize,
-    items: Vec<ListItem<'_>>,
-    title_base: &str,
     theme: &Theme,
+    content: PagedListContent<'_>,
 ) {
+    let PagedListContent { selected, items, title_base, search, unfiltered_total } = content;
     let total = items.len();
-    let visible = visible_rows(area);
+    let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
+    let (search_area, list_area) = if search_visible {
+        let inner_search = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: 1 };
+        let list_area = Rect {
+            x: area.x,
+            y: area.y + 1,
+            width: area.width,
+            height: area.height.saturating_sub(1),
+        };
+        (Some(inner_search), list_area)
+    } else {
+        (None, area)
+    };
+
+    let visible = visible_rows(list_area);
     let range = viewport(total, selected, visible);
 
-    let title = format_title(title_base, total, selected, visible);
+    let title = format_title(title_base, total, selected, visible, unfiltered_total);
     let block = dialog_block(Line::from(title), theme.border_focused).padding(Padding::horizontal(1));
 
     let clamped_selected = selected.min(total.saturating_sub(1));
@@ -128,7 +338,7 @@ pub(in crate::tui) fn render_paged_list(
     if total > 0 {
         list_state.select(Some(relative_selected));
     }
-    f.render_stateful_widget(list, area, &mut list_state);
+    f.render_stateful_widget(list, list_area, &mut list_state);
 
     if total > visible && visible > 0 {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -138,9 +348,13 @@ pub(in crate::tui) fn render_paged_list(
             ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
         f.render_stateful_widget(
             scrollbar,
-            area.inner(Margin { horizontal: 0, vertical: 1 }),
+            list_area.inner(Margin { horizontal: 0, vertical: 1 }),
             &mut scrollbar_state,
         );
+    }
+
+    if let (Some(search_area), Some(state)) = (search_area, search) {
+        render_search_field(f, search_area, state, theme);
     }
 }
 
@@ -150,9 +364,24 @@ pub(in crate::tui) fn render_paged_list_inline(
     selected: usize,
     items: Vec<ListItem<'_>>,
     theme: &Theme,
+    search: Option<&SearchState>,
 ) {
     let total = items.len();
-    let visible = area.height as usize;
+    let search_visible = search.is_some_and(|s| s.active || s.is_filtering());
+    let (search_area, list_area) = if search_visible {
+        let s_area = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: 1 };
+        let l_area = Rect {
+            x: area.x,
+            y: area.y + 1,
+            width: area.width,
+            height: area.height.saturating_sub(1),
+        };
+        (Some(s_area), l_area)
+    } else {
+        (None, area)
+    };
+
+    let visible = list_area.height as usize;
     let range = viewport(total, selected, visible);
 
     let clamped_selected = selected.min(total.saturating_sub(1));
@@ -174,8 +403,8 @@ pub(in crate::tui) fn render_paged_list_inline(
     if total > 0 && selected != usize::MAX {
         list_state.select(Some(relative_selected));
     }
-    let list_area = area.inner(Margin { horizontal: 1, vertical: 0 });
-    f.render_stateful_widget(list, list_area, &mut list_state);
+    let inner_list_area = list_area.inner(Margin { horizontal: 1, vertical: 0 });
+    f.render_stateful_widget(list, inner_list_area, &mut list_state);
 
     if total > visible && visible > 0 {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -183,19 +412,64 @@ pub(in crate::tui) fn render_paged_list_inline(
             .end_symbol(None);
         let mut scrollbar_state =
             ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
-        f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+        f.render_stateful_widget(scrollbar, list_area, &mut scrollbar_state);
     }
+
+    if let (Some(search_area), Some(state)) = (search_area, search) {
+        render_search_field(f, search_area, state, theme);
+    }
+}
+
+pub(in crate::tui) fn render_search_field_for_sidebar(
+    f: &mut Frame,
+    area: Rect,
+    state: &SearchState,
+    theme: &Theme,
+) {
+    render_search_field(f, area, state, theme);
+}
+
+fn render_search_field(f: &mut Frame, area: Rect, state: &SearchState, theme: &Theme) {
+    use ratatui::text::Span;
+    use ratatui::widgets::Paragraph;
+
+    let fg = if state.compile_error() {
+        theme.status_error_fg
+    } else if state.active {
+        theme.sidebar_highlight_fg
+    } else {
+        theme.dimmed
+    };
+
+    let cursor = if state.active { "_" } else { "" };
+    let text = format!("/{}{}", state.query, cursor);
+    let para = Paragraph::new(Line::from(Span::styled(text, Style::default().fg(fg))));
+    f.render_widget(para, area);
 }
 
 fn visible_rows(area: Rect) -> usize {
     area.height.saturating_sub(2) as usize
 }
 
-fn format_title(base: &str, total: usize, selected: usize, visible: usize) -> String {
+fn format_title(
+    base: &str,
+    total: usize,
+    selected: usize,
+    visible: usize,
+    unfiltered_total: Option<usize>,
+) -> String {
+    let trimmed = base.trim_end();
+    let is_filtered = unfiltered_total.is_some_and(|u| u > total);
+
+    if is_filtered {
+        let unfiltered = unfiltered_total.unwrap();
+        let display_position = if total == 0 { 0 } else { selected.min(total - 1) + 1 };
+        return format!("{trimmed} [ {display_position} of {total} filtered / {unfiltered} ] ");
+    }
+
     if total <= visible {
         return base.to_owned();
     }
-    let trimmed = base.trim_end();
     let display_position = selected.min(total.saturating_sub(1)) + 1;
     format!("{trimmed} [ {display_position} of {total} ] ")
 }
@@ -263,35 +537,47 @@ mod tests {
     fn height_content_sized_for_short_list() {
         // 3 items + chrome 4 = 7 rows. 70% of 100-row terminal = 70.
         // content fits well under cap -> content-sized.
-        assert_eq!(paged_list_height(3, 100, 4), 7);
+        assert_eq!(paged_list_height(3, 100, 4, false), 7);
     }
 
     #[test]
     fn height_caps_at_seventy_percent() {
         // 200 items would need 204 rows with chrome 4.
         // 70% of 100 = 70.
-        assert_eq!(paged_list_height(200, 100, 4), 70);
+        assert_eq!(paged_list_height(200, 100, 4, false), 70);
     }
 
     #[test]
     fn height_respects_minimum_floor_when_possible() {
         // terminal_height = 10, chrome = 4 -> chrome + 3 = 7 floor.
         // 0 items would compute 4 (content-sized), but floor lifts it to 7.
-        assert_eq!(paged_list_height(0, 10, 4), 7);
+        assert_eq!(paged_list_height(0, 10, 4, false), 7);
     }
 
     #[test]
     fn height_skips_floor_when_terminal_too_small() {
         // terminal_height = 5, chrome = 4 -> floor would be 7 but terminal only has 5.
         // Fall back to whatever fits: terminal_height itself.
-        assert_eq!(paged_list_height(100, 5, 4), 5);
+        assert_eq!(paged_list_height(100, 5, 4, false), 5);
     }
 
     #[test]
     fn height_uses_branch_chrome() {
         // Branch picker uses chrome = 3.
         // 10 items + 3 = 13 rows, fits under 70% of 50 = 35.
-        assert_eq!(paged_list_height(10, 50, 3), 13);
+        assert_eq!(paged_list_height(10, 50, 3, false), 13);
+    }
+
+    #[test]
+    fn height_grows_by_one_when_search_visible() {
+        // Without search: 3 items + chrome 4 = 7. With search: chrome becomes 5, total 8.
+        assert_eq!(paged_list_height(3, 100, 4, true), 8);
+    }
+
+    #[test]
+    fn height_caps_still_apply_when_search_visible() {
+        // 200 items, chrome 4, search adds 1 -> chrome 5. 70% of 100 = 70 cap unchanged.
+        assert_eq!(paged_list_height(200, 100, 4, true), 70);
     }
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -300,116 +586,453 @@ mod tests {
 
     #[test]
     fn key_up_decrements_and_clamps_at_zero() {
+        let labels = vec!["x".to_owned(); 10];
         let mut sel = 3usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Up)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Up), None), PagedListAction::Consumed);
         assert_eq!(sel, 2);
 
         sel = 0;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Up)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Up), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
     }
 
     #[test]
     fn key_down_increments_and_clamps_at_last() {
+        let labels = vec!["x".to_owned(); 10];
         let mut sel = 3usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), None), PagedListAction::Consumed);
         assert_eq!(sel, 4);
 
         sel = 9;
-        assert_eq!(handle_paged_list_key(&mut sel, 10, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), None), PagedListAction::Consumed);
         assert_eq!(sel, 9);
     }
 
     #[test]
     fn key_page_down_jumps_by_visible_and_clamps() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 0usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageDown), None), PagedListAction::Consumed);
         assert_eq!(sel, 5);
 
         sel = 18;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageDown), None), PagedListAction::Consumed);
         assert_eq!(sel, 19);
     }
 
     #[test]
     fn key_page_up_jumps_by_visible_and_clamps_at_zero() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 15usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageUp)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageUp), None), PagedListAction::Consumed);
         assert_eq!(sel, 10);
 
         sel = 2;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::PageUp)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageUp), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
     }
 
     #[test]
     fn key_home_jumps_to_zero() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 7usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Home)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Home), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
     }
 
     #[test]
     fn key_end_jumps_to_last() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 2usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::End)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::End), None), PagedListAction::Consumed);
         assert_eq!(sel, 19);
 
+        let labels_empty: Vec<String> = Vec::new();
         let mut sel_empty = 0usize;
-        assert_eq!(handle_paged_list_key(&mut sel_empty, 0, 5, key(KeyCode::End)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel_empty, &labels_empty, 5, key(KeyCode::End), None), PagedListAction::Consumed);
         assert_eq!(sel_empty, 0);
     }
 
     #[test]
     fn unrelated_keys_pass_through_without_mutation() {
+        let labels = vec!["x".to_owned(); 20];
         let mut sel = 5usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Enter)), PagedListAction::Passthrough);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Enter), None), PagedListAction::Passthrough);
         assert_eq!(sel, 5);
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Esc)), PagedListAction::Passthrough);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Esc), None), PagedListAction::Passthrough);
         assert_eq!(sel, 5);
-        assert_eq!(handle_paged_list_key(&mut sel, 20, 5, key(KeyCode::Char('a'))), PagedListAction::Passthrough);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Char('a')), None), PagedListAction::Passthrough);
         assert_eq!(sel, 5);
     }
 
     #[test]
     fn motion_on_empty_list_is_idempotent() {
+        let labels: Vec<String> = Vec::new();
         let mut sel = 0usize;
-        assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::Down)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
-        assert_eq!(handle_paged_list_key(&mut sel, 0, 5, key(KeyCode::PageDown)), PagedListAction::Consumed);
+        assert_eq!(handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::PageDown), None), PagedListAction::Consumed);
         assert_eq!(sel, 0);
+    }
+
+    fn ctrl_key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), crossterm::event::KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn search_ctrl_f_activates_and_snapshots() {
+        let mut sel = 4usize;
+        let labels = vec!["a".to_owned(), "b".to_owned(), "c".to_owned(), "d".to_owned(), "e".to_owned()];
+        let mut state = SearchState::new();
+        let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), Some(&mut state));
+        assert_eq!(action, PagedListAction::EnteredSearch);
+        assert!(state.active);
+        assert_eq!(state.pre_search_selected(), Some(4));
+    }
+
+    #[test]
+    fn search_printable_char_appends_to_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Char('a')), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(state.query, "a");
+    }
+
+    #[test]
+    fn search_backspace_pops_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('x');
+        state.push_char('y');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Backspace), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(state.query, "x");
+    }
+
+    #[test]
+    fn search_navigation_keys_move_within_filtered_slice() {
+        // Labels: alpha, beta, gamma, alfalfa.
+        // Filter "al" -> matches indices [0, 3].
+        // selected starts at 0 (alpha). Down should advance to filtered[1] = original index 3.
+        let mut sel = 0usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('a');
+        state.push_char('l');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(sel, 3);
+    }
+
+    #[test]
+    fn search_navigation_clamps_at_filtered_end() {
+        // Same fixture as above. Selected on alfalfa (idx 3). Down should stay on idx 3.
+        let mut sel = 3usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(3);
+        state.push_char('a');
+        state.push_char('l');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(sel, 3);
+    }
+
+    #[test]
+    fn search_enter_commits_and_keeps_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('a');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Enter), Some(&mut state));
+        assert_eq!(action, PagedListAction::ExitedSearch);
+        assert!(!state.active);
+        assert_eq!(state.query, "a");
+    }
+
+    #[test]
+    fn search_esc_cancels_and_restores_selection() {
+        // sel starts at 0 to simulate the user having navigated within the filtered view.
+        // The snapshot captured by enter(2) is what Esc must restore.
+        let mut sel = 0usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(2);
+        state.push_char('a');
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Esc), Some(&mut state));
+        assert_eq!(action, PagedListAction::ExitedSearch);
+        assert!(!state.active);
+        assert!(state.query.is_empty());
+        assert_eq!(sel, 2);
+    }
+
+    #[test]
+    fn search_passthrough_when_state_inactive_and_no_ctrlf() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        let action = handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Char('a')), Some(&mut state));
+        assert_eq!(action, PagedListAction::Passthrough);
+    }
+
+    #[test]
+    fn search_ctrl_f_when_active_stays_active() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert!(state.active);
+    }
+
+    #[test]
+    fn search_none_argument_keeps_existing_behavior() {
+        // When dialogs pass None, Ctrl+F is passthrough (caller may bind it elsewhere).
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
+        let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), None);
+        assert_eq!(action, PagedListAction::Passthrough);
     }
 
     #[test]
     fn title_omits_counter_when_list_fits() {
-        assert_eq!(format_title(" Personas ", 5, 0, 10), " Personas ");
-        assert_eq!(format_title(" Personas ", 10, 0, 10), " Personas ");
+        assert_eq!(format_title(" Personas ", 5, 0, 10, None), " Personas ");
+        assert_eq!(format_title(" Personas ", 10, 0, 10, None), " Personas ");
     }
 
     #[test]
     fn title_injects_counter_when_list_overflows() {
-        assert_eq!(format_title(" Personas ", 42, 2, 10), " Personas [ 3 of 42 ] ");
-        assert_eq!(format_title(" Personas ", 42, 41, 10), " Personas [ 42 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 2, 10, None), " Personas [ 3 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 41, 10, None), " Personas [ 42 of 42 ] ");
     }
 
     #[test]
     fn title_counter_clamps_when_selected_out_of_bounds() {
-        assert_eq!(format_title(" Personas ", 42, 99, 10), " Personas [ 42 of 42 ] ");
+        assert_eq!(format_title(" Personas ", 42, 99, 10, None), " Personas [ 42 of 42 ] ");
+    }
+
+    #[test]
+    fn title_shows_filtered_counter_when_subset_matches() {
+        assert_eq!(
+            format_title(" Personas ", 12, 0, 10, Some(87)),
+            " Personas [ 1 of 12 filtered / 87 ] "
+        );
+    }
+
+    #[test]
+    fn title_shows_filtered_counter_when_zero_matches() {
+        assert_eq!(
+            format_title(" Personas ", 0, 0, 10, Some(87)),
+            " Personas [ 0 of 0 filtered / 87 ] "
+        );
+    }
+
+    #[test]
+    fn title_omits_filtered_when_all_match() {
+        assert_eq!(
+            format_title(" Personas ", 87, 0, 10, Some(87)),
+            " Personas [ 1 of 87 ] "
+        );
     }
 
     #[test]
     fn page_size_normal_terminal() {
-        assert_eq!(page_size(100, 4), 93);
+        assert_eq!(page_size(100, 4, false), 93);
     }
 
     #[test]
     fn page_size_floors_at_one_for_tiny_terminal() {
-        assert_eq!(page_size(5, 4), 1);
-        assert_eq!(page_size(0, 4), 1);
+        assert_eq!(page_size(5, 4, false), 1);
+        assert_eq!(page_size(0, 4, false), 1);
     }
 
     #[test]
     fn page_size_branch_chrome() {
-        assert_eq!(page_size(50, 3), 44);
+        assert_eq!(page_size(50, 3, false), 44);
+    }
+
+    #[test]
+    fn page_size_subtracts_search_row_when_visible() {
+        // page_size(100, 4, false) = 93. With search, chrome becomes 5, so 100 - 5 - 3 = 92.
+        assert_eq!(page_size(100, 4, true), 92);
+    }
+
+    #[test]
+    fn search_state_new_is_inactive_and_empty() {
+        let s = SearchState::new();
+        assert!(!s.active);
+        assert!(s.query.is_empty());
+        assert!(!s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_enter_activates_and_snapshots_selection() {
+        let mut s = SearchState::new();
+        s.enter(7);
+        assert!(s.active);
+        assert_eq!(s.pre_search_selected(), Some(7));
+    }
+
+    #[test]
+    fn search_state_commit_deactivates_and_keeps_query() {
+        let mut s = SearchState::new();
+        s.enter(0);
+        s.push_char('a');
+        s.commit();
+        assert!(!s.active);
+        assert_eq!(s.query, "a");
+        assert!(s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_cancel_clears_query_and_returns_snapshot() {
+        let mut s = SearchState::new();
+        s.enter(3);
+        s.push_char('a');
+        s.push_char('b');
+        let restored = s.cancel();
+        assert_eq!(restored, Some(3));
+        assert!(!s.active);
+        assert!(s.query.is_empty());
+        assert!(!s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_cancel_without_enter_returns_none() {
+        let mut s = SearchState::new();
+        assert_eq!(s.cancel(), None);
+    }
+
+    #[test]
+    fn search_state_push_pop_char_edits_query() {
+        let mut s = SearchState::new();
+        s.push_char('a');
+        s.push_char('b');
+        s.push_char('c');
+        assert_eq!(s.query, "abc");
+        s.pop_char();
+        assert_eq!(s.query, "ab");
+        s.pop_char();
+        s.pop_char();
+        s.pop_char();
+        assert_eq!(s.query, "");
+    }
+
+    #[test]
+    fn search_state_is_filtering_independent_of_active() {
+        let mut s = SearchState::new();
+        s.push_char('x');
+        assert!(s.is_filtering());
+        assert!(!s.active);
+        s.enter(0);
+        assert!(s.is_filtering());
+        assert!(s.active);
+    }
+
+    #[test]
+    fn search_state_matches_is_case_insensitive() {
+        let mut s = SearchState::new();
+        s.push_char('a');
+        s.push_char('l');
+        s.push_char('i');
+        assert!(s.matches("Alice"));
+        assert!(s.matches("alibi"));
+        assert!(s.matches("SALIM"));
+        assert!(!s.matches("Bob"));
+    }
+
+    #[test]
+    fn search_state_matches_returns_false_when_regex_invalid() {
+        let mut s = SearchState::new();
+        s.push_char('(');
+        assert!(s.compile_error());
+        assert!(!s.matches("anything"));
+        assert!(!s.matches(""));
+    }
+
+    #[test]
+    fn search_state_matches_anything_with_empty_query() {
+        let s = SearchState::new();
+        assert!(s.matches("Alice"));
+        assert!(s.matches(""));
+        assert!(!s.compile_error());
+    }
+
+    #[test]
+    fn search_state_recompiles_on_pop_back_to_valid() {
+        let mut s = SearchState::new();
+        s.push_char('(');
+        assert!(s.compile_error());
+        s.pop_char();
+        assert!(!s.compile_error());
+        assert!(s.matches("anything"));
+    }
+
+    #[test]
+    fn search_state_cancel_drops_compile_error() {
+        let mut s = SearchState::new();
+        s.push_char('[');
+        assert!(s.compile_error());
+        s.cancel();
+        assert!(!s.compile_error());
+    }
+
+    #[test]
+    fn filter_indices_inactive_returns_all() {
+        let labels = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned()];
+        let s = SearchState::new();
+        assert_eq!(filter_indices(&labels, &s), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn filter_indices_filters_matches_in_order() {
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut s = SearchState::new();
+        s.push_char('a');
+        s.push_char('l');
+        // "al" matches "alpha" (idx 0) and "alfalfa" (idx 3).
+        assert_eq!(filter_indices(&labels, &s), vec![0, 3]);
+    }
+
+    #[test]
+    fn filter_indices_invalid_regex_returns_empty() {
+        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
+        let mut s = SearchState::new();
+        s.push_char('(');
+        assert_eq!(filter_indices(&labels, &s), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn filter_indices_empty_label_list() {
+        let labels: Vec<String> = Vec::new();
+        let s = SearchState::new();
+        assert_eq!(filter_indices(&labels, &s), Vec::<usize>::new());
     }
 }

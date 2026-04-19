@@ -11,39 +11,50 @@ use crate::tui::business::refresh_sidebar;
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let count = app.character_names.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
+    let unfiltered_total = app.character_names.len();
+    let count = visible_indices.len();
+    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let items: Vec<ListItem<'_>> = app
-        .character_names
+    let filtered_selected = visible_indices
         .iter()
-        .map(|name| ListItem::new(name.clone()))
+        .position(|&i| i == app.character_selected)
+        .unwrap_or(0);
+
+    let items: Vec<ListItem<'_>> = visible_indices
+        .iter()
+        .map(|&i| ListItem::new(app.character_names[i].clone()))
         .collect();
 
     super::render_paged_list(
         f,
         dialog,
-        app.character_selected,
-        items,
-        " Select Character ",
         &app.theme,
+        super::PagedListContent {
+            selected: filtered_selected,
+            items,
+            title_base: " Select Character ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
 
-    render_hints_below_dialog(
-        f,
-        dialog,
-        area,
-        &[
+    let hints = if app.dialog_search.active {
+        vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
+    } else {
+        vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Esc: cancel"),
+            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
             Line::from("Drop .png/.json to import"),
-        ],
-    );
+        ]
+    };
+    render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.character_names.is_empty() {
+    if app.character_names.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_character(app);
@@ -56,14 +67,15 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
-    if super::handle_paged_list_key(
+    let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING, app.dialog_search.active || app.dialog_search.is_filtering());
+    let action = super::handle_paged_list_key(
         &mut app.character_selected,
-        app.character_names.len(),
+        &app.character_names,
         visible,
         key,
-    ) == super::PagedListAction::Consumed
-    {
+        Some(&mut app.dialog_search),
+    );
+    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
         return None;
     }
 

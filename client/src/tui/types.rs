@@ -271,7 +271,16 @@ pub(super) struct App<'a> {
     pub(super) autosave_debug: AutosaveDebugState,
     pub(super) unlock_debug: Option<UnlockDebugState>,
     pub(super) input_reject_flash: Option<std::time::Instant>,
+    pub(super) dialog_search: dialogs::SearchState,
+    pub(super) sidebar_search: dialogs::SearchState,
     pub(super) last_terminal_height: u16,
+}
+
+impl<'a> App<'a> {
+    pub(super) fn open_paged_dialog(&mut self, focus: Focus) {
+        self.dialog_search = dialogs::SearchState::new();
+        self.focus = focus;
+    }
 }
 
 pub(super) const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);

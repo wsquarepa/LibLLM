@@ -420,6 +420,7 @@ dependencies = [
  "futures-util",
  "libllm",
  "ratatui",
+ "regex",
  "reqwest",
  "rpassword",
  "rusqlite",

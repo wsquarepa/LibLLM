@@ -9,53 +9,76 @@ use super::{clear_centered, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let count = app.branch_dialog_items.len();
-    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS);
+    let labels: Vec<String> = app
+        .branch_dialog_items
+        .iter()
+        .map(|(_, label)| label.clone())
+        .collect();
+    let visible_indices = super::filter_indices(&labels, &app.dialog_search);
+    let unfiltered_total = labels.len();
+    let count = visible_indices.len();
+    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
+    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS, search_visible);
     let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
 
-    let items: Vec<ListItem<'_>> = app
-        .branch_dialog_items
+    let filtered_selected = visible_indices
         .iter()
-        .map(|(_node_id, label)| ListItem::new(label.clone()))
+        .position(|&i| i == app.branch_dialog_selected)
+        .unwrap_or(0);
+
+    let items: Vec<ListItem<'_>> = visible_indices
+        .iter()
+        .map(|&i| ListItem::new(app.branch_dialog_items[i].1.clone()))
         .collect();
 
     super::render_paged_list(
         f,
         dialog,
-        app.branch_dialog_selected,
-        items,
-        " Select Branch ",
         &app.theme,
+        super::PagedListContent {
+            selected: filtered_selected,
+            items,
+            title_base: " Select Branch ",
+            search: Some(&app.dialog_search),
+            unfiltered_total: Some(unfiltered_total),
+        },
     );
 
-    render_hints_below_dialog(
-        f,
-        dialog,
-        area,
-        &[
+    let hints = if app.dialog_search.active {
+        vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
+    } else {
+        vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Esc: cancel"),
-        ],
-    );
+            Line::from("Enter: select  Ctrl+F: search  Esc: cancel"),
+        ]
+    };
+    render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.branch_dialog_items.is_empty() {
+    let labels: Vec<String> = app
+        .branch_dialog_items
+        .iter()
+        .map(|(_, label)| label.clone())
+        .collect();
+
+    if labels.is_empty() && !app.dialog_search.active {
         if key.code == KeyCode::Esc {
             app.focus = Focus::Input;
         }
         return None;
     }
 
-    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS);
-    if super::handle_paged_list_key(
+    let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS, app.dialog_search.active || app.dialog_search.is_filtering());
+    let action = super::handle_paged_list_key(
         &mut app.branch_dialog_selected,
-        app.branch_dialog_items.len(),
+        &labels,
         visible,
         key,
-    ) == super::PagedListAction::Consumed
-    {
+        Some(&mut app.dialog_search),
+    );
+    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
         return None;
     }
 

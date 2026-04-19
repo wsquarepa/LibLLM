@@ -24,7 +24,7 @@ pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, ar
         PresetKind::Reasoning => " Select Reasoning Preset ",
     };
 
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, false);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let items: Vec<ListItem<'_>> = names.iter().map(|name| ListItem::new(name.clone())).collect();

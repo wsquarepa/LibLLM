@@ -10,7 +10,7 @@ use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.system_prompt_list.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, false);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let items: Vec<ListItem<'_>> = app

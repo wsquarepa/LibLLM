@@ -135,7 +135,13 @@ pub(in crate::tui) fn viewport(total: usize, selected: usize, visible: usize) ->
     start..start + visible
 }
 
-pub(in crate::tui) fn paged_list_height(items: usize, terminal_height: u16, chrome: u16) -> u16 {
+pub(in crate::tui) fn paged_list_height(
+    items: usize,
+    terminal_height: u16,
+    chrome: u16,
+    search_visible: bool,
+) -> u16 {
+    let chrome = if search_visible { chrome.saturating_add(1) } else { chrome };
     let cap = (terminal_height as f32 * 0.7) as u16;
     let content_sized = (items as u16).saturating_add(chrome);
     let desired = cap.min(content_sized);
@@ -374,35 +380,47 @@ mod tests {
     fn height_content_sized_for_short_list() {
         // 3 items + chrome 4 = 7 rows. 70% of 100-row terminal = 70.
         // content fits well under cap -> content-sized.
-        assert_eq!(paged_list_height(3, 100, 4), 7);
+        assert_eq!(paged_list_height(3, 100, 4, false), 7);
     }
 
     #[test]
     fn height_caps_at_seventy_percent() {
         // 200 items would need 204 rows with chrome 4.
         // 70% of 100 = 70.
-        assert_eq!(paged_list_height(200, 100, 4), 70);
+        assert_eq!(paged_list_height(200, 100, 4, false), 70);
     }
 
     #[test]
     fn height_respects_minimum_floor_when_possible() {
         // terminal_height = 10, chrome = 4 -> chrome + 3 = 7 floor.
         // 0 items would compute 4 (content-sized), but floor lifts it to 7.
-        assert_eq!(paged_list_height(0, 10, 4), 7);
+        assert_eq!(paged_list_height(0, 10, 4, false), 7);
     }
 
     #[test]
     fn height_skips_floor_when_terminal_too_small() {
         // terminal_height = 5, chrome = 4 -> floor would be 7 but terminal only has 5.
         // Fall back to whatever fits: terminal_height itself.
-        assert_eq!(paged_list_height(100, 5, 4), 5);
+        assert_eq!(paged_list_height(100, 5, 4, false), 5);
     }
 
     #[test]
     fn height_uses_branch_chrome() {
         // Branch picker uses chrome = 3.
         // 10 items + 3 = 13 rows, fits under 70% of 50 = 35.
-        assert_eq!(paged_list_height(10, 50, 3), 13);
+        assert_eq!(paged_list_height(10, 50, 3, false), 13);
+    }
+
+    #[test]
+    fn height_grows_by_one_when_search_visible() {
+        // Without search: 3 items + chrome 4 = 7. With search: chrome becomes 5, total 8.
+        assert_eq!(paged_list_height(3, 100, 4, true), 8);
+    }
+
+    #[test]
+    fn height_caps_still_apply_when_search_visible() {
+        // 200 items, chrome 4, search adds 1 -> chrome 5. 70% of 100 = 70 cap unchanged.
+        assert_eq!(paged_list_height(200, 100, 4, true), 70);
     }
 
     fn key(code: KeyCode) -> KeyEvent {

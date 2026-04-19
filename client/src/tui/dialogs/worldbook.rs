@@ -27,7 +27,7 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 
 pub(in crate::tui) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_list.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, false);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let items: Vec<ListItem<'_>> = app
@@ -160,7 +160,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
 
 pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.worldbook_editor_entries.len();
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2);
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2, false);
     let dialog = clear_centered(f, super::FIELD_DIALOG_DEFAULT_WIDTH, height, area);
 
     let title = format!(" Worldbook ({count} entries) ");

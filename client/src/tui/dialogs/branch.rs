@@ -10,7 +10,7 @@ use crate::tui::{Action, App, Focus};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let count = app.branch_dialog_items.len();
-    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS);
+    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS, false);
     let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
 

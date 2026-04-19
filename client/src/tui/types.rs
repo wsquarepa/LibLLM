@@ -271,7 +271,6 @@ pub(super) struct App<'a> {
     pub(super) autosave_debug: AutosaveDebugState,
     pub(super) unlock_debug: Option<UnlockDebugState>,
     pub(super) input_reject_flash: Option<std::time::Instant>,
-    #[expect(dead_code, reason = "wired in subsequent tasks that read search state")]
     pub(super) dialog_search: dialogs::SearchState,
     #[expect(dead_code, reason = "wired in subsequent tasks that read search state")]
     pub(super) sidebar_search: dialogs::SearchState,

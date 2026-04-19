@@ -32,6 +32,7 @@ pub(in crate::tui) use builders::{
 };
 pub(in crate::tui) use paged_list::{
     PagedListAction, handle_paged_list_key, page_size, paged_list_height, render_paged_list,
+    render_paged_list_inline,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;
@@ -70,15 +71,6 @@ pub(in crate::tui) fn generate_unique_name(
     }
 }
 
-pub(in crate::tui) fn move_selection_up(selected: &mut usize) {
-    *selected = selected.saturating_sub(1);
-}
-
-pub(in crate::tui) fn move_selection_down(selected: &mut usize, list_len: usize) {
-    if list_len > 0 {
-        *selected = (*selected + 1).min(list_len - 1);
-    }
-}
 
 pub(in crate::tui) fn sanitize_import_name(raw: &str) -> Option<String> {
     let cleaned: String = raw

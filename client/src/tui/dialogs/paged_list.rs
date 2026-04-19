@@ -143,6 +143,48 @@ pub(in crate::tui) fn render_paged_list(
     }
 }
 
+pub(in crate::tui) fn render_paged_list_inline(
+    f: &mut Frame,
+    area: Rect,
+    selected: usize,
+    items: Vec<ListItem<'_>>,
+    theme: &Theme,
+) {
+    let total = items.len();
+    let visible = area.height as usize;
+    let range = viewport(total, selected, visible);
+
+    let clamped_selected = selected.min(total.saturating_sub(1));
+    let relative_selected = clamped_selected.saturating_sub(range.start);
+    let visible_items: Vec<ListItem<'_>> = items
+        .into_iter()
+        .skip(range.start)
+        .take(range.end - range.start)
+        .collect();
+
+    let list = List::new(visible_items).highlight_style(
+        Style::default()
+            .fg(theme.sidebar_highlight_fg)
+            .bg(theme.sidebar_highlight_bg)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    let mut list_state = ListState::default();
+    if total > 0 && selected != usize::MAX {
+        list_state.select(Some(relative_selected));
+    }
+    f.render_stateful_widget(list, area, &mut list_state);
+
+    if total > visible && visible > 0 {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        let mut scrollbar_state =
+            ScrollbarState::new(total.saturating_sub(visible)).position(range.start);
+        f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
+}
+
 fn visible_rows(area: Rect) -> usize {
     area.height.saturating_sub(2) as usize
 }

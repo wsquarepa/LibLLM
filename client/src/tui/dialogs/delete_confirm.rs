@@ -277,9 +277,7 @@ fn delete_chat_message(app: &mut App, node_id: libllm::session::NodeId) {
 
     app.nav_cursor = None;
     app.hover_node = None;
-    if app.raw_edit_node == Some(node_id) {
-        app.raw_edit_node = None;
-    }
+    app.raw_edit_node = None;
     app.invalidate_chat_cache();
     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 

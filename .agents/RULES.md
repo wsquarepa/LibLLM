@@ -17,11 +17,13 @@ cargo test --workspace
 
 CI runs `cargo test --workspace` on all pushes and PRs. Run tests locally before submitting changes.
 
-### Builds take time -- run them in the background
+### Builds take time
 
-`cargo build --workspace` and `cargo test --workspace` typically take 1 to 5+ minutes on a cold build. Do **not** run them synchronously in the foreground -- start them with `run_in_background: true` (or equivalent), then wait patiently for the completion notification before proceeding. Never poll, re-run, or kick off a second build while one is in flight; duplicate builds burn CPU and block the first one on lock contention.
+`cargo build --workspace` and `cargo test --workspace` typically take 1 to 5+ minutes on a cold build. A clean run produces no `error:` or `warning:` lines.
 
-After the background task completes, read the output file to check for errors and warnings. A clean run produces no `error:` or `warning:` lines.
+**Controller agents (the main conversation):** back builds with `run_in_background: true` and wait for the completion notification. The notification is reliable; do not poll, re-run, or kick off a second build while one is in flight. Duplicate builds burn CPU and block the first one on lock contention.
+
+**Dispatched subagents:** do **not** background builds. Subagents do not reliably receive the completion notification, so the result is silently lost. Run builds synchronously in the foreground with an explicit long timeout (e.g. `timeout: 600000` — 10 minutes — which is Bash's maximum). Block on the command and read the output inline. If a build ends up backgrounded by accident, stop and report it as BLOCKED — do not try to work around by polling, sleeping, or launching a second build.
 
 ### Test suites
 

@@ -17,36 +17,42 @@ pub enum PresetKind {
 
 pub(in crate::tui) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let names = &app.preset_picker_names;
-    let count = names.len();
+    let visible_indices = super::filter_indices(names, &app.dialog_search);
+    let unfiltered_total = names.len();
+    let count = visible_indices.len();
     let title = match app.preset_picker_kind {
         PresetKind::Template => " Select Template Preset ",
         PresetKind::Instruct => " Select Instruct Preset ",
         PresetKind::Reasoning => " Select Reasoning Preset ",
     };
 
-    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, false);
+    let search_visible = app.dialog_search.active || app.dialog_search.is_filtering();
+    let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING, search_visible);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
-    let items: Vec<ListItem<'_>> = names.iter().map(|name| ListItem::new(name.clone())).collect();
+    let items: Vec<ListItem<'_>> = visible_indices
+        .iter()
+        .map(|&i| ListItem::new(names[i].clone()))
+        .collect();
 
-    super::render_paged_list(f, dialog, app.preset_picker_selected, items, title, &app.theme, None, None);
+    super::render_paged_list(f, dialog, app.preset_picker_selected, items, title, &app.theme, Some(&app.dialog_search), Some(unfiltered_total));
 
-    render_hints_below_dialog(
-        f,
-        dialog,
-        area,
-        &[
+    let hints = if app.dialog_search.active {
+        vec![Line::from("Enter: apply  Esc: cancel  type to filter")]
+    } else {
+        vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Enter: select  Right: edit  a: add  Del: delete  Esc: cancel"),
-        ],
-    );
+            Line::from("Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel"),
+        ]
+    };
+    render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_preset_dialog_key(
     key: KeyEvent,
     app: &mut App,
 ) -> Option<super::super::Action> {
-    if app.preset_picker_names.is_empty() {
+    if app.preset_picker_names.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_preset(app);
@@ -60,14 +66,14 @@ pub(in crate::tui) fn handle_preset_dialog_key(
     }
 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
-    if super::handle_paged_list_key(
+    let action = super::handle_paged_list_key(
         &mut app.preset_picker_selected,
         &app.preset_picker_names,
         visible,
         key,
-        None,
-    ) == super::PagedListAction::Consumed
-    {
+        Some(&mut app.dialog_search),
+    );
+    if matches!(action, super::PagedListAction::Consumed | super::PagedListAction::EnteredSearch | super::PagedListAction::ExitedSearch) {
         return None;
     }
 

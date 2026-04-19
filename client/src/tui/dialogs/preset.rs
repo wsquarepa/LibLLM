@@ -165,7 +165,7 @@ pub(in crate::tui) fn open_preset_picker(app: &mut App, kind: PresetKind) {
     app.preset_picker_kind = kind;
     app.preset_picker_names = names;
     app.preset_picker_selected = selected;
-    app.focus = Focus::PresetPickerDialog;
+    app.open_paged_dialog(Focus::PresetPickerDialog);
 }
 
 fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {

@@ -36,7 +36,7 @@ pub fn split_user_input(raw: &str) -> Vec<String> {
         if trimmed.trim().is_empty() {
             return Vec::new();
         }
-        let unescaped = strip_escape_on_first_line(trimmed);
+        let unescaped = unescape_bracket_prefixes(trimmed);
         return vec![unescaped];
     }
 
@@ -47,7 +47,7 @@ pub fn split_user_input(raw: &str) -> Vec<String> {
         let user_text = lines[..first_header].join("\n");
         let trimmed = user_text.trim_end();
         if !trimmed.trim().is_empty() {
-            segments.push(strip_escape_on_first_line(trimmed));
+            segments.push(unescape_bracket_prefixes(trimmed));
         }
     }
 
@@ -80,7 +80,7 @@ fn is_header_line(trimmed: &str) -> bool {
     close_idx > 1
 }
 
-fn strip_escape_on_first_line(text: &str) -> String {
+fn unescape_bracket_prefixes(text: &str) -> String {
     let mut lines = text.split('\n');
     let Some(first) = lines.next() else {
         return String::new();

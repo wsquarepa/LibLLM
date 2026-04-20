@@ -17,7 +17,7 @@ use ratatui::text::Span;
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
-pub(in crate::tui) const FILE_PICKER_DIALOG_WIDTH: u16 = 70;
+pub(in crate::tui) const FILE_PICKER_DIALOG_WIDTH: u16 = 80;
 pub(in crate::tui) const FILE_PICKER_DIALOG_HEIGHT: u16 = 20;
 
 #[derive(Debug, Clone)]
@@ -303,11 +303,15 @@ fn accept_current(app: &mut App) {
     }
     let line = &mut lines[anchor_line];
     // The token starts at `@` (anchor_col) and extends to `anchor_col + 1 + filter_len`.
-    // Replace it with `@<full_path>`.
+    // Replace it with `@<full_path>`, wrapping in quotes if the path has whitespace.
     let token_end = (anchor_col + 1 + filter_len).min(line.len());
     let head = line[..anchor_col].to_owned();
     let tail = line[token_end..].to_owned();
-    let replacement = format!("@{full_path}");
+    let replacement = if full_path.chars().any(char::is_whitespace) {
+        format!("@\"{full_path}\"")
+    } else {
+        format!("@{full_path}")
+    };
     let new_line = format!("{head}{replacement}{tail}");
     let new_cursor_col = anchor_col + replacement.len();
     *line = new_line;

@@ -28,11 +28,11 @@ pub fn rewrite_user_message(body: &str) -> String {
         while ref_idx < refs.len() && refs[ref_idx].line == line_idx {
             let r = &refs[ref_idx];
             out.push_str(&line[cursor_col..r.start]);
-            let path = Path::new(&r.raw[1..]);
-            let basename = path
+            let raw_path = r.path();
+            let basename = Path::new(raw_path)
                 .file_name()
                 .and_then(|s| s.to_str())
-                .unwrap_or(&r.raw[1..]);
+                .unwrap_or(raw_path);
             out.push_str(&format!("[{basename}]"));
             cursor_col = r.end;
             ref_idx += 1;
@@ -103,5 +103,21 @@ mod tests {
     fn tilde_prefix_rewrites_to_basename() {
         let out = rewrite_user_message("read @~/notes/list.md");
         assert_eq!(out, "read [list.md]");
+    }
+
+    #[test]
+    fn quoted_path_rewrites_to_basename_without_quotes() {
+        assert_eq!(
+            rewrite_user_message(r#"summarise @"Lecture 29 notes.pdf" now"#),
+            "summarise [Lecture 29 notes.pdf] now",
+        );
+    }
+
+    #[test]
+    fn quoted_absolute_path_rewrites_to_basename() {
+        assert_eq!(
+            rewrite_user_message(r#"read @"/home/alice/My Docs/plan.md""#),
+            "read [plan.md]",
+        );
     }
 }

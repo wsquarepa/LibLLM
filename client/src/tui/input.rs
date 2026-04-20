@@ -185,12 +185,40 @@ fn recall_last_message(app: &mut App) {
         None => return,
     };
 
-    app.session.tree.set_head(parent);
+    let anchor = retreat_past_snapshot_chain(&app.session.tree, parent);
+    app.session.tree.set_head(anchor);
 
     let lines: Vec<String> = content.lines().map(String::from).collect();
     app.textarea = TextArea::from(lines);
     super::dialog_handler::configure_textarea_at_end(&mut app.textarea);
     app.auto_scroll = true;
+}
+
+/// Walk `start` backwards through the tree, skipping any contiguous
+/// `Role::System` nodes that are file snapshots. Returns the first
+/// ancestor that is not a file snapshot (or `None` when the chain
+/// reaches the root). Used by Up-arrow recall so the user's re-edit
+/// produces a clean branch without duplicated snapshot system nodes.
+fn retreat_past_snapshot_chain(
+    tree: &libllm::session::MessageTree,
+    start: Option<libllm::session::NodeId>,
+) -> Option<libllm::session::NodeId> {
+    let mut current = start;
+    while let Some(id) = current {
+        let node = tree.node(id)?;
+        if node.message.role == Role::User
+            || node.message.role == Role::Assistant
+            || node.message.role == Role::Summary
+        {
+            return Some(id);
+        }
+        if node.message.role == Role::System && libllm::files::is_snapshot(&node.message.content) {
+            current = node.parent;
+            continue;
+        }
+        return Some(id);
+    }
+    None
 }
 
 fn switch_nav_sibling(app: &mut App, offset: isize) {
@@ -609,5 +637,64 @@ mod picker_open_tests {
     fn should_not_open_for_other_chars() {
         let ta = ta_after_inserting("@");
         assert!(!should_open_file_picker(&ta, 'x'));
+    }
+}
+
+#[cfg(test)]
+mod recall_walk_tests {
+    use super::retreat_past_snapshot_chain;
+    use libllm::session::{Message, MessageTree, Role};
+
+    fn snapshot(name: &str, body: &str) -> Message {
+        Message::new(
+            Role::System,
+            libllm::files::build_snapshot_body(name, body),
+        )
+    }
+
+    #[test]
+    fn no_snapshots_returns_start() {
+        let mut tree = MessageTree::new();
+        let u = tree.push(None, Message::new(Role::User, "hi".into()));
+        let a = tree.push(Some(u), Message::new(Role::Assistant, "hi back".into()));
+        assert_eq!(retreat_past_snapshot_chain(&tree, Some(a)), Some(a));
+    }
+
+    #[test]
+    fn retreats_past_single_snapshot() {
+        let mut tree = MessageTree::new();
+        let s = tree.push(None, snapshot("a.md", "hello"));
+        let u = tree.push(Some(s), Message::new(Role::User, "read @a.md".into()));
+        let _ = u;
+        assert_eq!(retreat_past_snapshot_chain(&tree, Some(s)), None);
+    }
+
+    #[test]
+    fn retreats_past_multiple_snapshots_until_user_ancestor() {
+        let mut tree = MessageTree::new();
+        let root_user = tree.push(None, Message::new(Role::User, "root".into()));
+        let s1 = tree.push(Some(root_user), snapshot("a.md", "A"));
+        let s2 = tree.push(Some(s1), snapshot("b.md", "B"));
+        let _u = tree.push(Some(s2), Message::new(Role::User, "do @a.md and @b.md".into()));
+        assert_eq!(
+            retreat_past_snapshot_chain(&tree, Some(s2)),
+            Some(root_user)
+        );
+    }
+
+    #[test]
+    fn stops_at_freeform_system_message() {
+        let mut tree = MessageTree::new();
+        let sys = tree.push(
+            None,
+            Message::new(Role::System, "freeform system line".into()),
+        );
+        assert_eq!(retreat_past_snapshot_chain(&tree, Some(sys)), Some(sys));
+    }
+
+    #[test]
+    fn none_input_returns_none() {
+        let tree = MessageTree::new();
+        assert_eq!(retreat_past_snapshot_chain(&tree, None), None);
     }
 }

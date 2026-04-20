@@ -462,4 +462,35 @@ mod tests {
         let result = expand_macro("first={{1}} rest={{2..}}", "a b c d").unwrap();
         assert_eq!(result, "first=a rest=b c d");
     }
+
+    #[test]
+    fn at_token_in_template_survives_expansion() {
+        // A template that hardcodes a file reference keeps the @-token intact
+        // so the send-time pipeline (start_streaming) sees it as any other
+        // typed token and resolves it the same way.
+        let result = expand_macro("Refactor @./src/foo.rs to be: {{}}", "idiomatic").unwrap();
+        let refs = libllm::files::file_reference_ranges(&result);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].path(), "./src/foo.rs");
+    }
+
+    #[test]
+    fn at_token_in_arg_survives_expansion() {
+        // A bare @-path passed as a macro argument keeps its shape.
+        let result = expand_macro("Refactor {{1}}", "@./src/foo.rs").unwrap();
+        let refs = libllm::files::file_reference_ranges(&result);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].path(), "./src/foo.rs");
+    }
+
+    #[test]
+    fn quoted_at_token_in_template_survives() {
+        // Quoted @-paths pass through macro expansion intact so the tokeniser
+        // still captures the full spaced path after substitution.
+        let template = r#"Summarise @"Lecture 29 notes.pdf": {{}}"#;
+        let result = expand_macro(template, "two paragraphs").unwrap();
+        let refs = libllm::files::file_reference_ranges(&result);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].path(), "Lecture 29 notes.pdf");
+    }
 }

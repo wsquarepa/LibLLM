@@ -104,7 +104,7 @@ fn resolve_one(
     cwd: &Path,
     config: &FilesConfig,
 ) -> Result<ResolvedFile, FileError> {
-    let raw_path = &raw_token[1..];
+    let raw_path = strip_at_and_quotes(raw_token);
     let path_buf = expand_path(raw_path, cwd);
     let canonical = std::fs::canonicalize(&path_buf).map_err(|source| {
         if source.kind() == std::io::ErrorKind::NotFound {
@@ -167,6 +167,17 @@ fn finalise(
         .into_iter()
         .map(|f| Message::new(Role::System, build_snapshot_body(&f.basename, &f.body)))
         .collect())
+}
+
+/// Strip the leading `@` and any surrounding double quotes from a raw
+/// token. `@notes.md` → `notes.md`; `@"a b.md"` → `a b.md`.
+fn strip_at_and_quotes(raw_token: &str) -> &str {
+    let after_at = raw_token.strip_prefix('@').unwrap_or(raw_token);
+    if after_at.len() >= 2 && after_at.starts_with('"') && after_at.ends_with('"') {
+        &after_at[1..after_at.len() - 1]
+    } else {
+        after_at
+    }
 }
 
 fn expand_path(raw: &str, cwd: &Path) -> PathBuf {
@@ -372,5 +383,22 @@ mod tests {
         assert_eq!(rf.basename, "stdin");
         assert_eq!(rf.body, "");
         assert_eq!(rf.byte_size, 0);
+    }
+
+    #[test]
+    fn quoted_path_with_spaces_resolves() {
+        let tmp = TempDir::new().unwrap();
+        let name = "Lecture 29 notes.md";
+        std::fs::write(tmp.path().join(name), "lecture body").unwrap();
+        let cfg = FilesConfig::default();
+        let msgs = resolve_all(
+            r#"summarise @"Lecture 29 notes.md""#,
+            tmp.path(),
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].content.contains("<<<FILE Lecture 29 notes.md>>>"));
+        assert!(msgs[0].content.contains("lecture body"));
     }
 }

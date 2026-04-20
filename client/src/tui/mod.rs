@@ -16,7 +16,7 @@ mod types;
 
 use types::*;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use crossterm::event::{Event, EventStream, MouseEventKind};
 
 use futures_util::StreamExt;
@@ -111,49 +111,18 @@ pub async fn run(
     );
     let file_summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>> =
         match summarizer_params.db_path.as_ref() {
-            Some(path) => {
-                let conn = {
-                    let _span = tracing::info_span!(
-                        "tui.file_summarizer.open_conn",
-                        path = %path.display()
-                    )
-                    .entered();
-                    rusqlite::Connection::open(path)
-                        .context("open summarizer DB connection")?
-                };
-                if let Some(ref key) = summarizer_params.derived_key {
-                    conn.execute_batch(&key.key_pragma())
-                        .context("apply summarizer DB key")?;
-                }
-                conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
-                    .context("configure summarizer DB pragmas")?;
-                let conn_arc = std::sync::Arc::new(std::sync::Mutex::new(conn));
-                let summarize_api_url = config
-                    .summarization
-                    .api_url
-                    .clone()
-                    .unwrap_or_else(|| client.base_url().to_owned());
-                let summarize_auth =
-                    libllm::config::resolve_auth(&config, &cli_overrides.auth_overrides());
-                let summarize_client = libllm::client::ApiClient::new(
-                    &summarize_api_url,
-                    config.tls_skip_verify || cli_overrides.tls_skip_verify,
-                    summarize_auth,
-                );
-                tracing::info!(
-                    api_url = %summarize_api_url,
-                    "tui.file_summarizer.construct.done"
-                );
-                Some(std::sync::Arc::new(libllm::files::FileSummarizer::new(
-                    conn_arc,
-                    summarize_client,
-                    config.files.summary_prompt.clone(),
-                    file_summary_ready_tx,
-                )))
-            }
+            Some(path) => Some(business::build_file_summarizer(
+                path,
+                summarizer_params.derived_key.as_ref(),
+                &config,
+                &cli_overrides,
+                file_summary_ready_tx.clone(),
+            )?),
             None => {
-                tracing::info!(reason = "no_db_path", "tui.file_summarizer.construct.skipped");
-                drop(file_summary_ready_tx);
+                tracing::info!(
+                    reason = "no_db_path",
+                    "tui.file_summarizer.construct.deferred"
+                );
                 None
             }
         };
@@ -304,6 +273,7 @@ pub async fn run(
         last_terminal_height: 0,
         input_file_cache: input_file_cache::InputFileCache::new(),
         file_summarizer,
+        file_summary_ready_tx,
         file_summary_ready_rx,
     };
 

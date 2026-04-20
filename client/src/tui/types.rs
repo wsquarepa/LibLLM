@@ -292,6 +292,8 @@ pub(super) struct App<'a> {
     pub(super) input_file_cache: crate::tui::input_file_cache::InputFileCache,
     pub(super) file_summarizer:
         Option<std::sync::Arc<libllm::files::FileSummarizer>>,
+    pub(super) file_summary_ready_tx:
+        tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
     pub(super) file_summary_ready_rx:
         tokio::sync::mpsc::UnboundedReceiver<libllm::files::ReadyEvent>,
 }

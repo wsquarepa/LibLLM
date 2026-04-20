@@ -265,3 +265,32 @@ async fn no_rows_when_schedule_is_never_called() {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[test]
+fn build_file_summarizer_opens_encrypted_db() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("data.db");
+    let salt = [0u8; 16];
+    let key = Arc::new(libllm::crypto::derive_key("test-passkey", &salt).unwrap());
+
+    let _ = libllm::db::Database::open(&db_path, Some(&key)).unwrap();
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let config = libllm::config::Config::default();
+    let cli_overrides = client::cli::CliOverrides::default();
+
+    let summarizer = client::tui::business::build_file_summarizer(
+        &db_path,
+        Some(&key),
+        &config,
+        &cli_overrides,
+        tx,
+    )
+    .expect("helper must open the encrypted DB");
+
+    assert!(
+        summarizer
+            .lookup("nonexistent-session", "nonexistent-hash")
+            .is_none()
+    );
+}

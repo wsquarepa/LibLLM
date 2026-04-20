@@ -643,6 +643,47 @@ fn build_summarize_client(
     ApiClient::new(&url, config.tls_skip_verify || cli_overrides.tls_skip_verify, auth)
 }
 
+pub fn build_file_summarizer(
+    db_path: &std::path::Path,
+    key: Option<&std::sync::Arc<libllm::crypto::DerivedKey>>,
+    config: &libllm::config::Config,
+    cli_overrides: &crate::cli::CliOverrides,
+    ready_tx: tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
+) -> anyhow::Result<std::sync::Arc<libllm::files::FileSummarizer>> {
+    use anyhow::Context as _;
+    let conn = {
+        let _span = tracing::info_span!(
+            "tui.file_summarizer.open_conn",
+            path = %db_path.display()
+        )
+        .entered();
+        rusqlite::Connection::open(db_path).context("open summarizer DB connection")?
+    };
+    if let Some(key) = key {
+        conn.execute_batch(&key.key_pragma())
+            .context("apply summarizer DB key")?;
+    }
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+        .context("configure summarizer DB pragmas")?;
+    let conn_arc = std::sync::Arc::new(std::sync::Mutex::new(conn));
+    let summarize_client = build_summarize_client(config, cli_overrides);
+    let api_url = config
+        .summarization
+        .api_url
+        .clone()
+        .unwrap_or_else(|| config.api_url().to_owned());
+    tracing::info!(
+        api_url = %api_url,
+        "tui.file_summarizer.construct.done"
+    );
+    Ok(std::sync::Arc::new(libllm::files::FileSummarizer::new(
+        conn_arc,
+        summarize_client,
+        config.files.summary_prompt.clone(),
+        ready_tx,
+    )))
+}
+
 pub(super) fn apply_config(app: &mut App) {
     let previous_connection =
         EffectiveConnectionConfig::from_config(&app.config, &app.cli_overrides);

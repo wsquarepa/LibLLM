@@ -1,11 +1,21 @@
 //! Streaming completion request lifecycle: start, token handling, and worldbook loading.
 
+use std::collections::HashMap;
+
 use anyhow::Result;
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
 use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
+
+struct SnapshotFileSummaryLookup(HashMap<String, libllm::files::FileSummary>);
+
+impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
+    fn lookup(&self, content_hash: &str) -> Option<libllm::files::FileSummary> {
+        self.0.get(content_hash).cloned()
+    }
+}
 
 use crate::tui::business;
 use crate::tui::types::{SaveTrigger, StatusLevel, WorldbookCache};
@@ -364,6 +374,60 @@ pub(in crate::tui) async fn handle_stream_token(
                             messages_to_summarize = messages_to_summarize.len(),
                             "stream.summary.schedule"
                         );
+                        let session_id_for_summarizer = match app.save_mode.id() {
+                            Some(id) => id.to_owned(),
+                            None => String::new(),
+                        };
+
+                        let files_to_wait_on: Vec<libllm::files::FileToSummarize> =
+                            messages_to_summarize
+                                .iter()
+                                .filter(|m| m.role == Role::System)
+                                .filter_map(|m| {
+                                    let basename = libllm::files::snapshot_basename(&m.content)?;
+                                    let inner =
+                                        libllm::files::snapshot_inner_text(&m.content).to_owned();
+                                    if inner.is_empty() {
+                                        return None;
+                                    }
+                                    let content_hash =
+                                        libllm::files::content_hash_hex(inner.as_bytes());
+                                    Some(libllm::files::FileToSummarize {
+                                        basename,
+                                        content_hash,
+                                        body: inner,
+                                    })
+                                })
+                                .collect();
+
+                        if !files_to_wait_on.is_empty()
+                            && !session_id_for_summarizer.is_empty()
+                            && let Some(summarizer_svc) = app.file_summarizer.as_ref()
+                            && let Err(err) = summarizer_svc
+                                .ensure_ready(&session_id_for_summarizer, &files_to_wait_on)
+                                .await
+                        {
+                            tracing::warn!(
+                                result = "error",
+                                error = %err,
+                                "files.summary.ensure_ready_before_auto_summarize"
+                            );
+                        }
+
+                        let summaries_snapshot: HashMap<String, libllm::files::FileSummary> =
+                            if let Some(summarizer_svc) = app.file_summarizer.as_ref() {
+                                files_to_wait_on
+                                    .iter()
+                                    .filter_map(|f| {
+                                        summarizer_svc
+                                            .lookup(&session_id_for_summarizer, &f.content_hash)
+                                            .map(|s| (f.content_hash.clone(), s))
+                                    })
+                                    .collect()
+                            } else {
+                                HashMap::new()
+                            };
+
                         let summarize_api_url = app
                             .config
                             .summarization
@@ -395,7 +459,7 @@ pub(in crate::tui) async fn handle_stream_token(
                         let summary_counter = app.token_counter.clone();
                         tokio::spawn(async move {
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
-                            let lookup = libllm::files::NullFileSummaryLookup;
+                            let lookup = SnapshotFileSummaryLookup(summaries_snapshot);
                             let result = summarizer
                                 .summarize(&refs, token_budget, &summary_counter, &lookup)
                                 .await;

@@ -53,6 +53,16 @@ const SUMMARIZATION_BOOLEAN: &[usize] = &[0];
 const SUMMARIZATION_MULTILINE: &[usize] = &[5];
 const SUMMARIZATION_PLACEHOLDER: &[usize] = &[1];
 
+const FILES_LABELS: &[&str] = &[
+    "Enabled",
+    "Per-file bytes",
+    "Per-message bytes",
+    "Summarize mode",
+    "Summary prompt",
+];
+const FILES_BOOLEAN: &[usize] = &[0];
+const FILES_MULTILINE: &[usize] = &[4];
+
 const TEMPLATE_EDITOR_FIELDS: &[&str] =
     &["Name", "Story String", "Example Separator", "Chat Start"];
 const TEMPLATE_EDITOR_MULTILINE: &[usize] = &[1];
@@ -111,14 +121,15 @@ pub fn open_config_editor(
     sections: Vec<Vec<String>>,
     locked: Vec<Vec<usize>>,
 ) -> TabbedFieldDialog<'static> {
-    let [general_vals, sampling_vals, backup_vals, summarization_vals]: [Vec<String>; 4] =
-        sections.try_into().expect("expected 4 section vectors");
+    let [general_vals, sampling_vals, backup_vals, summarization_vals, files_vals]: [Vec<String>; 5] =
+        sections.try_into().expect("expected 5 section vectors");
     let [
         general_locked,
         sampling_locked,
         backup_locked,
         summarization_locked,
-    ]: [Vec<usize>; 4] = locked.try_into().expect("expected 4 lock vectors");
+        files_locked,
+    ]: [Vec<usize>; 5] = locked.try_into().expect("expected 5 lock vectors");
 
     let general = TabSection::new("General", GENERAL_LABELS, general_vals)
         .with_boolean_fields(GENERAL_BOOLEAN)
@@ -177,9 +188,18 @@ pub fn open_config_editor(
             (4, FieldValidation::Int { min: 1, max: 100 }),
         ]);
 
+    let files = TabSection::new("Files", FILES_LABELS, files_vals)
+        .with_boolean_fields(FILES_BOOLEAN)
+        .with_multiline_fields(FILES_MULTILINE)
+        .with_locked_fields(files_locked)
+        .with_validated_fields(vec![
+            (1, FieldValidation::Int { min: 0, max: 134217728 }),
+            (2, FieldValidation::Int { min: 0, max: 134217728 }),
+        ]);
+
     TabbedFieldDialog::new(
         " Configuration ",
-        vec![general, sampling, backup, summarization],
+        vec![general, sampling, backup, summarization, files],
     )
 }
 

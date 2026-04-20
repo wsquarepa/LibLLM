@@ -137,7 +137,7 @@ fn resolve_one(
     })?;
     let classified = classify(&canonical, &bytes)?;
     let text = classified.text().to_owned();
-    let basename = canonical
+    let basename = path_buf
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(raw_path)
@@ -386,6 +386,22 @@ mod tests {
         assert_eq!(rf.basename, "stdin");
         assert_eq!(rf.body, "");
         assert_eq!(rf.byte_size, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_basename_preserves_user_path() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("actual.md"), "body").unwrap();
+        std::os::unix::fs::symlink(
+            tmp.path().join("actual.md"),
+            tmp.path().join("mylink.md"),
+        )
+        .unwrap();
+        let msgs = resolve_all("read @mylink.md", tmp.path(), &config()).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].content.contains("<<<FILE mylink.md>>>"));
+        assert!(!msgs[0].content.contains("<<<FILE actual.md>>>"));
     }
 
     #[test]

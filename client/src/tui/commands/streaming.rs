@@ -1,5 +1,7 @@
 //! Streaming completion request lifecycle: start, token handling, and worldbook loading.
 
+use std::collections::HashMap;
+
 use anyhow::Result;
 use tokio::sync::mpsc;
 
@@ -11,6 +13,14 @@ use crate::tui::business;
 use crate::tui::types::{SaveTrigger, StatusLevel, WorldbookCache};
 
 use super::App;
+
+struct SnapshotFileSummaryLookup(HashMap<String, libllm::files::FileSummary>);
+
+impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
+    fn lookup(&self, content_hash: &str) -> Option<libllm::files::FileSummary> {
+        self.0.get(content_hash).cloned()
+    }
+}
 
 pub(in crate::tui::commands) fn loaded_worldbooks(
     app: &mut App,
@@ -197,6 +207,17 @@ pub(in crate::tui) async fn start_streaming(
             return;
         }
     };
+    if app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager
+        && app.config.summarization.enabled
+        && let (Some(session_id), Some(summarizer)) =
+            (app.save_mode.id(), app.file_summarizer.as_ref())
+    {
+        let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+        for file in &to_summarize {
+            summarizer.schedule(session_id, file);
+        }
+    }
+
     let mut parent = app.session.tree.head();
     for sys_msg in sys_messages {
         let new_id = app.session.tree.push(parent, sys_msg);
@@ -353,6 +374,43 @@ pub(in crate::tui) async fn handle_stream_token(
                             messages_to_summarize = messages_to_summarize.len(),
                             "stream.summary.schedule"
                         );
+                        let session_id_for_summarizer = app.save_mode.id().map(str::to_owned);
+                        let files_to_wait_on =
+                            libllm::files::files_to_summarize_from_messages(&messages_to_summarize);
+
+                        if !files_to_wait_on.is_empty()
+                            && let (Some(session_id), Some(summarizer_svc)) = (
+                                session_id_for_summarizer.as_deref(),
+                                app.file_summarizer.as_ref(),
+                            )
+                            && let Err(err) = summarizer_svc
+                                .ensure_ready(session_id, &files_to_wait_on)
+                                .await
+                        {
+                            tracing::warn!(
+                                result = "error",
+                                error = %err,
+                                "files.summary.ensure_ready_before_auto_summarize"
+                            );
+                        }
+
+                        let summaries_snapshot: HashMap<String, libllm::files::FileSummary> =
+                            if let (Some(session_id), Some(summarizer_svc)) = (
+                                session_id_for_summarizer.as_deref(),
+                                app.file_summarizer.as_ref(),
+                            ) {
+                                files_to_wait_on
+                                    .iter()
+                                    .filter_map(|f| {
+                                        summarizer_svc
+                                            .lookup(session_id, &f.content_hash)
+                                            .map(|s| (f.content_hash.clone(), s))
+                                    })
+                                    .collect()
+                            } else {
+                                HashMap::new()
+                            };
+
                         let summarize_api_url = app
                             .config
                             .summarization
@@ -384,8 +442,9 @@ pub(in crate::tui) async fn handle_stream_token(
                         let summary_counter = app.token_counter.clone();
                         tokio::spawn(async move {
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
+                            let lookup = SnapshotFileSummaryLookup(summaries_snapshot);
                             let result = summarizer
-                                .summarize(&refs, token_budget, &summary_counter)
+                                .summarize(&refs, token_budget, &summary_counter, &lookup)
                                 .await;
                             let _ = tx.send(result.map_err(|e| e.to_string()));
                         });

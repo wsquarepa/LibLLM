@@ -201,6 +201,17 @@ fn handle_edit_message(
         }
     };
 
+    if app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager
+        && app.config.summarization.enabled
+        && let (Some(session_id), Some(summarizer)) =
+            (app.save_mode.id(), app.file_summarizer.as_ref())
+    {
+        let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+        for file in &to_summarize {
+            summarizer.schedule(session_id, file);
+        }
+    }
+
     let original_parent = match app.session.tree.node(node_id) {
         Some(n) => n.parent,
         None => {
@@ -774,6 +785,7 @@ mod paste_tests {
             enabled: false,
             per_file_bytes: 524_288,
             per_message_bytes: 4_194_304,
+            ..libllm::config::FilesConfig::default()
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }
@@ -787,6 +799,7 @@ mod paste_tests {
             enabled: true,
             per_file_bytes: 1000,
             per_message_bytes: 4_194_304,
+            ..libllm::config::FilesConfig::default()
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }

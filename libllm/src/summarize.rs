@@ -34,7 +34,11 @@ impl Summarizer {
     ///
     /// `Role::Summary` messages are rendered as `Previous summary:` blocks so a rolling
     /// summary can build on the prior one instead of starting from scratch each time.
-    pub fn format_prompt(instruction: &str, messages: &[&Message]) -> String {
+    pub fn format_prompt(
+        instruction: &str,
+        messages: &[&Message],
+        file_summaries: &dyn crate::files::FileSummaryLookup,
+    ) -> String {
         let mut prompt = String::from("--- CONVERSATION ---\n");
         for msg in messages {
             let label = match msg.role {
@@ -45,7 +49,7 @@ impl Summarizer {
             };
             prompt.push_str(label);
             prompt.push_str(": ");
-            prompt.push_str(&msg.content);
+            prompt.push_str(&render_message_content(msg, file_summaries));
             prompt.push('\n');
         }
         prompt.push_str("--- END CONVERSATION ---\n\n");
@@ -63,6 +67,7 @@ impl Summarizer {
         messages: &[&'a Message],
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
+        file_summaries: &dyn crate::files::FileSummaryLookup,
     ) -> Result<Vec<&'a Message>> {
         if messages.is_empty() {
             return Ok(Vec::new());
@@ -73,17 +78,15 @@ impl Summarizer {
 
         let render_at = |k: usize| -> String {
             let subset = crate::context::drop_oldest_non_summary(messages, k);
-            Self::format_prompt(instruction, &subset)
+            Self::format_prompt(instruction, &subset, file_summaries)
         };
 
-        // Fast path: no shedding needed.
         let full = render_at(0);
         let full_count = counter.count_authoritative(&full).await?;
         if full_count <= token_budget {
             return Ok(messages.to_vec());
         }
 
-        // Binary-search the smallest k in [1, max_drop] with rendered count ≤ budget.
         let (mut lo, mut hi) = (1usize, max_drop);
         let mut best = max_drop;
         while lo <= hi {
@@ -109,6 +112,7 @@ impl Summarizer {
         messages: &[&Message],
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
+        file_summaries: &dyn crate::files::FileSummaryLookup,
     ) -> Result<String> {
         let start = Instant::now();
         tracing::info!(
@@ -118,8 +122,14 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let trimmed =
-            Self::shed_to_fit(&self.prompt_instruction, messages, token_budget, counter).await?;
+        let trimmed = Self::shed_to_fit(
+            &self.prompt_instruction,
+            messages,
+            token_budget,
+            counter,
+            file_summaries,
+        )
+        .await?;
         let dropped = messages.len() - trimmed.len();
         tracing::info!(
             phase = "trim",
@@ -129,7 +139,7 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed);
+        let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed, file_summaries);
         tracing::info!(
             phase = "prompt",
             prompt_bytes = prompt.len(),
@@ -167,9 +177,36 @@ impl Summarizer {
     }
 }
 
+fn render_message_content(
+    msg: &Message,
+    lookup: &dyn crate::files::FileSummaryLookup,
+) -> String {
+    if msg.role != Role::System {
+        return msg.content.clone();
+    }
+    let Some(basename) = crate::files::snapshot_basename(&msg.content) else {
+        return msg.content.clone();
+    };
+    let inner = crate::files::snapshot_inner_text(&msg.content);
+    let hash = crate::files::content_hash_hex(inner.as_bytes());
+    match lookup.lookup(&hash) {
+        Some(summary)
+            if summary.status == crate::files::FileSummaryStatus::Done
+                && !summary.summary.is_empty() =>
+        {
+            format!(
+                "The user attached a file \"{basename}\". Summary of its contents:\n{}",
+                summary.summary
+            )
+        }
+        _ => format!("The user attached a file \"{basename}\"; summary unavailable."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::NullFileSummaryLookup;
 
     #[test]
     fn format_prompt_basic() {
@@ -179,7 +216,7 @@ mod tests {
             Message::new(Role::User, "How are you?".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarize this.", &refs);
+        let prompt = Summarizer::format_prompt("Summarize this.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("Summarize this."));
         assert!(prompt.contains("User: Hello"));
         assert!(prompt.contains("Assistant: Hi there!"));
@@ -191,7 +228,7 @@ mod tests {
     fn format_prompt_places_conversation_before_instruction() {
         let msgs = [Message::new(Role::User, "Hi".to_owned())];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("DO_SUMMARIZE", &refs);
+        let prompt = Summarizer::format_prompt("DO_SUMMARIZE", &refs, &NullFileSummaryLookup);
         let conversation_idx = prompt.find("User: Hi").expect("conversation body");
         let instruction_idx = prompt.find("DO_SUMMARIZE").expect("instruction");
         assert!(
@@ -207,7 +244,7 @@ mod tests {
             Message::new(Role::User, "New message".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarize.", &refs);
+        let prompt = Summarizer::format_prompt("Summarize.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("Previous summary: Old summary"));
         assert!(prompt.contains("User: New message"));
     }
@@ -219,7 +256,7 @@ mod tests {
             Message::new(Role::User, "Hi".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarize.", &refs);
+        let prompt = Summarizer::format_prompt("Summarize.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("System: You are helpful."));
     }
 
@@ -238,19 +275,99 @@ mod tests {
         let refs: Vec<&Message> = vec![&m1, &m2, &m3];
 
         let instruction = "Summarize.";
-        let trimmed = Summarizer::shed_to_fit(instruction, &refs, 150, &counter)
+        let trimmed = Summarizer::shed_to_fit(instruction, &refs, 150, &counter, &NullFileSummaryLookup)
             .await
             .expect("shed_to_fit");
 
-        // Under budget once re-rendered with the trimmed set.
-        let rendered = Summarizer::format_prompt(instruction, &trimmed);
+        let rendered = Summarizer::format_prompt(instruction, &trimmed, &NullFileSummaryLookup);
         let final_count = counter.count_authoritative(&rendered).await.unwrap();
         assert!(
             final_count <= 150,
             "expected rendered prompt ≤ 150 tokens, got {final_count}"
         );
 
-        // At least one message must always remain.
         assert!(!trimmed.is_empty());
+    }
+
+    use crate::files::{FileSummary, FileSummaryLookup, FileSummaryStatus, build_snapshot_body};
+    use std::collections::HashMap;
+
+    struct MapLookup(HashMap<String, FileSummary>);
+    impl FileSummaryLookup for MapLookup {
+        fn lookup(&self, content_hash: &str) -> Option<FileSummary> {
+            self.0.get(content_hash).cloned()
+        }
+    }
+
+    #[test]
+    fn format_prompt_substitutes_done_snapshot() {
+        let snapshot_body = build_snapshot_body("notes.md", "raw file content");
+        let msgs = [
+            Message::new(Role::User, "hi".to_owned()),
+            Message::new(Role::System, snapshot_body.clone()),
+            Message::new(Role::Assistant, "reply".to_owned()),
+        ];
+        let refs: Vec<&Message> = msgs.iter().collect();
+
+        let inner = crate::files::snapshot_inner_text(&snapshot_body);
+        let hash = crate::files::content_hash_hex(inner.as_bytes());
+        let mut map = HashMap::new();
+        map.insert(
+            hash,
+            FileSummary {
+                basename: "notes.md".to_owned(),
+                summary: "Cached summary of notes.md.".to_owned(),
+                status: FileSummaryStatus::Done,
+            },
+        );
+        let lookup = MapLookup(map);
+
+        let prompt = Summarizer::format_prompt("Summarise.", &refs, &lookup);
+        assert!(prompt.contains("Cached summary of notes.md."));
+        assert!(!prompt.contains("raw file content"));
+        assert!(prompt.contains("User: hi"));
+        assert!(prompt.contains("Assistant: reply"));
+    }
+
+    #[test]
+    fn format_prompt_placeholder_for_failed_or_missing() {
+        let snapshot_body = build_snapshot_body("notes.md", "raw file content");
+        let msgs = [Message::new(Role::System, snapshot_body)];
+        let refs: Vec<&Message> = msgs.iter().collect();
+
+        let prompt = Summarizer::format_prompt("Summarise.", &refs, &NullFileSummaryLookup);
+        assert!(prompt.contains("summary unavailable"));
+        assert!(!prompt.contains("raw file content"));
+    }
+
+    #[test]
+    fn format_prompt_leaves_non_snapshot_system_messages_alone() {
+        let msgs = [Message::new(Role::System, "You are helpful.".to_owned())];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let prompt = Summarizer::format_prompt("Summarise.", &refs, &NullFileSummaryLookup);
+        assert!(prompt.contains("System: You are helpful."));
+    }
+
+    #[test]
+    fn format_prompt_with_empty_done_summary_uses_placeholder() {
+        let snapshot_body = build_snapshot_body("notes.md", "raw file content");
+        let msgs = [Message::new(Role::System, snapshot_body.clone())];
+        let refs: Vec<&Message> = msgs.iter().collect();
+
+        let inner = crate::files::snapshot_inner_text(&snapshot_body);
+        let hash = crate::files::content_hash_hex(inner.as_bytes());
+        let mut map = HashMap::new();
+        map.insert(
+            hash,
+            FileSummary {
+                basename: "notes.md".to_owned(),
+                summary: "".to_owned(),
+                status: FileSummaryStatus::Done,
+            },
+        );
+        let lookup = MapLookup(map);
+
+        let prompt = Summarizer::format_prompt("Summarise.", &refs, &lookup);
+        assert!(prompt.contains("summary unavailable"));
     }
 }

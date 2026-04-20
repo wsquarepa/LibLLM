@@ -14,12 +14,14 @@ use crate::system_prompt::SystemPromptFile;
 use crate::worldinfo::WorldBook;
 
 mod characters;
+pub mod file_summaries;
 mod personas;
 mod prompts;
-mod schema;
+pub mod schema;
 mod sessions;
 mod worldbooks;
 
+pub use file_summaries::{FileSummaryRow, FileSummaryStatus};
 pub use prompts::PromptListEntry;
 pub use schema::CURRENT_VERSION;
 pub use sessions::SessionListEntry;
@@ -497,4 +499,5 @@ mod tests {
             "database file must be owner read/write only"
         );
     }
+
 }

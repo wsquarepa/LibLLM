@@ -295,7 +295,18 @@ pub fn load_tabbed_config_sections(
         cfg.summarization.prompt.clone(),
     ];
 
-    vec![general, sampling, backup, summarization]
+    let files = vec![
+        cfg.files.enabled.to_string(),
+        cfg.files.per_file_bytes.to_string(),
+        cfg.files.per_message_bytes.to_string(),
+        match cfg.files.summarize_mode {
+            libllm::config::FileSummarizeMode::Eager => "eager".to_owned(),
+            libllm::config::FileSummarizeMode::Lazy => "lazy".to_owned(),
+        },
+        cfg.files.summary_prompt.clone(),
+    ];
+
+    vec![general, sampling, backup, summarization, files]
 }
 
 pub fn config_locked_fields_by_section(overrides: &crate::cli::CliOverrides) -> Vec<Vec<usize>> {
@@ -342,7 +353,7 @@ pub fn config_locked_fields_by_section(overrides: &crate::cli::CliOverrides) -> 
     if overrides.sampling.max_tokens.is_some() {
         sampling.push(6);
     }
-    vec![general, sampling, Vec::new(), Vec::new()]
+    vec![general, sampling, Vec::new(), Vec::new(), Vec::new()]
 }
 
 pub fn apply_tabbed_config_fields(
@@ -355,6 +366,7 @@ pub fn apply_tabbed_config_fields(
     let sampling = &sections[1];
     let backup = &sections[2];
     let summarization = &sections[3];
+    let files_section = &sections[4];
 
     let api_url = if locked[0].contains(&0) {
         existing.api_url.clone()
@@ -461,7 +473,19 @@ pub fn apply_tabbed_config_fields(
         backup: backup_cfg,
         summarization: summarization_cfg,
         auth: existing.auth,
-        files: existing.files,
+        files: libllm::config::FilesConfig {
+            enabled: files_section[0] == "true",
+            per_file_bytes: parse_usize_clamped(&files_section[1], 0, usize::MAX),
+            per_message_bytes: parse_usize_clamped(&files_section[2], 0, usize::MAX),
+            summarize_mode: match files_section.get(3).map(String::as_str) {
+                Some("lazy") => libllm::config::FileSummarizeMode::Lazy,
+                _ => libllm::config::FileSummarizeMode::Eager,
+            },
+            summary_prompt: match files_section.get(4) {
+                Some(s) => s.clone(),
+                None => libllm::config::FilesConfig::default().summary_prompt,
+            },
+        },
     };
 
     libllm::config::save(&cfg)
@@ -606,10 +630,32 @@ pub(super) fn spawn_context_probe(client: ApiClient, bg_tx: mpsc::Sender<Backgro
     });
 }
 
+fn build_summarize_client(
+    config: &libllm::config::Config,
+    cli_overrides: &crate::cli::CliOverrides,
+) -> ApiClient {
+    let auth = libllm::config::resolve_auth(config, &cli_overrides.auth_overrides());
+    let url = config
+        .summarization
+        .api_url
+        .clone()
+        .unwrap_or_else(|| config.api_url().to_owned());
+    ApiClient::new(&url, config.tls_skip_verify || cli_overrides.tls_skip_verify, auth)
+}
+
 pub(super) fn apply_config(app: &mut App) {
     let previous_connection =
         EffectiveConnectionConfig::from_config(&app.config, &app.cli_overrides);
     let runtime = load_runtime_reload_state(&app.cli_overrides);
+
+    app.file_summarizer = app.file_summarizer.as_ref().map(|existing| {
+        std::sync::Arc::new(libllm::files::FileSummarizer::new(
+            existing.conn_clone_for_reload(),
+            build_summarize_client(&runtime.config, &app.cli_overrides),
+            runtime.config.files.summary_prompt.clone(),
+            existing.ready_tx_clone_for_reload(),
+        ))
+    });
 
     app.instruct_preset = runtime.instruct_preset;
     app.reasoning_preset = runtime.reasoning_preset;
@@ -980,5 +1026,44 @@ mod tests {
                 value: "override-value".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn config_editor_round_trips_files_summarize_fields() {
+        let dir = tempfile::TempDir::new().unwrap();
+        libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+
+        let mut cfg = libllm::config::Config::default();
+        cfg.files.summarize_mode = libllm::config::FileSummarizeMode::Lazy;
+        cfg.files.summary_prompt = "Custom file summary prompt.".to_owned();
+
+        let no_overrides = CliOverrides {
+            api_url: None,
+            template: None,
+            tls_skip_verify: false,
+            sampling: libllm::sampling::SamplingOverrides::default(),
+            system_prompt: None,
+            persona: None,
+            no_summarize: false,
+            auth_type: None,
+            auth_basic_username: None,
+            auth_basic_password: None,
+            auth_bearer_token: None,
+            auth_header_name: None,
+            auth_header_value: None,
+            auth_query_name: None,
+            auth_query_value: None,
+        };
+
+        let sections = load_tabbed_config_sections(&cfg, &no_overrides);
+        apply_tabbed_config_fields(&sections, cfg, &no_overrides).unwrap();
+
+        let rebuilt = libllm::config::load();
+
+        assert_eq!(
+            rebuilt.files.summarize_mode,
+            libllm::config::FileSummarizeMode::Lazy
+        );
+        assert_eq!(rebuilt.files.summary_prompt, "Custom file summary prompt.");
     }
 }

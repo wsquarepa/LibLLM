@@ -20,10 +20,33 @@ use super::App;
 
 use super::theme::Theme;
 
-fn format_file_snapshot_line(content: &str) -> String {
+fn format_file_snapshot_block(
+    content: &str,
+    summary: Option<&libllm::files::FileSummary>,
+    summarization_enabled: bool,
+) -> Vec<String> {
     let basename = libllm::files::snapshot_basename(content).unwrap_or_default();
     let inner_size = inner_snapshot_size(content);
-    format!("--- File: {basename} ({}) ---", format_bytes(inner_size))
+    let header = format!("--- File: {basename} ({}) ---", format_bytes(inner_size));
+
+    if !summarization_enabled {
+        return vec![header];
+    }
+
+    let body_line = match summary {
+        Some(s) if s.status == libllm::files::FileSummaryStatus::Done && !s.summary.is_empty() => {
+            format!("Summary: {}", s.summary)
+        }
+        Some(s) if s.status == libllm::files::FileSummaryStatus::Done => {
+            "Summary: (empty)".to_owned()
+        }
+        Some(s) if s.status == libllm::files::FileSummaryStatus::Failed => {
+            "Summary: (unavailable)".to_owned()
+        }
+        Some(_) | None => "Summary: (generating...)".to_owned(),
+    };
+
+    vec![header, format!("  {body_line}")]
 }
 
 /// Byte count of the text sitting between the `<<<FILE name>>>` /
@@ -410,13 +433,28 @@ pub fn render_chat(
                             .add_modifier(Modifier::DIM),
                     ))]
                 } else if msg.role == Role::System && libllm::files::is_snapshot(&msg.content) {
-                    let line_text = format_file_snapshot_line(&msg.content);
-                    vec![Line::from(Span::styled(
-                        format!("  {line_text}"),
-                        Style::default()
-                            .fg(app.theme.system_message)
-                            .add_modifier(Modifier::DIM),
-                    ))]
+                    let inner = libllm::files::snapshot_inner_text(&msg.content);
+                    let hash = libllm::files::content_hash_hex(inner.as_bytes());
+                    let summary = match (app.save_mode.id(), app.file_summarizer.as_ref()) {
+                        (Some(sid), Some(s)) => s.lookup(sid, &hash),
+                        _ => None,
+                    };
+                    let lines = format_file_snapshot_block(
+                        &msg.content,
+                        summary.as_ref(),
+                        app.summarization_enabled,
+                    );
+                    lines
+                        .into_iter()
+                        .map(|line| {
+                            Line::from(Span::styled(
+                                format!("  {line}"),
+                                Style::default()
+                                    .fg(app.theme.system_message)
+                                    .add_modifier(Modifier::DIM),
+                            ))
+                        })
+                        .collect()
                 } else {
                     let raw_content = match &side {
                         Some((_, body)) => body.as_str(),
@@ -926,20 +964,79 @@ mod tests {
     }
 
     #[test]
-    fn format_file_snapshot_line_shows_name_and_size_small() {
-        let body = libllm::files::build_snapshot_body("notes.md", "hello world");
-        assert!(libllm::files::is_snapshot(&body));
-        let line = format_file_snapshot_line(&body);
-        assert!(line.starts_with("--- File: notes.md ("));
-        assert!(line.ends_with(") ---"));
-        assert!(line.contains(" B"));
+    fn format_file_snapshot_block_shows_done_summary_on_second_line() {
+        let body = libllm::files::build_snapshot_body("notes.md", "hello");
+        let summary = libllm::files::FileSummary {
+            basename: "notes.md".to_owned(),
+            summary: "Cached summary.".to_owned(),
+            status: libllm::files::FileSummaryStatus::Done,
+        };
+        let lines = format_file_snapshot_block(&body, Some(&summary), true);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("--- File: notes.md ("));
+        assert!(lines[1].contains("Summary: Cached summary."));
     }
 
     #[test]
-    fn format_file_snapshot_line_uses_kb_for_midsize() {
+    fn format_file_snapshot_block_shows_generating_for_pending() {
+        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let summary = libllm::files::FileSummary {
+            basename: "x.md".to_owned(),
+            summary: "".to_owned(),
+            status: libllm::files::FileSummaryStatus::Pending,
+        };
+        let lines = format_file_snapshot_block(&body, Some(&summary), true);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].contains("Summary: (generating...)"));
+    }
+
+    #[test]
+    fn format_file_snapshot_block_shows_unavailable_for_failed() {
+        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let summary = libllm::files::FileSummary {
+            basename: "x.md".to_owned(),
+            summary: "".to_owned(),
+            status: libllm::files::FileSummaryStatus::Failed,
+        };
+        let lines = format_file_snapshot_block(&body, Some(&summary), true);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].contains("Summary: (unavailable)"));
+    }
+
+    #[test]
+    fn format_file_snapshot_block_shows_empty_for_done_empty() {
+        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let summary = libllm::files::FileSummary {
+            basename: "x.md".to_owned(),
+            summary: "".to_owned(),
+            status: libllm::files::FileSummaryStatus::Done,
+        };
+        let lines = format_file_snapshot_block(&body, Some(&summary), true);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].contains("Summary: (empty)"));
+    }
+
+    #[test]
+    fn format_file_snapshot_block_single_line_when_summarization_disabled() {
+        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let lines = format_file_snapshot_block(&body, None, false);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].starts_with("--- File: x.md ("));
+    }
+
+    #[test]
+    fn format_file_snapshot_block_generating_when_no_row() {
+        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let lines = format_file_snapshot_block(&body, None, true);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].contains("Summary: (generating...)"));
+    }
+
+    #[test]
+    fn format_file_snapshot_block_uses_kb_for_midsize() {
         let body = libllm::files::build_snapshot_body("big.md", &"x".repeat(20_000));
-        let line = format_file_snapshot_line(&body);
-        assert!(line.contains(" KB"));
+        let lines = format_file_snapshot_block(&body, None, false);
+        assert!(lines[0].contains(" KB"));
     }
 
     #[test]

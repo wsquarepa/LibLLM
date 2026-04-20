@@ -153,6 +153,7 @@ fn handle_key(
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::EditConfirmDialog => app.edit_editor.is_some(),
+            Focus::InjectionWarningDialog => app.injection_warning.is_some(),
             Focus::Input
             | Focus::Chat
             | Focus::Sidebar
@@ -260,6 +261,9 @@ fn handle_key(
     }
     if app.focus == Focus::ApiErrorDialog {
         return dialogs::api_error::handle_api_error_key(key, app);
+    }
+    if app.focus == Focus::InjectionWarningDialog {
+        return dialogs::injection_warning::handle_key(key, app);
     }
     if app.focus == Focus::LoadingDialog {
         return dialogs::api_error::handle_loading_key(key);

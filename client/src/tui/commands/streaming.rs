@@ -9,6 +9,11 @@ use libllm::client::StreamToken;
 use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
 
+use crate::tui::business;
+use crate::tui::types::{SaveTrigger, StatusLevel, WorldbookCache};
+
+use super::App;
+
 struct SnapshotFileSummaryLookup(HashMap<String, libllm::files::FileSummary>);
 
 impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
@@ -16,11 +21,6 @@ impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
         self.0.get(content_hash).cloned()
     }
 }
-
-use crate::tui::business;
-use crate::tui::types::{SaveTrigger, StatusLevel, WorldbookCache};
-
-use super::App;
 
 pub(in crate::tui::commands) fn loaded_worldbooks(
     app: &mut App,

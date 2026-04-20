@@ -7,6 +7,8 @@ use libllm::sampling::{SamplingOverrides, SamplingParams};
 use libllm::session::{Message, MessageTree, Role, Session};
 use libllm::system_prompt::SystemPromptFile;
 use libllm::worldinfo::{Entry, WorldBook};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Create a temporary directory for a single test.
 ///
@@ -226,9 +228,7 @@ pub fn assert_file_missing(path: &Path) {
 
 /// Start a mock LLM server that returns a successful `/completions` response
 /// containing `summary_text` in the `choices[0].text` field.
-pub async fn start_mock_summarize_server(summary_text: &str) -> wiremock::MockServer {
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+pub async fn start_mock_summarize_server(summary_text: &str) -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/completions"))
@@ -241,9 +241,7 @@ pub async fn start_mock_summarize_server(summary_text: &str) -> wiremock::MockSe
 }
 
 /// Start a mock LLM server that returns HTTP 500 for every `/completions` request.
-pub async fn start_mock_failing_server() -> wiremock::MockServer {
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+pub async fn start_mock_failing_server() -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/completions"))

@@ -374,19 +374,17 @@ pub(in crate::tui) async fn handle_stream_token(
                             messages_to_summarize = messages_to_summarize.len(),
                             "stream.summary.schedule"
                         );
-                        let session_id_for_summarizer = match app.save_mode.id() {
-                            Some(id) => id.to_owned(),
-                            None => String::new(),
-                        };
-
+                        let session_id_for_summarizer = app.save_mode.id().map(str::to_owned);
                         let files_to_wait_on =
                             libllm::files::files_to_summarize_from_messages(&messages_to_summarize);
 
                         if !files_to_wait_on.is_empty()
-                            && !session_id_for_summarizer.is_empty()
-                            && let Some(summarizer_svc) = app.file_summarizer.as_ref()
+                            && let (Some(session_id), Some(summarizer_svc)) = (
+                                session_id_for_summarizer.as_deref(),
+                                app.file_summarizer.as_ref(),
+                            )
                             && let Err(err) = summarizer_svc
-                                .ensure_ready(&session_id_for_summarizer, &files_to_wait_on)
+                                .ensure_ready(session_id, &files_to_wait_on)
                                 .await
                         {
                             tracing::warn!(
@@ -397,12 +395,15 @@ pub(in crate::tui) async fn handle_stream_token(
                         }
 
                         let summaries_snapshot: HashMap<String, libllm::files::FileSummary> =
-                            if let Some(summarizer_svc) = app.file_summarizer.as_ref() {
+                            if let (Some(session_id), Some(summarizer_svc)) = (
+                                session_id_for_summarizer.as_deref(),
+                                app.file_summarizer.as_ref(),
+                            ) {
                                 files_to_wait_on
                                     .iter()
                                     .filter_map(|f| {
                                         summarizer_svc
-                                            .lookup(&session_id_for_summarizer, &f.content_hash)
+                                            .lookup(session_id, &f.content_hash)
                                             .map(|s| (f.content_hash.clone(), s))
                                     })
                                     .collect()

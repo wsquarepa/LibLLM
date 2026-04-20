@@ -6,6 +6,10 @@
 
 mod error;
 mod parse;
+mod snapshot;
 
 pub use error::{DelimiterKind, FileError};
 pub use parse::{FileReference, file_reference_ranges, unescape_at};
+pub use snapshot::{
+    build_snapshot_body, check_delimiter_collision, is_snapshot, snapshot_basename,
+};

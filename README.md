@@ -115,6 +115,35 @@ Messages may include `@<path>` tokens that attach a file's contents to the conve
 
 Configure per-file and per-message byte caps under `[files]` in `config.toml`. Colour the `@<path>` tokens in the input box and chat pane with the `file_reference_fg` theme key.
 
+### File summaries
+
+When auto-summarization fires, LibLLM substitutes attached-file bodies with a cached summary so the resulting `Role::Summary` message describes the file instead of re-inlining its content. The cache is per-session, stored in the encrypted `file_summaries` SQLCipher table (`session_id`, `content_hash`, `basename`, `summary`, `status`).
+
+Generation timing is configurable:
+
+- `eager` (default) — the summary request fires in the background when the file is attached. The TUI file block shows `Summary: (generating...)` until it lands, then the cached summary.
+- `lazy` — summaries are produced only when auto-summarization first needs them. The `ensure_ready` pre-pass blocks the summarizer until generation finishes.
+
+Configuration:
+
+```toml
+[files]
+summarize_mode = "eager"   # "eager" | "lazy"
+summary_prompt = "Summarize this file. Focus on its purpose, structure, and key facts useful for answering questions about its contents. Be concise."
+```
+
+The summarization API URL and auth come from the existing `[summarization]` block. When `[summarization].enabled = false` (or `--no-summarize` is passed on the CLI), file summaries are disabled end-to-end — the file block renders the header line only, no cache writes happen, and the summarizer is never invoked.
+
+Single-run CLI invocations (no persisted session) bypass the feature entirely — there is no database to cache into.
+
+Failed summaries (retries exhausted, or stuck past the 60-second per-file deadline) land with `status = 'failed'`. The TUI shows `Summary: (unavailable)` and the summary prompt contains `[file "..." attached; summary unavailable]` instead of the raw body. The invariant "`Role::Summary` never contains raw file content" holds even under failure.
+
+To inspect cached summaries directly:
+
+```bash
+libllm db sql "SELECT session_id, basename, status, length(summary) FROM file_summaries"
+```
+
 ### Worldbooks
 
 Worldbooks (lorebooks) provide keyword-activated context injection. Each entry has a set of trigger keywords; when those keywords appear in the conversation, the entry's content is injected into the prompt. This lets you build persistent lore, facts, or instructions that activate only when relevant.

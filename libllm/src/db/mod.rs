@@ -17,7 +17,7 @@ mod characters;
 pub mod file_summaries;
 mod personas;
 mod prompts;
-pub(crate) mod schema;
+pub mod schema;
 mod sessions;
 mod worldbooks;
 

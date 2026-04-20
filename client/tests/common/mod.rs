@@ -223,3 +223,32 @@ pub fn assert_file_missing(path: &Path) {
         path.display()
     );
 }
+
+/// Start a mock LLM server that returns a successful `/completions` response
+/// containing `summary_text` in the `choices[0].text` field.
+pub async fn start_mock_summarize_server(summary_text: &str) -> wiremock::MockServer {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "choices": [{"text": summary_text}]
+        })))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Start a mock LLM server that returns HTTP 500 for every `/completions` request.
+pub async fn start_mock_failing_server() -> wiremock::MockServer {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/completions"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    server
+}

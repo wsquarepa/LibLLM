@@ -455,13 +455,22 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
     app.textarea.set_block(input_block);
     app.textarea.clear_custom_highlight();
+    let joined = app.textarea.lines().join("\n");
     if app.session.character.is_some() {
-        let joined = app.textarea.lines().join("\n");
         for prefix in libllm::side_character::header_prefix_ranges(&joined) {
             app.textarea.custom_highlight(
                 ((prefix.line, prefix.start), (prefix.line, prefix.end)),
                 Style::default().fg(app.theme.side_character_fg),
                 1,
+            );
+        }
+    }
+    if app.config.files.enabled {
+        for r in libllm::files::file_reference_ranges(&joined) {
+            app.textarea.custom_highlight(
+                ((r.line, r.start), (r.line, r.end)),
+                Style::default().fg(app.theme.file_reference_fg),
+                2,
             );
         }
     }

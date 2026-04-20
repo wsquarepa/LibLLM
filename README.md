@@ -52,24 +52,6 @@ echo "Translate to French: hello world" | libllm -m -
 
 These are ephemeral -- nothing is saved. See [More workflows](#more-workflows) for persistent scripted conversations.
 
-### Attaching files
-
-Reference files with `@<path>` in both TUI input and CLI messages. File contents are read once at send time and stored as part of the conversation, so `/retry`, `--continue`, and branch navigation all work against a stable snapshot.
-
-```sh
-# CLI: explicit path
-libllm -m "Summarize @./notes.md"
-
-# CLI: pipe stdin as an anonymous attachment
-libllm -m "Summarize this" < notes.md
-```
-
-In the TUI, type `@` at the start of a word to open a shell-path file picker (arrow keys to move, Enter or Tab to accept, Esc to close, `/` to descend into a directory, Backspace on an empty filter to go up). Dragging a file into the terminal window also inserts it as `@<path>`.
-
-Supported content: UTF-8 text of any extension (`.txt`, `.md`, `.rtf`, `.toml`, `.yml`, `.gitignore`, source code, etc.) and PDFs whose text is already extractable (no OCR). Size caps default to 512 KB per file and 4 MB per message; tune them under `[files]` in `config.toml`.
-
-Files are rejected when they exceed the size caps, are not UTF-8 text or extractable-text PDFs, or their body contains the reserved `<<<FILE>>>` / `<<<END>>>` delimiters. The TUI opens an injection-warning dialog on collision; the CLI prints the error to stderr and exits non-zero.
-
 ### Branching a conversation
 
 - `/retry` regenerates the last response (creates a new branch).
@@ -111,7 +93,7 @@ This feature only activates when `session.character` is set. In plain assistant 
 
 ### File ingestion
 
-Messages may include `@<path>` tokens that attach a file's contents to the conversation. Each referenced file is stored as its own message alongside the user message, so retrying, editing, and branching always see the same snapshot the LLM originally received. The user's message continues to display `@<path>` in the chat pane; the LLM is sent the file contents between `<<<FILE name>>>` and `<<<END name>>>` delimiters, plus a rewritten user message referring to the file as `[name]`.
+Messages may include `@<path>` tokens that attach a file's contents to the conversation. Each referenced file is stored as its own message alongside the user message, so retrying, editing, and branching always see the same snapshot the LLM originally received. 
 
 Configure per-file and per-message byte caps under `[files]` in `config.toml`. Colour the `@<path>` tokens in the input box and chat pane with the `file_reference_fg` theme key.
 
@@ -136,7 +118,7 @@ The summarization API URL and auth come from the existing `[summarization]` bloc
 
 Single-run CLI invocations (no persisted session) bypass the feature entirely — there is no database to cache into.
 
-Failed summaries (retries exhausted, or stuck past the 60-second per-file deadline) land with `status = 'failed'`. The TUI shows `Summary: (unavailable)` and the summary prompt contains `[file "..." attached; summary unavailable]` instead of the raw body. The invariant "`Role::Summary` never contains raw file content" holds even under failure.
+Failed summaries (retries exhausted, or stuck past the 60-second per-file deadline) land with `status = 'failed'`. The TUI shows `Summary: (unavailable)` and the summary prompt contains `[file "..." attached; summary unavailable]` instead of the raw body.
 
 To inspect cached summaries directly:
 

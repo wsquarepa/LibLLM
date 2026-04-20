@@ -230,6 +230,38 @@ pub(super) fn retreat_past_snapshot_chain(
     None
 }
 
+pub(super) fn resolve_retry_user(
+    tree: &libllm::session::MessageTree,
+    cursor: libllm::session::NodeId,
+) -> Option<libllm::session::NodeId> {
+    let node = tree.node(cursor)?;
+    match node.message.role {
+        Role::User => Some(cursor),
+        Role::Assistant => {
+            let candidate = retreat_past_snapshot_chain(tree, node.parent)?;
+            tree.node(candidate)
+                .filter(|n| n.message.role == Role::User)
+                .map(|_| candidate)
+        }
+        _ => None,
+    }
+}
+
+fn trigger_chat_retry(app: &mut App) -> Option<Action> {
+    let cursor = app.nav_cursor?;
+    let Some(user_id) = resolve_retry_user(&app.session.tree, cursor) else {
+        app.set_status(
+            "No user message to retry.".to_owned(),
+            super::StatusLevel::Warning,
+        );
+        return None;
+    };
+    app.session.tree.set_head(Some(user_id));
+    app.nav_cursor = None;
+    app.focus = super::Focus::Input;
+    Some(Action::SlashCommand("/retry".to_owned(), String::new()))
+}
+
 fn next_sibling_index(siblings_len: usize, current_idx: usize, offset: isize) -> Option<usize> {
     let target = current_idx as isize + offset;
     if target < 0 || target >= siblings_len as isize {
@@ -369,8 +401,23 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Right => {
-            let _ = switch_nav_sibling(app, 1);
-            None
+            let cursor = app.nav_cursor?;
+            let role = app
+                .session
+                .tree
+                .node(cursor)
+                .map(|n| n.message.role);
+            match role {
+                Some(Role::User) => {
+                    if switch_nav_sibling(app, 1) {
+                        None
+                    } else {
+                        trigger_chat_retry(app)
+                    }
+                }
+                Some(Role::Assistant) => trigger_chat_retry(app),
+                _ => None,
+            }
         }
         KeyCode::Enter => {
             if let Some(node_id) = app.nav_cursor
@@ -761,5 +808,65 @@ mod sibling_index_tests {
     #[test]
     fn empty_returns_none() {
         assert_eq!(next_sibling_index(0, 0, 1), None);
+    }
+}
+
+#[cfg(test)]
+mod retry_resolve_tests {
+    use super::resolve_retry_user;
+    use libllm::session::{Message, MessageTree, Role};
+
+    fn snapshot(name: &str, body: &str) -> Message {
+        Message::new(
+            Role::System,
+            libllm::files::build_snapshot_body(name, body),
+        )
+    }
+
+    #[test]
+    fn user_cursor_returns_same() {
+        let mut tree = MessageTree::new();
+        let u = tree.push(None, Message::new(Role::User, "hi".into()));
+        assert_eq!(resolve_retry_user(&tree, u), Some(u));
+    }
+
+    #[test]
+    fn assistant_cursor_walks_to_parent_user() {
+        let mut tree = MessageTree::new();
+        let u = tree.push(None, Message::new(Role::User, "hi".into()));
+        let a = tree.push(Some(u), Message::new(Role::Assistant, "hi back".into()));
+        assert_eq!(resolve_retry_user(&tree, a), Some(u));
+    }
+
+    #[test]
+    fn assistant_cursor_walks_past_snapshot_chain() {
+        let mut tree = MessageTree::new();
+        let u = tree.push(None, Message::new(Role::User, "hi".into()));
+        let s1 = tree.push(Some(u), snapshot("a.md", "A"));
+        let s2 = tree.push(Some(s1), snapshot("b.md", "B"));
+        let a = tree.push(Some(s2), Message::new(Role::Assistant, "ok".into()));
+        assert_eq!(resolve_retry_user(&tree, a), Some(u));
+    }
+
+    #[test]
+    fn assistant_without_user_ancestor_returns_none() {
+        let mut tree = MessageTree::new();
+        let a = tree.push(None, Message::new(Role::Assistant, "orphan".into()));
+        assert_eq!(resolve_retry_user(&tree, a), None);
+    }
+
+    #[test]
+    fn system_cursor_returns_none() {
+        let mut tree = MessageTree::new();
+        let s = tree.push(None, Message::new(Role::System, "sys".into()));
+        assert_eq!(resolve_retry_user(&tree, s), None);
+    }
+
+    #[test]
+    fn summary_cursor_returns_none() {
+        let mut tree = MessageTree::new();
+        let u = tree.push(None, Message::new(Role::User, "hi".into()));
+        let summary = tree.push(Some(u), Message::new(Role::Summary, "summary".into()));
+        assert_eq!(resolve_retry_user(&tree, summary), None);
     }
 }

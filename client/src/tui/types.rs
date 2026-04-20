@@ -289,6 +289,7 @@ pub(super) struct App<'a> {
     pub(super) dialog_search: dialogs::SearchState,
     pub(super) sidebar_search: dialogs::SearchState,
     pub(super) last_terminal_height: u16,
+    pub(super) input_file_cache: crate::tui::input_file_cache::InputFileCache,
 }
 
 impl<'a> App<'a> {

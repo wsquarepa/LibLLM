@@ -50,6 +50,25 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         app.set_status(format!("Save error: {err}"), StatusLevel::Error);
                     }
                     app.invalidate_worldbook_cache();
+                    match business::build_file_summarizer(
+                        &db_path,
+                        Some(&key),
+                        &app.config,
+                        &app.cli_overrides,
+                        app.file_summary_ready_tx.clone(),
+                    ) {
+                        Ok(fs) => app.file_summarizer = Some(fs),
+                        Err(err) => {
+                            tracing::error!(
+                                error = %err,
+                                "tui.file_summarizer.construct.late_failed"
+                            );
+                            app.set_status(
+                                format!("File summaries disabled: {err}"),
+                                StatusLevel::Warning,
+                            );
+                        }
+                    }
                     app.passkey_deriving = false;
                     app.focus = post_passkey_focus(app);
                     business::refresh_sidebar(app);
@@ -102,6 +121,25 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         };
                         app.db = Some(db);
                         app.save_mode = SaveMode::Database { id };
+                        match business::build_file_summarizer(
+                            &db_path,
+                            Some(&new_key),
+                            &app.config,
+                            &app.cli_overrides,
+                            app.file_summary_ready_tx.clone(),
+                        ) {
+                            Ok(fs) => app.file_summarizer = Some(fs),
+                            Err(err) => {
+                                tracing::error!(
+                                    error = %err,
+                                    "tui.file_summarizer.construct.late_failed"
+                                );
+                                app.set_status(
+                                    format!("File summaries disabled: {err}"),
+                                    StatusLevel::Warning,
+                                );
+                            }
+                        }
                         if let Err(err) = app.flush_session_save(SaveTrigger::Unlock) {
                             app.set_status(format!("Save error: {err}"), StatusLevel::Error);
                         }

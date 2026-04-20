@@ -58,7 +58,11 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
 
     match app.focus {
         Focus::Input => {
-            app.textarea.input(raw_event);
+            if let Some(token) = paste_as_file_reference(&text, &app.config.files) {
+                app.textarea.insert_str(&token);
+            } else {
+                app.textarea.input(raw_event);
+            }
         }
         Focus::EditDialog => {
             if let Some(ref mut editor) = app.edit_editor {
@@ -95,6 +99,28 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
     None
 }
 
+/// If `raw` resolves to an existing, supported file, return the
+/// canonical `@<path>` string to insert. Otherwise return `None` so the
+/// caller falls through to raw paste. Silent on any resolution failure.
+fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> Option<String> {
+    if !config.enabled {
+        return None;
+    }
+    let trimmed = clean_pasted_path(raw);
+    let path = std::path::Path::new(&trimmed);
+    if !path.is_file() {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let metadata = std::fs::metadata(&canonical).ok()?;
+    if (metadata.len() as usize) > config.per_file_bytes {
+        return None;
+    }
+    let bytes = std::fs::read(&canonical).ok()?;
+    libllm::files::classify(&canonical, &bytes).ok()?;
+    Some(format!("@{}", canonical.to_string_lossy()))
+}
+
 fn clean_pasted_path(raw: &str) -> String {
     let trimmed = raw.trim();
     if (trimmed.starts_with('"') && trimmed.ends_with('"'))
@@ -120,20 +146,76 @@ pub(super) async fn process_action(
             commands::start_streaming(app, &text, token_tx).await;
         }
         Action::EditMessage { node_id, content } => {
-            if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
-                && app.session.tree.set_message_content(new_root, content)
-            {
-                app.session.tree.switch_to(new_root);
-                app.invalidate_chat_cache();
-                app.nav_cursor = Some(new_root);
-                app.focus = Focus::Chat;
-                app.mark_session_dirty(SaveTrigger::Debounced, false);
-            }
+            handle_edit_message(app, node_id, content);
         }
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
     }
+}
+
+fn handle_edit_message(
+    app: &mut App<'_>,
+    node_id: libllm::session::NodeId,
+    content: String,
+) {
+    let refs = libllm::files::file_reference_ranges(&content);
+    let has_file_refs = refs.iter().any(|r| r.path() != "stdin");
+
+    if !has_file_refs {
+        // No file tokens in the edit; preserve the existing branch-and-replace path.
+        if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
+            && app.session.tree.set_message_content(new_root, content)
+        {
+            app.session.tree.switch_to(new_root);
+            app.invalidate_chat_cache();
+            app.nav_cursor = Some(new_root);
+            app.focus = Focus::Chat;
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+        }
+        return;
+    }
+
+    // File-containing edit: rerun the pipeline, then branch under the original parent.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let sys_messages = match libllm::files::resolve_all(&content, &cwd, &app.config.files) {
+        Ok(v) => v,
+        Err(libllm::files::FileError::Collision { path, kind }) => {
+            crate::tui::dialogs::injection_warning::open(app, &path, kind);
+            return;
+        }
+        Err(err) => {
+            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+            return;
+        }
+    };
+
+    let original_parent = match app.session.tree.node(node_id) {
+        Some(n) => n.parent,
+        None => {
+            app.set_status(
+                "edit target vanished from the tree".to_owned(),
+                crate::tui::types::StatusLevel::Error,
+            );
+            return;
+        }
+    };
+
+    let mut parent = original_parent;
+    for sys_msg in sys_messages {
+        let id = app.session.tree.push(parent, sys_msg);
+        parent = Some(id);
+    }
+    let new_user = app.session.tree.push(
+        parent,
+        libllm::session::Message::new(libllm::session::Role::User, content),
+    );
+
+    app.session.tree.switch_to(new_user);
+    app.invalidate_chat_cache();
+    app.nav_cursor = Some(new_user);
+    app.focus = Focus::Chat;
+    app.mark_session_dirty(SaveTrigger::Debounced, false);
 }
 
 fn handle_key(
@@ -153,6 +235,8 @@ fn handle_key(
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::EditConfirmDialog => app.edit_editor.is_some(),
+            Focus::FilePickerDialog => app.file_picker.is_some(),
+            Focus::InjectionWarningDialog => app.injection_warning.is_some(),
             Focus::Input
             | Focus::Chat
             | Focus::Sidebar
@@ -260,6 +344,12 @@ fn handle_key(
     }
     if app.focus == Focus::ApiErrorDialog {
         return dialogs::api_error::handle_api_error_key(key, app);
+    }
+    if app.focus == Focus::FilePickerDialog {
+        return dialogs::file_picker::handle_key(key, app);
+    }
+    if app.focus == Focus::InjectionWarningDialog {
+        return dialogs::injection_warning::handle_key(key, app);
     }
     if app.focus == Focus::LoadingDialog {
         return dialogs::api_error::handle_loading_key(key);
@@ -631,4 +721,62 @@ fn handle_base_theme_picker_key(key: KeyEvent, app: &mut App) -> Option<Action> 
         _ => {}
     }
     None
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::paste_as_file_reference;
+    use tempfile::TempDir;
+
+    #[test]
+    fn non_file_paste_returns_none() {
+        let cfg = libllm::config::FilesConfig::default();
+        assert!(paste_as_file_reference("not a path", &cfg).is_none());
+    }
+
+    #[test]
+    fn file_paste_returns_at_path() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("a.md");
+        std::fs::write(&p, "hello").unwrap();
+        let cfg = libllm::config::FilesConfig::default();
+        let out = paste_as_file_reference(p.to_str().unwrap(), &cfg).unwrap();
+        assert!(out.starts_with("@"));
+        assert!(out.contains("a.md"));
+    }
+
+    #[test]
+    fn binary_paste_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("bin");
+        std::fs::write(&p, [0x89u8, 0x50, 0x4E, 0x47, 0, 0, 0, 0]).unwrap();
+        let cfg = libllm::config::FilesConfig::default();
+        assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
+
+    #[test]
+    fn disabled_config_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("a.md");
+        std::fs::write(&p, "hello").unwrap();
+        let cfg = libllm::config::FilesConfig {
+            enabled: false,
+            per_file_bytes: 524_288,
+            per_message_bytes: 4_194_304,
+        };
+        assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
+
+    #[test]
+    fn oversize_paste_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("big.md");
+        std::fs::write(&p, vec![b'x'; 2000]).unwrap();
+        let cfg = libllm::config::FilesConfig {
+            enabled: true,
+            per_file_bytes: 1000,
+            per_message_bytes: 4_194_304,
+        };
+        assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
 }

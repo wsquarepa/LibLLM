@@ -20,6 +20,48 @@ use super::App;
 
 use super::theme::Theme;
 
+fn format_file_snapshot_line(content: &str) -> String {
+    let basename = libllm::files::snapshot_basename(content).unwrap_or_default();
+    let inner_size = inner_snapshot_size(content);
+    format!("--- File: {basename} ({}) ---", format_bytes(inner_size))
+}
+
+/// Byte count of the text sitting between the `<<<FILE name>>>` /
+/// `<<<END name>>>` markers, exclusive of the marker lines themselves.
+fn inner_snapshot_size(content: &str) -> usize {
+    let mut inside = false;
+    let mut size: usize = 0;
+    let mut seen_any_inner = false;
+    for line in content.lines() {
+        if line.starts_with("<<<FILE ") && line.ends_with(">>>") {
+            inside = true;
+            continue;
+        }
+        if line.starts_with("<<<END ") && line.ends_with(">>>") {
+            inside = false;
+            continue;
+        }
+        if inside {
+            if seen_any_inner {
+                size += 1;
+            }
+            size += line.len();
+            seen_any_inner = true;
+        }
+    }
+    size
+}
+
+fn format_bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else if n < 1024 * 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+    }
+}
+
 pub struct SidebarCache {
     selected_idx: Option<usize>,
     filter_query: String,
@@ -330,12 +372,19 @@ pub fn render_chat(
                             .bg(app.theme.assistant_message_bg)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Role::System => (
-                        "System".to_owned(),
-                        Style::default()
-                            .fg(app.theme.system_message)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Role::System => {
+                        let label = if libllm::files::is_snapshot(&msg.content) {
+                            "File".to_owned()
+                        } else {
+                            "System".to_owned()
+                        };
+                        (
+                            label,
+                            Style::default()
+                                .fg(app.theme.system_message)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    }
                     Role::Summary => (
                         "Summary".to_owned(),
                         Style::default()
@@ -360,6 +409,14 @@ pub fn render_chat(
                             .fg(app.theme.summary_indicator)
                             .add_modifier(Modifier::DIM),
                     ))]
+                } else if msg.role == Role::System && libllm::files::is_snapshot(&msg.content) {
+                    let line_text = format_file_snapshot_line(&msg.content);
+                    vec![Line::from(Span::styled(
+                        format!("  {line_text}"),
+                        Style::default()
+                            .fg(app.theme.system_message)
+                            .add_modifier(Modifier::DIM),
+                    ))]
                 } else {
                     let raw_content = match &side {
                         Some((_, body)) => body.as_str(),
@@ -370,7 +427,7 @@ pub fn render_chat(
                     content
                         .lines()
                         .map(|line| {
-                            let styled = parse_styled_line(line, dialogue_color);
+                            let styled = parse_styled_line(line, dialogue_color, app.theme.file_reference_fg);
                             let mut indented = vec![Span::raw("  ")];
                             indented.extend(styled.spans);
                             Line::from(indented)
@@ -481,7 +538,7 @@ pub fn render_chat(
         }
         let buffer = replace_vars(&app.streaming_buffer);
         for content_line in buffer.lines() {
-            let styled = parse_styled_line(content_line, app.theme.dialogue);
+            let styled = parse_styled_line(content_line, app.theme.dialogue, app.theme.file_reference_fg);
             let mut indented = vec![Span::raw("  ")];
             indented.extend(styled.spans);
             lines.push(Line::from(indented));
@@ -705,7 +762,7 @@ fn build_queue_lines(queue: &[String], user_label: &str, theme: &Theme) -> Vec<L
                 .add_modifier(Modifier::DIM),
         )]));
         for content_line in msg.lines() {
-            let styled = parse_styled_line(content_line, theme.dialogue);
+            let styled = parse_styled_line(content_line, theme.dialogue, theme.file_reference_fg);
             let mut indented: Vec<Span<'static>> = vec![Span::raw("  ")];
             for span in styled.spans {
                 let merged = span.style.patch(dim_style);
@@ -866,5 +923,37 @@ mod tests {
         let theme = crate::tui::theme::Theme::dark();
         assert_eq!(token_band_color(&theme, 110.0), theme.token_band_over);
         assert_eq!(token_band_color(&theme, 200.0), theme.token_band_over);
+    }
+
+    #[test]
+    fn format_file_snapshot_line_shows_name_and_size_small() {
+        let body = libllm::files::build_snapshot_body("notes.md", "hello world");
+        assert!(libllm::files::is_snapshot(&body));
+        let line = format_file_snapshot_line(&body);
+        assert!(line.starts_with("--- File: notes.md ("));
+        assert!(line.ends_with(") ---"));
+        assert!(line.contains(" B"));
+    }
+
+    #[test]
+    fn format_file_snapshot_line_uses_kb_for_midsize() {
+        let body = libllm::files::build_snapshot_body("big.md", &"x".repeat(20_000));
+        let line = format_file_snapshot_line(&body);
+        assert!(line.contains(" KB"));
+    }
+
+    #[test]
+    fn format_bytes_boundary_values() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert!(format_bytes(1_048_576).contains("1.0 MB"));
+    }
+
+    #[test]
+    fn inner_snapshot_size_matches_body_length() {
+        let body = libllm::files::build_snapshot_body("x.md", "hello\nworld");
+        let size = inner_snapshot_size(&body);
+        assert_eq!(size, "hello\nworld".len());
     }
 }

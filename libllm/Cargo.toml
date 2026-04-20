@@ -18,8 +18,10 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls-no-provider", "charset", "http2", "system-proxy", "query"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 futures-util = "0.3"
+infer = "0.16"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 lru = "0.16"
+pdf-extract = "0.9"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 sysinfo = "0.38"
 tracing = "0.1"

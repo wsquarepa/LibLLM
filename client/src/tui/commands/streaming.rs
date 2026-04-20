@@ -62,6 +62,17 @@ where
     let injected =
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
     let injected = business::replace_template_vars(app.session, injected, user_name);
+    let injected: Vec<libllm::session::Message> = injected
+        .into_iter()
+        .map(|m| match m.role {
+            libllm::session::Role::User => libllm::session::Message {
+                role: m.role,
+                content: libllm::files::rewrite_user_message(&m.content),
+                timestamp: m.timestamp.clone(),
+            },
+            _ => m,
+        })
+        .collect();
     let injected_refs: Vec<&libllm::session::Message> = injected.iter().collect();
     render(
         &app.instruct_preset,
@@ -174,7 +185,23 @@ pub(in crate::tui) async fn start_streaming(
         return;
     }
     debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let sys_messages = match libllm::files::resolve_all(content, &cwd, &app.config.files) {
+        Ok(v) => v,
+        Err(libllm::files::FileError::Collision { path, kind }) => {
+            crate::tui::dialogs::injection_warning::open(app, &path, kind);
+            return;
+        }
+        Err(err) => {
+            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+            return;
+        }
+    };
     let mut parent = app.session.tree.head();
+    for sys_msg in sys_messages {
+        let new_id = app.session.tree.push(parent, sys_msg);
+        parent = Some(new_id);
+    }
     let segments: Vec<String> = if app.session.character.is_some() {
         libllm::side_character::split_user_input(content)
     } else {
@@ -423,5 +450,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(k, 0);
+    }
+
+    #[test]
+    fn rewrite_user_message_pass_substitutes_at_tokens_on_user_role_only() {
+        use libllm::session::{Message, Role};
+
+        let original = [
+            Message::new(Role::User, "@./notes.md please".to_owned()),
+            Message::new(Role::Assistant, "first response".to_owned()),
+            Message::new(Role::User, "also @./code.rs".to_owned()),
+            Message::new(Role::System, "system literal @./leave.md alone".to_owned()),
+        ];
+        let rewritten: Vec<Message> = original
+            .iter()
+            .map(|m| match m.role {
+                Role::User => Message {
+                    role: m.role,
+                    content: libllm::files::rewrite_user_message(&m.content),
+                    timestamp: m.timestamp.clone(),
+                },
+                _ => m.clone(),
+            })
+            .collect();
+        assert_eq!(rewritten[0].content, "[notes.md] please");
+        assert_eq!(rewritten[1].content, "first response");
+        assert_eq!(rewritten[2].content, "also [code.rs]");
+        assert_eq!(rewritten[3].content, "system literal @./leave.md alone");
     }
 }

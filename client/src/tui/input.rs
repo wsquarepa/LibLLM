@@ -128,10 +128,49 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         _ => {
+            let typed_char = match key.code {
+                KeyCode::Char(c) => Some(c),
+                _ => None,
+            };
             app.textarea.input(key);
             app.command_picker_selected = 0;
+            if let Some(ch) = typed_char
+                && should_open_file_picker(&app.textarea, ch)
+                && app.config.files.enabled
+            {
+                let (row, col) = app.textarea.cursor();
+                let anchor_col = col.saturating_sub(1);
+                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                app.file_picker = Some(
+                    super::dialogs::file_picker::FilePickerState::new(cwd, row, anchor_col),
+                );
+                app.focus = super::Focus::FilePickerDialog;
+            }
             None
         }
+    }
+}
+
+/// True when `just_typed` is `@` and it sits at a word boundary inside
+/// `textarea` (start-of-line OR preceded by an ASCII-whitespace byte).
+/// The caller must invoke this AFTER inserting the character, so
+/// `textarea.cursor()` points one past the inserted `@`.
+pub fn should_open_file_picker(textarea: &TextArea<'_>, just_typed: char) -> bool {
+    if just_typed != '@' {
+        return false;
+    }
+    let (row, col) = textarea.cursor();
+    let line = textarea.lines().get(row).map(String::as_str).unwrap_or("");
+    // After insert, col points just past the `@`. The `@` itself sits
+    // at byte index `col - 1` (guaranteed when col >= 1), and the
+    // preceding char (if any) sits at `col - 2`.
+    if col <= 1 {
+        return true;
+    }
+    let bytes = line.as_bytes();
+    match bytes.get(col.saturating_sub(2)) {
+        None => true,
+        Some(c) => c.is_ascii_whitespace(),
     }
 }
 
@@ -529,4 +568,46 @@ fn chat_message_preview(content: &str) -> String {
     }
     let take: String = trimmed.chars().take(MAX_LEN).collect();
     format!("{take}...")
+}
+
+#[cfg(test)]
+mod picker_open_tests {
+    use super::should_open_file_picker;
+    use tui_textarea::TextArea;
+
+    fn ta_after_inserting(text: &str) -> TextArea<'static> {
+        let mut ta = TextArea::default();
+        ta.insert_str(text);
+        ta
+    }
+
+    #[test]
+    fn should_open_at_empty_input() {
+        let ta = ta_after_inserting("@");
+        assert!(should_open_file_picker(&ta, '@'));
+    }
+
+    #[test]
+    fn should_open_after_space() {
+        let ta = ta_after_inserting("hello @");
+        assert!(should_open_file_picker(&ta, '@'));
+    }
+
+    #[test]
+    fn should_open_after_tab() {
+        let ta = ta_after_inserting("hello\t@");
+        assert!(should_open_file_picker(&ta, '@'));
+    }
+
+    #[test]
+    fn should_not_open_mid_word() {
+        let ta = ta_after_inserting("abc@");
+        assert!(!should_open_file_picker(&ta, '@'));
+    }
+
+    #[test]
+    fn should_not_open_for_other_chars() {
+        let ta = ta_after_inserting("@");
+        assert!(!should_open_file_picker(&ta, 'x'));
+    }
 }

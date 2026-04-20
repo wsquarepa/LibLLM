@@ -7,6 +7,7 @@ mod dialog_handler;
 pub mod dialogs;
 mod events;
 mod input;
+mod input_file_cache;
 mod maintenance;
 mod render;
 mod state;
@@ -27,6 +28,9 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use crate::cli::CliOverrides;
 use libllm::client::{ApiClient, StreamToken};
@@ -138,6 +142,8 @@ pub async fn run(
         model_name: None,
         api_available: true,
         api_error: String::new(),
+        file_picker: None,
+        injection_warning: None,
         status_message: None,
         should_quit: false,
         passkey_changed: false,
@@ -224,6 +230,7 @@ pub async fn run(
         dialog_search: dialogs::SearchState::new(),
         sidebar_search: dialogs::SearchState::new(),
         last_terminal_height: 0,
+        input_file_cache: input_file_cache::InputFileCache::new(),
     };
 
     if app.token_counter.is_heuristic() {
@@ -451,13 +458,22 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
     app.textarea.set_block(input_block);
     app.textarea.clear_custom_highlight();
+    let joined = app.textarea.lines().join("\n");
     if app.session.character.is_some() {
-        let joined = app.textarea.lines().join("\n");
         for prefix in libllm::side_character::header_prefix_ranges(&joined) {
             app.textarea.custom_highlight(
                 ((prefix.line, prefix.start), (prefix.line, prefix.end)),
                 Style::default().fg(app.theme.side_character_fg),
                 1,
+            );
+        }
+    }
+    if app.config.files.enabled {
+        for r in libllm::files::file_reference_ranges(&joined) {
+            app.textarea.custom_highlight(
+                ((r.line, r.start), (r.line, r.end)),
+                Style::default().fg(app.theme.file_reference_fg),
+                2,
             );
         }
     }
@@ -558,6 +574,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::BranchDialog => Some("branch"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
+        Focus::FilePickerDialog => Some("file_picker"),
+        Focus::InjectionWarningDialog => Some("injection_warning"),
         Focus::LoadingDialog => Some("loading"),
         _ => None,
     };
@@ -575,9 +593,78 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     );
 }
 
-fn estimate_input_tokens(app: &App) -> usize {
+fn estimate_input_tokens(app: &mut App) -> usize {
     let input = app.textarea.lines().join("\n");
-    estimate_input_tokens_from_text(&input, &app.token_counter)
+    let base = estimate_input_tokens_from_text(&input, &app.token_counter);
+    if !app.config.files.enabled {
+        app.input_file_cache.retain_paths(&HashSet::new());
+        return base;
+    }
+    refresh_input_file_cache(app, &input);
+    base + app.input_file_cache.sum_estimated_tokens()
+}
+
+fn refresh_input_file_cache(app: &mut App, input: &str) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut live: HashSet<PathBuf> = HashSet::new();
+    for r in libllm::files::file_reference_ranges(input) {
+        let raw_path = r.path();
+        if raw_path == "stdin" {
+            continue;
+        }
+        let expanded = expand_at_path(raw_path, &cwd);
+        let Ok(canonical) = std::fs::canonicalize(&expanded) else {
+            continue;
+        };
+        let Ok(metadata) = std::fs::metadata(&canonical) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let size = metadata.len() as usize;
+        if size > app.config.files.per_file_bytes {
+            continue;
+        }
+        if app.input_file_cache.lookup(&canonical).is_none() {
+            let Ok(bytes) = std::fs::read(&canonical) else {
+                continue;
+            };
+            let classified = match libllm::files::classify(&canonical, &bytes) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let text = classified.text().to_owned();
+            let estimated = app.token_counter.heuristic_count(&text);
+            app.input_file_cache.insert(
+                canonical.clone(),
+                input_file_cache::CachedResolution {
+                    estimated_tokens: estimated,
+                },
+            );
+        }
+        live.insert(canonical);
+    }
+    app.input_file_cache.retain_paths(&live);
+}
+
+fn expand_at_path(raw: &str, cwd: &Path) -> PathBuf {
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
+    }
+    if raw == "~"
+        && let Some(home) = dirs::home_dir()
+    {
+        return home;
+    }
+    let p = Path::new(raw);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        cwd.join(p)
+    }
 }
 
 fn estimate_input_tokens_from_text(
@@ -600,7 +687,7 @@ fn format_token_count(count: usize) -> String {
     }
 }
 
-fn render_dialog(f: &mut ratatui::Frame, app: &App) {
+fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
     match app.focus {
         Focus::PasskeyDialog => {
             dialogs::passkey::render_passkey_dialog(f, app, f.area());
@@ -688,6 +775,12 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::ApiErrorDialog => {
             dialogs::api_error::render_api_error_dialog(f, app, f.area());
+        }
+        Focus::FilePickerDialog => {
+            dialogs::file_picker::render(f, app, f.area());
+        }
+        Focus::InjectionWarningDialog => {
+            dialogs::injection_warning::render(f, app, f.area());
         }
         Focus::LoadingDialog => {
             dialogs::api_error::render_loading_dialog(f, f.area());

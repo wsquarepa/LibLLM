@@ -1,9 +1,13 @@
-//! Markdown-style inline formatting parser for bold, italic, and dialogue spans.
+//! Markdown-style inline formatting parser for bold, italic, dialogue, and file-reference spans.
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-pub(super) fn parse_styled_line(text: &str, dialogue_color: Color) -> Line<'static> {
+pub(super) fn parse_styled_line(
+    text: &str,
+    dialogue_color: Color,
+    file_reference_color: Color,
+) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut chars = text.char_indices().peekable();
     let mut plain_start = 0;
@@ -74,6 +78,38 @@ pub(super) fn parse_styled_line(text: &str, dialogue_color: Color) -> Line<'stat
                     plain_start = skip_to;
                 }
             }
+            '@' => {
+                let at_start = i;
+                let is_word_boundary = at_start == 0
+                    || text
+                        .as_bytes()
+                        .get(at_start.saturating_sub(1))
+                        .is_some_and(|b| b.is_ascii_whitespace());
+                if !is_word_boundary {
+                    chars.next();
+                    continue;
+                }
+                chars.next();
+                let mut end = at_start + 1;
+                while let Some(&(j, next_ch)) = chars.peek() {
+                    if next_ch.is_whitespace() {
+                        end = j;
+                        break;
+                    }
+                    chars.next();
+                    end = j + next_ch.len_utf8();
+                }
+                if end > at_start + 1 {
+                    if plain_start < at_start {
+                        spans.push(Span::raw(text[plain_start..at_start].to_owned()));
+                    }
+                    spans.push(Span::styled(
+                        text[at_start..end].to_owned(),
+                        Style::default().fg(file_reference_color),
+                    ));
+                    plain_start = end;
+                }
+            }
             _ => {
                 chars.next();
             }
@@ -94,4 +130,62 @@ pub(super) fn parse_styled_line(text: &str, dialogue_color: Color) -> Line<'stat
 fn find_closing(text: &str, delimiter: &str) -> Option<usize> {
     let start = text.char_indices().nth(1).map(|(i, _)| i)?;
     text[start..].find(delimiter).map(|pos| pos + start)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn at_token_at_start_is_styled() {
+        let line = parse_styled_line("@notes.md please", Color::Red, Color::Blue);
+        let styled = line.spans.iter().find(|s| s.content.starts_with("@"));
+        let styled = styled.expect("expected a styled @ span");
+        assert_eq!(styled.content, "@notes.md");
+        assert_eq!(styled.style.fg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn at_token_mid_word_is_plain() {
+        let line = parse_styled_line("email@example.com", Color::Red, Color::Blue);
+        for span in &line.spans {
+            assert_ne!(span.style.fg, Some(Color::Blue), "mid-word @ must not be styled");
+        }
+    }
+
+    #[test]
+    fn at_token_after_whitespace_is_styled() {
+        let line = parse_styled_line("see @a.md and @b.md", Color::Red, Color::Blue);
+        let styled_count = line
+            .spans
+            .iter()
+            .filter(|s| s.style.fg == Some(Color::Blue))
+            .count();
+        assert_eq!(styled_count, 2);
+    }
+
+    #[test]
+    fn bare_at_with_whitespace_after_is_plain() {
+        let line = parse_styled_line("say @ hello", Color::Red, Color::Blue);
+        for span in &line.spans {
+            assert_ne!(span.style.fg, Some(Color::Blue), "bare @ must not style");
+        }
+    }
+
+    #[test]
+    fn existing_italic_still_works() {
+        let line = parse_styled_line("plain *italic*", Color::Red, Color::Blue);
+        let italic = line
+            .spans
+            .iter()
+            .find(|s| s.style.add_modifier.contains(Modifier::ITALIC));
+        assert!(italic.is_some(), "italic parsing must still work");
+    }
+
+    #[test]
+    fn existing_dialogue_still_works() {
+        let line = parse_styled_line(r#"he said "hello" loudly"#, Color::Red, Color::Blue);
+        let dialogue = line.spans.iter().find(|s| s.style.fg == Some(Color::Red));
+        assert!(dialogue.is_some(), "dialogue parsing must still work");
+    }
 }

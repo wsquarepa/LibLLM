@@ -6,6 +6,8 @@ pub mod branch;
 pub mod character;
 pub mod delete_confirm;
 pub mod edit;
+pub mod file_picker;
+pub mod injection_warning;
 pub mod passkey;
 pub mod persona;
 pub mod preset;

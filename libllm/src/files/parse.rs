@@ -37,8 +37,7 @@ pub fn file_reference_ranges(raw: &str) -> Vec<FileReference> {
                 continue;
             }
             let is_boundary = i == 0 || bytes[i - 1].is_ascii_whitespace();
-            let is_escaped = i > 0 && bytes[i - 1] == b'\\';
-            if !is_boundary || is_escaped {
+            if !is_boundary {
                 i += 1;
                 continue;
             }
@@ -61,10 +60,15 @@ pub fn file_reference_ranges(raw: &str) -> Vec<FileReference> {
     out
 }
 
-/// Unescape literal `\@` sequences produced by escape syntax so the
-/// message stored in the tree reads as the user intended. `@` tokens
-/// recognised by `file_reference_ranges` are left untouched — this
-/// function only rewrites `\@` → `@` globally.
+/// Strip the leading backslash from every `\@` sequence in `text`,
+/// turning each into a literal `@`. Use after the tokeniser has
+/// decided which `@` tokens to act on — escaped `@`s are emitted as
+/// plain characters here.
+///
+/// Simple global replace: `text.replace("\\@", "@")`. This does not
+/// implement a backslash escape ladder — `\\@` becomes `@`, not
+/// `\@` or `\\ + @`. A message that needs a literal `\` immediately
+/// before `@` must use a space or another character to separate them.
 pub fn unescape_at(text: &str) -> String {
     text.replace("\\@", "@")
 }

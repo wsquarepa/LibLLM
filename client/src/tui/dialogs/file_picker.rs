@@ -1,9 +1,9 @@
 //! Shell-path file picker: opened when the user types `@` at a word
 //! boundary in the input. The picker lists directory entries starting
-//! from the current CWD and narrows as the user types. Typing `/` after
-//! a directory name descends; `~`, `..`, and absolute paths are
-//! supported. Accepting an entry replaces the typed `@<prefix>` with
-//! `@<full-path>`.
+//! from the current CWD and narrows as the user types. Press Enter or
+//! Tab on a directory to descend into it, on a file to accept it. `~`,
+//! `..`, and absolute paths are supported. Accepting an entry replaces
+//! the typed `@<prefix>` with `@<full-path>`.
 
 use std::path::{Path, PathBuf};
 
@@ -217,7 +217,7 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &mut App, area: Rect) 
         dialog,
         area,
         &[Line::from(
-            "Up/Down: move  Enter/Tab: accept  /: descend  Backspace: parent  Esc: close",
+            "Up/Down: move  Enter/Tab: open/accept  Backspace: parent  Esc: close",
         )],
     );
 }
@@ -246,18 +246,8 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
             None
         }
         KeyCode::Enter | KeyCode::Tab => {
-            accept_current(app);
-            None
-        }
-        KeyCode::Char('/') => {
-            if let Some(entry) = state.current().cloned() {
-                if entry.is_dir {
-                    state.base_dir.push(&entry.name);
-                    state.filter.clear();
-                    state.refresh_entries();
-                } else {
-                    accept_current(app);
-                }
+            if !state.descend() {
+                accept_current(app);
             }
             None
         }
@@ -277,7 +267,7 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
             }
             None
         }
-        KeyCode::Char(c) if !c.is_control() => {
+        KeyCode::Char(c) if !c.is_control() && c != '/' => {
             state.filter.push(c);
             state.selected = 0;
             state.list_state.select(Some(0));
@@ -297,18 +287,12 @@ fn accept_current(app: &mut App) {
         };
         let mut full = state.base_dir.clone();
         full.push(&entry.name);
-        if entry.is_dir {
-            let mut with_slash = full.to_string_lossy().into_owned();
-            with_slash.push('/');
-            (with_slash, state.anchor_line, state.anchor_col, state.filter.len())
-        } else {
-            (
-                full.to_string_lossy().into_owned(),
-                state.anchor_line,
-                state.anchor_col,
-                state.filter.len(),
-            )
-        }
+        (
+            full.to_string_lossy().into_owned(),
+            state.anchor_line,
+            state.anchor_col,
+            state.filter.len(),
+        )
     };
 
     let textarea = &mut app.textarea;

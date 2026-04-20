@@ -427,7 +427,7 @@ pub fn render_chat(
                     content
                         .lines()
                         .map(|line| {
-                            let styled = parse_styled_line(line, dialogue_color);
+                            let styled = parse_styled_line(line, dialogue_color, app.theme.file_reference_fg);
                             let mut indented = vec![Span::raw("  ")];
                             indented.extend(styled.spans);
                             Line::from(indented)
@@ -538,7 +538,7 @@ pub fn render_chat(
         }
         let buffer = replace_vars(&app.streaming_buffer);
         for content_line in buffer.lines() {
-            let styled = parse_styled_line(content_line, app.theme.dialogue);
+            let styled = parse_styled_line(content_line, app.theme.dialogue, app.theme.file_reference_fg);
             let mut indented = vec![Span::raw("  ")];
             indented.extend(styled.spans);
             lines.push(Line::from(indented));
@@ -762,7 +762,7 @@ fn build_queue_lines(queue: &[String], user_label: &str, theme: &Theme) -> Vec<L
                 .add_modifier(Modifier::DIM),
         )]));
         for content_line in msg.lines() {
-            let styled = parse_styled_line(content_line, theme.dialogue);
+            let styled = parse_styled_line(content_line, theme.dialogue, theme.file_reference_fg);
             let mut indented: Vec<Span<'static>> = vec![Span::raw("  ")];
             for span in styled.spans {
                 let merged = span.style.patch(dim_style);

@@ -168,9 +168,11 @@ pub(in crate::tui) fn handle_set_passkey_key(
                 "change_passkey"
             };
 
+            let salt_path = libllm::config::salt_path();
+
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {
-                    super::derive_key_blocking(passkey, debug_kind, |derived_key| {
+                    super::derive_key_blocking(salt_path, passkey, debug_kind, |derived_key| {
                         let key = std::sync::Arc::new(derived_key);
                         BackgroundEvent::PasskeySet(key)
                     })

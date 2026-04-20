@@ -93,6 +93,7 @@ pub(in crate::tui) fn handle_passkey_key(
                 return None;
             }
             let db_path = libllm::config::data_dir().join("data.db");
+            let salt_path = libllm::config::salt_path();
             app.resolved_passkey = Some(passkey.clone());
             app.passkey_input.clear();
             app.passkey_error.clear();
@@ -104,7 +105,7 @@ pub(in crate::tui) fn handle_passkey_key(
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {
-                    super::derive_key_blocking(passkey, "unlock", |derived_key| {
+                    super::derive_key_blocking(salt_path, passkey, "unlock", |derived_key| {
                         let verify_start = std::time::Instant::now();
                         let verify_result =
                             libllm::db::Database::open(&db_path, Some(&derived_key));

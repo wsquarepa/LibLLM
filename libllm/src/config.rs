@@ -15,6 +15,11 @@ use crate::sampling::SamplingOverrides;
 #[cfg(not(feature = "test-support"))]
 static DATA_DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
+// Tests use a thread-local so parallel integration tests in the same binary
+// can each pin their own tempdir without a global serialization lock. Any
+// production code that runs on a worker thread (e.g. `tokio::task::spawn_blocking`)
+// must NOT read `data_dir()` / `salt_path()` there — capture paths on the
+// thread that called `set_data_dir` and pass them in.
 #[cfg(feature = "test-support")]
 thread_local! {
     static DATA_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };

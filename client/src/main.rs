@@ -239,25 +239,79 @@ async fn main() -> Result<()> {
     }
 
     if let Some(ref message) = args.message {
-        let text = if message == "-" {
+        use std::io::IsTerminal;
+        let (text, stdin_attachment) = if message == "-" {
             let mut buf = String::new();
             io::stdin().read_to_string(&mut buf)?;
-            buf
+            (buf, None)
+        } else if !io::stdin().is_terminal() {
+            let mut bytes = Vec::new();
+            io::stdin().read_to_end(&mut bytes)?;
+            let attachment = if bytes.is_empty() {
+                None
+            } else {
+                match libllm::files::stdin_attachment(bytes, &cfg.files) {
+                    Ok(rf) => Some(rf),
+                    Err(err) => {
+                        eprintln!("{err}");
+                        std::process::exit(1);
+                    }
+                }
+            };
+            let text = if attachment.is_some() {
+                format!("{message} @stdin")
+            } else {
+                message.clone()
+            };
+            (text, attachment)
         } else {
-            message.clone()
+            (message.clone(), None)
+        };
+
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let prepended = stdin_attachment.into_iter().collect::<Vec<_>>();
+        let system_messages = match libllm::files::resolve_with_prepended(
+            prepended,
+            &text,
+            &cwd,
+            &cfg.files,
+        ) {
+            Ok(msgs) => msgs,
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
         };
 
         let effective_prompt = tui::build_effective_system_prompt_standalone(&session, db.as_ref());
 
-        let parent = session.tree.head();
+        let mut parent = session.tree.head();
+        for sys_msg in system_messages {
+            let id = session.tree.push(parent, sys_msg);
+            parent = Some(id);
+        }
         let user_node = session.tree.push(parent, Message::new(Role::User, text));
 
-        let branch_path = session.tree.branch_path();
+        let branch_path_msgs: Vec<Message> = session
+            .tree
+            .branch_path()
+            .into_iter()
+            .map(|m| match m.role {
+                Role::User => Message {
+                    role: m.role,
+                    content: libllm::files::rewrite_user_message(&m.content),
+                    timestamp: m.timestamp.clone(),
+                },
+                _ => m.clone(),
+            })
+            .collect();
+        let branch_refs: Vec<&Message> = branch_path_msgs.iter().collect();
+
         let prompt_text = reasoning_preset.as_ref().map_or_else(
-            || instruct_preset.render(&branch_path, effective_prompt.as_deref()),
+            || instruct_preset.render(&branch_refs, effective_prompt.as_deref()),
             |preset| {
                 preset.apply_prefix(
-                    &instruct_preset.render(&branch_path, effective_prompt.as_deref()),
+                    &instruct_preset.render(&branch_refs, effective_prompt.as_deref()),
                 )
             },
         );

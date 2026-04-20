@@ -504,6 +504,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dialoguer",
+ "dirs",
  "futures-util",
  "libllm",
  "ratatui",

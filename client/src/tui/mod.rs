@@ -138,6 +138,7 @@ pub async fn run(
         model_name: None,
         api_available: true,
         api_error: String::new(),
+        file_picker: None,
         injection_warning: None,
         status_message: None,
         should_quit: false,
@@ -559,6 +560,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::BranchDialog => Some("branch"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
+        Focus::FilePickerDialog => Some("file_picker"),
         Focus::InjectionWarningDialog => Some("injection_warning"),
         Focus::LoadingDialog => Some("loading"),
         _ => None,
@@ -602,7 +604,7 @@ fn format_token_count(count: usize) -> String {
     }
 }
 
-fn render_dialog(f: &mut ratatui::Frame, app: &App) {
+fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
     match app.focus {
         Focus::PasskeyDialog => {
             dialogs::passkey::render_passkey_dialog(f, app, f.area());
@@ -690,6 +692,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &App) {
         }
         Focus::ApiErrorDialog => {
             dialogs::api_error::render_api_error_dialog(f, app, f.area());
+        }
+        Focus::FilePickerDialog => {
+            dialogs::file_picker::render(f, app, f.area());
         }
         Focus::InjectionWarningDialog => {
             dialogs::injection_warning::render(f, app, f.area());

@@ -45,6 +45,7 @@ pub(super) enum Focus {
     DeleteConfirmDialog,
     EditConfirmDialog,
     ApiErrorDialog,
+    FilePickerDialog,
     InjectionWarningDialog,
     LoadingDialog,
 }
@@ -195,6 +196,7 @@ pub(super) struct App<'a> {
     pub(super) model_name: Option<String>,
     pub(super) api_available: bool,
     pub(super) api_error: String,
+    pub(super) file_picker: Option<dialogs::file_picker::FilePickerState>,
     pub(super) injection_warning: Option<dialogs::injection_warning::InjectionWarning>,
     pub(super) status_message: Option<StatusMessage>,
     pub(super) should_quit: bool,

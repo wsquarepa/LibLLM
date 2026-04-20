@@ -397,7 +397,13 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Left => {
-            let _ = switch_nav_sibling(app, -1);
+            let is_user = app
+                .nav_cursor
+                .and_then(|id| app.session.tree.node(id))
+                .is_some_and(|n| n.message.role == Role::User);
+            if is_user {
+                let _ = switch_nav_sibling(app, -1);
+            }
             None
         }
         KeyCode::Right => {

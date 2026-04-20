@@ -30,10 +30,16 @@ pub fn create_data_dirs(root: &Path) {
 
 /// Derive an encryption key from a fixed test passkey and a fresh salt.
 ///
-/// The salt is written to `root/.salt`. Returns the derived key.
+/// Writes `root/.salt` and an empty `root/config.toml` so the directory satisfies the
+/// strict encrypted-mode marker invariant enforced by `validate_data_dir`. Returns the
+/// derived key.
 pub fn test_key(root: &Path) -> DerivedKey {
     let salt_path = root.join(".salt");
     let salt = libllm::crypto::load_or_create_salt(&salt_path).expect("failed to create salt");
+    let config_path = root.join("config.toml");
+    if !config_path.exists() {
+        std::fs::write(&config_path, "").expect("failed to create placeholder config.toml");
+    }
     libllm::crypto::derive_key("test-passkey", &salt).expect("failed to derive key")
 }
 

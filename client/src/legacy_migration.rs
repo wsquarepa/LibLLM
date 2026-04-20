@@ -63,6 +63,20 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
         return Ok(());
     }
 
+    if !no_encrypt && passkey.is_none() {
+        tracing::warn!(
+            phase = "check",
+            result = "error",
+            reason = "no_encryption_choice",
+            "legacy.migration"
+        );
+        anyhow::bail!(
+            "legacy data detected but no encryption choice was provided; \
+             pass --no-encrypt to migrate as plaintext, or --passkey \
+             (or set LIBLLM_PASSKEY) to migrate as encrypted"
+        );
+    }
+
     eprintln!("Legacy file-based data detected. Migration to SQLite is required.");
 
     let migrate_name = if cfg!(target_os = "windows") {

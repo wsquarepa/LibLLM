@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     }
 
     if let Some(ref data_path) = args.data {
-        let is_existing_dir = validation::validate_data_dir(data_path)?;
+        let is_existing_dir = validation::validate_data_dir(data_path, args.no_encrypt)?;
         config::set_data_dir(data_path.clone())?;
 
         if is_existing_dir {
@@ -483,10 +483,12 @@ fn resolve_character(char_arg: &str, db: Option<&Database>) -> Result<character:
 
 /// Resolves the passkey to use for the `recover` subcommand.
 ///
-/// Returns `None` for plaintext data directories (`--no-encrypt` or no `.salt` file),
-/// honours `--passkey` / `LIBLLM_PASSKEY` when present, and otherwise prompts on the
-/// controlling terminal. Fails with a clear message when the directory is encrypted
-/// but no passkey can be obtained (non-interactive invocation without the flag/env var).
+/// Returns `None` for plaintext data directories (`--no-encrypt` or empty dir with no `.salt` and
+/// no `data.db`), honours `--passkey` / `LIBLLM_PASSKEY` when present, and otherwise prompts on
+/// the controlling terminal. Refuses to proceed when `data.db` exists but `.salt` is missing
+/// unless `--no-encrypt` is explicit: that combination would silently restore plaintext backups
+/// over a potentially-encrypted database. Fails with a clear message when the directory is
+/// encrypted but no passkey can be obtained (non-interactive invocation without the flag/env var).
 fn resolve_recover_passkey(args: &Args, data_dir: &std::path::Path) -> Result<Option<String>> {
     if args.no_encrypt {
         return Ok(None);
@@ -495,6 +497,13 @@ fn resolve_recover_passkey(args: &Args, data_dir: &std::path::Path) -> Result<Op
         return Ok(Some(pk.clone()));
     }
     if !data_dir.join(".salt").exists() {
+        if data_dir.join("data.db").exists() {
+            anyhow::bail!(
+                "data directory has data.db but no .salt: {}\n\
+                 pass --no-encrypt to open it as plaintext, or restore the .salt file before proceeding",
+                data_dir.display()
+            );
+        }
         return Ok(None);
     }
     if !client::interactive::is_interactive() {

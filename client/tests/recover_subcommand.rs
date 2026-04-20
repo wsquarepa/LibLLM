@@ -317,6 +317,34 @@ fn recover_rebuild_index_preserves_diff_restore_points() {
 }
 
 #[test]
+fn recover_refuses_legacy_dir_with_data_db_and_no_salt() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+
+    let sessions_dir = data_dir.join("sessions");
+    std::fs::create_dir(&sessions_dir).unwrap();
+    std::fs::write(sessions_dir.join("session.json"), "{}").unwrap();
+    std::fs::write(data_dir.join("data.db"), b"pretend encrypted database").unwrap();
+
+    let output = Command::new(client_bin())
+        .args(["-d", data_dir.to_str().unwrap(), "recover", "list"])
+        .output()
+        .expect("spawn client");
+    assert!(
+        !output.status.success(),
+        "expected recover to refuse a legacy dir whose data.db is unpaired with .salt; \
+         stdout: {} stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(".salt") && stderr.contains("data.db"),
+        "expected error to mention missing .salt alongside data.db, got: {stderr}"
+    );
+}
+
+#[test]
 fn recover_no_subcommand_non_tty_prints_help() {
     let dir = common::temp_dir();
     let data_dir = dir.path();

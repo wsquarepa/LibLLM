@@ -256,6 +256,34 @@ fn parse_auth_non_secret_flags_populate_cli_overrides() {
 }
 
 #[test]
+fn cli_legacy_dir_without_encryption_flag_exits_nonzero() {
+    let data_dir = tempfile::tempdir().expect("data-dir");
+    let sessions_dir = data_dir.path().join("sessions");
+    std::fs::create_dir(&sessions_dir).expect("create sessions dir");
+    std::fs::write(sessions_dir.join("session.json"), "{}").expect("write legacy session");
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(data_dir.path())
+        .arg("-m")
+        .arg("hello")
+        .output()
+        .expect("spawn client");
+
+    assert!(
+        !output.status.success(),
+        "expected non-zero exit when legacy data is present without --no-encrypt/--passkey; stdout: {} stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--no-encrypt") && stderr.contains("--passkey"),
+        "expected error to ask for --no-encrypt or --passkey, got: {stderr}"
+    );
+}
+
+#[test]
 fn cli_missing_at_path_exits_nonzero_with_stderr() {
     let data_dir = tempfile::tempdir().expect("data-dir");
     let output = std::process::Command::new(common::client_bin())

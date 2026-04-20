@@ -17,7 +17,7 @@ use ratatui::text::Span;
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
-pub(in crate::tui) const FILE_PICKER_DIALOG_WIDTH: u16 = 70;
+pub(in crate::tui) const FILE_PICKER_DIALOG_WIDTH: u16 = 80;
 pub(in crate::tui) const FILE_PICKER_DIALOG_HEIGHT: u16 = 20;
 
 #[derive(Debug, Clone)]

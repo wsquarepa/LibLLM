@@ -185,12 +185,13 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode, mut db) = libllm::timed_result!(
-        tracing::Level::INFO,
-        "startup.phase",
-        phase = "resolve_session" ;
-        { resolve_session(&args) }
-    )?;
+    let (mut session, mut save_mode, mut db, summarizer_db_path, summarizer_key) =
+        libllm::timed_result!(
+            tracing::Level::INFO,
+            "startup.phase",
+            phase = "resolve_session" ;
+            { resolve_session(&args) }
+        )?;
 
     session.template = Some(instruct_preset.name.clone());
 
@@ -346,6 +347,10 @@ async fn main() -> Result<()> {
         instruct_preset,
         sampling,
         cli_overrides,
+        tui::SummarizerParams {
+            db_path: summarizer_db_path,
+            derived_key: summarizer_key,
+        },
     )
     .await?;
 
@@ -378,9 +383,17 @@ fn infer_run_mode(args: &Args) -> &'static str {
     }
 }
 
-fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Database>)> {
+type ResolvedSession = (
+    session::Session,
+    SaveMode,
+    Option<Database>,
+    Option<std::path::PathBuf>,
+    Option<std::sync::Arc<crypto::DerivedKey>>,
+);
+
+fn resolve_session(args: &Args) -> Result<ResolvedSession> {
     if args.message.is_some() && args.data.is_none() {
-        return Ok((session::Session::default(), SaveMode::None, None));
+        return Ok((session::Session::default(), SaveMode::None, None, None, None));
     }
 
     let db_path = config::data_dir().join("data.db");
@@ -392,31 +405,48 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;
-            return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
+            return Ok((
+                session,
+                SaveMode::Database { id: uuid.clone() },
+                Some(db),
+                Some(db_path),
+                None,
+            ));
         }
         return Ok((
             session::Session::default(),
             SaveMode::Database { id },
             Some(db),
+            Some(db_path),
+            None,
         ));
     }
 
     if let Some(ref passkey) = args.passkey {
         let salt = crypto::load_or_create_salt(&config::salt_path())?;
         let key = crypto::derive_key(passkey, &salt)?;
-        let db =
-            Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")?;
+        let key_arc = std::sync::Arc::new(key);
+        let db = Database::open(&db_path, Some(&*key_arc))
+            .context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
         preset::ensure_default_presets();
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;
-            return Ok((session, SaveMode::Database { id: uuid.clone() }, Some(db)));
+            return Ok((
+                session,
+                SaveMode::Database { id: uuid.clone() },
+                Some(db),
+                Some(db_path),
+                Some(key_arc),
+            ));
         }
         return Ok((
             session::Session::default(),
             SaveMode::Database { id },
             Some(db),
+            Some(db_path),
+            Some(key_arc),
         ));
     }
 
@@ -424,6 +454,8 @@ fn resolve_session(args: &Args) -> Result<(session::Session, SaveMode, Option<Da
     Ok((
         session::Session::default(),
         SaveMode::PendingPasskey { id },
+        None,
+        None,
         None,
     ))
 }

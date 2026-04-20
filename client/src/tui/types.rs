@@ -290,6 +290,14 @@ pub(super) struct App<'a> {
     pub(super) sidebar_search: dialogs::SearchState,
     pub(super) last_terminal_height: u16,
     pub(super) input_file_cache: crate::tui::input_file_cache::InputFileCache,
+    pub(super) file_summarizer:
+        Option<std::sync::Arc<libllm::files::FileSummarizer>>,
+    #[expect(
+        dead_code,
+        reason = "consumed by the ready-event drain loop added in the next task"
+    )]
+    pub(super) file_summary_ready_rx:
+        tokio::sync::mpsc::UnboundedReceiver<libllm::files::ReadyEvent>,
 }
 
 impl<'a> App<'a> {

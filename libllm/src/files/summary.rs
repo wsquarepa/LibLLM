@@ -288,6 +288,16 @@ impl FileSummarizer {
         self.poll_interval = std::time::Duration::from_millis(10);
     }
 
+    #[doc(hidden)]
+    pub fn conn_clone_for_reload(&self) -> Arc<Mutex<Connection>> {
+        Arc::clone(&self.conn)
+    }
+
+    #[doc(hidden)]
+    pub fn ready_tx_clone_for_reload(&self) -> mpsc::UnboundedSender<ReadyEvent> {
+        self.ready_tx.clone()
+    }
+
     /// Synchronous DB lookup through the dedicated connection.
     pub fn lookup(&self, session_id: &str, content_hash: &str) -> Option<FileSummary> {
         let guard = self.conn.lock().ok()?;

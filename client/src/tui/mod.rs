@@ -16,7 +16,7 @@ mod types;
 
 use types::*;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use crossterm::event::{Event, EventStream, MouseEventKind};
 
 use futures_util::StreamExt;
@@ -46,6 +46,20 @@ pub fn build_effective_system_prompt_standalone(
     business::build_effective_system_prompt(session, db)
 }
 
+/// Carries the DB connection parameters needed to open a dedicated summarizer connection.
+///
+/// Both fields are `None` for single-run (no DB file) invocations. When present, `db_path`
+/// points to the same SQLite file as the main `App.db`, and `derived_key` is the decryption
+/// key for encrypted databases.
+pub struct SummarizerParams {
+    pub db_path: Option<std::path::PathBuf>,
+    pub derived_key: Option<std::sync::Arc<libllm::crypto::DerivedKey>>,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "entry point for the full TUI session; parameters map directly to distinct startup concerns"
+)]
 pub async fn run(
     client: ApiClient,
     session: &mut Session,
@@ -54,6 +68,7 @@ pub async fn run(
     instruct_preset: InstructPreset,
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
+    summarizer_params: SummarizerParams,
 ) -> Result<Option<String>> {
     let sidebar_sessions = {
         let _span = tracing::info_span!("startup.phase", phase = "sidebar_discovery").entered();
@@ -85,6 +100,46 @@ pub async fn run(
     business::spawn_startup_probes(client.clone(), tokenizer_tx.clone(), bg_tx.clone());
 
     let config = libllm::config::load();
+
+    let (file_summary_ready_tx, file_summary_ready_rx) =
+        tokio::sync::mpsc::unbounded_channel::<libllm::files::ReadyEvent>();
+
+    let file_summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>> =
+        match summarizer_params.db_path.as_ref() {
+            Some(path) => {
+                let conn = rusqlite::Connection::open(path)
+                    .context("open summarizer DB connection")?;
+                if let Some(ref key) = summarizer_params.derived_key {
+                    conn.execute_batch(&key.key_pragma())
+                        .context("apply summarizer DB key")?;
+                }
+                conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+                    .context("configure summarizer DB pragmas")?;
+                let conn_arc = std::sync::Arc::new(std::sync::Mutex::new(conn));
+                let summarize_api_url = config
+                    .summarization
+                    .api_url
+                    .clone()
+                    .unwrap_or_else(|| client.base_url().to_owned());
+                let summarize_auth =
+                    libllm::config::resolve_auth(&config, &cli_overrides.auth_overrides());
+                let summarize_client = libllm::client::ApiClient::new(
+                    &summarize_api_url,
+                    config.tls_skip_verify || cli_overrides.tls_skip_verify,
+                    summarize_auth,
+                );
+                Some(std::sync::Arc::new(libllm::files::FileSummarizer::new(
+                    conn_arc,
+                    summarize_client,
+                    config.files.summary_prompt.clone(),
+                    file_summary_ready_tx,
+                )))
+            }
+            None => {
+                drop(file_summary_ready_tx);
+                None
+            }
+        };
 
     let salt_exists = libllm::config::salt_path().exists();
     let initial_passkey_setup = save_mode.needs_passkey() && !salt_exists;
@@ -231,6 +286,8 @@ pub async fn run(
         sidebar_search: dialogs::SearchState::new(),
         last_terminal_height: 0,
         input_file_cache: input_file_cache::InputFileCache::new(),
+        file_summarizer,
+        file_summary_ready_rx,
     };
 
     if app.token_counter.is_heuristic() {

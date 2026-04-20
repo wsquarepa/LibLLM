@@ -606,10 +606,32 @@ pub(super) fn spawn_context_probe(client: ApiClient, bg_tx: mpsc::Sender<Backgro
     });
 }
 
+fn build_summarize_client(
+    config: &libllm::config::Config,
+    cli_overrides: &crate::cli::CliOverrides,
+) -> ApiClient {
+    let auth = libllm::config::resolve_auth(config, &cli_overrides.auth_overrides());
+    let url = config
+        .summarization
+        .api_url
+        .clone()
+        .unwrap_or_else(|| config.api_url().to_owned());
+    ApiClient::new(&url, config.tls_skip_verify || cli_overrides.tls_skip_verify, auth)
+}
+
 pub(super) fn apply_config(app: &mut App) {
     let previous_connection =
         EffectiveConnectionConfig::from_config(&app.config, &app.cli_overrides);
     let runtime = load_runtime_reload_state(&app.cli_overrides);
+
+    app.file_summarizer = app.file_summarizer.as_ref().map(|existing| {
+        std::sync::Arc::new(libllm::files::FileSummarizer::new(
+            existing.conn_clone_for_reload(),
+            build_summarize_client(&runtime.config, &app.cli_overrides),
+            runtime.config.files.summary_prompt.clone(),
+            existing.ready_tx_clone_for_reload(),
+        ))
+    });
 
     app.instruct_preset = runtime.instruct_preset;
     app.reasoning_preset = runtime.reasoning_preset;

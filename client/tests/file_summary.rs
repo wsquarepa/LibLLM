@@ -266,6 +266,58 @@ async fn no_rows_when_schedule_is_never_called() {
     assert_eq!(count, 0);
 }
 
+#[tokio::test]
+async fn fresh_encrypted_session_schedules_after_unlock_save() {
+    let mock = common::start_mock_summarize_server("fresh session summary").await;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("data.db");
+    let salt = [0u8; 16];
+    let key = Arc::new(libllm::crypto::derive_key("test-passkey", &salt).unwrap());
+    let session_id = "fresh-session";
+
+    {
+        let mut db = libllm::db::Database::open(&db_path, Some(&key)).unwrap();
+        let empty_session = libllm::session::Session {
+            tree: libllm::session::MessageTree::new(),
+            model: None,
+            template: None,
+            system_prompt: None,
+            character: None,
+            worldbooks: Vec::new(),
+            persona: None,
+        };
+        db.save_session(session_id, &empty_session).unwrap();
+    }
+
+    let mut config = libllm::config::Config::default();
+    config.summarization.api_url = Some(mock.uri());
+    let cli_overrides = client::cli::CliOverrides::default();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let summarizer = client::tui::business::build_file_summarizer(
+        &db_path,
+        Some(&key),
+        &config,
+        &cli_overrides,
+        tx,
+    )
+    .unwrap();
+
+    let file = FileToSummarize {
+        basename: "a.md".to_owned(),
+        content_hash: "hash-a".to_owned(),
+        body: "raw file body".to_owned(),
+    };
+    summarizer.schedule(session_id, &file);
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("summarizer should emit a ReadyEvent")
+        .expect("channel not closed");
+    assert_eq!(event.status, FileSummaryStatus::Done);
+    assert_eq!(event.session_id, session_id);
+}
+
 #[test]
 fn build_file_summarizer_opens_encrypted_db() {
     let tmp = tempfile::tempdir().unwrap();

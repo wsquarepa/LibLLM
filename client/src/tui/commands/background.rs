@@ -46,6 +46,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                     };
                     app.db = Some(db);
                     app.save_mode = SaveMode::Database { id };
+                    app.mark_session_dirty(SaveTrigger::Unlock, true);
                     if let Err(err) = app.flush_session_save(SaveTrigger::Unlock) {
                         app.set_status(format!("Save error: {err}"), StatusLevel::Error);
                     }
@@ -121,6 +122,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         };
                         app.db = Some(db);
                         app.save_mode = SaveMode::Database { id };
+                        app.mark_session_dirty(SaveTrigger::Unlock, true);
                         match business::build_file_summarizer(
                             &db_path,
                             Some(&new_key),

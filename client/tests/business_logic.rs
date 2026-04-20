@@ -22,7 +22,7 @@ fn summarizer_includes_prior_summary_as_context() {
         Message::new(Role::User, "New message".to_owned()),
     ];
     let refs: Vec<&_> = msgs.iter().collect();
-    let prompt = Summarizer::format_prompt("Instruction", &refs);
+    let prompt = Summarizer::format_prompt("Instruction", &refs, &libllm::files::NullFileSummaryLookup);
     assert!(prompt.contains("Previous summary: Prior summary content"));
     assert!(prompt.contains("User: New message"));
 }

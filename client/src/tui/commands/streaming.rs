@@ -384,8 +384,9 @@ pub(in crate::tui) async fn handle_stream_token(
                         let summary_counter = app.token_counter.clone();
                         tokio::spawn(async move {
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
+                            let lookup = libllm::files::NullFileSummaryLookup;
                             let result = summarizer
-                                .summarize(&refs, token_budget, &summary_counter)
+                                .summarize(&refs, token_budget, &summary_counter, &lookup)
                                 .await;
                             let _ = tx.send(result.map_err(|e| e.to_string()));
                         });

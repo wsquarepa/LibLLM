@@ -47,7 +47,7 @@ pub struct ReadyEvent {
 
 /// Look up a cached summary by `content_hash`. Implementations carry their
 /// own session scope.
-pub trait FileSummaryLookup {
+pub trait FileSummaryLookup: Send + Sync {
     fn lookup(&self, content_hash: &str) -> Option<FileSummary>;
 }
 
@@ -63,7 +63,7 @@ impl FileSummaryLookup for NullFileSummaryLookup {
 
 /// Object-safe view into a store that can look up summaries given both a
 /// session id and a hash. `FileSummarizer` (added later) implements this.
-pub trait SessionScopedLookup {
+pub trait SessionScopedLookup: Send + Sync {
     fn lookup(&self, session_id: &str, content_hash: &str) -> Option<FileSummary>;
 }
 

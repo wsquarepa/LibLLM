@@ -7,9 +7,7 @@ use libllm::db::Database;
 use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
 use libllm::session::{Message, Role, SaveMode, Session, SessionEntry};
-use libllm::tokenizer::{
-    HeuristicTokenizer, TokenCountUpdate, TokenCounter, TokenizerBackend,
-};
+use libllm::tokenizer::{TokenCountUpdate, TokenCounter};
 use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
 use super::{App, BackgroundEvent};
@@ -591,14 +589,11 @@ async fn emit_startup_probe_events(
     let models_ok = result.is_ok();
     let _ = bg_tx.send(BackgroundEvent::ModelFetched(result)).await;
 
-    let token_counter = if models_ok {
-        TokenCounter::new(client.clone(), tokenizer_tx).await
-    } else {
-        TokenCounter::new_with_backend(
-            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
-            tokenizer_tx,
-        )
-    };
+    if !models_ok {
+        return;
+    }
+
+    let token_counter = TokenCounter::new(client.clone(), tokenizer_tx).await;
     let _ = bg_tx
         .send(BackgroundEvent::TokenizerReloaded(token_counter))
         .await;

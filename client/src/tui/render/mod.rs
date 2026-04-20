@@ -20,18 +20,6 @@ use super::App;
 
 use super::theme::Theme;
 
-fn is_side_character(content: &str) -> bool {
-    let first_line = content.trim_start().lines().next().unwrap_or("");
-    let trimmed = first_line.trim_start();
-    if !trimmed.starts_with('[') {
-        return false;
-    }
-    match trimmed.find("]:") {
-        Some(close_idx) => close_idx > 1,
-        None => false,
-    }
-}
-
 pub struct SidebarCache {
     selected_idx: Option<usize>,
     filter_query: String,
@@ -308,17 +296,27 @@ pub fn render_chat(
                     .node(node_id)
                     .expect("branch id should resolve to a message node")
                     .message;
+                let side = if msg.role == Role::User && app.session.character.is_some() {
+                    libllm::side_character::parse_side_character_block(&msg.content)
+                } else {
+                    None
+                };
                 let (role_label, base_role_style) = match msg.role {
                     Role::User => {
-                        let is_side = app.session.character.is_some()
-                            && is_side_character(&msg.content);
-                        let (fg, bg) = if is_side {
-                            (app.theme.side_character_fg, app.theme.side_character_bg)
-                        } else {
-                            (app.theme.user_character_fg, app.theme.user_character_bg)
+                        let (label, fg, bg) = match &side {
+                            Some((name, _)) => (
+                                name.clone(),
+                                app.theme.side_character_fg,
+                                app.theme.side_character_bg,
+                            ),
+                            None => (
+                                user_label.clone(),
+                                app.theme.user_character_fg,
+                                app.theme.user_character_bg,
+                            ),
                         };
                         (
-                            user_label.clone(),
+                            label,
                             Style::default()
                                 .fg(fg)
                                 .bg(bg)
@@ -363,7 +361,11 @@ pub fn render_chat(
                             .add_modifier(Modifier::DIM),
                     ))]
                 } else {
-                    let content = replace_vars(&msg.content);
+                    let raw_content = match &side {
+                        Some((_, body)) => body.as_str(),
+                        None => msg.content.as_str(),
+                    };
+                    let content = replace_vars(raw_content);
                     let dialogue_color = app.theme.dialogue;
                     content
                         .lines()

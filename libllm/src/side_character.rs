@@ -67,6 +67,98 @@ pub fn split_user_input(raw: &str) -> Vec<String> {
     segments
 }
 
+/// Parse a single stored side-character block into `(name, body)`.
+///
+/// Returns `Some((name, body))` when the first non-blank line of `block` is a
+/// recognised `[Name]:` header (same rules as the internal header check used
+/// by `split_user_input`, except the `\[` escape yields `None` because
+/// rendered blocks have already been through unescape on the way in).
+///
+/// `name` is the content between `[` and `]:`, trimmed on both sides.
+/// `body` is everything after `]:` on the first line (with exactly one
+/// leading space consumed if present), concatenated with the remaining lines
+/// verbatim and joined with `\n`.
+///
+/// Returns `None` for plain text, empty-name headers (`[]:`), escaped
+/// headers (`\[Name]:`), or any line whose first non-whitespace char is not
+/// `[`.
+pub fn parse_side_character_block(block: &str) -> Option<(String, String)> {
+    let mut lines = block.split('\n');
+    let first = lines.next()?;
+    let trimmed = first.trim_start();
+    if trimmed.starts_with("\\[") || !trimmed.starts_with('[') {
+        return None;
+    }
+    let close_idx = trimmed.find("]:")?;
+    if close_idx <= 1 {
+        return None;
+    }
+    let name = trimmed[1..close_idx].trim().to_owned();
+    if name.is_empty() {
+        return None;
+    }
+    let after = &trimmed[close_idx + 2..];
+    let first_body = after.strip_prefix(' ').unwrap_or(after);
+
+    let rest: Vec<&str> = lines.collect();
+    let body = if rest.is_empty() {
+        first_body.to_owned()
+    } else {
+        let mut out = String::with_capacity(block.len());
+        out.push_str(first_body);
+        for line in rest {
+            out.push('\n');
+            out.push_str(line);
+        }
+        out
+    };
+
+    Some((name, body))
+}
+
+/// Byte range of one `[Name]:` header prefix within a raw multi-line input,
+/// expressed as (`line`, `start`..`end`) where offsets index into the line
+/// returned by `raw.split('\n')`. `end` is exclusive and points one past the
+/// `:` of `]:`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeaderPrefix {
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Find every `[Name]:` header prefix the side-character parser would
+/// recognise in `raw`, using the same rules as `split_user_input`
+/// (blank-line-preceded, `\[` escape suppresses, empty name rejected).
+///
+/// Returned ranges are over bytes within each line, suitable for feeding
+/// directly to `tui-textarea`'s `custom_highlight` coordinates.
+pub fn header_prefix_ranges(raw: &str) -> Vec<HeaderPrefix> {
+    let mut out: Vec<HeaderPrefix> = Vec::new();
+    let mut prev_blank = true;
+    for (idx, line) in raw.split('\n').enumerate() {
+        let leading_ws = line
+            .char_indices()
+            .find(|(_, ch)| !ch.is_whitespace())
+            .map(|(i, _)| i)
+            .unwrap_or(line.len());
+        let trimmed = &line[leading_ws..];
+        let is_blank = trimmed.is_empty();
+        if prev_blank && is_header_line(trimmed) {
+            let close_idx = trimmed
+                .find("]:")
+                .expect("is_header_line guarantees ]: is present");
+            out.push(HeaderPrefix {
+                line: idx,
+                start: leading_ws,
+                end: leading_ws + close_idx + 2,
+            });
+        }
+        prev_blank = is_blank;
+    }
+    out
+}
+
 fn is_header_line(trimmed: &str) -> bool {
     if trimmed.starts_with("\\[") {
         return false;
@@ -238,6 +330,135 @@ mod tests {
                 "User voice.".to_owned(),
                 "[Alice]: voice".to_owned(),
             ]
+        );
+    }
+
+    use super::parse_side_character_block;
+
+    #[test]
+    fn parse_side_character_block_extracts_name_and_body() {
+        let out = parse_side_character_block("[Alice]: hello world");
+        assert_eq!(out, Some(("Alice".to_owned(), "hello world".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_preserves_multi_line_body() {
+        let out = parse_side_character_block("[Alice]: line 1\nline 2\n\nline 4");
+        assert_eq!(
+            out,
+            Some((
+                "Alice".to_owned(),
+                "line 1\nline 2\n\nline 4".to_owned(),
+            )),
+        );
+    }
+
+    #[test]
+    fn parse_side_character_block_returns_none_for_plain_text() {
+        assert_eq!(parse_side_character_block("hello world"), None);
+    }
+
+    #[test]
+    fn parse_side_character_block_returns_none_for_escaped_header() {
+        assert_eq!(parse_side_character_block("\\[Alice]: hi"), None);
+    }
+
+    #[test]
+    fn parse_side_character_block_rejects_empty_name() {
+        assert_eq!(parse_side_character_block("[]: nope"), None);
+    }
+
+    #[test]
+    fn parse_side_character_block_handles_leading_whitespace() {
+        let out = parse_side_character_block("   [Alice]: hi");
+        assert_eq!(out, Some(("Alice".to_owned(), "hi".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_trims_name_whitespace() {
+        let out = parse_side_character_block("[  Alice  ]: hi");
+        assert_eq!(out, Some(("Alice".to_owned(), "hi".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_handles_missing_body() {
+        let out = parse_side_character_block("[Alice]:");
+        assert_eq!(out, Some(("Alice".to_owned(), "".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_consumes_single_leading_space_only() {
+        let out = parse_side_character_block("[Alice]:  two spaces");
+        assert_eq!(out, Some(("Alice".to_owned(), " two spaces".to_owned())));
+    }
+
+    use super::{header_prefix_ranges, HeaderPrefix};
+
+    #[test]
+    fn header_prefix_ranges_returns_empty_for_plain_text() {
+        assert!(header_prefix_ranges("hello world").is_empty());
+        assert!(header_prefix_ranges("").is_empty());
+    }
+
+    #[test]
+    fn header_prefix_ranges_finds_single_header_at_start() {
+        let ranges = header_prefix_ranges("[Alice]: hi");
+        assert_eq!(
+            ranges,
+            vec![HeaderPrefix { line: 0, start: 0, end: 8 }],
+        );
+    }
+
+    #[test]
+    fn header_prefix_ranges_finds_multiple_headers_after_blank_lines() {
+        let raw = "User voice.\n\n[Alice]: hi\n\n[Bob]: hello";
+        let ranges = header_prefix_ranges(raw);
+        assert_eq!(
+            ranges,
+            vec![
+                HeaderPrefix { line: 2, start: 0, end: 8 },
+                HeaderPrefix { line: 4, start: 0, end: 6 },
+            ],
+        );
+    }
+
+    #[test]
+    fn header_prefix_ranges_ignores_bracket_without_blank_line() {
+        let raw = "User voice.\n[Alice]: hi";
+        assert!(header_prefix_ranges(raw).is_empty());
+    }
+
+    #[test]
+    fn header_prefix_ranges_ignores_escaped_header() {
+        let raw = "User.\n\n\\[Alice]: hi";
+        assert!(header_prefix_ranges(raw).is_empty());
+    }
+
+    #[test]
+    fn header_prefix_ranges_handles_leading_whitespace() {
+        let raw = "User.\n\n   [Alice]: hi";
+        let ranges = header_prefix_ranges(raw);
+        assert_eq!(
+            ranges,
+            vec![HeaderPrefix { line: 2, start: 3, end: 11 }],
+        );
+    }
+
+    #[test]
+    fn header_prefix_ranges_ignores_empty_brackets() {
+        let raw = "User.\n\n[]: nope";
+        assert!(header_prefix_ranges(raw).is_empty());
+    }
+
+    #[test]
+    fn header_prefix_ranges_supports_utf8_name() {
+        let raw = "[Éloïse]: bonjour";
+        let ranges = header_prefix_ranges(raw);
+        let name_bytes = "Éloïse".len();
+        let expected_end = 1 + name_bytes + 2;
+        assert_eq!(
+            ranges,
+            vec![HeaderPrefix { line: 0, start: 0, end: expected_end }],
         );
     }
 }

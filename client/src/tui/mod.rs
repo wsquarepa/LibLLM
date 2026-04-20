@@ -450,6 +450,17 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         input_block = input_block.title_bottom(Line::from(hint).centered());
     }
     app.textarea.set_block(input_block);
+    app.textarea.clear_custom_highlight();
+    if app.session.character.is_some() {
+        let joined = app.textarea.lines().join("\n");
+        for prefix in libllm::side_character::header_prefix_ranges(&joined) {
+            app.textarea.custom_highlight(
+                ((prefix.line, prefix.start), (prefix.line, prefix.end)),
+                Style::default().fg(app.theme.side_character_fg),
+                1,
+            );
+        }
+    }
     f.render_widget(&app.textarea, input_area);
 
     let (messages_area, queue_area) = render::split_chat_area_for_queue(chat_area, app);

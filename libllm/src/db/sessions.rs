@@ -28,7 +28,7 @@ fn display_name_from_character(character: Option<&str>) -> String {
     character.unwrap_or("Assistant").to_owned()
 }
 
-fn write_session_rows(conn: &Connection, id: &str, session: &Session) -> Result<()> {
+fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
     let display_name = display_name_from_character(session.character.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
@@ -50,7 +50,46 @@ fn write_session_rows(conn: &Connection, id: &str, session: &Session) -> Result<
         ],
     )
     .context("failed to insert session row")?;
+    Ok(())
+}
 
+/// Upsert the `sessions` row without deleting it.
+/// Preserves the existing row id so `ON DELETE CASCADE` dependants
+/// (messages, session_worldbooks, file_summaries) are not wiped.
+fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
+    let now = now_iso8601();
+    let display_name = display_name_from_character(session.character.as_deref());
+    let head_id = session.tree.head().map(|h| h as i64);
+
+    conn.execute(
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+         ON CONFLICT(id) DO UPDATE SET
+            display_name = excluded.display_name,
+            model = excluded.model,
+            template = excluded.template,
+            system_prompt = excluded.system_prompt,
+            character = excluded.character,
+            persona = excluded.persona,
+            head_id = excluded.head_id,
+            updated_at = excluded.updated_at",
+        params![
+            id,
+            display_name,
+            session.model,
+            session.template,
+            session.system_prompt,
+            session.character,
+            session.persona,
+            head_id,
+            now,
+        ],
+    )
+    .context("failed to upsert session row")?;
+    Ok(())
+}
+
+fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     for node in session.tree.nodes() {
         let preferred_child_id = session
             .tree
@@ -95,7 +134,8 @@ pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Res
         worldbook_count = worldbook_count
         ; {
             let sp = conn.savepoint().context("failed to begin savepoint")?;
-            write_session_rows(&sp, id, session)?;
+            insert_session_row(&sp, id, session)?;
+            write_messages_and_worldbooks(&sp, id, session)?;
             sp.commit().context("failed to commit session insert")?;
             Ok(())
         }
@@ -113,9 +153,15 @@ pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Resul
         worldbook_count = worldbook_count
         ; {
             let sp = conn.savepoint().context("failed to begin savepoint")?;
-            sp.execute("DELETE FROM sessions WHERE id = ?1", params![id])
-                .context("failed to clear session")?;
-            write_session_rows(&sp, id, session)?;
+            upsert_session_row(&sp, id, session)?;
+            sp.execute("DELETE FROM messages WHERE session_id = ?1", params![id])
+                .context("failed to clear messages")?;
+            sp.execute(
+                "DELETE FROM session_worldbooks WHERE session_id = ?1",
+                params![id],
+            )
+            .context("failed to clear session_worldbooks")?;
+            write_messages_and_worldbooks(&sp, id, session)?;
             sp.commit().context("failed to commit session save")?;
             Ok(())
         }
@@ -618,6 +664,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!(wb_count, 0);
+    }
+
+    #[test]
+    fn save_session_preserves_file_summaries() {
+        let mut conn = setup_db();
+        let session = make_session_with_messages();
+        insert_session(&mut conn, "sess-fs", &session).unwrap();
+
+        conn.execute(
+            "INSERT INTO file_summaries
+             (session_id, content_hash, basename, summary, status, created_at, updated_at)
+             VALUES ('sess-fs', 'hash-a', 'a.md', '', 'pending', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        save_session(&mut conn, "sess-fs", &session).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_summaries
+                 WHERE session_id = 'sess-fs' AND content_hash = 'hash-a'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "autosave must not cascade-delete file_summaries");
     }
 
     #[test]

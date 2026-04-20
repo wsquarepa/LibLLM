@@ -78,11 +78,11 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Left if app.nav_cursor.is_some() && textarea_is_empty(app) => {
-            switch_nav_sibling(app, -1);
+            let _ = switch_nav_sibling(app, -1);
             None
         }
         KeyCode::Right if app.nav_cursor.is_some() && textarea_is_empty(app) => {
-            switch_nav_sibling(app, 1);
+            let _ = switch_nav_sibling(app, 1);
             None
         }
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
@@ -230,9 +230,17 @@ pub(super) fn retreat_past_snapshot_chain(
     None
 }
 
-fn switch_nav_sibling(app: &mut App, offset: isize) {
+fn next_sibling_index(siblings_len: usize, current_idx: usize, offset: isize) -> Option<usize> {
+    let target = current_idx as isize + offset;
+    if target < 0 || target >= siblings_len as isize {
+        return None;
+    }
+    Some(target as usize)
+}
+
+fn switch_nav_sibling(app: &mut App, offset: isize) -> bool {
     let Some(current) = app.nav_cursor else {
-        return;
+        return false;
     };
     if app
         .session
@@ -240,20 +248,20 @@ fn switch_nav_sibling(app: &mut App, offset: isize) {
         .node(current)
         .is_some_and(|n| n.message.role == Role::Summary)
     {
-        return;
+        return false;
     }
     let siblings = app.session.tree.siblings_of(current);
-    if siblings.len() <= 1 {
-        return;
-    }
     let Some(idx) = siblings.iter().position(|&s| s == current) else {
-        return;
+        return false;
     };
-    let new_idx = (idx as isize + offset).rem_euclid(siblings.len() as isize) as usize;
+    let Some(new_idx) = next_sibling_index(siblings.len(), idx, offset) else {
+        return false;
+    };
     app.session.tree.switch_to(siblings[new_idx]);
     app.invalidate_chat_cache();
     app.nav_cursor = Some(siblings[new_idx]);
     app.mark_session_dirty(super::SaveTrigger::Debounced, false);
+    true
 }
 
 fn navigate_up(app: &mut App) {
@@ -357,11 +365,11 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Left => {
-            switch_nav_sibling(app, -1);
+            let _ = switch_nav_sibling(app, -1);
             None
         }
         KeyCode::Right => {
-            switch_nav_sibling(app, 1);
+            let _ = switch_nav_sibling(app, 1);
             None
         }
         KeyCode::Enter => {
@@ -715,5 +723,43 @@ mod recall_walk_tests {
     fn none_input_returns_none() {
         let tree = MessageTree::new();
         assert_eq!(retreat_past_snapshot_chain(&tree, None), None);
+    }
+}
+
+#[cfg(test)]
+mod sibling_index_tests {
+    use super::next_sibling_index;
+
+    #[test]
+    fn single_sibling_returns_none() {
+        assert_eq!(next_sibling_index(1, 0, -1), None);
+        assert_eq!(next_sibling_index(1, 0, 1), None);
+    }
+
+    #[test]
+    fn left_at_first_returns_none() {
+        assert_eq!(next_sibling_index(3, 0, -1), None);
+    }
+
+    #[test]
+    fn right_at_last_returns_none() {
+        assert_eq!(next_sibling_index(3, 2, 1), None);
+    }
+
+    #[test]
+    fn left_moves_backward() {
+        assert_eq!(next_sibling_index(3, 2, -1), Some(1));
+        assert_eq!(next_sibling_index(3, 1, -1), Some(0));
+    }
+
+    #[test]
+    fn right_moves_forward() {
+        assert_eq!(next_sibling_index(3, 0, 1), Some(1));
+        assert_eq!(next_sibling_index(3, 1, 1), Some(2));
+    }
+
+    #[test]
+    fn empty_returns_none() {
+        assert_eq!(next_sibling_index(0, 0, 1), None);
     }
 }

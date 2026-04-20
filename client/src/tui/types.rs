@@ -96,7 +96,6 @@ pub(super) enum SaveTrigger {
     StreamDone,
     Exit,
     Transition,
-    Unlock,
     Retry,
 }
 
@@ -107,7 +106,6 @@ impl SaveTrigger {
             Self::StreamDone => "stream_done",
             Self::Exit => "exit",
             Self::Transition => "transition",
-            Self::Unlock => "unlock",
             Self::Retry => "retry",
         }
     }

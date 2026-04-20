@@ -11,7 +11,17 @@ use super::types::{
 
 impl App<'_> {
     pub(super) fn can_persist_session(&self) -> bool {
-        matches!(self.save_mode, libllm::session::SaveMode::Database { .. }) && self.db.is_some()
+        matches!(self.save_mode, libllm::session::SaveMode::Database { .. })
+            && self.db.is_some()
+            && self.session_has_user_message()
+    }
+
+    fn session_has_user_message(&self) -> bool {
+        self.session
+            .tree
+            .nodes()
+            .iter()
+            .any(|node| node.message.role == libllm::session::Role::User)
     }
 
     pub(super) fn tick_reject_flashes(&mut self) -> bool {

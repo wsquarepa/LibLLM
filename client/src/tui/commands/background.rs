@@ -4,7 +4,7 @@ use libllm::db::Database;
 use libllm::session::{self, SaveMode};
 
 use crate::tui::business;
-use crate::tui::types::{BackgroundEvent, Focus, SaveTrigger, StatusLevel};
+use crate::tui::types::{BackgroundEvent, Focus, StatusLevel};
 
 use super::App;
 
@@ -46,10 +46,6 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                     };
                     app.db = Some(db);
                     app.save_mode = SaveMode::Database { id };
-                    app.mark_session_dirty(SaveTrigger::Unlock, true);
-                    if let Err(err) = app.flush_session_save(SaveTrigger::Unlock) {
-                        app.set_status(format!("Save error: {err}"), StatusLevel::Error);
-                    }
                     app.invalidate_worldbook_cache();
                     match business::build_file_summarizer(
                         &db_path,
@@ -122,7 +118,6 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         };
                         app.db = Some(db);
                         app.save_mode = SaveMode::Database { id };
-                        app.mark_session_dirty(SaveTrigger::Unlock, true);
                         match business::build_file_summarizer(
                             &db_path,
                             Some(&new_key),
@@ -141,9 +136,6 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                                     StatusLevel::Warning,
                                 );
                             }
-                        }
-                        if let Err(err) = app.flush_session_save(SaveTrigger::Unlock) {
-                            app.set_status(format!("Save error: {err}"), StatusLevel::Error);
                         }
                         app.focus = post_passkey_focus(app);
                         business::refresh_sidebar(app);

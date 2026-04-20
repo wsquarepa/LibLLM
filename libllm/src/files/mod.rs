@@ -5,5 +5,7 @@
 //! See the file-ingestion design spec for the full contract.
 
 mod error;
+mod parse;
 
 pub use error::{DelimiterKind, FileError};
+pub use parse::{FileReference, file_reference_ranges, unescape_at};

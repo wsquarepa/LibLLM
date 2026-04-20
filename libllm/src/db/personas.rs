@@ -79,7 +79,7 @@ pub fn delete_persona(conn: &Connection, slug: &str) -> Result<()> {
 mod tests {
     use rusqlite::Connection;
 
-    use crate::db::schema::run_migrations;
+    use crate::db::migrations::run_migrations;
     use crate::persona::PersonaFile;
 
     use super::*;

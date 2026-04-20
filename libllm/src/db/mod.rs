@@ -15,15 +15,15 @@ use crate::worldinfo::WorldBook;
 
 mod characters;
 pub mod file_summaries;
+pub mod migrations;
 mod personas;
 mod prompts;
-pub mod schema;
 mod sessions;
 mod worldbooks;
 
 pub use file_summaries::{FileSummaryRow, FileSummaryStatus};
+pub use migrations::CURRENT_VERSION;
 pub use prompts::PromptListEntry;
-pub use schema::CURRENT_VERSION;
 pub use sessions::SessionListEntry;
 
 static CIPHER_LOG_SUPPRESSED: OnceLock<()> = OnceLock::new();
@@ -128,7 +128,7 @@ impl Database {
                 conn.execute_batch("PRAGMA foreign_keys = ON;")
                     .context("failed to enable foreign keys")?;
 
-                schema::run_migrations(&conn)?;
+                migrations::run_migrations(&conn)?;
 
                 Ok(Self { conn })
             }
@@ -404,7 +404,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, super::schema::CURRENT_VERSION);
+        assert_eq!(version, super::migrations::CURRENT_VERSION);
     }
 
     #[test]

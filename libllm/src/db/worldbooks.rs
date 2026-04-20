@@ -105,7 +105,7 @@ pub fn delete_worldbook(conn: &Connection, slug: &str) -> Result<()> {
 mod tests {
     use rusqlite::Connection;
 
-    use crate::db::schema::run_migrations;
+    use crate::db::migrations::run_migrations;
     use crate::worldinfo::{Entry, WorldBook};
 
     use super::*;

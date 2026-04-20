@@ -181,7 +181,7 @@ pub fn ensure_builtins(conn: &Connection) -> Result<()> {
 mod tests {
     use rusqlite::Connection;
 
-    use crate::db::schema::run_migrations;
+    use crate::db::migrations::run_migrations;
     use crate::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
     use super::*;

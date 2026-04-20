@@ -172,7 +172,7 @@ mod tests {
     use rusqlite::Connection;
 
     use crate::character::CharacterCard;
-    use crate::db::schema::run_migrations;
+    use crate::db::migrations::run_migrations;
 
     use super::*;
 

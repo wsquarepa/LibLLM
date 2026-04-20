@@ -14,15 +14,16 @@ This downloads the latest stable binary for your platform and installs it to `~/
 
 ## Quickstart
 
-**Prerequisites:** a running [llama.cpp](https://github.com/ggerganov/llama.cpp)-compatible API server exposing an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
+**Prerequisites:** a running [llama.cpp](https://github.com/ggml-org/llama.cpp)-compatible API server exposing an OpenAI-compatible `/v1/chat/completions` endpoint. The default URL is `http://localhost:5001/v1`.
 
 1. Run `libllm` in your terminal.
 2. Set a passkey when prompted on first launch. This encrypts your local data directory.
 3. Type a message and press Enter. Responses stream in real-time and auto-save after each exchange.
 
-To connect to a server on a different address:
+To connect to a server on a different address, you can modify the URL in `/config`, or:
 
 ```sh
+# set via command line argument
 libllm --api-url http://localhost:8080/v1
 # or via environment variable
 export LIBLLM_API_URL=http://localhost:8080/v1
@@ -31,7 +32,7 @@ export LIBLLM_API_URL=http://localhost:8080/v1
 ## Why LibLLM is different
 
 - **Branching conversations.** Retry or edit any message to fork the conversation, then navigate between branches like a tree. You never lose a previous response.
-- **Encrypted local storage.** All sessions, characters, and worldbooks live in a single SQLite database encrypted by default with SQLCipher (AES-256). Nothing leaves your machine.
+- **Encrypted local storage.** All sessions, characters, and worldbooks live in a single SQLite database encrypted by default with SQLCipher (AES-256). Nothing leaves your machine... other than the prompts, of course.
 - **TUI and pipe-friendly CLI.** Full keyboard-driven TUI for interactive use, plus `libllm -m "prompt"` for one-off messages and `--continue` for persistent scripted conversations.
 
 ## Common workflows
@@ -71,29 +72,31 @@ Character cards define an AI persona with a name, description, personality, and 
 
 Roleplay mode is activated by passing both `-c` (character) and `-p` (persona) on the command line. Both flags are required together -- you cannot use one without the other. In roleplay mode, the `/system` and `/persona` TUI commands become read-only viewers.
 
-### Side characters (roleplay only)
+You may find the following documentation useful:  
+
+- [ST - Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/)
+- [ST - Personas](https://docs.sillytavern.app/usage/core-concepts/personas/)
+
+### Side characters
 
 When a character card is attached to the session, a single user input can introduce one or more ad-hoc side characters by appending bracketed headers after a blank line:
 
 ```
-I walk into the tavern.
+*I smile to the barkeeper.* "I'll have two beers, please."
 
-[Barkeep]: Welcome, stranger. What'll it be?
-
-[Patron]: Eh, same thing I always order.
+[Barkeep]: "Alrighty, coming right up!" *His smile glows, as usual.*
 ```
 
-Each bracketed block is pushed as its own user message and rendered in a
-distinct colour. To include a literal `[Name]:` line without triggering
-the parser, escape the bracket: `\[not a header]: ...`. The leading `\`
-is stripped from the stored text.
+Each bracketed block is pushed as its own user message and rendered in a distinct colour. To include a literal `[Name]:` line without triggering the parser, escape the bracket: `\[not a header]: ...`. The leading `\` is stripped from the stored text.
 
-This feature only activates when `session.character` is set. In plain
-assistant chats, the input is sent verbatim.
+This feature only activates when `session.character` is set. In plain assistant chats, the input is sent verbatim.
 
 ### Worldbooks
 
 Worldbooks (lorebooks) provide keyword-activated context injection. Each entry has a set of trigger keywords; when those keywords appear in the conversation, the entry's content is injected into the prompt. This lets you build persistent lore, facts, or instructions that activate only when relevant.
+
+You may find the following documentation useful:
+- [ST - World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/)
 
 ### Auto-summarization
 
@@ -118,7 +121,9 @@ There is no passkey recovery mechanism. If you forget your passkey, the encrypte
 ```sh
 # First message (creates a new session, prints UUID to stderr)
 libllm -d ./project-data --no-encrypt -m "Explain quantum computing"
-# Output: Session: 550e8400-e29b-41d4-a716-446655440000
+# Output: 
+# (...response...)
+# Session: 550e8400-e29b-41d4-a716-446655440000
 
 # Continue the conversation
 libllm -d ./project-data --no-encrypt -m "Now explain it to a 5-year-old" \
@@ -198,7 +203,7 @@ Precedence for each field is CLI/env > `[auth]` in `config.toml`. Non-secret fie
 
 ### Install script options
 
-Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running. Re-running the install script on a system that already has libllm will automatically run `libllm update` instead.
+Set `INSTALL_DIR` to override the install location. For private repositories, set `GITHUB_TOKEN` or `GH_TOKEN` before running. Re-running the install script on a system that already has libllm will reinstall it.
 
 ### From release
 
@@ -231,6 +236,8 @@ The bare `libllm update` opens an arrow-key picker when stdin and stderr are bot
 Switching between channels shows a confirmation prompt since branch builds may introduce data format changes. Use `--yes` / `-y` to skip the prompt.
 
 ### Recover
+
+In the case a bad update is shipped, or your database gets corrupted, you can restore from a backup (if you have this feature enabled.)
 
 ```sh
 libllm recover                   # interactive menu (TTY) or subcommand help (non-TTY)
@@ -294,11 +301,11 @@ libllm import --type persona persona.txt       # .txt requires --type
 libllm import --type prompt system.txt
 libllm import card.json lore.json card2.png    # batch import
 
-# Direct database access (alias: `database`). See "Direct database access" below.
+# Direct database access
 libllm db sql "SELECT slug, name FROM personas;"
-libllm db shell                                # interactive REPL
-libllm db dump backup.db                       # decrypted SQLite copy
-libllm db import edited.db                     # replace contents from a plaintext file
+libllm db shell
+libllm db dump backup.db
+libllm db import edited.db
 ```
 
 ### CLI override behavior
@@ -337,7 +344,7 @@ Flags that overlap with `/config` fields (`--api-url`, `--template`, `--temperat
 
 ## TUI commands
 
-Type `/` in the input to open the command picker. Tab or Space to autocomplete, Enter to execute.
+Type `/` in the input to open the command picker.
 
 | Command | Aliases | Description |
 |---|---|---|
@@ -449,8 +456,6 @@ token_band_warn = "yellow"
 token_band_over = "red"
 ```
 
-> **Breaking (1.3.x -> next):** the `user_message` key in `[theme_colors]` was removed. It is replaced by `user_character_fg` and `user_character_bg`; two new keys `side_character_fg` and `side_character_bg` were added for side-character messages (default red). Users with a `user_message` override must re-set it under `user_character_fg`.
-
 Color values can be named colors (`red`, `dark_gray`, `light_blue`, etc.), hex (`#RRGGBB`), or 256-color indexed (`indexed(N)`). Every field on `ThemeColorOverrides` in `libllm/src/config.rs` can be set here; the `/theme` command and `theme = "dark"` / `"light"` select the base palette that these overrides sit on top of.
 
 ### Export
@@ -495,83 +500,23 @@ To opt out of encryption, use `--data -d <path> --no-encrypt` for an unencrypted
 
 ## Direct database access
 
-The `libllm db` subcommand group (alias `database`) opens the encrypted database through the normal decryption pipeline and exposes four operations: a one-shot SQL runner, an interactive REPL, a decrypted dump, and a replace-from-plaintext import. Useful when something looks wrong in the TUI (e.g., an imported persona that you cannot edit or delete) and you want to inspect or surgically edit the database without nuking your data.
+Use `libllm db` when you want to inspect or fix the database directly.
 
-All four subcommands inherit the standard data-resolution flags: `-d/--data`, `--passkey`/`LIBLLM_PASSKEY`/interactive prompt, and `--no-encrypt`.
+It has four commands:
 
-### `libllm db sql [--write] [--format <fmt>] <query>`
+- `libllm db sql` — run one SQL query
+- `libllm db shell` — open an interactive SQL shell
+- `libllm db dump` — write a decrypted SQLite copy to a file
+- `libllm db import` — replace the live database from a plaintext SQLite file
 
-Run a single SQL statement and print the result.
+These commands use the same data-directory and encryption flags as the rest of LibLLM, including `-d/--data`, `--passkey`, and `--no-encrypt`.
 
-- Read-only by default. Pass `--write` to allow `INSERT`/`UPDATE`/`DELETE` (and `... RETURNING` clauses).
-- `--format` selects the output renderer: `table` (default), `pipe`, `csv`, `json`.
-- Multi-statement input is rejected; use `db shell` or `.read` for scripts.
+Notes:
 
-```sh
-libllm db sql "SELECT slug, name FROM personas ORDER BY slug;"
-libllm db sql --format csv "SELECT slug, name FROM characters;"
-libllm db sql --write "DELETE FROM personas WHERE slug = 'broken-slug';"
-```
-
-### `libllm db shell [--write] [--private]`
-
-Interactive SQL REPL with line editing, history, Ctrl+R reverse search, multi-line input, and dot-commands.
-
-- Read-only by default. Pass `--write` to allow `.write on` to lift the gate within the session.
-- History is persisted to `<data_dir>/.db_shell_history` unless `--private` is passed.
-- A statement whose first input line begins with whitespace is excluded from history (bash `HISTCONTROL=ignorespace`). Use this to run sensitive queries without recording them.
-
-Dot-commands inside the shell:
-
-| Command | Description |
-|---|---|
-| `.help` | List all dot-commands |
-| `.quit`, `.exit` | Exit cleanly (history is saved) |
-| `.tables` | List all tables |
-| `.schema [name]` | Show DDL for one table or all |
-| `.read <file>` | Execute SQL from a file (first error aborts the file) |
-| `.write on\|off` | Toggle the mutation gate (requires `--write` to enable) |
-| `.mode <fmt>` | Output format: `table`, `pipe`, `csv`, `json` |
-| `.headers on\|off` | Toggle column headers in output |
-| `.timer on\|off` | Print elapsed wall time per statement |
-
-### `libllm db dump [--yes|-y] <path>`
-
-Write a fully decrypted SQLite database to `<path>`. The file is a normal plaintext SQLite database openable with `sqlite3` or any other client. Atomic via temp-file + rename. Refuses to overwrite an existing `<path>` without `--yes`.
-
-```sh
-libllm db dump ./snapshot.db
-sqlite3 ./snapshot.db "SELECT * FROM personas;"   # inspect with your favorite tool
-```
-
-### `libllm db import [--yes|-y] <path>`
-
-Replace the encrypted database with the contents of a plaintext SQLite file at `<path>`. Intended workflow: `dump` → edit the plaintext copy → `import`.
-
-Safety properties (all enforced, none configurable):
-
-- A backup of the live database is created via the `backup` crate before any modification. Recover with `libllm recover restore <id>` if anything goes wrong.
-- Aborts if the plaintext file's `schema_version` does not match the binary's expected version.
-- Refuses to run if another LibLLM process is using the database (TUI session, etc.).
-- Confirmation prompt unless `--yes`.
-
-```sh
-libllm db dump ./edit.db
-sqlite3 ./edit.db "DELETE FROM personas WHERE slug = 'stuck';"
-libllm db import --yes ./edit.db
-```
-
-### Exit codes
-
-`libllm db` subcommands use a small set of codes for scripting:
-
-| Code | Meaning |
-|---|---|
-| 0 | Success |
-| 1 | Generic error (open, file I/O, SQL, backup) |
-| 2 | User declined a confirmation prompt |
-| 3 | Schema-version mismatch on `import` |
-| 4 | WAL liveness check failed (another process holds the database) |
+- `sql` and `shell` are read-only unless you pass `--write`.
+- `dump` will not overwrite an existing file unless you confirm or use `--yes`.
+- `import` creates a backup first, checks schema compatibility, and refuses to run if another LibLLM process is using the database.
+- `shell` supports dot-commands like `.help`, `.tables`, `.schema`, and `.read`. A full list can be found using `.help`.
 
 ## Diagnostics
 

@@ -5,11 +5,7 @@ REPO="wsquarepa/LibLLM"
 BINARY_NAME="libllm"
 
 main() {
-    if command -v "$BINARY_NAME" >/dev/null 2>&1; then
-        echo "libllm is already installed. Running 'libllm update' instead."
-        exec "$BINARY_NAME" update
-    fi
-
+    detect_existing_install
     detect_fetcher
     select_channel
     detect_platform
@@ -98,9 +94,16 @@ detect_platform() {
     ASSET_NAME="${BINARY_NAME}-${TARGET}"
 }
 
+detect_existing_install() {
+    EXISTING_BINARY=$(command -v "$BINARY_NAME" 2>/dev/null || true)
+}
+
 resolve_install_dir() {
     if [ -n "$INSTALL_DIR" ]; then
         BIN_DIR="$INSTALL_DIR"
+    elif [ -n "$EXISTING_BINARY" ]; then
+        BIN_DIR=${EXISTING_BINARY%/*}
+        echo "libllm is already installed at ${EXISTING_BINARY}. Reinstalling in place."
     elif [ "$(id -u)" = "0" ]; then
         BIN_DIR="/usr/local/bin"
     else

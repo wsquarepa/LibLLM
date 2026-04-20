@@ -146,6 +146,9 @@ pub(in crate::tui) fn handle_set_passkey_key(
             }
 
             let passkey = app.set_passkey_input.clone();
+            if app.set_passkey_is_initial {
+                app.resolved_passkey = Some(passkey.clone());
+            }
             app.set_passkey_input.clear();
             app.set_passkey_confirm.clear();
             app.set_passkey_error.clear();

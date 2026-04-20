@@ -189,7 +189,25 @@ fn render_message_content(
     };
     let inner = crate::files::snapshot_inner_text(&msg.content);
     let hash = crate::files::content_hash_hex(inner.as_bytes());
-    match lookup.lookup(&hash) {
+    let lookup_result = lookup.lookup(&hash);
+    let branch = match &lookup_result {
+        Some(s)
+            if s.status == crate::files::FileSummaryStatus::Done && !s.summary.is_empty() =>
+        {
+            "substituted"
+        }
+        Some(s) if s.status == crate::files::FileSummaryStatus::Done => "placeholder_empty",
+        Some(s) if s.status == crate::files::FileSummaryStatus::Failed => "placeholder_failed",
+        Some(_) => "placeholder_pending",
+        None => "placeholder_missing",
+    };
+    tracing::debug!(
+        basename = %basename,
+        content_hash = %hash,
+        branch,
+        "summarize.substitute"
+    );
+    match lookup_result {
         Some(summary)
             if summary.status == crate::files::FileSummaryStatus::Done
                 && !summary.summary.is_empty() =>

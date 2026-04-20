@@ -207,14 +207,38 @@ pub(in crate::tui) async fn start_streaming(
             return;
         }
     };
-    if app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager
-        && app.config.summarization.enabled
-        && let (Some(session_id), Some(summarizer)) =
-            (app.save_mode.id(), app.file_summarizer.as_ref())
-    {
-        let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
-        for file in &to_summarize {
-            summarizer.schedule(session_id, file);
+    match (
+        app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
+        app.config.summarization.enabled,
+        app.save_mode.id(),
+        app.file_summarizer.as_ref(),
+    ) {
+        (false, _, _, _) => tracing::debug!(
+            reason = "mode_lazy",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, false, _, _) => tracing::debug!(
+            reason = "summarization_disabled",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, _, None, _) => tracing::debug!(
+            reason = "no_session_id",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, _, _, None) => tracing::debug!(
+            reason = "no_summarizer",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (true, true, Some(session_id), Some(summarizer)) => {
+            let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+            tracing::info!(
+                session_id = %session_id,
+                file_count = to_summarize.len(),
+                "files.summary.eager_schedule.dispatching"
+            );
+            for file in &to_summarize {
+                summarizer.schedule(session_id, file);
+            }
         }
     }
 
@@ -378,20 +402,34 @@ pub(in crate::tui) async fn handle_stream_token(
                         let files_to_wait_on =
                             libllm::files::files_to_summarize_from_messages(&messages_to_summarize);
 
-                        if !files_to_wait_on.is_empty()
-                            && let (Some(session_id), Some(summarizer_svc)) = (
+                        if !files_to_wait_on.is_empty() {
+                            if let (Some(session_id), Some(summarizer_svc)) = (
                                 session_id_for_summarizer.as_deref(),
                                 app.file_summarizer.as_ref(),
-                            )
-                            && let Err(err) = summarizer_svc
-                                .ensure_ready(session_id, &files_to_wait_on)
-                                .await
-                        {
-                            tracing::warn!(
-                                result = "error",
-                                error = %err,
-                                "files.summary.ensure_ready_before_auto_summarize"
-                            );
+                            ) {
+                                tracing::info!(
+                                    session_id = %session_id,
+                                    file_count = files_to_wait_on.len(),
+                                    "files.summary.ensure_ready.dispatch"
+                                );
+                                if let Err(err) = summarizer_svc
+                                    .ensure_ready(session_id, &files_to_wait_on)
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        result = "error",
+                                        error = %err,
+                                        "files.summary.ensure_ready_before_auto_summarize"
+                                    );
+                                }
+                            } else {
+                                tracing::debug!(
+                                    file_count = files_to_wait_on.len(),
+                                    session_present = app.save_mode.id().is_some(),
+                                    summarizer_present = app.file_summarizer.is_some(),
+                                    "files.summary.ensure_ready.skipped"
+                                );
+                            }
                         }
 
                         let summaries_snapshot: HashMap<String, libllm::files::FileSummary> =
@@ -399,15 +437,29 @@ pub(in crate::tui) async fn handle_stream_token(
                                 session_id_for_summarizer.as_deref(),
                                 app.file_summarizer.as_ref(),
                             ) {
-                                files_to_wait_on
-                                    .iter()
-                                    .filter_map(|f| {
-                                        summarizer_svc
-                                            .lookup(session_id, &f.content_hash)
-                                            .map(|s| (f.content_hash.clone(), s))
-                                    })
-                                    .collect()
+                                let snapshot: HashMap<String, libllm::files::FileSummary> =
+                                    files_to_wait_on
+                                        .iter()
+                                        .filter_map(|f| {
+                                            summarizer_svc
+                                                .lookup(session_id, &f.content_hash)
+                                                .map(|s| (f.content_hash.clone(), s))
+                                        })
+                                        .collect();
+                                tracing::debug!(
+                                    session_id = %session_id,
+                                    snapshot_size = snapshot.len(),
+                                    wanted = files_to_wait_on.len(),
+                                    "files.summary.snapshot.built"
+                                );
+                                snapshot
                             } else {
+                                tracing::debug!(
+                                    session_id = session_id_for_summarizer.as_deref().unwrap_or(""),
+                                    snapshot_size = 0usize,
+                                    wanted = files_to_wait_on.len(),
+                                    "files.summary.snapshot.built"
+                                );
                                 HashMap::new()
                             };
 

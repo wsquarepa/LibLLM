@@ -104,11 +104,23 @@ pub async fn run(
     let (file_summary_ready_tx, file_summary_ready_rx) =
         tokio::sync::mpsc::unbounded_channel::<libllm::files::ReadyEvent>();
 
+    tracing::debug!(
+        db_path_present = summarizer_params.db_path.is_some(),
+        encrypted = summarizer_params.derived_key.is_some(),
+        "tui.file_summarizer.construct.start"
+    );
     let file_summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>> =
         match summarizer_params.db_path.as_ref() {
             Some(path) => {
-                let conn = rusqlite::Connection::open(path)
-                    .context("open summarizer DB connection")?;
+                let conn = {
+                    let _span = tracing::info_span!(
+                        "tui.file_summarizer.open_conn",
+                        path = %path.display()
+                    )
+                    .entered();
+                    rusqlite::Connection::open(path)
+                        .context("open summarizer DB connection")?
+                };
                 if let Some(ref key) = summarizer_params.derived_key {
                     conn.execute_batch(&key.key_pragma())
                         .context("apply summarizer DB key")?;
@@ -128,6 +140,10 @@ pub async fn run(
                     config.tls_skip_verify || cli_overrides.tls_skip_verify,
                     summarize_auth,
                 );
+                tracing::info!(
+                    api_url = %summarize_api_url,
+                    "tui.file_summarizer.construct.done"
+                );
                 Some(std::sync::Arc::new(libllm::files::FileSummarizer::new(
                     conn_arc,
                     summarize_client,
@@ -136,6 +152,7 @@ pub async fn run(
                 )))
             }
             None => {
+                tracing::info!(reason = "no_db_path", "tui.file_summarizer.construct.skipped");
                 drop(file_summary_ready_tx);
                 None
             }

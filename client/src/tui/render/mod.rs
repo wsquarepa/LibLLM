@@ -29,6 +29,14 @@ fn format_file_snapshot_block(
     let inner_size = inner_snapshot_size(content);
     let header = format!("--- File: {basename} ({}) ---", format_bytes(inner_size));
 
+    tracing::trace!(
+        basename = %basename,
+        summarization_enabled,
+        summary_status = ?summary.map(|s| s.status),
+        summary_bytes = summary.map(|s| s.summary.len()).unwrap_or(0),
+        "tui.render.file_snapshot"
+    );
+
     if !summarization_enabled {
         return vec![header];
     }

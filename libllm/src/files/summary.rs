@@ -152,6 +152,11 @@ impl FileSummarizer {
             }
         };
         if !inserted {
+            tracing::debug!(
+                session_id = %session_id,
+                content_hash = %file.content_hash,
+                "files.summary.schedule.skipped_existing"
+            );
             return;
         }
         tracing::info!(
@@ -171,6 +176,12 @@ impl FileSummarizer {
         let content_hash = file.content_hash.clone();
         let body = file.body.clone();
         tokio::spawn(async move {
+            tracing::debug!(
+                session_id = %session_id,
+                content_hash = %content_hash,
+                body_bytes = body.len(),
+                "files.summary.task.start"
+            );
             let outcome = run_summary_task(&client, &prompt_instruction, &body).await;
             let status = match &outcome {
                 Ok(text) => {
@@ -211,6 +222,12 @@ impl FileSummarizer {
                     FileSummaryStatus::Failed
                 }
             };
+            tracing::info!(
+                session_id = %session_id,
+                content_hash = %content_hash,
+                status = ?status,
+                "files.summary.task.done"
+            );
             let _ = ready_tx.send(ReadyEvent {
                 session_id,
                 content_hash,
@@ -302,12 +319,28 @@ impl FileSummarizer {
     pub fn lookup(&self, session_id: &str, content_hash: &str) -> Option<FileSummary> {
         let guard = self.conn.lock().ok()?;
         match file_summaries::lookup(&guard, session_id, content_hash) {
-            Ok(Some(row)) => Some(FileSummary {
-                basename: row.basename,
-                summary: row.summary,
-                status: row.status,
-            }),
-            Ok(None) => None,
+            Ok(Some(row)) => {
+                tracing::debug!(
+                    session_id = %session_id,
+                    content_hash = %content_hash,
+                    status = ?row.status,
+                    summary_bytes = row.summary.len(),
+                    "files.summary.lookup.hit"
+                );
+                Some(FileSummary {
+                    basename: row.basename,
+                    summary: row.summary,
+                    status: row.status,
+                })
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    session_id = %session_id,
+                    content_hash = %content_hash,
+                    "files.summary.lookup.miss"
+                );
+                None
+            }
             Err(err) => {
                 tracing::error!(
                     result = "error",

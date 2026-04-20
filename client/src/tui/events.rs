@@ -201,14 +201,38 @@ fn handle_edit_message(
         }
     };
 
-    if app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager
-        && app.config.summarization.enabled
-        && let (Some(session_id), Some(summarizer)) =
-            (app.save_mode.id(), app.file_summarizer.as_ref())
-    {
-        let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
-        for file in &to_summarize {
-            summarizer.schedule(session_id, file);
+    match (
+        app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
+        app.config.summarization.enabled,
+        app.save_mode.id(),
+        app.file_summarizer.as_ref(),
+    ) {
+        (false, _, _, _) => tracing::debug!(
+            reason = "mode_lazy",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, false, _, _) => tracing::debug!(
+            reason = "summarization_disabled",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, _, None, _) => tracing::debug!(
+            reason = "no_session_id",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, _, _, None) => tracing::debug!(
+            reason = "no_summarizer",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (true, true, Some(session_id), Some(summarizer)) => {
+            let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+            tracing::info!(
+                session_id = %session_id,
+                file_count = to_summarize.len(),
+                "files.summary.eager_schedule.dispatching"
+            );
+            for file in &to_summarize {
+                summarizer.schedule(session_id, file);
+            }
         }
     }
 

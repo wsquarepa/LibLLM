@@ -61,7 +61,16 @@ pub fn insert_pending(
             params![session_id, content_hash, basename, now],
         )
         .context("failed to insert file_summaries row")?;
-    Ok(changes == 1)
+    let inserted = changes == 1;
+    if inserted {
+        tracing::info!(
+            session_id = %session_id,
+            content_hash = %content_hash,
+            basename = %basename,
+            "db.file_summaries.insert_pending"
+        );
+    }
+    Ok(inserted)
 }
 
 /// Transition a row to `done` with the given summary text. Returns the number
@@ -81,6 +90,20 @@ pub fn set_done(
             params![summary, now, session_id, content_hash],
         )
         .context("failed to set file_summaries done")?;
+    if n == 1 {
+        tracing::info!(
+            session_id = %session_id,
+            content_hash = %content_hash,
+            summary_bytes = summary.len(),
+            "db.file_summaries.set_done"
+        );
+    } else if n == 0 {
+        tracing::warn!(
+            session_id = %session_id,
+            content_hash = %content_hash,
+            "db.file_summaries.set_done.row_missing"
+        );
+    }
     Ok(n)
 }
 
@@ -95,6 +118,19 @@ pub fn set_failed(conn: &Connection, session_id: &str, content_hash: &str) -> Re
             params![now, session_id, content_hash],
         )
         .context("failed to set file_summaries failed")?;
+    if n == 1 {
+        tracing::info!(
+            session_id = %session_id,
+            content_hash = %content_hash,
+            "db.file_summaries.set_failed"
+        );
+    } else if n == 0 {
+        tracing::warn!(
+            session_id = %session_id,
+            content_hash = %content_hash,
+            "db.file_summaries.set_failed.row_missing"
+        );
+    }
     Ok(n)
 }
 

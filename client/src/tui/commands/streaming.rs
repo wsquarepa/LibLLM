@@ -185,7 +185,38 @@ pub(in crate::tui) async fn start_streaming(
         return;
     }
     debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let sys_messages = match libllm::files::resolve_all(content, &cwd, &app.config.files) {
+        Ok(v) => v,
+        Err(libllm::files::FileError::Collision { path, kind }) => {
+            let basename = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_owned();
+            let delimiter = match kind {
+                libllm::files::DelimiterKind::Start => "<<<FILE ...>>>",
+                libllm::files::DelimiterKind::End => "<<<END ...>>>",
+            };
+            app.injection_warning = Some(
+                crate::tui::dialogs::injection_warning::InjectionWarning {
+                    basename,
+                    delimiter,
+                },
+            );
+            app.focus = crate::tui::Focus::InjectionWarningDialog;
+            return;
+        }
+        Err(err) => {
+            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+            return;
+        }
+    };
     let mut parent = app.session.tree.head();
+    for sys_msg in sys_messages {
+        let new_id = app.session.tree.push(parent, sys_msg);
+        parent = Some(new_id);
+    }
     let segments: Vec<String> = if app.session.character.is_some() {
         libllm::side_character::split_user_input(content)
     } else {

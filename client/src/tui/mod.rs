@@ -407,6 +407,16 @@ pub async fn run(
                         needs_redraw = true;
                     }
                 }
+                while let Ok(event) = app.file_summary_ready_rx.try_recv() {
+                    tracing::debug!(
+                        session_id = %event.session_id,
+                        content_hash = %event.content_hash,
+                        status = ?event.status,
+                        "tui.file_summary.ready"
+                    );
+                    app.invalidate_chat_cache();
+                    needs_redraw = true;
+                }
                 if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
                     let trigger = app.pending_save_trigger.unwrap_or(SaveTrigger::Retry);
                     if let Err(err) = app.flush_session_save(trigger) {

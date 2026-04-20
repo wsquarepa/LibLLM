@@ -67,6 +67,55 @@ pub fn split_user_input(raw: &str) -> Vec<String> {
     segments
 }
 
+/// Parse a single stored side-character block into `(name, body)`.
+///
+/// Returns `Some((name, body))` when the first non-blank line of `block` is a
+/// recognised `[Name]:` header (same rules as the internal header check used
+/// by `split_user_input`, except the `\[` escape yields `None` because
+/// rendered blocks have already been through unescape on the way in).
+///
+/// `name` is the content between `[` and `]:`, trimmed on both sides.
+/// `body` is everything after `]:` on the first line (with exactly one
+/// leading space consumed if present), concatenated with the remaining lines
+/// verbatim and joined with `\n`.
+///
+/// Returns `None` for plain text, empty-name headers (`[]:`), escaped
+/// headers (`\[Name]:`), or any line whose first non-whitespace char is not
+/// `[`.
+pub fn parse_side_character_block(block: &str) -> Option<(String, String)> {
+    let mut lines = block.split('\n');
+    let first = lines.next()?;
+    let trimmed = first.trim_start();
+    if trimmed.starts_with("\\[") || !trimmed.starts_with('[') {
+        return None;
+    }
+    let close_idx = trimmed.find("]:")?;
+    if close_idx <= 1 {
+        return None;
+    }
+    let name = trimmed[1..close_idx].trim().to_owned();
+    if name.is_empty() {
+        return None;
+    }
+    let after = &trimmed[close_idx + 2..];
+    let first_body = after.strip_prefix(' ').unwrap_or(after);
+
+    let rest: Vec<&str> = lines.collect();
+    let body = if rest.is_empty() {
+        first_body.to_owned()
+    } else {
+        let mut out = String::with_capacity(block.len());
+        out.push_str(first_body);
+        for line in rest {
+            out.push('\n');
+            out.push_str(line);
+        }
+        out
+    };
+
+    Some((name, body))
+}
+
 fn is_header_line(trimmed: &str) -> bool {
     if trimmed.starts_with("\\[") {
         return false;
@@ -239,5 +288,64 @@ mod tests {
                 "[Alice]: voice".to_owned(),
             ]
         );
+    }
+
+    use super::parse_side_character_block;
+
+    #[test]
+    fn parse_side_character_block_extracts_name_and_body() {
+        let out = parse_side_character_block("[Alice]: hello world");
+        assert_eq!(out, Some(("Alice".to_owned(), "hello world".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_preserves_multi_line_body() {
+        let out = parse_side_character_block("[Alice]: line 1\nline 2\n\nline 4");
+        assert_eq!(
+            out,
+            Some((
+                "Alice".to_owned(),
+                "line 1\nline 2\n\nline 4".to_owned(),
+            )),
+        );
+    }
+
+    #[test]
+    fn parse_side_character_block_returns_none_for_plain_text() {
+        assert_eq!(parse_side_character_block("hello world"), None);
+    }
+
+    #[test]
+    fn parse_side_character_block_returns_none_for_escaped_header() {
+        assert_eq!(parse_side_character_block("\\[Alice]: hi"), None);
+    }
+
+    #[test]
+    fn parse_side_character_block_rejects_empty_name() {
+        assert_eq!(parse_side_character_block("[]: nope"), None);
+    }
+
+    #[test]
+    fn parse_side_character_block_handles_leading_whitespace() {
+        let out = parse_side_character_block("   [Alice]: hi");
+        assert_eq!(out, Some(("Alice".to_owned(), "hi".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_trims_name_whitespace() {
+        let out = parse_side_character_block("[  Alice  ]: hi");
+        assert_eq!(out, Some(("Alice".to_owned(), "hi".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_handles_missing_body() {
+        let out = parse_side_character_block("[Alice]:");
+        assert_eq!(out, Some(("Alice".to_owned(), "".to_owned())));
+    }
+
+    #[test]
+    fn parse_side_character_block_consumes_single_leading_space_only() {
+        let out = parse_side_character_block("[Alice]:  two spaces");
+        assert_eq!(out, Some(("Alice".to_owned(), " two spaces".to_owned())));
     }
 }

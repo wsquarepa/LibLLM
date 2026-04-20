@@ -1,4 +1,13 @@
-//! Database schema definitions and versioned migration runner.
+//! Versioned database migration runner.
+//!
+//! Each migration lives in its own file (`v1.rs`, `v2.rs`, ...) and exposes a
+//! single `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `run_migrations`
+//! reads the current schema version, runs every missing step in order, and
+//! stamps each one as it finishes. Adding a new migration is three lines: a new
+//! file, a `mod vN;` declaration, and an `if version < N` branch below.
+
+mod v1;
+mod v2;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -24,12 +33,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
         let mut applied = 0usize;
         if version < 1 {
-            migrate_v1(conn)?;
+            v1::migrate(conn)?;
             stamp_version(conn, 1)?;
             applied += 1;
         }
         if version < 2 {
-            migrate_v2(conn)?;
+            v2::migrate(conn)?;
             stamp_version(conn, 2)?;
             applied += 1;
         }
@@ -52,108 +61,6 @@ fn stamp_version(conn: &Connection, version: i64) -> Result<()> {
     )
     .context("failed to record schema version")?;
     Ok(())
-}
-
-pub(super) fn migrate_v1(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v1" ; {
-        conn.execute_batch(
-        "CREATE TABLE sessions (
-            id TEXT PRIMARY KEY NOT NULL,
-            display_name TEXT,
-            model TEXT,
-            template TEXT,
-            system_prompt TEXT,
-            character TEXT,
-            persona TEXT,
-            head_id INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE session_worldbooks (
-            session_id TEXT NOT NULL,
-            worldbook_slug TEXT NOT NULL,
-            PRIMARY KEY (session_id, worldbook_slug),
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE messages (
-            id INTEGER NOT NULL,
-            session_id TEXT NOT NULL,
-            parent_id INTEGER,
-            preferred_child_id INTEGER,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            PRIMARY KEY (session_id, id),
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX idx_messages_session ON messages(session_id);
-
-        CREATE TABLE characters (
-            slug TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT,
-            personality TEXT,
-            scenario TEXT,
-            first_mes TEXT,
-            mes_example TEXT,
-            system_prompt TEXT,
-            post_history_instructions TEXT,
-            alternate_greetings TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE worldbooks (
-            slug TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
-            entries TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE system_prompts (
-            slug TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
-            content TEXT NOT NULL,
-            builtin INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE personas (
-            slug TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
-            persona TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );",
-        )
-        .context("failed to run migration v1")
-    })
-}
-
-fn migrate_v2(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v2" ; {
-        conn.execute_batch(
-            "CREATE TABLE file_summaries (
-                session_id   TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                basename     TEXT NOT NULL,
-                summary      TEXT NOT NULL DEFAULT '',
-                status       TEXT NOT NULL,
-                created_at   TEXT NOT NULL,
-                updated_at   TEXT NOT NULL,
-                PRIMARY KEY (session_id, content_hash),
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX idx_file_summaries_status ON file_summaries(status);",
-        )
-        .context("failed to run migration v2")
-    })
 }
 
 #[cfg(test)]
@@ -256,7 +163,7 @@ mod tests {
              INSERT INTO schema_version (version) VALUES (1);",
         )
         .unwrap();
-        super::migrate_v1(&conn).unwrap();
+        super::v1::migrate(&conn).unwrap();
         conn.execute(
             "INSERT INTO characters (slug, name, created_at, updated_at)
              VALUES ('alice', 'Alice', '2026-01-01', '2026-01-01')",

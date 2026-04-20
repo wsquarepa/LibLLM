@@ -369,7 +369,7 @@ mod tests {
     fn summarizer_conn() -> Arc<Mutex<Connection>> {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        crate::db::schema::run_migrations(&conn).unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
         conn.execute(
             "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
             [],

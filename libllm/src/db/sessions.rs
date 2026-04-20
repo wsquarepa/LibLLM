@@ -390,7 +390,7 @@ pub fn update_preferred_child(
 mod tests {
     use rusqlite::Connection;
 
-    use crate::db::schema::run_migrations;
+    use crate::db::migrations::run_migrations;
     use crate::session::{Message, MessageTree, Node, Role, Session};
 
     use super::*;

@@ -425,7 +425,7 @@ pub fn render_chat(
                 };
 
                 let (sib_idx, sib_total) = app.session.tree.sibling_info(node_id);
-                let branch_indicator = if sib_total > 1 {
+                let branch_indicator = if msg.role == Role::User && sib_total > 1 {
                     format!(" [{}/{}]", sib_idx + 1, sib_total)
                 } else {
                     String::new()

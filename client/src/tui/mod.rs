@@ -70,11 +70,15 @@ pub async fn run(
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
     let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
 
-    business::spawn_startup_probes(client.clone(), bg_tx.clone());
-
     let (tokenizer_tx, mut tokenizer_rx) = mpsc::channel::<libllm::tokenizer::TokenCountUpdate>(64);
-    let token_counter =
-        libllm::tokenizer::TokenCounter::new(client.clone(), tokenizer_tx.clone()).await;
+    let token_counter = libllm::tokenizer::TokenCounter::new_with_backend(
+        libllm::tokenizer::TokenizerBackend::Heuristic(
+            libllm::tokenizer::HeuristicTokenizer::standard(),
+        ),
+        tokenizer_tx.clone(),
+    );
+
+    business::spawn_startup_probes(client.clone(), tokenizer_tx.clone(), bg_tx.clone());
 
     let config = libllm::config::load();
 

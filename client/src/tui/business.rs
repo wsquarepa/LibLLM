@@ -7,7 +7,9 @@ use libllm::db::Database;
 use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
 use libllm::session::{Message, Role, SaveMode, Session, SessionEntry};
-use libllm::tokenizer::{TokenCountUpdate, TokenCounter};
+use libllm::tokenizer::{
+    HeuristicTokenizer, TokenCountUpdate, TokenCounter, TokenizerBackend,
+};
 use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
 use super::{App, BackgroundEvent};
@@ -555,9 +557,27 @@ fn load_runtime_reload_state(cli_overrides: &crate::cli::CliOverrides) -> Runtim
     }
 }
 
-async fn emit_startup_probe_events(client: ApiClient, bg_tx: mpsc::Sender<BackgroundEvent>) {
+async fn emit_startup_probe_events(
+    client: ApiClient,
+    tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
+) {
     let result = client.fetch_model_name().await;
+    let models_ok = result.is_ok();
     let _ = bg_tx.send(BackgroundEvent::ModelFetched(result)).await;
+
+    let token_counter = if models_ok {
+        TokenCounter::new(client.clone(), tokenizer_tx).await
+    } else {
+        TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tokenizer_tx,
+        )
+    };
+    let _ = bg_tx
+        .send(BackgroundEvent::TokenizerReloaded(token_counter))
+        .await;
+
     if let Some(server_ctx) = client.fetch_server_context_size().await {
         let _ = bg_tx
             .send(BackgroundEvent::ServerContextSize(server_ctx))
@@ -565,9 +585,13 @@ async fn emit_startup_probe_events(client: ApiClient, bg_tx: mpsc::Sender<Backgr
     }
 }
 
-pub(super) fn spawn_startup_probes(client: ApiClient, bg_tx: mpsc::Sender<BackgroundEvent>) {
+pub(super) fn spawn_startup_probes(
+    client: ApiClient,
+    tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
+) {
     tokio::spawn(async move {
-        emit_startup_probe_events(client, bg_tx).await;
+        emit_startup_probe_events(client, tokenizer_tx, bg_tx).await;
     });
 }
 
@@ -578,20 +602,6 @@ pub(super) fn spawn_context_probe(client: ApiClient, bg_tx: mpsc::Sender<Backgro
                 .send(BackgroundEvent::ServerContextSize(server_ctx))
                 .await;
         }
-    });
-}
-
-fn spawn_runtime_reload(
-    client: ApiClient,
-    tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
-    bg_tx: mpsc::Sender<BackgroundEvent>,
-) {
-    tokio::spawn(async move {
-        let token_counter = TokenCounter::new(client.clone(), tokenizer_tx).await;
-        let _ = bg_tx
-            .send(BackgroundEvent::TokenizerReloaded(token_counter))
-            .await;
-        emit_startup_probe_events(client, bg_tx).await;
     });
 }
 
@@ -616,7 +626,7 @@ pub(super) fn apply_config(app: &mut App) {
         app.model_name = None;
         app.api_available = true;
         app.api_error.clear();
-        spawn_runtime_reload(
+        spawn_startup_probes(
             app.client.clone(),
             app.tokenizer_tx.clone(),
             app.bg_tx.clone(),

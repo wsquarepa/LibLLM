@@ -66,6 +66,48 @@ pub fn snapshot_basename(content: &str) -> Option<String> {
     None
 }
 
+/// Returns the substring between the first `<<<FILE name>>>` and the matching
+/// `<<<END name>>>` marker, exclusive of the marker lines. Returns `""` when
+/// `content` is not a recognised snapshot.
+pub fn snapshot_inner_text(content: &str) -> &str {
+    let Some(basename) = snapshot_basename(content) else {
+        return "";
+    };
+    let start_marker = format!("<<<FILE {basename}>>>");
+    let end_marker = format!("<<<END {basename}>>>");
+
+    let newline_marker = format!("\n{start_marker}");
+    let marker_line_start = if content.starts_with(&start_marker) {
+        Some(0)
+    } else {
+        content.find(&newline_marker).map(|idx| idx + 1)
+    };
+    let start_line_end = match marker_line_start {
+        Some(idx) => {
+            let after = idx + start_marker.len();
+            let rest = &content[after..];
+            match rest.find('\n') {
+                Some(nl) => after + nl + 1,
+                None => return "",
+            }
+        }
+        None => return "",
+    };
+    let newline_end_marker = format!("\n{end_marker}");
+    let end_line_start = match content[start_line_end..].find(&newline_end_marker) {
+        Some(rel) => {
+            let abs = start_line_end + rel;
+            let before = &content[..abs];
+            before.trim_end_matches('\n').trim_end_matches('\r').len()
+        }
+        None => return "",
+    };
+    if end_line_start <= start_line_end {
+        return "";
+    }
+    &content[start_line_end..end_line_start]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +215,34 @@ mod tests {
         let body = "The user has attached a file. Its name is \"x.md\" and its contents follow between the <<<FILE x.md>>> and <<<END x.md>>> delimiters.\r\n\r\n<<<FILE x.md>>>\r\nhello\r\nworld\r\n<<<END x.md>>>";
         assert_eq!(snapshot_basename(body).as_deref(), Some("x.md"));
         assert!(is_snapshot(body));
+    }
+
+    #[test]
+    fn snapshot_inner_text_extracts_body_between_markers() {
+        let body = build_snapshot_body("notes.md", "line one\nline two");
+        assert_eq!(snapshot_inner_text(&body), "line one\nline two");
+    }
+
+    #[test]
+    fn snapshot_inner_text_handles_crlf() {
+        let body = "<<<FILE x.md>>>\r\nhello\r\nworld\r\n<<<END x.md>>>";
+        assert_eq!(snapshot_inner_text(body), "hello\r\nworld");
+    }
+
+    #[test]
+    fn snapshot_inner_text_returns_empty_for_non_snapshot() {
+        assert_eq!(snapshot_inner_text("just freeform text"), "");
+    }
+
+    #[test]
+    fn snapshot_inner_text_pins_to_outer_markers() {
+        let body = "<<<FILE outer>>>\n<<<FILE inner>>>\ntext\n<<<END outer>>>";
+        assert_eq!(snapshot_inner_text(body), "<<<FILE inner>>>\ntext");
+    }
+
+    #[test]
+    fn snapshot_inner_text_empty_body() {
+        let body = "<<<FILE z>>>\n<<<END z>>>";
+        assert_eq!(snapshot_inner_text(body), "");
     }
 }

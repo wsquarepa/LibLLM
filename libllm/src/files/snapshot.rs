@@ -20,7 +20,7 @@ pub fn check_delimiter_collision(
 ) -> Result<(), FileError> {
     let start_marker = format!("<<<FILE {basename}>>>");
     let end_marker = format!("<<<END {basename}>>>");
-    for line in text.split('\n') {
+    for line in text.lines() {
         if line == start_marker {
             return Err(FileError::Collision {
                 path: path.to_path_buf(),
@@ -48,23 +48,22 @@ pub fn is_snapshot(content: &str) -> bool {
 /// content isn't a recognised snapshot.
 pub fn snapshot_basename(content: &str) -> Option<String> {
     let mut start_name: Option<&str> = None;
-    let mut end_name: Option<&str> = None;
-    for line in content.split('\n') {
-        if let Some(rest) = line.strip_prefix("<<<FILE ")
+    for line in content.lines() {
+        if start_name.is_none() {
+            if let Some(rest) = line.strip_prefix("<<<FILE ")
+                && let Some(name) = rest.strip_suffix(">>>")
+                && !name.is_empty()
+            {
+                start_name = Some(name);
+            }
+        } else if let Some(rest) = line.strip_prefix("<<<END ")
             && let Some(name) = rest.strip_suffix(">>>")
+            && Some(name) == start_name
         {
-            start_name = Some(name);
-        }
-        if let Some(rest) = line.strip_prefix("<<<END ")
-            && let Some(name) = rest.strip_suffix(">>>")
-        {
-            end_name = Some(name);
+            return Some(name.to_owned());
         }
     }
-    match (start_name, end_name) {
-        (Some(s), Some(e)) if s == e && !s.is_empty() => Some(s.to_owned()),
-        _ => None,
-    }
+    None
 }
 
 #[cfg(test)]
@@ -144,5 +143,28 @@ mod tests {
     fn snapshot_basename_rejects_empty_name() {
         let body = "<<<FILE >>>\ntext\n<<<END >>>";
         assert_eq!(snapshot_basename(body), None);
+    }
+
+    #[test]
+    fn snapshot_basename_ignores_interior_file_marker() {
+        let body = "<<<FILE a>>>\ninjected\n<<<FILE b>>>\nreal\n<<<END b>>>";
+        assert_eq!(snapshot_basename(body), None);
+    }
+
+    #[test]
+    fn snapshot_basename_returns_outer_name_even_with_interior_markers() {
+        let body = "<<<FILE outer>>>\n<<<FILE inner>>>\ntext\n<<<END outer>>>";
+        assert_eq!(snapshot_basename(body), Some("outer".to_owned()));
+    }
+
+    #[test]
+    fn check_collision_detects_crlf_line_endings() {
+        let path = std::path::Path::new("/tmp/evil.md");
+        let body = "prefix\r\n<<<FILE evil.md>>>\r\nmore\r\n";
+        let err = check_delimiter_collision(path, "evil.md", body).unwrap_err();
+        match err {
+            FileError::Collision { kind: DelimiterKind::Start, .. } => (),
+            other => panic!("expected Start collision, got {other:?}"),
+        }
     }
 }

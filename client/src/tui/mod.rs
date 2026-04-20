@@ -29,6 +29,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
 use crate::cli::CliOverrides;
 use libllm::client::{ApiClient, StreamToken};
 use libllm::context::ContextManager;
@@ -594,7 +597,7 @@ fn estimate_input_tokens(app: &mut App) -> usize {
     let input = app.textarea.lines().join("\n");
     let base = estimate_input_tokens_from_text(&input, &app.token_counter);
     if !app.config.files.enabled {
-        app.input_file_cache.retain_paths(&std::collections::HashSet::new());
+        app.input_file_cache.retain_paths(&HashSet::new());
         return base;
     }
     refresh_input_file_cache(app, &input);
@@ -602,8 +605,8 @@ fn estimate_input_tokens(app: &mut App) -> usize {
 }
 
 fn refresh_input_file_cache(app: &mut App, input: &str) {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let mut live: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut live: HashSet<PathBuf> = HashSet::new();
     for r in libllm::files::file_reference_ranges(input) {
         let raw_path = r.path();
         if raw_path == "stdin" {
@@ -636,8 +639,6 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
             app.input_file_cache.insert(
                 canonical.clone(),
                 input_file_cache::CachedResolution {
-                    byte_size: size,
-                    text_len: text.len(),
                     estimated_tokens: estimated,
                 },
             );
@@ -647,7 +648,7 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
     app.input_file_cache.retain_paths(&live);
 }
 
-fn expand_at_path(raw: &str, cwd: &std::path::Path) -> std::path::PathBuf {
+fn expand_at_path(raw: &str, cwd: &Path) -> PathBuf {
     if let Some(rest) = raw.strip_prefix("~/")
         && let Some(home) = dirs::home_dir()
     {
@@ -658,7 +659,7 @@ fn expand_at_path(raw: &str, cwd: &std::path::Path) -> std::path::PathBuf {
     {
         return home;
     }
-    let p = std::path::Path::new(raw);
+    let p = Path::new(raw);
     if p.is_absolute() {
         p.to_path_buf()
     } else {

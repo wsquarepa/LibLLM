@@ -22,6 +22,27 @@ pub struct InjectionWarning {
     pub delimiter: &'static str,
 }
 
+pub(in crate::tui) fn open(
+    app: &mut App<'_>,
+    path: &std::path::Path,
+    kind: libllm::files::DelimiterKind,
+) {
+    let basename = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_owned();
+    let delimiter = match kind {
+        libllm::files::DelimiterKind::Start => "<<<FILE ...>>>",
+        libllm::files::DelimiterKind::End => "<<<END ...>>>",
+    };
+    app.injection_warning = Some(InjectionWarning {
+        basename,
+        delimiter,
+    });
+    app.focus = crate::tui::Focus::InjectionWarningDialog;
+}
+
 pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let dialog = clear_centered(
         f,

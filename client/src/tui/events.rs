@@ -118,7 +118,7 @@ fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> O
     }
     let bytes = std::fs::read(&canonical).ok()?;
     libllm::files::classify(&canonical, &bytes).ok()?;
-    Some(format!("@{}", canonical.display()))
+    Some(format!("@{}", canonical.to_string_lossy()))
 }
 
 fn clean_pasted_path(raw: &str) -> String {
@@ -181,22 +181,7 @@ fn handle_edit_message(
     let sys_messages = match libllm::files::resolve_all(&content, &cwd, &app.config.files) {
         Ok(v) => v,
         Err(libllm::files::FileError::Collision { path, kind }) => {
-            let basename = path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_owned();
-            let delimiter = match kind {
-                libllm::files::DelimiterKind::Start => "<<<FILE ...>>>",
-                libllm::files::DelimiterKind::End => "<<<END ...>>>",
-            };
-            app.injection_warning = Some(
-                crate::tui::dialogs::injection_warning::InjectionWarning {
-                    basename,
-                    delimiter,
-                },
-            );
-            app.focus = Focus::InjectionWarningDialog;
+            crate::tui::dialogs::injection_warning::open(app, &path, kind);
             return;
         }
         Err(err) => {

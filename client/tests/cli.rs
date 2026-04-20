@@ -4,6 +4,7 @@
 )]
 mod common;
 
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -352,7 +353,6 @@ fn cli_at_token_resolves_relative_file() {
 
 #[test]
 fn cli_stdin_piped_auto_attaches_as_stdin() {
-    use std::io::Write as _;
     let data_dir = tempfile::tempdir().expect("data-dir");
 
     let mut child = std::process::Command::new(common::client_bin())
@@ -392,7 +392,6 @@ fn cli_stdin_piped_auto_attaches_as_stdin() {
 
 #[test]
 fn cli_dash_m_still_reads_stdin_as_prompt_with_no_attachment() {
-    use std::io::Write as _;
     let data_dir = tempfile::tempdir().expect("data-dir");
 
     let mut child = std::process::Command::new(common::client_bin())

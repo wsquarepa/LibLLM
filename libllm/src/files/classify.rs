@@ -18,9 +18,6 @@ impl Classified {
         }
     }
 
-    pub fn is_pdf(&self) -> bool {
-        matches!(self, Classified::Pdf(_))
-    }
 }
 
 /// Classify `bytes` originating from `path`.
@@ -68,7 +65,7 @@ mod tests {
     fn utf8_text_classifies_as_text() {
         let out = classify(Path::new("/tmp/x.md"), b"hello world").unwrap();
         assert_eq!(out.text(), "hello world");
-        assert!(!out.is_pdf());
+        assert!(matches!(out, Classified::Text(_)));
     }
 
     #[test]

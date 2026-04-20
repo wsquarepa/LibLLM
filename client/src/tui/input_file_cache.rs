@@ -6,10 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
-#[expect(dead_code, reason = "byte_size and text_len are part of the public contract consumed by the send-time pipeline in a later task")]
 pub struct CachedResolution {
-    pub byte_size: usize,
-    pub text_len: usize,
     pub estimated_tokens: usize,
 }
 
@@ -52,11 +49,7 @@ mod tests {
         let mut cache = InputFileCache::new();
         cache.insert(
             PathBuf::from("/tmp/a.md"),
-            CachedResolution {
-                byte_size: 10,
-                text_len: 10,
-                estimated_tokens: 3,
-            },
+            CachedResolution { estimated_tokens: 3 },
         );
         assert_eq!(
             cache.lookup(Path::new("/tmp/a.md")).map(|r| r.estimated_tokens),
@@ -69,19 +62,11 @@ mod tests {
         let mut cache = InputFileCache::new();
         cache.insert(
             PathBuf::from("/tmp/a.md"),
-            CachedResolution {
-                byte_size: 1,
-                text_len: 1,
-                estimated_tokens: 1,
-            },
+            CachedResolution { estimated_tokens: 1 },
         );
         cache.insert(
             PathBuf::from("/tmp/b.md"),
-            CachedResolution {
-                byte_size: 1,
-                text_len: 1,
-                estimated_tokens: 1,
-            },
+            CachedResolution { estimated_tokens: 1 },
         );
         let mut live = HashSet::new();
         live.insert(PathBuf::from("/tmp/a.md"));
@@ -95,19 +80,11 @@ mod tests {
         let mut cache = InputFileCache::new();
         cache.insert(
             PathBuf::from("/tmp/a.md"),
-            CachedResolution {
-                byte_size: 1,
-                text_len: 1,
-                estimated_tokens: 3,
-            },
+            CachedResolution { estimated_tokens: 3 },
         );
         cache.insert(
             PathBuf::from("/tmp/b.md"),
-            CachedResolution {
-                byte_size: 1,
-                text_len: 1,
-                estimated_tokens: 5,
-            },
+            CachedResolution { estimated_tokens: 5 },
         );
         assert_eq!(cache.sum_estimated_tokens(), 8);
     }

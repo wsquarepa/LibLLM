@@ -405,7 +405,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             }
             None
         }
-        KeyCode::Delete => {
+        KeyCode::Backspace | KeyCode::Delete => {
             let node_id = app.nav_cursor?;
             let node = app.session.tree.node(node_id)?;
             let role = node.message.role;

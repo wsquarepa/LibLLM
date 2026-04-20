@@ -671,7 +671,9 @@ pub fn render_chat(
         );
     } else if chat_focused {
         chat_block = chat_block
-            .title_bottom(Line::from(" Up/Down: navigate, Left/Right: branch ").centered());
+            .title_bottom(
+                Line::from(" Up/Down: navigate, Left/Right: branch, Del: delete ").centered(),
+            );
     } else {
         let worldbook_label = format_count(worldbook_count, "worldbook");
         let model_label =

@@ -90,16 +90,33 @@ pub(super) fn parse_styled_line(
                     continue;
                 }
                 chars.next();
-                let mut end = at_start + 1;
-                while let Some(&(j, next_ch)) = chars.peek() {
-                    if next_ch.is_whitespace() {
-                        end = j;
-                        break;
-                    }
+                let is_quoted = chars.peek().is_some_and(|&(_, c)| c == '"');
+                let end_opt = if is_quoted {
                     chars.next();
-                    end = j + next_ch.len_utf8();
-                }
-                if end > at_start + 1 {
+                    let content_start = at_start + 2;
+                    text[content_start..].find('"').map(|rel| {
+                        let close_abs = content_start + rel;
+                        let skip_to = close_abs + 1;
+                        while chars.peek().is_some_and(|&(idx, _)| idx < skip_to) {
+                            chars.next();
+                        }
+                        skip_to
+                    })
+                } else {
+                    let mut end = at_start + 1;
+                    while let Some(&(j, next_ch)) = chars.peek() {
+                        if next_ch.is_whitespace() {
+                            end = j;
+                            break;
+                        }
+                        chars.next();
+                        end = j + next_ch.len_utf8();
+                    }
+                    Some(end)
+                };
+                if let Some(end) = end_opt
+                    && end > at_start + 1
+                {
                     if plain_start < at_start {
                         spans.push(Span::raw(text[plain_start..at_start].to_owned()));
                     }
@@ -187,5 +204,39 @@ mod tests {
         let line = parse_styled_line(r#"he said "hello" loudly"#, Color::Red, Color::Blue);
         let dialogue = line.spans.iter().find(|s| s.style.fg == Some(Color::Red));
         assert!(dialogue.is_some(), "dialogue parsing must still work");
+    }
+
+    #[test]
+    fn quoted_at_token_captures_spaces_in_styled_span() {
+        let line = parse_styled_line(
+            r#"read @"Lecture 29 notes.pdf" now"#,
+            Color::Red,
+            Color::Blue,
+        );
+        let styled = line
+            .spans
+            .iter()
+            .find(|s| s.style.fg == Some(Color::Blue))
+            .expect("expected a styled @-token span");
+        assert_eq!(styled.content, r#"@"Lecture 29 notes.pdf""#);
+    }
+
+    #[test]
+    fn quoted_at_token_does_not_trigger_dialogue_style() {
+        // The quoted @-token opens with `@"` — the dialogue parser
+        // would otherwise want to style the inner `"`. Confirm no
+        // span gets the dialogue colour.
+        let line = parse_styled_line(
+            r#"read @"Lecture 29 notes.pdf""#,
+            Color::Red,
+            Color::Blue,
+        );
+        for span in &line.spans {
+            assert_ne!(
+                span.style.fg,
+                Some(Color::Red),
+                "content inside the @-quoted token must not use dialogue colour",
+            );
+        }
     }
 }

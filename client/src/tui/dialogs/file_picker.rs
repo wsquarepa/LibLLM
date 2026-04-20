@@ -303,11 +303,15 @@ fn accept_current(app: &mut App) {
     }
     let line = &mut lines[anchor_line];
     // The token starts at `@` (anchor_col) and extends to `anchor_col + 1 + filter_len`.
-    // Replace it with `@<full_path>`.
+    // Replace it with `@<full_path>`, wrapping in quotes if the path has whitespace.
     let token_end = (anchor_col + 1 + filter_len).min(line.len());
     let head = line[..anchor_col].to_owned();
     let tail = line[token_end..].to_owned();
-    let replacement = format!("@{full_path}");
+    let replacement = if full_path.chars().any(char::is_whitespace) {
+        format!("@\"{full_path}\"")
+    } else {
+        format!("@{full_path}")
+    };
     let new_line = format!("{head}{replacement}{tail}");
     let new_cursor_col = anchor_col + replacement.len();
     *line = new_line;

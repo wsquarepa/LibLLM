@@ -118,7 +118,18 @@ fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> O
     }
     let bytes = std::fs::read(&canonical).ok()?;
     libllm::files::classify(&canonical, &bytes).ok()?;
-    Some(format!("@{}", canonical.to_string_lossy()))
+    let display = canonical.to_string_lossy();
+    Some(format_at_token(&display))
+}
+
+/// Build an `@<path>` token, wrapping the path in double quotes when it
+/// contains any whitespace so the tokeniser captures the full path.
+fn format_at_token(path: &str) -> String {
+    if path.chars().any(char::is_whitespace) {
+        format!("@\"{path}\"")
+    } else {
+        format!("@{path}")
+    }
 }
 
 fn clean_pasted_path(raw: &str) -> String {
@@ -778,5 +789,30 @@ mod paste_tests {
             per_message_bytes: 4_194_304,
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
+
+    #[test]
+    fn paste_wraps_path_with_spaces_in_quotes() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("Lecture 29 notes.md");
+        std::fs::write(&p, "body").unwrap();
+        let cfg = libllm::config::FilesConfig::default();
+        let out = paste_as_file_reference(p.to_str().unwrap(), &cfg)
+            .expect("spaced path should paste");
+        assert!(out.starts_with(r#"@""#));
+        assert!(out.ends_with('"'));
+        assert!(out.contains("Lecture 29 notes.md"));
+    }
+
+    #[test]
+    fn paste_leaves_non_spaced_path_bare() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("plain.md");
+        std::fs::write(&p, "body").unwrap();
+        let cfg = libllm::config::FilesConfig::default();
+        let out = paste_as_file_reference(p.to_str().unwrap(), &cfg).unwrap();
+        assert!(out.starts_with('@'));
+        assert!(!out.starts_with(r#"@""#));
+        assert!(!out.ends_with('"'));
     }
 }

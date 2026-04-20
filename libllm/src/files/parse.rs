@@ -13,9 +13,22 @@ pub struct FileReference {
 }
 
 impl FileReference {
-    /// The path component (the `<path>` in `@<path>`), without the leading `@`.
+    /// The path component of the token, without the leading `@` and
+    /// with any surrounding double quotes stripped. `@notes.md` yields
+    /// `notes.md`; `@"Lecture 29 notes.pdf"` yields `Lecture 29 notes.pdf`.
     pub fn path(&self) -> &str {
-        &self.raw[1..]
+        let after_at = &self.raw[1..];
+        if after_at.len() >= 2 && after_at.starts_with('"') && after_at.ends_with('"') {
+            &after_at[1..after_at.len() - 1]
+        } else {
+            after_at
+        }
+    }
+
+    /// True if the token uses the quoted form `@"..."`.
+    pub fn is_quoted(&self) -> bool {
+        let after_at = self.raw.get(1..).unwrap_or("");
+        after_at.len() >= 2 && after_at.starts_with('"') && after_at.ends_with('"')
     }
 }
 
@@ -23,9 +36,16 @@ impl FileReference {
 /// of input, after a whitespace character, or immediately after a newline.
 /// A `\@` prefix escapes the token and is not returned.
 ///
-/// The token extends from `@` to the next whitespace character (or end
-/// of line); empty paths (`@` followed immediately by whitespace) are
-/// ignored.
+/// Two forms are recognised:
+///
+/// - **Bare:** `@` followed by one or more non-whitespace, non-quote
+///   characters. Token ends at the next whitespace byte or end of line.
+/// - **Quoted:** `@"..."` — `@` immediately followed by `"`. Token
+///   ends at the next `"` on the same line. This lets paths with
+///   spaces survive the tokeniser. An unterminated quote (no closing
+///   `"` on the same line) is not a token.
+///
+/// Empty tokens (`@` alone, `@""`) are ignored.
 pub fn file_reference_ranges(raw: &str) -> Vec<FileReference> {
     let mut out: Vec<FileReference> = Vec::new();
     for (line_idx, line) in raw.split('\n').enumerate() {
@@ -42,22 +62,54 @@ pub fn file_reference_ranges(raw: &str) -> Vec<FileReference> {
                 continue;
             }
             let start = i;
-            let mut end = i + 1;
-            while end < bytes.len() && !bytes[end].is_ascii_whitespace() {
-                end += 1;
-            }
-            if end > start + 1 {
+            let after_at = start + 1;
+            let end_opt = if after_at < bytes.len() && bytes[after_at] == b'"' {
+                // Quoted form: find the closing quote on this line.
+                let search_from = after_at + 1;
+                line[search_from..]
+                    .find('"')
+                    .map(|rel| search_from + rel + 1)
+            } else {
+                // Bare form: scan to whitespace.
+                let mut e = after_at;
+                while e < bytes.len() && !bytes[e].is_ascii_whitespace() {
+                    e += 1;
+                }
+                Some(e)
+            };
+            let Some(end) = end_opt else {
+                i = after_at;
+                continue;
+            };
+            let raw_slice = &line[start..end];
+            if !is_empty_token(raw_slice) {
                 out.push(FileReference {
                     line: line_idx,
                     start,
                     end,
-                    raw: line[start..end].to_owned(),
+                    raw: raw_slice.to_owned(),
                 });
             }
             i = end.max(i + 1);
         }
     }
     out
+}
+
+/// True for tokens whose path component is empty: `@` alone (bare, no
+/// chars after), or `@""` (quoted with no content).
+fn is_empty_token(raw: &str) -> bool {
+    let after_at = match raw.strip_prefix('@') {
+        Some(rest) => rest,
+        None => return true,
+    };
+    if after_at.is_empty() {
+        return true;
+    }
+    if after_at == "\"\"" {
+        return true;
+    }
+    false
 }
 
 /// Strip the leading backslash from every `\@` sequence in `text`,
@@ -163,5 +215,53 @@ mod tests {
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].raw, "@file.md,");
         assert_eq!(refs[0].path(), "file.md,");
+    }
+
+    #[test]
+    fn quoted_token_captures_spaces() {
+        let refs = file_reference_ranges(r#"read @"Lecture 29 notes.pdf" please"#);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].raw, r#"@"Lecture 29 notes.pdf""#);
+        assert_eq!(refs[0].path(), "Lecture 29 notes.pdf");
+        assert!(refs[0].is_quoted());
+    }
+
+    #[test]
+    fn quoted_token_next_to_plain_text() {
+        let refs = file_reference_ranges(r#"@"a b.md"rest"#);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].raw, r#"@"a b.md""#);
+        assert_eq!(refs[0].path(), "a b.md");
+    }
+
+    #[test]
+    fn unterminated_quote_yields_no_token() {
+        let refs = file_reference_ranges(r#"read @"Lecture 29 notes"#);
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn empty_quoted_token_is_ignored() {
+        let refs = file_reference_ranges(r#"nothing @"" here"#);
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn quoted_does_not_cross_newline() {
+        let refs = file_reference_ranges("@\"foo\nbar\"");
+        assert!(
+            refs.is_empty(),
+            "no closing quote on same line means no token"
+        );
+    }
+
+    #[test]
+    fn bare_and_quoted_tokens_coexist() {
+        let refs = file_reference_ranges(r#"cmp @a.md with @"b c.md""#);
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].path(), "a.md");
+        assert!(!refs[0].is_quoted());
+        assert_eq!(refs[1].path(), "b c.md");
+        assert!(refs[1].is_quoted());
     }
 }

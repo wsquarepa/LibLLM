@@ -231,3 +231,37 @@ async fn null_lookup_renders_placeholder() {
     assert!(prompt.contains("summary unavailable"));
     assert!(!prompt.contains("RAW_BODY_PRESENT"));
 }
+
+#[tokio::test]
+async fn lookup_on_empty_session_returns_none() {
+    let conn = setup_summarizer_conn("s1");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let summarizer = FileSummarizer::new(
+        Arc::clone(&conn),
+        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        "Summarize the file.".to_owned(),
+        tx,
+    );
+    // Simulates the single-run path: the controller never calls schedule when
+    // save_mode.id() returns None. Confirm lookup is safe for non-existent sessions.
+    assert!(summarizer.lookup("nonexistent-session", "any-hash").is_none());
+}
+
+#[tokio::test]
+async fn no_rows_when_schedule_is_never_called() {
+    let conn = setup_summarizer_conn("s1");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let _summarizer = FileSummarizer::new(
+        Arc::clone(&conn),
+        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        "Summarize the file.".to_owned(),
+        tx,
+    );
+
+    let count: i64 = conn
+        .lock()
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM file_summaries", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}

@@ -1496,4 +1496,16 @@ summary_prompt = "custom prompt"
         assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
         assert!(!config.files.summary_prompt.is_empty());
     }
+
+    #[test]
+    fn files_config_summarize_mode_only_keeps_other_defaults() {
+        let toml_text = "[files]\nsummarize_mode = \"eager\"\n";
+        let config: Config = toml::from_str(toml_text).unwrap();
+        let defaults = crate::config::FilesConfig::default();
+        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
+        assert_eq!(config.files.enabled, defaults.enabled);
+        assert_eq!(config.files.per_file_bytes, defaults.per_file_bytes);
+        assert_eq!(config.files.per_message_bytes, defaults.per_message_bytes);
+        assert_eq!(config.files.summary_prompt, defaults.summary_prompt);
+    }
 }

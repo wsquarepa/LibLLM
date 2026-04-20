@@ -222,6 +222,13 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_inner_text_roundtrips_unicode_basename() {
+        let body = build_snapshot_body("日記.md", "body text");
+        assert_eq!(snapshot_basename(&body).as_deref(), Some("日記.md"));
+        assert_eq!(snapshot_inner_text(&body), "body text");
+    }
+
+    #[test]
     fn snapshot_inner_text_handles_crlf() {
         let body = build_snapshot_body("x.md", "hello\r\nworld");
         assert_eq!(snapshot_inner_text(&body), "hello\r\nworld");

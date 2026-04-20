@@ -98,4 +98,10 @@ mod tests {
             "literal \\@keep",
         );
     }
+
+    #[test]
+    fn tilde_prefix_rewrites_to_basename() {
+        let out = rewrite_user_message("read @~/notes/list.md");
+        assert_eq!(out, "read [list.md]");
+    }
 }

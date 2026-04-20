@@ -148,4 +148,20 @@ mod tests {
         assert_eq!(unescape_at("plain"), "plain");
         assert_eq!(unescape_at("\\@a and \\@b"), "@a and @b");
     }
+
+    #[test]
+    fn empty_input_has_no_ranges() {
+        assert!(file_reference_ranges("").is_empty());
+    }
+
+    #[test]
+    fn token_captures_trailing_punctuation() {
+        // Tokenizer stops at whitespace, so `@file.md,` includes the comma.
+        // This test pins the current behaviour so a future refactor that
+        // strips trailing punctuation is caught explicitly.
+        let refs = file_reference_ranges("see @file.md, here");
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].raw, "@file.md,");
+        assert_eq!(refs[0].path(), "file.md,");
+    }
 }

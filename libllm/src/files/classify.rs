@@ -102,4 +102,13 @@ mod tests {
             "expected PdfNoText or Io wrapping pdf-extract failure",
         );
     }
+
+    #[test]
+    fn utf8_multibyte_content_classifies_as_text() {
+        // Japanese characters occupying 3 bytes each in UTF-8.
+        let bytes = b"\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+        let out = classify(Path::new("/tmp/nihongo.txt"), bytes).unwrap();
+        assert_eq!(out.text(), "日本語");
+        assert!(matches!(out, Classified::Text(_)));
+    }
 }

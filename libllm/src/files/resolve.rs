@@ -310,4 +310,67 @@ mod tests {
         let msgs = resolve_all("summarise @stdin", tmp.path(), &config()).unwrap();
         assert!(msgs.is_empty(), "bare @stdin without prepended attachment produces no message");
     }
+
+    #[test]
+    fn file_exactly_at_per_file_cap_accepted() {
+        let tmp = TempDir::new().unwrap();
+        let cap = 128usize;
+        std::fs::write(tmp.path().join("edge.md"), vec![b'x'; cap]).unwrap();
+        let cfg = FilesConfig {
+            enabled: true,
+            per_file_bytes: cap,
+            per_message_bytes: 4 * 1024 * 1024,
+        };
+        let msgs = resolve_all("read @edge.md", tmp.path(), &cfg).unwrap();
+        assert_eq!(msgs.len(), 1);
+    }
+
+    #[test]
+    fn file_one_byte_over_per_file_cap_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let cap = 128usize;
+        std::fs::write(tmp.path().join("over.md"), vec![b'x'; cap + 1]).unwrap();
+        let cfg = FilesConfig {
+            enabled: true,
+            per_file_bytes: cap,
+            per_message_bytes: 4 * 1024 * 1024,
+        };
+        let err = resolve_all("read @over.md", tmp.path(), &cfg).unwrap_err();
+        assert!(matches!(err, FileError::TooLarge { .. }));
+    }
+
+    #[test]
+    fn per_file_bytes_zero_rejects_any_non_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("one.md"), b"x").unwrap();
+        let cfg = FilesConfig {
+            enabled: true,
+            per_file_bytes: 0,
+            per_message_bytes: 4 * 1024 * 1024,
+        };
+        let err = resolve_all("read @one.md", tmp.path(), &cfg).unwrap_err();
+        assert!(matches!(err, FileError::TooLarge { .. }));
+    }
+
+    #[test]
+    fn same_path_twice_produces_two_snapshot_messages() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("dup.md"), "hello").unwrap();
+        let cfg = FilesConfig::default();
+        let msgs = resolve_all("read @dup.md and again @dup.md", tmp.path(), &cfg).unwrap();
+        assert_eq!(
+            msgs.len(),
+            2,
+            "no deduplication; contract is one snapshot per occurrence"
+        );
+    }
+
+    #[test]
+    fn empty_stdin_bytes_produce_empty_body_snapshot() {
+        let cfg = FilesConfig::default();
+        let rf = stdin_attachment(vec![], &cfg).unwrap();
+        assert_eq!(rf.basename, "stdin");
+        assert_eq!(rf.body, "");
+        assert_eq!(rf.byte_size, 0);
+    }
 }

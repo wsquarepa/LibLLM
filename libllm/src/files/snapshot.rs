@@ -167,4 +167,11 @@ mod tests {
             other => panic!("expected Start collision, got {other:?}"),
         }
     }
+
+    #[test]
+    fn snapshot_basename_handles_crlf_body() {
+        let body = "The user has attached a file. Its name is \"x.md\" and its contents follow between the <<<FILE x.md>>> and <<<END x.md>>> delimiters.\r\n\r\n<<<FILE x.md>>>\r\nhello\r\nworld\r\n<<<END x.md>>>";
+        assert_eq!(snapshot_basename(body).as_deref(), Some("x.md"));
+        assert!(is_snapshot(body));
+    }
 }

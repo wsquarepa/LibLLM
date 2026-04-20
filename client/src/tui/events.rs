@@ -146,20 +146,91 @@ pub(super) async fn process_action(
             commands::start_streaming(app, &text, token_tx).await;
         }
         Action::EditMessage { node_id, content } => {
-            if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
-                && app.session.tree.set_message_content(new_root, content)
-            {
-                app.session.tree.switch_to(new_root);
-                app.invalidate_chat_cache();
-                app.nav_cursor = Some(new_root);
-                app.focus = Focus::Chat;
-                app.mark_session_dirty(SaveTrigger::Debounced, false);
-            }
+            handle_edit_message(app, node_id, content);
         }
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
     }
+}
+
+fn handle_edit_message(
+    app: &mut App<'_>,
+    node_id: libllm::session::NodeId,
+    content: String,
+) {
+    let refs = libllm::files::file_reference_ranges(&content);
+    let has_file_refs = refs.iter().any(|r| r.path() != "stdin");
+
+    if !has_file_refs {
+        // No file tokens in the edit; preserve the existing branch-and-replace path.
+        if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
+            && app.session.tree.set_message_content(new_root, content)
+        {
+            app.session.tree.switch_to(new_root);
+            app.invalidate_chat_cache();
+            app.nav_cursor = Some(new_root);
+            app.focus = Focus::Chat;
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+        }
+        return;
+    }
+
+    // File-containing edit: rerun the pipeline, then branch under the original parent.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let sys_messages = match libllm::files::resolve_all(&content, &cwd, &app.config.files) {
+        Ok(v) => v,
+        Err(libllm::files::FileError::Collision { path, kind }) => {
+            let basename = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_owned();
+            let delimiter = match kind {
+                libllm::files::DelimiterKind::Start => "<<<FILE ...>>>",
+                libllm::files::DelimiterKind::End => "<<<END ...>>>",
+            };
+            app.injection_warning = Some(
+                crate::tui::dialogs::injection_warning::InjectionWarning {
+                    basename,
+                    delimiter,
+                },
+            );
+            app.focus = Focus::InjectionWarningDialog;
+            return;
+        }
+        Err(err) => {
+            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+            return;
+        }
+    };
+
+    let original_parent = match app.session.tree.node(node_id) {
+        Some(n) => n.parent,
+        None => {
+            app.set_status(
+                "edit target vanished from the tree".to_owned(),
+                crate::tui::types::StatusLevel::Error,
+            );
+            return;
+        }
+    };
+
+    let mut parent = original_parent;
+    for sys_msg in sys_messages {
+        let id = app.session.tree.push(parent, sys_msg);
+        parent = Some(id);
+    }
+    let new_user = app.session.tree.push(
+        parent,
+        libllm::session::Message::new(libllm::session::Role::User, content),
+    );
+
+    app.session.tree.switch_to(new_user);
+    app.invalidate_chat_cache();
+    app.nav_cursor = Some(new_user);
+    app.focus = Focus::Chat;
+    app.mark_session_dirty(SaveTrigger::Debounced, false);
 }
 
 fn handle_key(

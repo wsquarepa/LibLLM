@@ -4,11 +4,13 @@
 //!
 //! See the file-ingestion design spec for the full contract.
 
+mod classify;
 mod error;
 mod parse;
 mod rewrite;
 mod snapshot;
 
+pub use classify::{Classified, classify};
 pub use error::{DelimiterKind, FileError};
 pub use parse::{FileReference, file_reference_ranges, unescape_at};
 pub use rewrite::rewrite_user_message;

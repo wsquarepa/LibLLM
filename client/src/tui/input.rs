@@ -82,8 +82,11 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         KeyCode::Right if app.nav_cursor.is_some() && textarea_is_empty(app) => {
-            let _ = switch_nav_sibling(app, 1);
-            None
+            if switch_nav_sibling(app, 1) {
+                None
+            } else {
+                trigger_chat_retry(app)
+            }
         }
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
             let lines: Vec<String> = app.textarea.lines().to_vec();

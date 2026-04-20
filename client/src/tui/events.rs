@@ -58,7 +58,11 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
 
     match app.focus {
         Focus::Input => {
-            app.textarea.input(raw_event);
+            if let Some(token) = paste_as_file_reference(&text, &app.config.files) {
+                app.textarea.insert_str(&token);
+            } else {
+                app.textarea.input(raw_event);
+            }
         }
         Focus::EditDialog => {
             if let Some(ref mut editor) = app.edit_editor {
@@ -93,6 +97,28 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
         _ => {}
     }
     None
+}
+
+/// If `raw` resolves to an existing, supported file, return the
+/// canonical `@<path>` string to insert. Otherwise return `None` so the
+/// caller falls through to raw paste. Silent on any resolution failure.
+fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> Option<String> {
+    if !config.enabled {
+        return None;
+    }
+    let trimmed = clean_pasted_path(raw);
+    let path = std::path::Path::new(&trimmed);
+    if !path.is_file() {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let metadata = std::fs::metadata(&canonical).ok()?;
+    if (metadata.len() as usize) > config.per_file_bytes {
+        return None;
+    }
+    let bytes = std::fs::read(&canonical).ok()?;
+    libllm::files::classify(&canonical, &bytes).ok()?;
+    Some(format!("@{}", canonical.display()))
 }
 
 fn clean_pasted_path(raw: &str) -> String {
@@ -639,4 +665,62 @@ fn handle_base_theme_picker_key(key: KeyEvent, app: &mut App) -> Option<Action> 
         _ => {}
     }
     None
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::paste_as_file_reference;
+    use tempfile::TempDir;
+
+    #[test]
+    fn non_file_paste_returns_none() {
+        let cfg = libllm::config::FilesConfig::default();
+        assert!(paste_as_file_reference("not a path", &cfg).is_none());
+    }
+
+    #[test]
+    fn file_paste_returns_at_path() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("a.md");
+        std::fs::write(&p, "hello").unwrap();
+        let cfg = libllm::config::FilesConfig::default();
+        let out = paste_as_file_reference(p.to_str().unwrap(), &cfg).unwrap();
+        assert!(out.starts_with("@"));
+        assert!(out.contains("a.md"));
+    }
+
+    #[test]
+    fn binary_paste_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("bin");
+        std::fs::write(&p, [0x89u8, 0x50, 0x4E, 0x47, 0, 0, 0, 0]).unwrap();
+        let cfg = libllm::config::FilesConfig::default();
+        assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
+
+    #[test]
+    fn disabled_config_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("a.md");
+        std::fs::write(&p, "hello").unwrap();
+        let cfg = libllm::config::FilesConfig {
+            enabled: false,
+            per_file_bytes: 524_288,
+            per_message_bytes: 4_194_304,
+        };
+        assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
+
+    #[test]
+    fn oversize_paste_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("big.md");
+        std::fs::write(&p, vec![b'x'; 2000]).unwrap();
+        let cfg = libllm::config::FilesConfig {
+            enabled: true,
+            per_file_bytes: 1000,
+            per_message_bytes: 4_194_304,
+        };
+        assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
+    }
 }

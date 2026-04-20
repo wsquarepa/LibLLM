@@ -219,6 +219,75 @@ impl FileSummarizer {
         });
     }
 
+    /// Resolves once every file in `files` is `done` or `failed`.
+    /// Lazy-schedules any missing rows before waiting. Force-transitions
+    /// stuck `pending` rows to `failed` after
+    /// `per_file_timeout * files.len()` has elapsed.
+    pub async fn ensure_ready(
+        &self,
+        session_id: &str,
+        files: &[FileToSummarize],
+    ) -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+
+        for file in files {
+            if self.lookup(session_id, &file.content_hash).is_none() {
+                self.schedule(session_id, file);
+            }
+        }
+
+        let start = std::time::Instant::now();
+        let deadline = self.per_file_timeout * (files.len() as u32).max(1);
+        loop {
+            let pending: Vec<&FileToSummarize> = files
+                .iter()
+                .filter(|f| {
+                    matches!(
+                        self.lookup(session_id, &f.content_hash).map(|r| r.status),
+                        Some(FileSummaryStatus::Pending)
+                    )
+                })
+                .collect();
+            if pending.is_empty() {
+                tracing::info!(
+                    result = "ready",
+                    session_id = %session_id,
+                    file_count = files.len(),
+                    elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+                    "files.summary.ensure_ready"
+                );
+                return Ok(());
+            }
+            if start.elapsed() > deadline {
+                let guard = self.conn.lock().expect("summarizer conn poisoned");
+                for f in pending {
+                    tracing::warn!(
+                        result = "timeout",
+                        session_id = %session_id,
+                        content_hash = %f.content_hash,
+                        "files.summary.ensure_ready"
+                    );
+                    file_summaries::set_failed(&guard, session_id, &f.content_hash)?;
+                    let _ = self.ready_tx.send(ReadyEvent {
+                        session_id: session_id.to_owned(),
+                        content_hash: f.content_hash.clone(),
+                        status: FileSummaryStatus::Failed,
+                    });
+                }
+                return Ok(());
+            }
+            tokio::time::sleep(self.poll_interval).await;
+        }
+    }
+
+    #[cfg(test)]
+    pub fn set_per_file_timeout_for_test(&mut self, d: std::time::Duration) {
+        self.per_file_timeout = d;
+        self.poll_interval = std::time::Duration::from_millis(10);
+    }
+
     /// Synchronous DB lookup through the dedicated connection.
     pub fn lookup(&self, session_id: &str, content_hash: &str) -> Option<FileSummary> {
         let guard = self.conn.lock().ok()?;
@@ -410,5 +479,73 @@ mod tests {
         let got = summarizer.lookup("s1", "h1").unwrap();
         assert_eq!(got.status, FileSummaryStatus::Pending);
         assert_eq!(got.basename, "a.md");
+    }
+
+    #[tokio::test]
+    async fn ensure_ready_returns_immediately_when_no_files() {
+        let conn = summarizer_conn();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let summarizer = FileSummarizer::new(
+            Arc::clone(&conn),
+            ApiClient::new("http://127.0.0.1:1", true, crate::config::Auth::None),
+            "summarize this".to_owned(),
+            tx,
+        );
+        summarizer.ensure_ready("s1", &[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn ensure_ready_schedules_missing_rows() {
+        let conn = summarizer_conn();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut summarizer = FileSummarizer::new(
+            Arc::clone(&conn),
+            ApiClient::new("http://127.0.0.1:1", true, crate::config::Auth::None),
+            "summarize this".to_owned(),
+            tx,
+        );
+        summarizer.set_per_file_timeout_for_test(std::time::Duration::from_millis(200));
+
+        let file = FileToSummarize {
+            basename: "a.md".to_owned(),
+            content_hash: "h1".to_owned(),
+            body: "body".to_owned(),
+        };
+
+        summarizer
+            .ensure_ready("s1", std::slice::from_ref(&file))
+            .await
+            .unwrap();
+        let row = crate::db::file_summaries::lookup(&conn.lock().unwrap(), "s1", "h1")
+            .unwrap()
+            .unwrap();
+        assert_ne!(row.status, FileSummaryStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn ensure_ready_resolves_when_rows_are_already_done() {
+        let conn = summarizer_conn();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let summarizer = FileSummarizer::new(
+            Arc::clone(&conn),
+            ApiClient::new("http://127.0.0.1:1", true, crate::config::Auth::None),
+            "summarize this".to_owned(),
+            tx,
+        );
+        {
+            let guard = conn.lock().unwrap();
+            crate::db::file_summaries::insert_pending(&guard, "s1", "h1", "a.md").unwrap();
+            crate::db::file_summaries::set_done(&guard, "s1", "h1", "cached").unwrap();
+        }
+
+        let file = FileToSummarize {
+            basename: "a.md".to_owned(),
+            content_hash: "h1".to_owned(),
+            body: "body".to_owned(),
+        };
+
+        let start = std::time::Instant::now();
+        summarizer.ensure_ready("s1", &[file]).await.unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
     }
 }

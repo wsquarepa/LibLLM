@@ -272,6 +272,7 @@ pub async fn run(
         sidebar_search: dialogs::SearchState::new(),
         last_terminal_height: 0,
         input_file_cache: input_file_cache::InputFileCache::new(),
+        recall_refs: None,
         file_summarizer,
         file_summary_ready_tx,
         file_summary_ready_rx,

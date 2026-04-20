@@ -154,7 +154,20 @@ pub(super) async fn process_action(
         }
         Action::SendMessage(text) => {
             app.nav_cursor = None;
-            commands::start_streaming(app, &text, token_tx).await;
+            let recall_refs = app.recall_refs.take();
+            let reuse_parent_chain = recall_refs
+                .as_ref()
+                .is_some_and(|refs| refs == &file_ref_paths(&text));
+            if reuse_parent_chain {
+                commands::start_retry_streaming(app, &text, token_tx).await;
+            } else {
+                if recall_refs.is_some() {
+                    let head = app.session.tree.head();
+                    let anchor = input::retreat_past_snapshot_chain(&app.session.tree, head);
+                    app.session.tree.set_head(anchor);
+                }
+                commands::start_streaming(app, &text, token_tx).await;
+            }
         }
         Action::EditMessage { node_id, content } => {
             handle_edit_message(app, node_id, content);
@@ -165,16 +178,33 @@ pub(super) async fn process_action(
     }
 }
 
+fn file_ref_paths(raw: &str) -> Vec<String> {
+    libllm::files::file_reference_ranges(raw)
+        .into_iter()
+        .filter(|r| r.path() != "stdin")
+        .map(|r| r.path().to_owned())
+        .collect()
+}
+
 fn handle_edit_message(
     app: &mut App<'_>,
     node_id: libllm::session::NodeId,
     content: String,
 ) {
-    let refs = libllm::files::file_reference_ranges(&content);
-    let has_file_refs = refs.iter().any(|r| r.path() != "stdin");
+    let old_content = match app.session.tree.node(node_id) {
+        Some(n) => n.message.content.clone(),
+        None => {
+            app.set_status(
+                "edit target vanished from the tree".to_owned(),
+                crate::tui::types::StatusLevel::Error,
+            );
+            return;
+        }
+    };
 
-    if !has_file_refs {
-        // No file tokens in the edit; preserve the existing branch-and-replace path.
+    let file_refs_unchanged = file_ref_paths(&old_content) == file_ref_paths(&content);
+
+    if file_refs_unchanged {
         if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
             && app.session.tree.set_message_content(new_root, content)
         {
@@ -187,7 +217,6 @@ fn handle_edit_message(
         return;
     }
 
-    // File-containing edit: rerun the pipeline, then branch under the original parent.
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let sys_messages = match libllm::files::resolve_all(&content, &cwd, &app.config.files) {
         Ok(v) => v,
@@ -236,16 +265,11 @@ fn handle_edit_message(
         }
     }
 
-    let original_parent = match app.session.tree.node(node_id) {
-        Some(n) => n.parent,
-        None => {
-            app.set_status(
-                "edit target vanished from the tree".to_owned(),
-                crate::tui::types::StatusLevel::Error,
-            );
-            return;
-        }
-    };
+    let original_parent = app
+        .session
+        .tree
+        .node(node_id)
+        .and_then(|n| n.parent);
 
     let mut parent = original_parent;
     for sys_msg in sys_messages {

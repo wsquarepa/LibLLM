@@ -290,6 +290,12 @@ pub(super) struct App<'a> {
     pub(super) sidebar_search: dialogs::SearchState,
     pub(super) last_terminal_height: u16,
     pub(super) input_file_cache: crate::tui::input_file_cache::InputFileCache,
+    /// When `Some`, the next `SendMessage` is the resend of a recalled user
+    /// message. The stored value is the `@file` refs from the recalled
+    /// content; the send path compares these to the outgoing content to
+    /// decide whether to reuse the existing file-snapshot parent chain or
+    /// push a fresh one.
+    pub(super) recall_refs: Option<Vec<String>>,
     pub(super) file_summarizer:
         Option<std::sync::Arc<libllm::files::FileSummarizer>>,
     pub(super) file_summary_ready_tx:

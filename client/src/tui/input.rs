@@ -185,8 +185,8 @@ fn recall_last_message(app: &mut App) {
         None => return,
     };
 
-    let anchor = retreat_past_snapshot_chain(&app.session.tree, parent);
-    app.session.tree.set_head(anchor);
+    app.session.tree.set_head(parent);
+    app.recall_refs = Some(file_ref_paths(&content));
 
     let lines: Vec<String> = content.lines().map(String::from).collect();
     app.textarea = TextArea::from(lines);
@@ -194,12 +194,21 @@ fn recall_last_message(app: &mut App) {
     app.auto_scroll = true;
 }
 
+fn file_ref_paths(raw: &str) -> Vec<String> {
+    libllm::files::file_reference_ranges(raw)
+        .into_iter()
+        .filter(|r| r.path() != "stdin")
+        .map(|r| r.path().to_owned())
+        .collect()
+}
+
 /// Walk `start` backwards through the tree, skipping any contiguous
 /// `Role::System` nodes that are file snapshots. Returns the first
 /// ancestor that is not a file snapshot (or `None` when the chain
-/// reaches the root). Used by Up-arrow recall so the user's re-edit
-/// produces a clean branch without duplicated snapshot system nodes.
-fn retreat_past_snapshot_chain(
+/// reaches the root). Used on recall-resend when the outgoing file
+/// refs differ from the recalled content, so the fresh file chain
+/// replaces the stale one instead of chaining below it.
+pub(super) fn retreat_past_snapshot_chain(
     tree: &libllm::session::MessageTree,
     start: Option<libllm::session::NodeId>,
 ) -> Option<libllm::session::NodeId> {
@@ -359,6 +368,16 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             if let Some(node_id) = app.nav_cursor
                 && let Some(node) = app.session.tree.node(node_id)
             {
+                let is_file_snapshot = node.message.role == Role::System
+                    && libllm::files::is_snapshot(&node.message.content);
+                if is_file_snapshot {
+                    app.set_status(
+                        "Cannot edit file snapshots.".to_owned(),
+                        StatusLevel::Warning,
+                    );
+                    return None;
+                }
+
                 let branch_ids = app.session.tree.current_branch_ids();
                 let node_idx = branch_ids.iter().position(|&id| id == node_id);
                 let has_later_summary = node_idx.is_some_and(|idx| {

@@ -159,11 +159,13 @@ where
     Ok(best)
 }
 
-pub(in crate::tui) async fn start_streaming(
-    app: &mut App<'_>,
-    content: &str,
-    sender: mpsc::Sender<StreamToken>,
-) {
+enum StreamPreflight {
+    Proceed,
+    Queued,
+    Blocked,
+}
+
+fn stream_preflight(app: &mut App<'_>, content: &str) -> StreamPreflight {
     if app.summary_receiver.is_some() {
         app.is_summarizing = true;
         app.message_queue.push(content.to_owned());
@@ -172,7 +174,7 @@ pub(in crate::tui) async fn start_streaming(
             queue_len = app.message_queue.len(),
             "stream.start"
         );
-        return;
+        return StreamPreflight::Queued;
     }
     if app.model_name.is_none() {
         tracing::debug!(phase = "blocked", reason = "model_pending", "stream.start");
@@ -180,7 +182,7 @@ pub(in crate::tui) async fn start_streaming(
             "Connecting to API server...".to_owned(),
             StatusLevel::Warning,
         );
-        return;
+        return StreamPreflight::Blocked;
     }
     if !app.api_available {
         tracing::debug!(
@@ -192,61 +194,13 @@ pub(in crate::tui) async fn start_streaming(
             "Cannot send: API server is not available".to_owned(),
             StatusLevel::Error,
         );
-        return;
+        return StreamPreflight::Blocked;
     }
-    debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let sys_messages = match libllm::files::resolve_all(content, &cwd, &app.config.files) {
-        Ok(v) => v,
-        Err(libllm::files::FileError::Collision { path, kind }) => {
-            crate::tui::dialogs::injection_warning::open(app, &path, kind);
-            return;
-        }
-        Err(err) => {
-            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
-            return;
-        }
-    };
-    match (
-        app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
-        app.config.summarization.enabled,
-        app.save_mode.id(),
-        app.file_summarizer.as_ref(),
-    ) {
-        (false, _, _, _) => tracing::debug!(
-            reason = "mode_lazy",
-            "files.summary.eager_schedule.skipped"
-        ),
-        (_, false, _, _) => tracing::debug!(
-            reason = "summarization_disabled",
-            "files.summary.eager_schedule.skipped"
-        ),
-        (_, _, None, _) => tracing::debug!(
-            reason = "no_session_id",
-            "files.summary.eager_schedule.skipped"
-        ),
-        (_, _, _, None) => tracing::debug!(
-            reason = "no_summarizer",
-            "files.summary.eager_schedule.skipped"
-        ),
-        (true, true, Some(session_id), Some(summarizer)) => {
-            let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
-            tracing::info!(
-                session_id = %session_id,
-                file_count = to_summarize.len(),
-                "files.summary.eager_schedule.dispatching"
-            );
-            for file in &to_summarize {
-                summarizer.schedule(session_id, file);
-            }
-        }
-    }
+    StreamPreflight::Proceed
+}
 
+fn push_user_segments(app: &mut App<'_>, content: &str) {
     let mut parent = app.session.tree.head();
-    for sys_msg in sys_messages {
-        let new_id = app.session.tree.push(parent, sys_msg);
-        parent = Some(new_id);
-    }
     let segments: Vec<String> = if app.session.character.is_some() {
         libllm::side_character::split_user_input(content)
     } else {
@@ -259,6 +213,9 @@ pub(in crate::tui) async fn start_streaming(
             .push(parent, Message::new(Role::User, segment));
         parent = Some(new_id);
     }
+}
+
+async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_cache();
     app.is_streaming = true;
@@ -313,6 +270,94 @@ pub(in crate::tui) async fn start_streaming(
             .await;
     });
     app.streaming_task = Some(handle);
+}
+
+pub(in crate::tui) async fn start_streaming(
+    app: &mut App<'_>,
+    content: &str,
+    sender: mpsc::Sender<StreamToken>,
+) {
+    match stream_preflight(app, content) {
+        StreamPreflight::Proceed => {}
+        StreamPreflight::Queued | StreamPreflight::Blocked => return,
+    }
+    debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let sys_messages = match libllm::files::resolve_all(content, &cwd, &app.config.files) {
+        Ok(v) => v,
+        Err(libllm::files::FileError::Collision { path, kind }) => {
+            crate::tui::dialogs::injection_warning::open(app, &path, kind);
+            return;
+        }
+        Err(err) => {
+            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+            return;
+        }
+    };
+    match (
+        app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
+        app.config.summarization.enabled,
+        app.save_mode.id(),
+        app.file_summarizer.as_ref(),
+    ) {
+        (false, _, _, _) => tracing::debug!(
+            reason = "mode_lazy",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, false, _, _) => tracing::debug!(
+            reason = "summarization_disabled",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, _, None, _) => tracing::debug!(
+            reason = "no_session_id",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (_, _, _, None) => tracing::debug!(
+            reason = "no_summarizer",
+            "files.summary.eager_schedule.skipped"
+        ),
+        (true, true, Some(session_id), Some(summarizer)) => {
+            let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+            tracing::info!(
+                session_id = %session_id,
+                file_count = to_summarize.len(),
+                "files.summary.eager_schedule.dispatching"
+            );
+            for file in &to_summarize {
+                summarizer.schedule(session_id, file);
+            }
+        }
+    }
+
+    let mut parent = app.session.tree.head();
+    for sys_msg in sys_messages {
+        let new_id = app.session.tree.push(parent, sys_msg);
+        parent = Some(new_id);
+    }
+    push_user_segments(app, content);
+
+    launch_stream(app, sender).await;
+}
+
+/// Push a new user message at the current head and stream. Unlike
+/// `start_streaming`, this does not resolve `@file` references, so file
+/// snapshots already present in the branch are shared with the new sibling
+/// rather than duplicated.
+pub(in crate::tui) async fn start_retry_streaming(
+    app: &mut App<'_>,
+    content: &str,
+    sender: mpsc::Sender<StreamToken>,
+) {
+    match stream_preflight(app, content) {
+        StreamPreflight::Proceed => {}
+        StreamPreflight::Queued | StreamPreflight::Blocked => return,
+    }
+    debug_assert!(
+        !content.trim().is_empty(),
+        "start_retry_streaming called with blank content"
+    );
+    push_user_segments(app, content);
+    launch_stream(app, sender).await;
 }
 
 pub(in crate::tui) async fn handle_stream_token(

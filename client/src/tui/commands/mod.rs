@@ -8,7 +8,7 @@ pub mod export;
 pub mod streaming;
 
 pub(super) use background::handle_background_event;
-pub(super) use streaming::{handle_stream_token, start_streaming};
+pub(super) use streaming::{handle_stream_token, start_retry_streaming, start_streaming};
 
 use tokio::sync::mpsc;
 
@@ -89,7 +89,7 @@ async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     match last_user_content {
         Some(content) => {
             app.session.tree.retreat_head();
-            streaming::start_streaming(app, &content, sender).await;
+            streaming::start_retry_streaming(app, &content, sender).await;
         }
         None => {
             app.set_status("No user message to retry.".to_owned(), StatusLevel::Warning);

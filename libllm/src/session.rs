@@ -1193,6 +1193,42 @@ mod tests {
     }
 
     #[test]
+    fn retry_with_file_parent_puts_sibling_on_user() {
+        // Simulates cmd_retry + start_retry_streaming for a tree with a file
+        // snapshot parenting the user message. The retry branch must share the
+        // File node so the [N/M] sibling indicator lands on User, not File.
+        let mut tree = MessageTree::new();
+        let file = tree.push(None, Message::new(Role::System, "<file>README</file>".into()));
+        let user1 = tree.push(Some(file), Message::new(Role::User, "hi".into()));
+        let assistant1 = tree.push(Some(user1), Message::new(Role::Assistant, "hello".into()));
+
+        assert_eq!(tree.head(), Some(assistant1));
+
+        // retreat_trailing_assistant: head = user1
+        while tree
+            .head()
+            .and_then(|id| tree.node(id))
+            .is_some_and(|n| n.message.role == Role::Assistant)
+        {
+            tree.retreat_head();
+        }
+        assert_eq!(tree.head(), Some(user1));
+
+        // retreat_head: head = file
+        tree.retreat_head();
+        assert_eq!(tree.head(), Some(file));
+
+        // start_retry_streaming pushes a new user segment at head.
+        let user2 = tree.push(tree.head(), Message::new(Role::User, "hi".into()));
+        let assistant2 = tree.push(Some(user2), Message::new(Role::Assistant, "again".into()));
+
+        assert_eq!(tree.current_branch_ids(), &[file, user2, assistant2]);
+        assert_eq!(tree.sibling_info(file), (0, 1));
+        assert_eq!(tree.sibling_info(user2), (1, 2));
+        assert_eq!(tree.sibling_info(assistant2), (0, 1));
+    }
+
+    #[test]
     fn from_messages_builds_linear_tree() {
         let messages = vec![
             Message::new(Role::User, "first".into()),

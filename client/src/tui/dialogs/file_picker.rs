@@ -98,6 +98,23 @@ impl FilePickerState {
             .get(self.selected)
             .and_then(|&i| self.entries.get(i))
     }
+
+    /// Descend into the currently selected directory entry. Clears the
+    /// typed filter and refreshes the listing to the new directory.
+    /// Returns `true` when the descent happened; returns `false` when
+    /// there is no selected entry or when the selection is a file.
+    pub fn descend(&mut self) -> bool {
+        let Some(entry) = self.current().cloned() else {
+            return false;
+        };
+        if !entry.is_dir {
+            return false;
+        }
+        self.base_dir.push(&entry.name);
+        self.filter.clear();
+        self.refresh_entries();
+        true
+    }
 }
 
 /// Expand a user-typed path fragment into a (base_dir, filter) pair.
@@ -382,5 +399,35 @@ mod tests {
             .map(|i| state.entries[i].name.as_str())
             .collect();
         assert_eq!(visible, vec!["apple", "apricot"]);
+    }
+
+    #[test]
+    fn descend_enters_selected_directory_and_refreshes() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("sub")).unwrap();
+        std::fs::write(tmp.path().join("sub").join("nested.txt"), "x").unwrap();
+        let mut state = FilePickerState::new(tmp.path().to_path_buf(), 0, 0);
+        assert!(state.descend());
+        assert_eq!(state.base_dir, tmp.path().join("sub"));
+        assert_eq!(state.filter, "");
+        assert_eq!(state.entries.len(), 1);
+        assert_eq!(state.entries[0].name, "nested.txt");
+    }
+
+    #[test]
+    fn descend_on_file_returns_false_and_keeps_state() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("only.txt"), "x").unwrap();
+        let mut state = FilePickerState::new(tmp.path().to_path_buf(), 0, 0);
+        let base_before = state.base_dir.clone();
+        assert!(!state.descend());
+        assert_eq!(state.base_dir, base_before);
+    }
+
+    #[test]
+    fn descend_with_empty_entries_returns_false() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = FilePickerState::new(tmp.path().to_path_buf(), 0, 0);
+        assert!(!state.descend());
     }
 }

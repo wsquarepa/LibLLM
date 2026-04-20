@@ -275,36 +275,6 @@ impl Database {
         personas::delete_persona(&self.conn, slug)
     }
 
-    pub fn insert_pending_file_summary(
-        &self,
-        session_id: &str,
-        content_hash: &str,
-        basename: &str,
-    ) -> Result<bool> {
-        file_summaries::insert_pending(&self.conn, session_id, content_hash, basename)
-    }
-
-    pub fn set_file_summary_done(
-        &self,
-        session_id: &str,
-        content_hash: &str,
-        summary: &str,
-    ) -> Result<usize> {
-        file_summaries::set_done(&self.conn, session_id, content_hash, summary)
-    }
-
-    pub fn set_file_summary_failed(&self, session_id: &str, content_hash: &str) -> Result<usize> {
-        file_summaries::set_failed(&self.conn, session_id, content_hash)
-    }
-
-    pub fn lookup_file_summary(
-        &self,
-        session_id: &str,
-        content_hash: &str,
-    ) -> Result<Option<file_summaries::FileSummaryRow>> {
-        file_summaries::lookup(&self.conn, session_id, content_hash)
-    }
-
     pub fn rekey(&self, new_key: &DerivedKey) -> Result<()> {
         crate::timed_result!(tracing::Level::INFO, "db.rekey", ; {
             self.conn
@@ -530,41 +500,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn database_file_summary_methods_round_trip() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("test.db");
-        let mut db = Database::open(&path, None).unwrap();
-
-        let session_id = "session-a";
-        let session = crate::session::Session {
-            tree: crate::session::MessageTree::new(),
-            model: None,
-            template: None,
-            system_prompt: None,
-            character: None,
-            worldbooks: vec![],
-            persona: None,
-        };
-        db.insert_session(session_id, &session).unwrap();
-
-        assert!(db.lookup_file_summary(session_id, "h1").unwrap().is_none());
-
-        assert!(
-            db.insert_pending_file_summary(session_id, "h1", "a.md")
-                .unwrap()
-        );
-        let row = db.lookup_file_summary(session_id, "h1").unwrap().unwrap();
-        assert_eq!(row.status, super::file_summaries::FileSummaryStatus::Pending);
-
-        db.set_file_summary_done(session_id, "h1", "summary text")
-            .unwrap();
-        let row = db.lookup_file_summary(session_id, "h1").unwrap().unwrap();
-        assert_eq!(row.status, super::file_summaries::FileSummaryStatus::Done);
-        assert_eq!(row.summary, "summary text");
-
-        db.set_file_summary_failed(session_id, "h1").unwrap();
-        let row = db.lookup_file_summary(session_id, "h1").unwrap().unwrap();
-        assert_eq!(row.status, super::file_summaries::FileSummaryStatus::Failed);
-    }
 }

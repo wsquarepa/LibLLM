@@ -36,6 +36,67 @@ pub fn content_hash_hex(bytes: &[u8]) -> String {
     format!("{:032x}", xxh3_128(bytes))
 }
 
+/// Extract `FileToSummarize` inputs from a slice of freshly-resolved
+/// messages (the `Vec<Message>` returned by `resolve_all` / similar).
+/// Non-snapshot messages are skipped.
+pub fn files_to_summarize_from_messages(
+    messages: &[crate::session::Message],
+) -> Vec<summary::FileToSummarize> {
+    messages
+        .iter()
+        .filter(|m| m.role == crate::session::Role::System)
+        .filter_map(|m| {
+            let basename = snapshot::snapshot_basename(&m.content)?;
+            let inner = snapshot::snapshot_inner_text(&m.content).to_owned();
+            if inner.is_empty() {
+                return None;
+            }
+            let content_hash = content_hash_hex(inner.as_bytes());
+            Some(summary::FileToSummarize {
+                basename,
+                content_hash,
+                body: inner,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod files_to_summarize_tests {
+    use super::*;
+    use crate::session::{Message, Role};
+
+    #[test]
+    fn extracts_one_per_snapshot_message() {
+        let body_a = snapshot::build_snapshot_body("a.md", "alpha");
+        let body_b = snapshot::build_snapshot_body("b.md", "beta");
+        let msgs = [
+            Message::new(Role::User, "hi".to_owned()),
+            Message::new(Role::System, body_a.clone()),
+            Message::new(Role::System, body_b.clone()),
+        ];
+        let out = files_to_summarize_from_messages(&msgs);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].basename, "a.md");
+        assert_eq!(out[0].body, "alpha");
+        assert_eq!(out[1].basename, "b.md");
+        assert_eq!(out[1].body, "beta");
+    }
+
+    #[test]
+    fn skips_freeform_system_messages() {
+        let msgs = [Message::new(Role::System, "You are helpful.".to_owned())];
+        assert!(files_to_summarize_from_messages(&msgs).is_empty());
+    }
+
+    #[test]
+    fn skips_empty_snapshot_body() {
+        let body = snapshot::build_snapshot_body("empty.md", "");
+        let msgs = [Message::new(Role::System, body)];
+        assert!(files_to_summarize_from_messages(&msgs).is_empty());
+    }
+}
+
 #[cfg(test)]
 mod mod_tests {
     use super::*;

@@ -96,6 +96,16 @@ Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (require
 
 Messages form a tree (`MessageTree` in `libllm/src/session.rs`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
 
+### Database migrations
+
+Migrations live under `libllm/src/db/migrations/` — one file per version (`v1.rs`, `v2.rs`, ...), each exposing `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `migrations/mod.rs` owns the `CURRENT_VERSION` constant, the `run_migrations` dispatch loop, `stamp_version` helper, and the cross-version tests. Adding a new migration is three touches:
+
+1. Create `libllm/src/db/migrations/v{N}.rs` with the `pub(super) fn migrate` body.
+2. Add `mod v{N};` to `migrations/mod.rs`.
+3. Bump `CURRENT_VERSION = N` and append `if version < N { v{N}::migrate(conn)?; stamp_version(conn, N)?; applied += 1; }` to `run_migrations`.
+
+Migrations run exactly once per process: `Database::open` (in `libllm/src/db/mod.rs`) calls `migrations::run_migrations(&conn)` on the main connection after applying the SQLCipher key. The `FileSummarizer`'s dedicated second connection (opened in `client/src/tui/mod.rs`) does **not** run migrations — it observes the already-migrated schema over SQLite's WAL file locking.
+
 ### `libllm db` subcommand group
 
 `client/src/cli/db/` exposes `db {sql, shell, dump, import}` for direct database inspection and editing through the existing decryption pipeline. Read the README's "Direct database access" section for user-facing semantics. Implementation gotchas:
@@ -104,6 +114,6 @@ Messages form a tree (`MessageTree` in `libllm/src/session.rs`) using an arena (
 - `import` always invokes `backup::snapshot::create_snapshot` before swapping the database file. There is no `--no-backup` flag; this is intentional. The pre-swap backup is the recovery story for any failure between `build_replacement` and `fs::rename`.
 - `dump` and `import` both call `wal_liveness_check` (in `cli/db/mod.rs`) which probes for `SQLITE_BUSY` via `BEGIN IMMEDIATE; ROLLBACK;` to refuse if another LibLLM process holds the database. The check early-returns when the database file does not exist (otherwise `Connection::open` would silently create an empty file).
 - Tmp-path computation in `dump` appends `.tmp` to the user's path (it does not use `Path::with_extension`, which would replace any existing `.tmp` and collide with the destination).
-- Schema-version compatibility is gated on `libllm::db::CURRENT_VERSION` (re-exported from `db::schema`); the `schema` module itself stays private. If you bump the schema version, update the constant — the import gate and the migration runner both read it.
+- Schema-version compatibility is gated on `libllm::db::CURRENT_VERSION` (re-exported from `db::migrations`). If you add a new migration, both the import gate and the migration runner read the same constant — see the "Database migrations" section above.
 - Standard exit codes shared across the group: `1` generic, `2` user declined, `3` schema-version mismatch, `4` WAL-liveness failure (constants in `cli/db/mod.rs::exit`).
 - The shell uses `rustyline` with a `DotCommandOutcome::{Continue, Quit}` enum (NOT `std::process::exit`) so `save_history` runs on clean exit. A statement whose first input line begins with whitespace is excluded from both on-disk and in-memory history (bash `HISTCONTROL=ignorespace`).

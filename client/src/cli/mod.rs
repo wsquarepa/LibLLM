@@ -135,6 +135,7 @@ pub enum Command {
 }
 
 /// CLI flag values that override the corresponding config fields; overridden fields display in red in `/config`.
+#[derive(Default)]
 pub struct CliOverrides {
     pub api_url: Option<String>,
     pub template: Option<String>,

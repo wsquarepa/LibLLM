@@ -18,7 +18,7 @@ use client::tui;
 use client::update;
 use client::validation;
 
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -239,7 +239,6 @@ async fn main() -> Result<()> {
     }
 
     if let Some(ref message) = args.message {
-        use std::io::IsTerminal;
         let (text, stdin_attachment) = if message == "-" {
             let mut buf = String::new();
             io::stdin().read_to_string(&mut buf)?;

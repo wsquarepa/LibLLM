@@ -312,6 +312,8 @@ pub struct Config {
     pub summarization: SummarizationConfig,
     #[serde(default)]
     pub auth: Auth,
+    #[serde(default)]
+    pub files: FilesConfig,
 }
 
 const DEFAULT_SUMMARIZATION_PROMPT: &str = "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
@@ -433,6 +435,43 @@ impl Default for BackupConfig {
     }
 }
 
+const DEFAULT_FILES_ENABLED: bool = true;
+const DEFAULT_FILES_PER_FILE_BYTES: usize = 524_288;
+const DEFAULT_FILES_PER_MESSAGE_BYTES: usize = 4_194_304;
+
+fn default_files_enabled() -> bool {
+    DEFAULT_FILES_ENABLED
+}
+
+fn default_files_per_file_bytes() -> usize {
+    DEFAULT_FILES_PER_FILE_BYTES
+}
+
+fn default_files_per_message_bytes() -> usize {
+    DEFAULT_FILES_PER_MESSAGE_BYTES
+}
+
+/// File-ingestion size caps and feature toggle, nested under `[files]` in config.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesConfig {
+    #[serde(default = "default_files_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_files_per_file_bytes")]
+    pub per_file_bytes: usize,
+    #[serde(default = "default_files_per_message_bytes")]
+    pub per_message_bytes: usize,
+}
+
+impl Default for FilesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: DEFAULT_FILES_ENABLED,
+            per_file_bytes: DEFAULT_FILES_PER_FILE_BYTES,
+            per_message_bytes: DEFAULT_FILES_PER_MESSAGE_BYTES,
+        }
+    }
+}
+
 /// Optional color overrides for TUI theme elements, specified as CSS-style hex strings.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ThemeColorOverrides {
@@ -440,6 +479,7 @@ pub struct ThemeColorOverrides {
     pub user_character_bg: Option<String>,
     pub side_character_fg: Option<String>,
     pub side_character_bg: Option<String>,
+    pub file_reference_fg: Option<String>,
     pub assistant_message_fg: Option<String>,
     pub assistant_message_bg: Option<String>,
     pub system_message: Option<String>,
@@ -476,6 +516,7 @@ pub enum ColorLabel {
     UserCharacterBg,
     SideCharacterFg,
     SideCharacterBg,
+    FileReferenceFg,
     AssistantMessageFg,
     AssistantMessageBg,
     SystemMessage,
@@ -507,11 +548,12 @@ pub enum ColorLabel {
 }
 
 impl ColorLabel {
-    pub const ALL: [ColorLabel; 32] = [
+    pub const ALL: [ColorLabel; 33] = [
         Self::UserCharacterFg,
         Self::UserCharacterBg,
         Self::SideCharacterFg,
         Self::SideCharacterBg,
+        Self::FileReferenceFg,
         Self::AssistantMessageFg,
         Self::AssistantMessageBg,
         Self::SystemMessage,
@@ -548,6 +590,7 @@ impl ColorLabel {
             Self::UserCharacterBg => "user_character_bg",
             Self::SideCharacterFg => "side_character_fg",
             Self::SideCharacterBg => "side_character_bg",
+            Self::FileReferenceFg => "file_reference_fg",
             Self::AssistantMessageFg => "assistant_message_fg",
             Self::AssistantMessageBg => "assistant_message_bg",
             Self::SystemMessage => "system_message",
@@ -591,6 +634,7 @@ impl ThemeColorOverrides {
             ColorLabel::UserCharacterBg => &self.user_character_bg,
             ColorLabel::SideCharacterFg => &self.side_character_fg,
             ColorLabel::SideCharacterBg => &self.side_character_bg,
+            ColorLabel::FileReferenceFg => &self.file_reference_fg,
             ColorLabel::AssistantMessageFg => &self.assistant_message_fg,
             ColorLabel::AssistantMessageBg => &self.assistant_message_bg,
             ColorLabel::SystemMessage => &self.system_message,
@@ -629,6 +673,7 @@ impl ThemeColorOverrides {
             ColorLabel::UserCharacterBg => &mut self.user_character_bg,
             ColorLabel::SideCharacterFg => &mut self.side_character_fg,
             ColorLabel::SideCharacterBg => &mut self.side_character_bg,
+            ColorLabel::FileReferenceFg => &mut self.file_reference_fg,
             ColorLabel::AssistantMessageFg => &mut self.assistant_message_fg,
             ColorLabel::AssistantMessageBg => &mut self.assistant_message_bg,
             ColorLabel::SystemMessage => &mut self.system_message,
@@ -1362,5 +1407,39 @@ mod tests {
         let query = req.url().query().unwrap();
         assert!(query.contains("existing=1"));
         assert!(query.contains("k=v"));
+    }
+
+    #[test]
+    fn files_config_defaults() {
+        let config = Config::default();
+        assert!(config.files.enabled);
+        assert_eq!(config.files.per_file_bytes, 524_288);
+        assert_eq!(config.files.per_message_bytes, 4_194_304);
+    }
+
+    #[test]
+    fn files_config_round_trips_toml() {
+        let toml_text = "[files]\nenabled = false\nper_file_bytes = 1024\nper_message_bytes = 4096\n";
+        let config: Config = toml::from_str(toml_text).expect("parse");
+        assert!(!config.files.enabled);
+        assert_eq!(config.files.per_file_bytes, 1024);
+        assert_eq!(config.files.per_message_bytes, 4096);
+    }
+
+    #[test]
+    fn file_reference_fg_in_color_label_all() {
+        assert!(ColorLabel::ALL.contains(&ColorLabel::FileReferenceFg));
+        assert_eq!(ColorLabel::FileReferenceFg.name(), "file_reference_fg");
+        assert_eq!(
+            ColorLabel::from_name("file_reference_fg"),
+            Some(ColorLabel::FileReferenceFg),
+        );
+    }
+
+    #[test]
+    fn theme_color_overrides_file_reference_fg_round_trip() {
+        let mut overrides = ThemeColorOverrides::default();
+        overrides.set(ColorLabel::FileReferenceFg, Some("blue".to_owned()));
+        assert_eq!(overrides.get(ColorLabel::FileReferenceFg), Some("blue"));
     }
 }

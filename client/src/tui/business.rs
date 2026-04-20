@@ -461,6 +461,7 @@ pub fn apply_tabbed_config_fields(
         backup: backup_cfg,
         summarization: summarization_cfg,
         auth: existing.auth,
+        files: existing.files,
     };
 
     libllm::config::save(&cfg)

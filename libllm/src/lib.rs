@@ -10,6 +10,7 @@ pub mod crypto_provider;
 pub mod db;
 pub mod diagnostics;
 pub mod export;
+pub mod files;
 pub mod migration;
 pub mod persona;
 pub mod preset;

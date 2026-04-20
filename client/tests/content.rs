@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 use client::import::{ImportType, detect_import_type, handle_import_command, import_single_file};
 use libllm::db::Database;
+use libllm::preset::InstructPreset;
+use libllm::session::{Message, Role};
 
 #[test]
 fn import_character_from_json() {
@@ -160,4 +162,80 @@ fn detect_import_type_txt_without_kind_errors() {
         result.is_err(),
         ".txt without explicit kind should return an error"
     );
+}
+
+#[test]
+fn rendered_prompt_contains_wrapped_body_and_basename_substitution() {
+    let snapshot_body = libllm::files::build_snapshot_body("notes.md", "hello");
+    let messages = [
+        Message::new(Role::System, snapshot_body.clone()),
+        Message::new(Role::User, "summarise @./notes.md".to_owned()),
+    ];
+    let rewritten: Vec<Message> = messages
+        .iter()
+        .map(|m| match m.role {
+            Role::User => Message {
+                role: m.role,
+                content: libllm::files::rewrite_user_message(&m.content),
+                timestamp: m.timestamp.clone(),
+            },
+            _ => m.clone(),
+        })
+        .collect();
+    let refs: Vec<&Message> = rewritten.iter().collect();
+    let preset = InstructPreset::raw();
+    let rendered = preset.render(&refs, None);
+
+    assert!(
+        rendered.contains("<<<FILE notes.md>>>"),
+        "rendered prompt must contain the opening delimiter"
+    );
+    assert!(
+        rendered.contains("<<<END notes.md>>>"),
+        "rendered prompt must contain the closing delimiter"
+    );
+    assert!(
+        rendered.contains("hello"),
+        "rendered prompt must contain the file body"
+    );
+    assert!(
+        rendered.contains("[notes.md]"),
+        "rendered prompt must contain the basename substitution"
+    );
+    assert!(
+        !rendered.contains("@./notes.md"),
+        "rendered prompt must not contain the raw @path token; got: {rendered}"
+    );
+}
+
+#[test]
+fn rendered_prompt_preserves_snapshot_for_multiple_files_in_order() {
+    let a_body = libllm::files::build_snapshot_body("a.md", "alpha");
+    let b_body = libllm::files::build_snapshot_body("b.md", "beta");
+    let messages = [
+        Message::new(Role::System, a_body),
+        Message::new(Role::System, b_body),
+        Message::new(Role::User, "cmp @./a.md and @./b.md".to_owned()),
+    ];
+    let rewritten: Vec<Message> = messages
+        .iter()
+        .map(|m| match m.role {
+            Role::User => Message {
+                role: m.role,
+                content: libllm::files::rewrite_user_message(&m.content),
+                timestamp: m.timestamp.clone(),
+            },
+            _ => m.clone(),
+        })
+        .collect();
+    let refs: Vec<&Message> = rewritten.iter().collect();
+    let rendered = InstructPreset::raw().render(&refs, None);
+
+    let a_idx = rendered.find("<<<FILE a.md>>>").expect("a snapshot present");
+    let b_idx = rendered.find("<<<FILE b.md>>>").expect("b snapshot present");
+    assert!(a_idx < b_idx, "snapshots must appear in tree order");
+    assert!(rendered.contains("[a.md]"));
+    assert!(rendered.contains("[b.md]"));
+    assert!(!rendered.contains("@./a.md"));
+    assert!(!rendered.contains("@./b.md"));
 }

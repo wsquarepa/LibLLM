@@ -379,26 +379,8 @@ pub(in crate::tui) async fn handle_stream_token(
                             None => String::new(),
                         };
 
-                        let files_to_wait_on: Vec<libllm::files::FileToSummarize> =
-                            messages_to_summarize
-                                .iter()
-                                .filter(|m| m.role == Role::System)
-                                .filter_map(|m| {
-                                    let basename = libllm::files::snapshot_basename(&m.content)?;
-                                    let inner =
-                                        libllm::files::snapshot_inner_text(&m.content).to_owned();
-                                    if inner.is_empty() {
-                                        return None;
-                                    }
-                                    let content_hash =
-                                        libllm::files::content_hash_hex(inner.as_bytes());
-                                    Some(libllm::files::FileToSummarize {
-                                        basename,
-                                        content_hash,
-                                        body: inner,
-                                    })
-                                })
-                                .collect();
+                        let files_to_wait_on =
+                            libllm::files::files_to_summarize_from_messages(&messages_to_summarize);
 
                         if !files_to_wait_on.is_empty()
                             && !session_id_for_summarizer.is_empty()

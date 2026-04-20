@@ -774,6 +774,7 @@ mod paste_tests {
             enabled: false,
             per_file_bytes: 524_288,
             per_message_bytes: 4_194_304,
+            ..libllm::config::FilesConfig::default()
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }
@@ -787,6 +788,7 @@ mod paste_tests {
             enabled: true,
             per_file_bytes: 1000,
             per_message_bytes: 4_194_304,
+            ..libllm::config::FilesConfig::default()
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }

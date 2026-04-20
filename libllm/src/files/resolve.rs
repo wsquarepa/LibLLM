@@ -331,6 +331,7 @@ mod tests {
             enabled: true,
             per_file_bytes: cap,
             per_message_bytes: 4 * 1024 * 1024,
+            ..FilesConfig::default()
         };
         let msgs = resolve_all("read @edge.md", tmp.path(), &cfg).unwrap();
         assert_eq!(msgs.len(), 1);
@@ -345,6 +346,7 @@ mod tests {
             enabled: true,
             per_file_bytes: cap,
             per_message_bytes: 4 * 1024 * 1024,
+            ..FilesConfig::default()
         };
         let err = resolve_all("read @over.md", tmp.path(), &cfg).unwrap_err();
         assert!(matches!(err, FileError::TooLarge { .. }));
@@ -358,6 +360,7 @@ mod tests {
             enabled: true,
             per_file_bytes: 0,
             per_message_bytes: 4 * 1024 * 1024,
+            ..FilesConfig::default()
         };
         let err = resolve_all("read @one.md", tmp.path(), &cfg).unwrap_err();
         assert!(matches!(err, FileError::TooLarge { .. }));

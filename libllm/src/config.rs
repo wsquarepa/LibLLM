@@ -451,6 +451,24 @@ fn default_files_per_message_bytes() -> usize {
     DEFAULT_FILES_PER_MESSAGE_BYTES
 }
 
+const DEFAULT_FILES_SUMMARY_PROMPT: &str = "Summarize this file. Focus on its purpose, structure, and key facts useful for answering questions about its contents. Be concise.";
+
+fn default_files_summarize_mode() -> FileSummarizeMode {
+    FileSummarizeMode::Eager
+}
+
+fn default_files_summary_prompt() -> String {
+    DEFAULT_FILES_SUMMARY_PROMPT.to_owned()
+}
+
+/// When the file-summary cache generates summaries.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FileSummarizeMode {
+    Eager,
+    Lazy,
+}
+
 /// File-ingestion size caps and feature toggle, nested under `[files]` in config.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilesConfig {
@@ -460,6 +478,10 @@ pub struct FilesConfig {
     pub per_file_bytes: usize,
     #[serde(default = "default_files_per_message_bytes")]
     pub per_message_bytes: usize,
+    #[serde(default = "default_files_summarize_mode")]
+    pub summarize_mode: FileSummarizeMode,
+    #[serde(default = "default_files_summary_prompt")]
+    pub summary_prompt: String,
 }
 
 impl Default for FilesConfig {
@@ -468,6 +490,8 @@ impl Default for FilesConfig {
             enabled: DEFAULT_FILES_ENABLED,
             per_file_bytes: DEFAULT_FILES_PER_FILE_BYTES,
             per_message_bytes: DEFAULT_FILES_PER_MESSAGE_BYTES,
+            summarize_mode: FileSummarizeMode::Eager,
+            summary_prompt: DEFAULT_FILES_SUMMARY_PROMPT.to_owned(),
         }
     }
 }
@@ -1441,5 +1465,35 @@ mod tests {
         let mut overrides = ThemeColorOverrides::default();
         overrides.set(ColorLabel::FileReferenceFg, Some("blue".to_owned()));
         assert_eq!(overrides.get(ColorLabel::FileReferenceFg), Some("blue"));
+    }
+
+    #[test]
+    fn files_config_defaults_include_summarize_fields() {
+        let config = Config::default();
+        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
+        assert!(config.files.summary_prompt.contains("Summarize this file"));
+    }
+
+    #[test]
+    fn files_config_parses_summarize_fields() {
+        let toml_text = r#"
+[files]
+enabled = true
+per_file_bytes = 1024
+per_message_bytes = 4096
+summarize_mode = "lazy"
+summary_prompt = "custom prompt"
+"#;
+        let config: Config = toml::from_str(toml_text).unwrap();
+        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Lazy);
+        assert_eq!(config.files.summary_prompt, "custom prompt");
+    }
+
+    #[test]
+    fn files_config_missing_summarize_fields_use_defaults() {
+        let toml_text = "[files]\nenabled = true\nper_file_bytes = 1024\nper_message_bytes = 4096\n";
+        let config: Config = toml::from_str(toml_text).unwrap();
+        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
+        assert!(!config.files.summary_prompt.is_empty());
     }
 }

@@ -56,6 +56,7 @@ These are ephemeral -- nothing is saved. See [More workflows](#more-workflows) f
 
 - `/retry` regenerates the last response (creates a new branch).
 - Press Up arrow (with empty input) to navigate to a previous message, then Enter to edit it (creates a new branch).
+- With a user message selected, Right arrow retries it (new branch); on the chat panel, Right on any assistant also retries.
 - Alt+Left / Alt+Right to switch between sibling branches.
 
 ---
@@ -64,7 +65,7 @@ These are ephemeral -- nothing is saved. See [More workflows](#more-workflows) f
 
 ### Conversation branching
 
-Messages in LibLLM form a tree, not a flat list. When you use `/retry` to regenerate a response or navigate to a message and edit it, the new version becomes a sibling branch of the original. You can navigate between branches with Alt+Left/Right, and branch indicators like `[1/3]` appear at fork points.
+Messages in LibLLM form a tree, not a flat list. When you use `/retry` to regenerate a response or navigate to a message and edit it, the new version becomes a sibling branch of the original. You can navigate between branches with Alt+Left/Right, and branch indicators like `[1/3]` appear on user messages at fork points.
 
 ### Character cards and roleplay mode
 
@@ -355,12 +356,14 @@ Flags that overlap with `/config` fields (`--api-url`, `--template`, `--temperat
 | Alt+Enter | Input | Insert newline |
 | Up arrow | Input (empty) | Navigate to previous user message |
 | Enter | Input (navigating) | Edit selected message |
+| Left/Right | Input (navigating) | Cycle user sibling branches; Right on last retries it |
 | Tab | Global | Cycle focus: Input -> Chat -> Sidebar |
 | Esc | Global | Return to input, cancel navigation |
 | Esc | Streaming | Cancel generation (partial response is preserved) |
 | Alt+Left/Right | Global | Switch between conversation branches |
 | Up/Down | Chat | Navigate between messages |
-| Left/Right | Chat | Switch branch at current node |
+| Left | Chat | Cycle to previous user sibling |
+| Right | Chat | Cycle to next user sibling; retry on last sibling or on an assistant |
 | Enter | Chat | Open edit dialog for selected message |
 | Up/Down | Sidebar | Browse sessions |
 | Delete | Sidebar | Delete selected session |

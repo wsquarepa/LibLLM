@@ -1,5 +1,7 @@
 //! Background event processing for passkey derivation and model name resolution.
 
+use std::path::Path;
+
 use libllm::db::Database;
 use libllm::session::{self, SaveMode};
 
@@ -9,7 +11,7 @@ use crate::tui::types::{BackgroundEvent, Focus, StatusLevel};
 use super::App;
 
 fn prepare_backup_rekey(
-    data_dir: &std::path::Path,
+    data_dir: &Path,
     old_passkey: &str,
     new_passkey: &str,
 ) -> anyhow::Result<()> {
@@ -189,13 +191,12 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
 
                     match db.rekey(&new_key) {
                         Ok(()) => {
+                            app.resolved_passkey = new_passkey;
                             if let Err(err) = backup::rekey::finalize_rekey(&data_dir) {
                                 app.set_status(
                                     format!("Passkey changed, but failed to clean up backup journal: {err}"),
                                     StatusLevel::Warning,
                                 );
-                            } else {
-                                app.resolved_passkey = new_passkey;
                             }
                             app.passkey_changed = true;
                             app.should_quit = true;

@@ -51,7 +51,7 @@ pub fn run_with_interactivity(
     };
     tracing::info!(phase = "start", subcommand = subcommand, data_dir = %data_dir.display(), has_passkey = passkey.is_some(), interactive = interactive, "recover.run");
     match command {
-        Some(RecoverCommand::List) => cmd_list(data_dir),
+        Some(RecoverCommand::List) => cmd_list(data_dir, passkey),
         Some(RecoverCommand::Verify { full }) => cmd_verify(data_dir, passkey, *full),
         Some(RecoverCommand::Restore { id, yes }) => cmd_restore(data_dir, passkey, id, *yes),
         Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
@@ -185,9 +185,10 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_list(data_dir: &Path) -> Result<()> {
+fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let index = open_index(&index_path, None)?;
+    let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+    let index = open_index(&index_path, kek.as_ref())?;
     tracing::info!(
         result = "ok",
         entry_count = index.entries.len(),

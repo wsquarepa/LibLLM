@@ -81,9 +81,17 @@ fn migrate_encrypted(
     Ok(())
 }
 
-fn migrate_unencrypted(_index: &mut BackupIndex) -> Result<()> {
+fn migrate_unencrypted(index: &mut BackupIndex) -> Result<()> {
     // Unencrypted payloads need no re-encryption; only the SCHEMA_VERSION
-    // stamp changes, which run_migrations handles after this returns.
+    // stamp changes, which run_migrations handles after this returns. But if
+    // the index contains encrypted entries, the caller failed to supply a KEK
+    // — refuse rather than silently stamp a half-migrated index.
+    if index.entries.iter().any(|e| e.encrypted) {
+        anyhow::bail!(
+            "cannot migrate encrypted backup index without a KEK: \
+             re-run with a passkey set (LIBLLM_PASSKEY or --passkey)"
+        );
+    }
     Ok(())
 }
 
@@ -249,5 +257,38 @@ mod tests {
         assert!(index.entries[0].wrapped_dek.is_none());
         assert!(index.entries[0].kek_fingerprint.is_none());
         assert_eq!(std::fs::read(backups_dir.join(&filename)).unwrap(), plaintext);
+    }
+
+    #[test]
+    fn unencrypted_migration_bails_when_entries_are_encrypted() {
+        let tmp = TempDir::new().unwrap();
+        let backups_dir = tmp.path().join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let id = "20260421T000003.000Z".to_string();
+        let filename = backup_filename(&id, BackupType::Base);
+        write_atomic(&backups_dir.join(&filename), b"ciphertext-stub").unwrap();
+
+        let mut index = BackupIndex {
+            version: 1,
+            entries: vec![BackupEntry {
+                id,
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: 0,
+                stored_size: 0,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: None,
+                kek_fingerprint: None,
+            }],
+        };
+
+        let err = migrate(&mut index, &backups_dir, None).unwrap_err();
+        assert!(err.to_string().contains("without a KEK"));
+        assert_eq!(index.version, 1, "index version must not bump on refusal");
     }
 }

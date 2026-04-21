@@ -71,6 +71,8 @@ pub fn create_snapshot(
         stored_size: stored.len() as u64,
         encrypted: backup_key.is_some(),
         created_at: Utc::now(),
+        wrapped_dek: None,
+        kek_fingerprint: None,
     };
 
     index.entries.push(entry);
@@ -255,6 +257,8 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     stored_size,
                     encrypted,
                     created_at,
+                    wrapped_dek: None,
+                    kek_fingerprint: None,
                 });
             }
 
@@ -332,6 +336,8 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     stored_size,
                     encrypted,
                     created_at,
+                    wrapped_dek: None,
+                    kek_fingerprint: None,
                 });
             }
         }

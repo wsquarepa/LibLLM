@@ -87,6 +87,10 @@ pub struct BackupEntry {
     pub stored_size: u64,
     pub encrypted: bool,
     pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrapped_dek: Option<WrappedDek>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kek_fingerprint: Option<FingerprintField>,
 }
 
 /// The persistent backup index: a versioned list of all backup entries in chronological order.
@@ -95,6 +99,9 @@ pub struct BackupIndex {
     pub version: u32,
     pub entries: Vec<BackupEntry>,
 }
+
+/// Current on-disk schema version. Bumped to 2 for the DEK-wrapping overhaul.
+pub const SCHEMA_VERSION: u32 = 2;
 
 impl Default for BackupIndex {
     fn default() -> Self {
@@ -105,7 +112,7 @@ impl Default for BackupIndex {
 impl BackupIndex {
     pub fn new() -> Self {
         Self {
-            version: 1,
+            version: SCHEMA_VERSION,
             entries: Vec::new(),
         }
     }
@@ -228,7 +235,7 @@ pub fn is_safe_backup_filename(name: &str) -> bool {
 
 /// Loads a `BackupIndex` from the given path.
 ///
-/// Returns an empty index with version=1 when the file does not exist.
+/// Returns an empty index at `SCHEMA_VERSION` when the file does not exist.
 /// Returns an error if any entry contains an unsafe filename (absolute path, `..`, separators).
 pub fn load_index(path: &Path) -> Result<BackupIndex> {
     let data = match std::fs::read(path) {
@@ -276,6 +283,8 @@ mod tests {
             stored_size: 512,
             encrypted: true,
             created_at: Utc::now(),
+            wrapped_dek: None,
+            kek_fingerprint: None,
         }
     }
 
@@ -291,6 +300,8 @@ mod tests {
             stored_size: 50,
             encrypted: false,
             created_at: Utc::now(),
+            wrapped_dek: None,
+            kek_fingerprint: None,
         }
     }
 
@@ -299,7 +310,7 @@ mod tests {
         let index = BackupIndex::new();
         let json = serde_json::to_string(&index).unwrap();
         let restored: BackupIndex = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.version, 1);
+        assert_eq!(restored.version, SCHEMA_VERSION);
         assert!(restored.entries.is_empty());
     }
 
@@ -399,7 +410,7 @@ mod tests {
         save_index(&path, &index).unwrap();
 
         let loaded = load_index(&path).unwrap();
-        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.version, SCHEMA_VERSION);
         assert_eq!(loaded.entries.len(), 2);
         assert_eq!(loaded.entries[0].id, "20260414T153000Z");
         assert_eq!(loaded.entries[1].id, "20260414T153001Z");
@@ -411,7 +422,7 @@ mod tests {
         let path = dir.path().join("nonexistent.json");
 
         let index = load_index(&path).unwrap();
-        assert_eq!(index.version, 1);
+        assert_eq!(index.version, SCHEMA_VERSION);
         assert!(index.entries.is_empty());
     }
 

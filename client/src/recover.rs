@@ -12,6 +12,7 @@ use backup::snapshot::rebuild_index;
 use backup::verify::verify_chain;
 
 use crate::cli::RecoverCommand;
+use crate::time::format_relative;
 
 fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -132,8 +133,7 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
 fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
-    let backup_key = kek;
+    let backup_key = backup::crypto::resolve_backup_key(data_dir, passkey)?;
     let index = open_index(&index_path, backup_key.as_ref())?;
 
     if index.entries.is_empty() {
@@ -150,7 +150,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         .entries
         .iter()
         .map(|entry| {
-            let time_col = crate::time::format_relative(now, entry.created_at);
+            let time_col = format_relative(now, entry.created_at);
             let type_col = match entry.entry_type {
                 backup::index::BackupType::Base => "Base",
                 backup::index::BackupType::Diff => "Diff",

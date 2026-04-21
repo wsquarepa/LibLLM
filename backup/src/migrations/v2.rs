@@ -21,6 +21,9 @@ fn migrate_encrypted(
     backups_dir: &Path,
     kek: &[u8; 32],
 ) -> Result<()> {
+    // Staging + batch-rename + late root stamp means a mid-chain crash is
+    // recoverable: the idempotency guard re-enters the chain, generates a
+    // new DEK, and overwrites any orphaned .tmp files from the prior attempt.
     let fingerprint = compute_kek_fingerprint(kek);
     let chain_roots: Vec<String> = index
         .entries
@@ -32,8 +35,9 @@ fn migrate_encrypted(
     for root_id in chain_roots {
         let root_done = index
             .find_entry(&root_id)
-            .map(|e| e.wrapped_dek.is_some())
-            .unwrap_or(false);
+            .expect("root_id was collected from the same index")
+            .wrapped_dek
+            .is_some();
         if root_done {
             continue;
         }
@@ -78,9 +82,16 @@ fn migrate_encrypted(
 }
 
 fn migrate_unencrypted(_index: &mut BackupIndex) -> Result<()> {
+    // Unencrypted payloads need no re-encryption; only the SCHEMA_VERSION
+    // stamp changes, which run_migrations handles after this returns.
     Ok(())
 }
 
+/// Collects the chain root and every Diff that points directly at it. Assumes
+/// a flat chain model (all Diffs in a chain share the same `base_id` pointing
+/// to the Base). Snapshots in this codebase always produce that shape; a
+/// hypothetical future Diff-chained-on-Diff layout would require walking
+/// transitively, which this function does not.
 fn collect_chain_ids(index: &BackupIndex, root_id: &str) -> Vec<String> {
     let mut ids = vec![root_id.to_string()];
     for entry in &index.entries {
@@ -100,7 +111,7 @@ fn generate_dek() -> Result<[u8; 32]> {
     let mut bytes = [0u8; 32];
     rand::rng()
         .try_fill_bytes(&mut bytes)
-        .context("OsRng fill_bytes failed for DEK")?;
+        .context("RNG fill_bytes failed for DEK")?;
     Ok(bytes)
 }
 

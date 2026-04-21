@@ -278,13 +278,6 @@ pub async fn run(
         file_summary_ready_rx,
     };
 
-    if app.token_counter.is_heuristic() {
-        app.set_status(
-            "token counts approximate — llama.cpp /tokenize unavailable".to_owned(),
-            StatusLevel::Warning,
-        );
-    }
-
     business::load_active_persona(&mut app);
 
     crossterm::terminal::enable_raw_mode()?;

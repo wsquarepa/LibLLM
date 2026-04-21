@@ -6,6 +6,7 @@ pub mod import;
 pub mod interactive;
 pub mod legacy_migration;
 pub mod recover;
+pub mod time;
 pub mod tui;
 pub mod update;
 pub mod validation;

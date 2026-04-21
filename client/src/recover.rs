@@ -133,35 +133,112 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
     let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
-    let index = open_index(&index_path, kek.as_ref())?;
+    let backup_key = kek;
+    let index = open_index(&index_path, backup_key.as_ref())?;
 
     if index.entries.is_empty() {
         println!("No backup points found.");
         return Ok(());
     }
 
+    let now = chrono::Utc::now();
+    let current_fp = backup_key
+        .as_ref()
+        .map(backup::crypto::compute_kek_fingerprint);
+
     let rows: Vec<String> = index
         .entries
         .iter()
         .map(|entry| {
-            format!(
-                "{:<20} {:<6} {:<12} {:<12} {:<10} {}",
-                entry.id,
-                entry.entry_type,
-                format_size(entry.plaintext_size),
-                format_size(entry.stored_size),
-                if entry.encrypted { "yes" } else { "no" },
-                entry.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
-            )
+            let time_col = crate::time::format_relative(now, entry.created_at);
+            let type_col = match entry.entry_type {
+                backup::index::BackupType::Base => "Base",
+                backup::index::BackupType::Diff => "Diff",
+            };
+            let size_col = format!("{:>8}", format_size(entry.plaintext_size));
+            let status_col = if backup_key.is_none() {
+                String::new()
+            } else {
+                let root = chain_root_for(&index, entry);
+                match &root.kek_fingerprint {
+                    Some(backup::index::FingerprintField::Known(fp))
+                        if Some(fp) == current_fp.as_ref() =>
+                    {
+                        "current".to_string()
+                    }
+                    Some(backup::index::FingerprintField::Known(fp)) => {
+                        format!("archived  fp:{}", &fp[..8.min(fp.len())])
+                    }
+                    Some(backup::index::FingerprintField::Unknown) => {
+                        "archived  fp:unknown".to_string()
+                    }
+                    None => "archived  fp:unknown".to_string(),
+                }
+            };
+            if status_col.is_empty() {
+                format!("{time_col}  {type_col}  {size_col}")
+            } else {
+                format!("{time_col}  {type_col}  {size_col}  {status_col}")
+            }
         })
         .collect();
 
-    let Some(chosen_index) = crate::interactive::select("Select a backup to restore", &rows)?
-    else {
+    let chosen = crate::interactive::fuzzy_select("Select a backup to restore", &rows, 12)?;
+    let Some(chosen) = chosen else {
         return Ok(());
     };
 
-    let entry = &index.entries[chosen_index];
+    let entry = &index.entries[chosen];
+    let root = chain_root_for(&index, entry);
+    let status_detail = match &root.kek_fingerprint {
+        Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
+            "current passkey".to_string()
+        }
+        Some(backup::index::FingerprintField::Known(fp)) => {
+            format!(
+                "ARCHIVED -- passkey fingerprint: {fp}\n\
+                 Restore will refuse unless you re-run non-interactively:\n\
+                 libllm recover restore {} --archived-passkey <the-archived-passkey>",
+                entry.id
+            )
+        }
+        Some(backup::index::FingerprintField::Unknown) => format!(
+            "ARCHIVED -- fingerprint unknown (rebuilt from a foreign backup).\n\
+             Restore will refuse unless you re-run non-interactively:\n\
+             libllm recover restore {} --archived-passkey <the-archived-passkey>",
+            entry.id
+        ),
+        None => "unencrypted chain".to_string(),
+    };
+
+    println!();
+    println!("Backup ID:        {}", entry.id);
+    println!("Chain root:       {}", root.id);
+    println!("Type:             {:?}", entry.entry_type);
+    println!("Plaintext size:   {}", format_size(entry.plaintext_size));
+    println!("Stored size:      {}", format_size(entry.stored_size));
+    println!(
+        "Created at (UTC): {}",
+        entry.created_at.format("%Y-%m-%d %H:%M:%S")
+    );
+    println!("Status:           {status_detail}");
+    println!();
+
+    let archived = matches!(
+        &root.kek_fingerprint,
+        Some(backup::index::FingerprintField::Known(fp)) if Some(fp) != current_fp.as_ref()
+    ) || matches!(
+        &root.kek_fingerprint,
+        Some(backup::index::FingerprintField::Unknown)
+    );
+
+    if archived {
+        println!(
+            "This chain is archived. Re-run non-interactively with \
+             --archived-passkey to restore."
+        );
+        return Ok(());
+    }
 
     let prompt = format!(
         "Restore to '{}'? This overwrites the live database.",
@@ -189,6 +266,20 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+fn chain_root_for<'a>(
+    index: &'a backup::index::BackupIndex,
+    entry: &'a backup::index::BackupEntry,
+) -> &'a backup::index::BackupEntry {
+    if entry.entry_type == backup::index::BackupType::Base {
+        return entry;
+    }
+    entry
+        .base_id
+        .as_deref()
+        .and_then(|bid| index.find_entry(bid))
+        .unwrap_or(entry)
+}
+
 fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
     let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
@@ -204,21 +295,37 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
+    let current_fp = kek
+        .as_ref()
+        .map(backup::crypto::compute_kek_fingerprint);
+
     println!(
-        "{:<20} {:<6} {:<12} {:<12} {:<10} Created",
-        "ID", "Type", "Plain Size", "Stored Size", "Encrypted"
+        "{:<20} {:<6} {:<12} {:<12} {:<10} {:<26} Status",
+        "ID", "Type", "Plain Size", "Stored Size", "Encrypted", "Created"
     );
-    println!("{}", "-".repeat(80));
+    println!("{}", "-".repeat(100));
 
     for entry in &index.entries {
+        let root = chain_root_for(&index, entry);
+        let status = match &root.kek_fingerprint {
+            Some(backup::index::FingerprintField::Known(fp))
+                if Some(fp) == current_fp.as_ref() =>
+            {
+                "current".to_string()
+            }
+            Some(backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
+            Some(backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
+            None => "n/a".to_string(),
+        };
         println!(
-            "{:<20} {:<6} {:<12} {:<12} {:<10} {}",
+            "{:<20} {:<6} {:<12} {:<12} {:<10} {:<26} {}",
             entry.id,
             entry.entry_type,
             format_size(entry.plaintext_size),
             format_size(entry.stored_size),
             if entry.encrypted { "yes" } else { "no" },
-            entry.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
+            entry.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            status,
         );
     }
 

@@ -109,18 +109,19 @@ pub fn verify_chain(
             {
                 backup_key
             }
+            Some(_) if backup_key.is_none() => backup_key,
             Some(other) => {
                 if archived_passkey.is_none() {
                     let msg = match other {
                         crate::index::FingerprintField::Known(fp) => format!(
                             "chain {} is archived under passkey fingerprint {fp}; \
                              provide --archived-passkey to verify",
-                            entry.id
+                            chain_root.id
                         ),
                         crate::index::FingerprintField::Unknown => format!(
                             "chain {} has no recorded passkey fingerprint; \
                              provide --archived-passkey to verify",
-                            entry.id
+                            chain_root.id
                         ),
                     };
                     result.errors.push(msg);

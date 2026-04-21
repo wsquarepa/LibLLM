@@ -51,6 +51,11 @@ impl<'de> serde::Deserialize<'de> for FingerprintField {
             if hex.is_empty() {
                 return Err(serde::de::Error::custom("empty fingerprint hex"));
             }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(serde::de::Error::custom(format!(
+                    "fingerprint contains non-hex characters: {hex}"
+                )));
+            }
             return Ok(FingerprintField::Known(hex.to_string()));
         }
         Err(serde::de::Error::custom(format!(
@@ -569,5 +574,10 @@ mod fingerprint_field_tests {
     fn rejects_malformed() {
         assert!(serde_json::from_str::<FingerprintField>("\"garbage\"").is_err());
         assert!(serde_json::from_str::<FingerprintField>("\"known:\"").is_err());
+    }
+
+    #[test]
+    fn rejects_non_hex_characters() {
+        assert!(serde_json::from_str::<FingerprintField>("\"known:xyz!\"").is_err());
     }
 }

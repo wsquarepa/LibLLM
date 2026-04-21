@@ -108,8 +108,8 @@ pub fn prepare_rekey(data_dir: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) ->
 
     std::fs::copy(&index_path, sidecar_path(&backups_dir))
         .context("stage index.json.pre-rekey")?;
-    save_index(&index_path, &index)?;
     write_journal(&backups_dir, &RekeyJournal { old_fp, new_fp })?;
+    save_index(&index_path, &index)?;
     Ok(())
 }
 
@@ -142,31 +142,42 @@ pub fn recover_journal_if_present(
     current_kek: Option<&[u8; 32]>,
 ) -> Result<()> {
     let backups_dir = data_dir.join("backups");
-    let journal = match read_journal(&backups_dir)? {
-        Some(j) => j,
-        None => return Ok(()),
-    };
-    let fp = match current_kek {
-        Some(k) => compute_kek_fingerprint(k),
+    let journal = read_journal(&backups_dir)?;
+    match journal {
         None => {
-            anyhow::bail!(
-                "rekey journal found but no KEK supplied; run with the passkey active at rekey time"
-            );
+            // No in-flight rekey. If a sidecar exists, it's an orphan from a
+            // crash between sidecar-copy and journal-write in a prior attempt.
+            let sidecar = sidecar_path(&backups_dir);
+            if sidecar.exists() {
+                std::fs::remove_file(&sidecar)
+                    .with_context(|| format!("remove orphan sidecar {}", sidecar.display()))?;
+            }
+            Ok(())
         }
-    };
-    if fp == journal.new_fp {
-        delete_journal(&backups_dir)?;
-        return Ok(());
+        Some(journal) => {
+            let fp = match current_kek {
+                Some(k) => compute_kek_fingerprint(k),
+                None => {
+                    anyhow::bail!(
+                        "rekey journal found but no KEK supplied; run with the passkey active at rekey time"
+                    );
+                }
+            };
+            if fp == journal.new_fp {
+                delete_journal(&backups_dir)?;
+                return Ok(());
+            }
+            if fp == journal.old_fp {
+                rollback_rekey(data_dir)?;
+                return Ok(());
+            }
+            anyhow::bail!(
+                "rekey journal present but current passkey fingerprint ({fp}) matches neither old_fp ({}) nor new_fp ({}); cannot auto-recover",
+                journal.old_fp,
+                journal.new_fp
+            )
+        }
     }
-    if fp == journal.old_fp {
-        rollback_rekey(data_dir)?;
-        return Ok(());
-    }
-    anyhow::bail!(
-        "rekey journal present but current passkey fingerprint ({fp}) matches neither old_fp ({}) nor new_fp ({}); cannot auto-recover",
-        journal.old_fp,
-        journal.new_fp
-    )
 }
 
 #[cfg(test)]
@@ -235,13 +246,17 @@ mod tests {
         assert!(journal_path(&backups_dir).exists());
         assert!(sidecar_path(&backups_dir).exists());
 
-        let idx = open_index(&backups_dir.join("index.json"), Some(&new_kek)).unwrap();
-        let wrapped = idx.entries[0].wrapped_dek.as_ref().unwrap();
-        assert_eq!(unwrap_dek(wrapped, &new_kek).unwrap(), dek);
-
+        // Exercise finalize_rekey directly (not via open_index recovery).
         finalize_rekey(tmp.path()).unwrap();
         assert!(!journal_path(&backups_dir).exists());
         assert!(!sidecar_path(&backups_dir).exists());
+
+        // Now verify the on-disk index content — read with load_index to avoid
+        // running migrations/recovery (they're both no-ops at this point, but
+        // the test intent is to inspect raw disk state).
+        let idx = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let wrapped = idx.entries[0].wrapped_dek.as_ref().unwrap();
+        assert_eq!(unwrap_dek(wrapped, &new_kek).unwrap(), dek);
     }
 
     #[test]

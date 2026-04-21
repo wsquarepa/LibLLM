@@ -175,6 +175,7 @@ impl FileSummarizer {
         let session_id = session_id.to_owned();
         let content_hash = file.content_hash.clone();
         let body = file.body.clone();
+        let per_file_timeout = self.per_file_timeout;
         tokio::spawn(async move {
             tracing::debug!(
                 session_id = %session_id,
@@ -182,7 +183,8 @@ impl FileSummarizer {
                 body_bytes = body.len(),
                 "files.summary.task.start"
             );
-            let outcome = run_summary_task(&client, &prompt_instruction, &body).await;
+            let outcome =
+                run_summary_task(&client, &prompt_instruction, &body, per_file_timeout).await;
             let status = match &outcome {
                 Ok(text) => {
                     let guard = conn.lock().expect("summarizer conn poisoned");
@@ -365,6 +367,7 @@ async fn run_summary_task(
     client: &ApiClient,
     instruction: &str,
     body: &str,
+    per_call_timeout: Duration,
 ) -> Result<String> {
     let prompt = format!("--- FILE ---\n{body}\n--- END FILE ---\n\n{instruction}\n\nSummary:");
     let sampling = SamplingParams {
@@ -375,9 +378,10 @@ async fn run_summary_task(
 
     let mut last_err: Option<anyhow::Error> = None;
     for attempt in 0..=SUMMARY_API_RETRIES {
-        match client.complete(&prompt, SUMMARY_STOP_TOKENS, &sampling).await {
-            Ok(text) => return Ok(text.trim().to_owned()),
-            Err(err) => {
+        let call = client.complete(&prompt, SUMMARY_STOP_TOKENS, &sampling);
+        match tokio::time::timeout(per_call_timeout, call).await {
+            Ok(Ok(text)) => return Ok(text.trim().to_owned()),
+            Ok(Err(err)) => {
                 tracing::warn!(
                     result = "retry",
                     attempt = attempt,
@@ -385,6 +389,18 @@ async fn run_summary_task(
                     "files.summary.api"
                 );
                 last_err = Some(err);
+            }
+            Err(_) => {
+                tracing::warn!(
+                    result = "timeout",
+                    attempt = attempt,
+                    timeout_ms = per_call_timeout.as_millis() as u64,
+                    "files.summary.api"
+                );
+                last_err = Some(anyhow::anyhow!(
+                    "summary API call timed out after {:?}",
+                    per_call_timeout
+                ));
             }
         }
     }

@@ -29,6 +29,17 @@ pub(super) fn handle_event(
     }
 }
 
+pub(in crate::tui) fn format_at_token(path: &str) -> Option<String> {
+    if path.contains('"') {
+        return None;
+    }
+    if path.chars().any(char::is_whitespace) {
+        Some(format!("@\"{path}\""))
+    } else {
+        Some(format!("@{path}"))
+    }
+}
+
 fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action> {
     let cleaned = clean_pasted_path(&text);
     let path = std::path::Path::new(&cleaned);
@@ -60,6 +71,10 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
         Focus::Input => {
             if let Some(token) = paste_as_file_reference(&text, &app.config.files) {
                 app.textarea.insert_str(&token);
+                app.set_status(
+                    format!("Paste converted to file reference: {token}"),
+                    StatusLevel::Info,
+                );
             } else {
                 app.textarea.input(raw_event);
             }
@@ -119,17 +134,7 @@ fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> O
     let bytes = std::fs::read(&canonical).ok()?;
     libllm::files::classify(&canonical, &bytes).ok()?;
     let display = canonical.to_string_lossy();
-    Some(format_at_token(&display))
-}
-
-/// Build an `@<path>` token, wrapping the path in double quotes when it
-/// contains any whitespace so the tokeniser captures the full path.
-fn format_at_token(path: &str) -> String {
-    if path.chars().any(char::is_whitespace) {
-        format!("@\"{path}\"")
-    } else {
-        format!("@{path}")
-    }
+    format_at_token(&display)
 }
 
 fn clean_pasted_path(raw: &str) -> String {

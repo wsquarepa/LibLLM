@@ -518,18 +518,16 @@ pub(in crate::tui) async fn handle_stream_token(
                                 HashMap::new()
                             };
 
-                        let summarize_api_url = app
-                            .config
-                            .summarization
-                            .api_url
-                            .as_deref()
-                            .unwrap_or(app.client.base_url());
+                        let summarize_api_url = crate::tui::business::summarize_api_url(
+                            &app.config,
+                            &app.cli_overrides,
+                        );
                         let summarizer_auth = libllm::config::resolve_auth(
                             &app.config,
                             &app.cli_overrides.auth_overrides(),
                         );
                         let summarizer_client = libllm::client::ApiClient::new(
-                            summarize_api_url,
+                            &summarize_api_url,
                             app.config.tls_skip_verify || app.cli_overrides.tls_skip_verify,
                             summarizer_auth,
                         );

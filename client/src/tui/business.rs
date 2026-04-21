@@ -630,12 +630,19 @@ fn build_summarize_client(
     cli_overrides: &crate::cli::CliOverrides,
 ) -> ApiClient {
     let auth = libllm::config::resolve_auth(config, &cli_overrides.auth_overrides());
-    let url = config
-        .summarization
+    let url = summarize_api_url(config, cli_overrides);
+    ApiClient::new(&url, config.tls_skip_verify || cli_overrides.tls_skip_verify, auth)
+}
+
+pub(super) fn summarize_api_url(
+    config: &libllm::config::Config,
+    cli_overrides: &crate::cli::CliOverrides,
+) -> String {
+    cli_overrides
         .api_url
         .clone()
-        .unwrap_or_else(|| config.api_url().to_owned());
-    ApiClient::new(&url, config.tls_skip_verify || cli_overrides.tls_skip_verify, auth)
+        .or_else(|| config.summarization.api_url.clone())
+        .unwrap_or_else(|| config.api_url().to_owned())
 }
 
 pub fn build_file_summarizer(
@@ -662,11 +669,7 @@ pub fn build_file_summarizer(
         .context("configure summarizer DB pragmas")?;
     let conn_arc = std::sync::Arc::new(std::sync::Mutex::new(conn));
     let summarize_client = build_summarize_client(config, cli_overrides);
-    let api_url = config
-        .summarization
-        .api_url
-        .clone()
-        .unwrap_or_else(|| config.api_url().to_owned());
+    let api_url = summarize_api_url(config, cli_overrides);
     tracing::info!(
         api_url = %api_url,
         "tui.file_summarizer.construct.done"

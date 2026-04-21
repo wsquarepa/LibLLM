@@ -20,6 +20,12 @@ use crate::tui::{Action, App, Focus};
 pub(in crate::tui) const FILE_PICKER_DIALOG_WIDTH: u16 = 80;
 pub(in crate::tui) const FILE_PICKER_DIALOG_HEIGHT: u16 = 20;
 
+fn sanitize_display_name(raw: &str) -> String {
+    raw.chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub struct FilePickerEntry {
     pub name: String,
@@ -158,7 +164,10 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &mut App, area: Rect) 
         return;
     };
 
-    let title = format!(" File @ {} ", state.base_dir.display());
+    let title = format!(
+        " File @ {} ",
+        sanitize_display_name(&state.base_dir.to_string_lossy())
+    );
     let block = dialog_block(title, app.theme.border_focused);
 
     let visible: Vec<usize> = state
@@ -173,10 +182,11 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &mut App, area: Rect) 
         .iter()
         .map(|&i| {
             let entry = &state.entries[i];
+            let safe = sanitize_display_name(&entry.name);
             let label = if entry.is_dir {
-                format!("{}/", entry.name)
+                format!("{safe}/")
             } else {
-                entry.name.clone()
+                safe
             };
             let style = if entry.is_dir {
                 Style::default().add_modifier(Modifier::BOLD)
@@ -295,6 +305,16 @@ fn accept_current(app: &mut App) {
         )
     };
 
+    let Some(replacement) = crate::tui::events::format_at_token(&full_path) else {
+        app.set_status(
+            format!("Cannot attach file: path contains quote character: {full_path}"),
+            crate::tui::StatusLevel::Warning,
+        );
+        app.file_picker = None;
+        app.focus = Focus::Input;
+        return;
+    };
+
     let textarea = &mut app.textarea;
     let mut lines: Vec<String> = textarea.lines().to_vec();
     if anchor_line >= lines.len() {
@@ -303,16 +323,9 @@ fn accept_current(app: &mut App) {
         return;
     }
     let line = &mut lines[anchor_line];
-    // The token starts at `@` (anchor_col) and extends to `anchor_col + 1 + filter_len`.
-    // Replace it with `@<full_path>`, wrapping in quotes if the path has whitespace.
     let token_end = (anchor_col + 1 + filter_len).min(line.len());
     let head = line[..anchor_col].to_owned();
     let tail = line[token_end..].to_owned();
-    let replacement = if full_path.chars().any(char::is_whitespace) {
-        format!("@\"{full_path}\"")
-    } else {
-        format!("@{full_path}")
-    };
     let new_line = format!("{head}{replacement}{tail}");
     let new_cursor_col = anchor_col + replacement.len();
     *line = new_line;
@@ -331,6 +344,23 @@ fn accept_current(app: &mut App) {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn sanitize_display_name_replaces_control_chars() {
+        let raw = "safe\x1b[31mBAD\x1b[0m\x07\x7f";
+        let out = sanitize_display_name(raw);
+        assert!(!out.contains('\x1b'));
+        assert!(!out.contains('\x07'));
+        assert!(!out.contains('\x7f'));
+        assert!(out.contains("safe"));
+        assert!(out.contains("BAD"));
+    }
+
+    #[test]
+    fn sanitize_display_name_preserves_printable_utf8() {
+        let raw = "日記.md";
+        assert_eq!(sanitize_display_name(raw), raw);
+    }
 
     #[test]
     fn split_fragment_empty_keeps_cwd_empty_filter() {

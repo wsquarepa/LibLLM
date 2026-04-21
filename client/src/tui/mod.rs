@@ -167,6 +167,7 @@ pub async fn run(
             buffer_len: 0,
             width: 0,
             height: 0,
+            summary_revision: 0,
         },
         sidebar_sessions,
         sidebar_state,
@@ -276,6 +277,7 @@ pub async fn run(
         file_summarizer,
         file_summary_ready_tx,
         file_summary_ready_rx,
+        file_summary_revision: 0,
     };
 
     business::load_active_persona(&mut app);
@@ -396,6 +398,7 @@ pub async fn run(
                         "tui.file_summary.ready"
                     );
                     app.invalidate_chat_cache();
+                    app.file_summary_revision = app.file_summary_revision.wrapping_add(1);
                     needs_redraw = true;
                 }
                 if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
@@ -537,6 +540,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         buffer_len: app.streaming_buffer.len(),
         width: messages_area.width,
         height: messages_area.height,
+        summary_revision: app.file_summary_revision,
     };
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;

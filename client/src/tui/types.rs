@@ -148,6 +148,10 @@ pub(super) struct ScrollState {
     pub(super) buffer_len: usize,
     pub(super) width: u16,
     pub(super) height: u16,
+    /// Monotonic counter bumped whenever a file-summary completion lands. File
+    /// summaries grow the rendered chat height without changing `head` or
+    /// `branch_len`, so without this the auto-scroll re-snap never fires.
+    pub(super) summary_revision: u64,
 }
 
 pub(super) const SIDEBAR_WIDTH: u16 = 32;
@@ -300,6 +304,9 @@ pub(super) struct App<'a> {
         tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
     pub(super) file_summary_ready_rx:
         tokio::sync::mpsc::UnboundedReceiver<libllm::files::ReadyEvent>,
+    /// Monotonic counter bumped on each file-summary completion so that the
+    /// next render sees `scroll_dirty` and re-snaps to the new bottom.
+    pub(super) file_summary_revision: u64,
 }
 
 impl<'a> App<'a> {

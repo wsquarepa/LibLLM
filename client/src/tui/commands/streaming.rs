@@ -279,7 +279,11 @@ pub(in crate::tui) async fn start_streaming(
 ) {
     match stream_preflight(app, content) {
         StreamPreflight::Proceed => {}
-        StreamPreflight::Queued | StreamPreflight::Blocked => return,
+        StreamPreflight::Queued => {
+            app.clear_input_textarea_if_holds(content);
+            return;
+        }
+        StreamPreflight::Blocked => return,
     }
     debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -294,6 +298,7 @@ pub(in crate::tui) async fn start_streaming(
             return;
         }
     };
+    app.clear_input_textarea_if_holds(content);
     match (
         app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
         app.config.summarization.enabled,
@@ -350,12 +355,17 @@ pub(in crate::tui) async fn start_retry_streaming(
 ) {
     match stream_preflight(app, content) {
         StreamPreflight::Proceed => {}
-        StreamPreflight::Queued | StreamPreflight::Blocked => return,
+        StreamPreflight::Queued => {
+            app.clear_input_textarea_if_holds(content);
+            return;
+        }
+        StreamPreflight::Blocked => return,
     }
     debug_assert!(
         !content.trim().is_empty(),
         "start_retry_streaming called with blank content"
     );
+    app.clear_input_textarea_if_holds(content);
     push_user_segments(app, content);
     launch_stream(app, sender).await;
 }

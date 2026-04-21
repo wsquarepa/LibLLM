@@ -100,11 +100,11 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 return None;
             }
 
-            app.textarea = TextArea::default();
-            super::dialog_handler::configure_textarea(&mut app.textarea);
             app.command_picker_selected = 0;
 
             if trimmed.starts_with('/') {
+                app.textarea = TextArea::default();
+                super::dialog_handler::configure_textarea(&mut app.textarea);
                 let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
                 let cmd = parts[0].to_owned();
                 let arg = parts

@@ -1,6 +1,7 @@
 //! Application state management: autosave scheduling, status messages, and notification timers.
 
 use anyhow::Result;
+use tui_textarea::TextArea;
 
 use super::App;
 use super::dialogs;
@@ -100,6 +101,19 @@ impl App<'_> {
     pub(super) fn invalidate_chat_cache(&mut self) {
         self.chat_content_cache = None;
         self.cached_token_count = None;
+    }
+
+    /// Clear the textarea only when it still holds `submitted_content` (trimmed).
+    /// Used by the send pipeline so that messages originating from the queue
+    /// (re-sent after an `Esc` cancel) don't wipe out new text the user has
+    /// typed in the meantime.
+    pub(super) fn clear_input_textarea_if_holds(&mut self, submitted_content: &str) {
+        let current = self.textarea.lines().join("\n");
+        if current.trim() == submitted_content.trim() {
+            self.textarea = TextArea::default();
+            super::dialog_handler::configure_textarea(&mut self.textarea);
+            self.command_picker_selected = 0;
+        }
     }
 
     pub(super) fn invalidate_worldbook_cache(&mut self) {

@@ -1,5 +1,6 @@
 //! Backup-specific encryption using XChaCha20-Poly1305 with Argon2id key derivation.
 
+use std::fmt::Write;
 use std::path::Path;
 
 use anyhow::{Result, bail};
@@ -115,7 +116,6 @@ pub fn compute_kek_fingerprint(kek: &[u8; 32]) -> String {
         .expect("16 bytes is within HKDF-SHA256's output limit");
     let mut hex = String::with_capacity(32);
     for byte in out {
-        use std::fmt::Write;
         write!(hex, "{byte:02x}").expect("write to String cannot fail");
     }
     hex

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::index::load_index;
+use crate::index::open_index;
 
 /// Summary of a backup verification run: how many entries were checked and any errors found.
 pub struct VerifyResult {
@@ -23,13 +23,13 @@ pub struct VerifyResult {
 pub fn verify_chain(
     data_dir: &Path,
     passkey: Option<&str>,
+    archived_passkey: Option<&str>,
     full_replay: bool,
 ) -> Result<VerifyResult> {
     let backups_dir = data_dir.join("backups");
     let index_path = backups_dir.join("index.json");
-    let index = load_index(&index_path)?;
-
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let index = open_index(&index_path, backup_key.as_ref())?;
 
     let mut result = VerifyResult {
         checked_count: 0,
@@ -86,6 +86,11 @@ pub fn verify_chain(
         return Ok(result);
     }
 
+    let current_fp = backup_key
+        .as_ref()
+        .map(crate::crypto::compute_kek_fingerprint);
+    let archived_key = crate::crypto::resolve_backup_key(data_dir, archived_passkey)?;
+
     for entry in &index.entries {
         let Ok(chain) = index.chain_to(&entry.id) else {
             continue;
@@ -96,7 +101,37 @@ pub fn verify_chain(
             continue;
         }
 
-        let replay_result = crate::restore::replay_chain(&backups_dir, &chain, &backup_key);
+        let chain_root = chain[0];
+        let effective_kek: Option<[u8; 32]> = match &chain_root.kek_fingerprint {
+            None => backup_key,
+            Some(crate::index::FingerprintField::Known(fp))
+                if Some(fp) == current_fp.as_ref() =>
+            {
+                backup_key
+            }
+            Some(_) if backup_key.is_none() => backup_key,
+            Some(other) => {
+                if archived_passkey.is_none() {
+                    let msg = match other {
+                        crate::index::FingerprintField::Known(fp) => format!(
+                            "chain {} is archived under passkey fingerprint {fp}; \
+                             provide --archived-passkey to verify",
+                            chain_root.id
+                        ),
+                        crate::index::FingerprintField::Unknown => format!(
+                            "chain {} has no recorded passkey fingerprint; \
+                             provide --archived-passkey to verify",
+                            chain_root.id
+                        ),
+                    };
+                    result.errors.push(msg);
+                    continue;
+                }
+                archived_key
+            }
+        };
+
+        let replay_result = crate::restore::replay_chain(&backups_dir, &chain, &effective_kek);
         match replay_result {
             Err(e) => {
                 result
@@ -140,7 +175,7 @@ mod tests {
 
         crate::snapshot::create_snapshot(dir.path(), None, &config).unwrap();
 
-        let result = verify_chain(dir.path(), None, false).unwrap();
+        let result = verify_chain(dir.path(), None, None, false).unwrap();
 
         assert_eq!(result.checked_count, 1);
         assert!(
@@ -166,7 +201,7 @@ mod tests {
 
         std::fs::write(&file_path, b"garbage data that is not a valid backup").unwrap();
 
-        let result = verify_chain(dir.path(), None, false).unwrap();
+        let result = verify_chain(dir.path(), None, None, false).unwrap();
 
         assert_eq!(result.checked_count, 1);
         assert!(
@@ -191,7 +226,7 @@ mod tests {
 
         std::fs::remove_file(&file_path).unwrap();
 
-        let result = verify_chain(dir.path(), None, false).unwrap();
+        let result = verify_chain(dir.path(), None, None, false).unwrap();
 
         assert_eq!(result.checked_count, 1);
         assert!(

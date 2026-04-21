@@ -194,6 +194,7 @@ pub async fn run(
         passkey_error: String::new(),
         passkey_deriving: false,
         resolved_passkey: None,
+        pending_new_passkey: None,
         set_passkey_input: String::new(),
         set_passkey_confirm: String::new(),
         set_passkey_active_field: 0,

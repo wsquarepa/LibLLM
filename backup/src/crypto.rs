@@ -1,5 +1,6 @@
 //! Backup-specific encryption using XChaCha20-Poly1305 with Argon2id key derivation.
 
+use std::fmt::Write;
 use std::path::Path;
 
 use anyhow::{Result, bail};
@@ -8,7 +9,11 @@ use chacha20poly1305::{
     XChaCha20Poly1305,
     aead::{Aead, NewAead},
 };
+use hkdf::Hkdf;
 use rand::RngCore;
+use sha2::Sha256;
+
+use crate::index::WrappedDek;
 
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
@@ -101,6 +106,43 @@ pub fn decrypt_payload(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
         .map_err(|e| anyhow::anyhow!("decryption failed: {e}"))
 }
 
+const FINGERPRINT_CONTEXT: &[u8] = b"libllm-backup-kek-fingerprint-v1";
+const FINGERPRINT_LEN: usize = 16;
+
+/// Derives a 16-byte non-reversible fingerprint of a KEK, rendered as
+/// 32 lowercase hex chars. Stable across rewraps of the same underlying key.
+pub fn compute_kek_fingerprint(kek: &[u8; 32]) -> String {
+    let hk = Hkdf::<Sha256>::new(None, kek);
+    let mut out = [0u8; FINGERPRINT_LEN];
+    hk.expand(FINGERPRINT_CONTEXT, &mut out)
+        .expect("16 bytes is within HKDF-SHA256's output limit");
+    let mut hex = String::with_capacity(32);
+    for byte in out {
+        write!(hex, "{byte:02x}").expect("write to String cannot fail");
+    }
+    hex
+}
+
+/// Encrypts a DEK under a KEK using the existing AEAD.
+pub fn wrap_dek(dek: &[u8; 32], kek: &[u8; 32]) -> Result<WrappedDek> {
+    let blob = encrypt_payload(dek, kek)?;
+    Ok(WrappedDek { blob })
+}
+
+/// Decrypts a wrapped DEK with a KEK. Returns error on authentication failure.
+pub fn unwrap_dek(wrapped: &WrappedDek, kek: &[u8; 32]) -> Result<[u8; 32]> {
+    let bytes = decrypt_payload(&wrapped.blob, kek)?;
+    if bytes.len() != 32 {
+        anyhow::bail!(
+            "unwrapped DEK has wrong length: got {}, expected 32",
+            bytes.len()
+        );
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +206,43 @@ mod tests {
         let ciphertext = encrypt_payload(plaintext, &key).expect("encrypt");
 
         assert!(ciphertext.len() >= NONCE_LEN + TAG_LEN + plaintext.len());
+    }
+}
+
+#[cfg(test)]
+mod kek_helpers_tests {
+    use super::{compute_kek_fingerprint, unwrap_dek, wrap_dek};
+
+    #[test]
+    fn fingerprint_is_deterministic() {
+        let key = [7u8; 32];
+        assert_eq!(compute_kek_fingerprint(&key), compute_kek_fingerprint(&key));
+    }
+
+    #[test]
+    fn fingerprint_is_32_lowercase_hex() {
+        let fp = compute_kek_fingerprint(&[0u8; 32]);
+        assert_eq!(fp.len(), 32);
+        assert!(fp.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)));
+    }
+
+    #[test]
+    fn fingerprint_distinguishes_keys() {
+        assert_ne!(compute_kek_fingerprint(&[1u8; 32]), compute_kek_fingerprint(&[2u8; 32]));
+    }
+
+    #[test]
+    fn wrap_unwrap_round_trip() {
+        let kek = [9u8; 32];
+        let dek = [3u8; 32];
+        let wrapped = wrap_dek(&dek, &kek).unwrap();
+        let recovered = unwrap_dek(&wrapped, &kek).unwrap();
+        assert_eq!(recovered, dek);
+    }
+
+    #[test]
+    fn unwrap_rejects_wrong_kek() {
+        let wrapped = wrap_dek(&[3u8; 32], &[9u8; 32]).unwrap();
+        assert!(unwrap_dek(&wrapped, &[10u8; 32]).is_err());
     }
 }

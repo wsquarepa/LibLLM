@@ -8,6 +8,20 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+mod base64_bytes {
+    use base64::engine::{general_purpose::STANDARD, Engine};
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let raw = String::deserialize(d)?;
+        STANDARD.decode(&raw).map_err(D::Error::custom)
+    }
+}
+
 /// Whether a backup entry is a full base snapshot or an incremental diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -25,6 +39,54 @@ impl fmt::Display for BackupType {
     }
 }
 
+/// Identifies which key-encryption key wrapped the data-encryption key for a backup chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FingerprintField {
+    Known(String),
+    Unknown,
+}
+
+impl serde::Serialize for FingerprintField {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            FingerprintField::Known(hex) => s.serialize_str(&format!("known:{hex}")),
+            FingerprintField::Unknown => s.serialize_str("unknown"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for FingerprintField {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        if raw == "unknown" {
+            return Ok(FingerprintField::Unknown);
+        }
+        if let Some(hex) = raw.strip_prefix("known:") {
+            if hex.is_empty() {
+                return Err(serde::de::Error::custom("empty fingerprint hex"));
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(serde::de::Error::custom(format!(
+                    "fingerprint contains non-hex characters: {hex}"
+                )));
+            }
+            return Ok(FingerprintField::Known(hex.to_string()));
+        }
+        Err(serde::de::Error::custom(format!(
+            "invalid fingerprint field: {raw}"
+        )))
+    }
+}
+
+/// DEK (data-encryption key) encrypted under a KEK (key-encryption key).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WrappedDek {
+    /// Output of `crypto::encrypt_payload(dek_bytes, kek)`; XChaCha20-Poly1305
+    /// nonce is embedded in the first 24 bytes of this blob.
+    #[serde(with = "base64_bytes")]
+    pub blob: Vec<u8>,
+}
+
 /// Metadata for a single backup file: type, hashes, sizes, and timestamps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupEntry {
@@ -40,6 +102,10 @@ pub struct BackupEntry {
     pub stored_size: u64,
     pub encrypted: bool,
     pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrapped_dek: Option<WrappedDek>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kek_fingerprint: Option<FingerprintField>,
 }
 
 /// The persistent backup index: a versioned list of all backup entries in chronological order.
@@ -48,6 +114,9 @@ pub struct BackupIndex {
     pub version: u32,
     pub entries: Vec<BackupEntry>,
 }
+
+/// On-disk schema version for the backup index. Version 2 introduces per-chain DEK wrapping.
+pub const SCHEMA_VERSION: u32 = 2;
 
 impl Default for BackupIndex {
     fn default() -> Self {
@@ -58,7 +127,7 @@ impl Default for BackupIndex {
 impl BackupIndex {
     pub fn new() -> Self {
         Self {
-            version: 1,
+            version: SCHEMA_VERSION,
             entries: Vec::new(),
         }
     }
@@ -181,8 +250,11 @@ pub fn is_safe_backup_filename(name: &str) -> bool {
 
 /// Loads a `BackupIndex` from the given path.
 ///
-/// Returns an empty index with version=1 when the file does not exist.
+/// Returns an empty index at `SCHEMA_VERSION` when the file does not exist.
 /// Returns an error if any entry contains an unsafe filename (absolute path, `..`, separators).
+///
+/// Low-level load with no migrations. Callers that observe the live on-disk
+/// format should use [`open_index`] instead.
 pub fn load_index(path: &Path) -> Result<BackupIndex> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
@@ -212,9 +284,31 @@ pub fn save_index(path: &Path, index: &BackupIndex) -> Result<()> {
         .with_context(|| format!("failed to write index file: {}", path.display()))
 }
 
+/// Loads an index and runs pending migrations in place. Persists the migrated
+/// index when any migration applied. Callers that don't have a KEK (e.g.,
+/// unencrypted data dirs, or ops that will only read raw file hashes) pass
+/// `None`; in that case only the unencrypted migration branch runs.
+pub fn open_index(path: &Path, kek: Option<&[u8; 32]>) -> Result<BackupIndex> {
+    let backups_dir = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("index path {} has no parent", path.display()))?;
+    let data_dir = backups_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("backups dir {} has no parent", backups_dir.display()))?;
+    crate::rekey::recover_journal_if_present(data_dir, kek)?;
+    let mut index = load_index(path)?;
+    let starting_version = index.version;
+    crate::migrations::run_migrations(&mut index, backups_dir, kek)?;
+    if index.version != starting_version {
+        save_index(path, &index)?;
+    }
+    Ok(index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::resolve_backup_key;
     use tempfile::TempDir;
 
     fn make_base_entry(id: &str) -> BackupEntry {
@@ -229,6 +323,8 @@ mod tests {
             stored_size: 512,
             encrypted: true,
             created_at: Utc::now(),
+            wrapped_dek: None,
+            kek_fingerprint: None,
         }
     }
 
@@ -244,6 +340,8 @@ mod tests {
             stored_size: 50,
             encrypted: false,
             created_at: Utc::now(),
+            wrapped_dek: None,
+            kek_fingerprint: None,
         }
     }
 
@@ -252,7 +350,7 @@ mod tests {
         let index = BackupIndex::new();
         let json = serde_json::to_string(&index).unwrap();
         let restored: BackupIndex = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.version, 1);
+        assert_eq!(restored.version, SCHEMA_VERSION);
         assert!(restored.entries.is_empty());
     }
 
@@ -352,7 +450,7 @@ mod tests {
         save_index(&path, &index).unwrap();
 
         let loaded = load_index(&path).unwrap();
-        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.version, SCHEMA_VERSION);
         assert_eq!(loaded.entries.len(), 2);
         assert_eq!(loaded.entries[0].id, "20260414T153000Z");
         assert_eq!(loaded.entries[1].id, "20260414T153001Z");
@@ -364,7 +462,7 @@ mod tests {
         let path = dir.path().join("nonexistent.json");
 
         let index = load_index(&path).unwrap();
-        assert_eq!(index.version, 1);
+        assert_eq!(index.version, SCHEMA_VERSION);
         assert!(index.entries.is_empty());
     }
 
@@ -498,5 +596,106 @@ mod tests {
         assert!(result.is_err(), "expected Err for cyclic chain");
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("cycle"), "expected cycle error, got: {msg}");
+    }
+
+    #[test]
+    fn open_index_runs_migrations_on_outdated_index() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+
+        let plaintext = b"x" as &[u8];
+        let id = "20260421T010000.000Z".to_string();
+        let filename = backup_filename(&id, BackupType::Base);
+        let payload = crate::crypto::encrypt_payload(plaintext, &kek).unwrap();
+        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+
+        let legacy = BackupIndex {
+            version: 1,
+            entries: vec![BackupEntry {
+                id,
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: plaintext.len() as u64,
+                stored_size: payload.len() as u64,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: None,
+                kek_fingerprint: None,
+            }],
+        };
+        let index_path = backups_dir.join("index.json");
+        save_index(&index_path, &legacy).unwrap();
+
+        let opened = open_index(&index_path, Some(&kek)).unwrap();
+        assert_eq!(opened.version, SCHEMA_VERSION);
+        assert!(opened.entries[0].wrapped_dek.is_some());
+    }
+}
+
+#[cfg(test)]
+mod wrapped_dek_tests {
+    use super::WrappedDek;
+
+    #[test]
+    fn round_trips_through_json() {
+        let w = WrappedDek { blob: vec![1, 2, 3, 4, 5] };
+        let json = serde_json::to_string(&w).unwrap();
+        let back: WrappedDek = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, w);
+    }
+
+    #[test]
+    fn blob_serializes_as_base64_string() {
+        let w = WrappedDek { blob: vec![0xde, 0xad, 0xbe, 0xef] };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains("\"blob\":\"3q2+7w==\""), "unexpected encoding: {json}");
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_field_tests {
+    use super::FingerprintField;
+
+    #[test]
+    fn serializes_known_as_prefixed_string() {
+        let f = FingerprintField::Known("abc12345".into());
+        let json = serde_json::to_string(&f).unwrap();
+        assert_eq!(json, "\"known:abc12345\"");
+    }
+
+    #[test]
+    fn serializes_unknown_as_literal() {
+        let f = FingerprintField::Unknown;
+        let json = serde_json::to_string(&f).unwrap();
+        assert_eq!(json, "\"unknown\"");
+    }
+
+    #[test]
+    fn deserializes_known() {
+        let f: FingerprintField = serde_json::from_str("\"known:deadbeef\"").unwrap();
+        assert!(matches!(f, FingerprintField::Known(ref h) if h == "deadbeef"));
+    }
+
+    #[test]
+    fn deserializes_unknown() {
+        let f: FingerprintField = serde_json::from_str("\"unknown\"").unwrap();
+        assert!(matches!(f, FingerprintField::Unknown));
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        assert!(serde_json::from_str::<FingerprintField>("\"garbage\"").is_err());
+        assert!(serde_json::from_str::<FingerprintField>("\"known:\"").is_err());
+    }
+
+    #[test]
+    fn rejects_non_hex_characters() {
+        assert!(serde_json::from_str::<FingerprintField>("\"known:xyz!\"").is_err());
     }
 }

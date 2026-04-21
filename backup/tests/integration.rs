@@ -94,7 +94,7 @@ fn full_backup_restore_cycle_unencrypted() {
     assert_eq!(idx.entries[1].entry_type, BackupType::Diff);
     assert_eq!(idx.entries[2].entry_type, BackupType::Diff);
 
-    let verify_result = verify::verify_chain(dir.path(), None, false).unwrap();
+    let verify_result = verify::verify_chain(dir.path(), None, None, false).unwrap();
     assert!(
         verify_result.errors.is_empty(),
         "expected no verify errors, got: {:?}",
@@ -105,7 +105,7 @@ fn full_backup_restore_cycle_unencrypted() {
     assert_eq!(count_notes(&db_path), 4);
 
     let second_id = idx.entries[1].id.clone();
-    restore::restore_to_point(dir.path(), &second_id, None).unwrap();
+    restore::restore_to_point(dir.path(), &second_id, None, None).unwrap();
 
     assert_eq!(count_notes(&db_path), 2);
 }
@@ -137,7 +137,7 @@ fn full_backup_restore_cycle_encrypted() {
     assert_eq!(idx.entries.len(), 1);
     assert!(idx.entries[0].encrypted, "expected entry to be encrypted");
 
-    let verify_result = verify::verify_chain(dir.path(), Some("test-passkey"), false).unwrap();
+    let verify_result = verify::verify_chain(dir.path(), Some("test-passkey"), None, false).unwrap();
     assert!(
         verify_result.errors.is_empty(),
         "expected no verify errors, got: {:?}",
@@ -170,7 +170,7 @@ fn encrypted_backup_restore_cycle() {
         .id
         .clone();
 
-    restore::restore_to_point(dir.path(), &diff_id, Some("test-passkey")).unwrap();
+    restore::restore_to_point(dir.path(), &diff_id, Some("test-passkey"), None).unwrap();
 
     assert_eq!(count_notes_encrypted(&db_path, "test-passkey"), 2);
 
@@ -199,7 +199,7 @@ fn restore_with_wrong_passkey_fails() {
     let idx = index::load_index(&index_path).unwrap();
     let id = idx.entries[0].id.clone();
 
-    let result = restore::restore_to_point(dir.path(), &id, Some("wrong-passkey"));
+    let result = restore::restore_to_point(dir.path(), &id, Some("wrong-passkey"), None);
     assert!(
         result.is_err(),
         "expected restore with wrong passkey to fail"
@@ -217,7 +217,7 @@ fn restore_to_nonexistent_id_fails() {
 
     snapshot::create_snapshot(dir.path(), None, &config).unwrap();
 
-    let result = restore::restore_to_point(dir.path(), "nonexistent-id", None);
+    let result = restore::restore_to_point(dir.path(), "nonexistent-id", None, None);
     assert!(
         result.is_err(),
         "expected restore to nonexistent id to fail"
@@ -262,7 +262,7 @@ fn corrupted_backup_file_fails_restore() {
         .id
         .clone();
 
-    let result = restore::restore_to_point(dir.path(), &diff_id, None);
+    let result = restore::restore_to_point(dir.path(), &diff_id, None, None);
     assert!(
         result.is_err(),
         "expected restore with corrupted base to fail"
@@ -286,7 +286,7 @@ fn verify_full_replay_detects_corruption() {
     let bak_file = backups_dir.join(&idx.entries[0].filename);
     std::fs::write(&bak_file, b"garbage that cannot be decompressed").unwrap();
 
-    let result = verify::verify_chain(dir.path(), None, true).unwrap();
+    let result = verify::verify_chain(dir.path(), None, None, true).unwrap();
     assert!(
         !result.errors.is_empty(),
         "expected verify errors for corrupted backup file"
@@ -317,7 +317,7 @@ fn verify_full_replay_encrypted_chain_with_passkey_passes() {
     assert_eq!(idx.entries[1].entry_type, BackupType::Diff);
     assert_eq!(idx.entries[2].entry_type, BackupType::Diff);
 
-    let result = verify::verify_chain(dir.path(), Some("test-passkey"), true).unwrap();
+    let result = verify::verify_chain(dir.path(), Some("test-passkey"), None, true).unwrap();
     assert!(
         result.errors.is_empty(),
         "expected no errors on encrypted full-replay with correct passkey, got: {:?}",
@@ -340,7 +340,7 @@ fn verify_full_replay_encrypted_chain_without_passkey_reports_single_clear_error
 
     // Full replay without a passkey must not feed ciphertext into zstd; it must report
     // one actionable error naming the passkey requirement rather than N zstd failures.
-    let result = verify::verify_chain(dir.path(), None, true).unwrap();
+    let result = verify::verify_chain(dir.path(), None, None, true).unwrap();
     assert_eq!(
         result.errors.len(),
         1,
@@ -370,7 +370,7 @@ fn restore_encrypted_chain_without_passkey_fails_with_clear_error() {
     let idx = index::load_index(&index_path).unwrap();
     let id = idx.entries[0].id.clone();
 
-    let err = restore::restore_to_point(dir.path(), &id, None)
+    let err = restore::restore_to_point(dir.path(), &id, None, None)
         .expect_err("restore without passkey on encrypted chain must fail");
     let message = format!("{err:#}");
     assert!(

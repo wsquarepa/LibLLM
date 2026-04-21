@@ -40,6 +40,8 @@ pub enum RecoverCommand {
         /// Run full content verification (slower)
         #[arg(long)]
         full: bool,
+        #[arg(long = "archived-passkey", env = "LIBLLM_ARCHIVED_PASSKEY")]
+        archived_passkey: Option<String>,
     },
     /// Restore database to a specific backup point
     Restore {
@@ -48,6 +50,12 @@ pub enum RecoverCommand {
         /// Skip confirmation prompt
         #[arg(long, short = 'y')]
         yes: bool,
+        #[arg(
+            long = "archived-passkey",
+            env = "LIBLLM_ARCHIVED_PASSKEY",
+            help = "Passkey that was active when an archived backup chain was created"
+        )]
+        archived_passkey: Option<String>,
     },
     /// Rebuild backup index from backup files on disk
     RebuildIndex,

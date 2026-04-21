@@ -345,6 +345,72 @@ fn recover_refuses_legacy_dir_with_data_db_and_no_salt() {
 }
 
 #[test]
+fn recover_list_labels_archived_chain() {
+    let dir_a = common::temp_dir();
+    let data_dir_a = dir_a.path();
+    let salt_a =
+        libllm::crypto::load_or_create_salt(&data_dir_a.join(".salt")).expect("create dir_a salt");
+    let key_a = libllm::crypto::derive_key("pw-a", &salt_a).expect("derive dir_a key");
+    let db_path_a = data_dir_a.join("data.db");
+    {
+        let db = Database::open(&db_path_a, Some(&key_a)).expect("open encrypted dir_a db");
+        db.insert_persona(
+            "alice",
+            &libllm::persona::PersonaFile {
+                name: "alice".to_owned(),
+                persona: "curious".to_owned(),
+            },
+        )
+        .expect("insert alice into dir_a db");
+    }
+    create_snapshot(data_dir_a, Some("pw-a"), &BackupConfig::default()).expect("snapshot dir_a");
+
+    let dir_b = common::temp_dir();
+    let data_dir_b = dir_b.path();
+    libllm::crypto::load_or_create_salt(&data_dir_b.join(".salt")).expect("create dir_b salt");
+    std::fs::write(data_dir_b.join("config.toml"), "").expect("create dir_b config.toml");
+
+    let backups_b = data_dir_b.join("backups");
+    std::fs::create_dir_all(&backups_b).expect("create dir_b backups");
+    let backups_a = data_dir_a.join("backups");
+    for entry in std::fs::read_dir(&backups_a).expect("read dir_a backups") {
+        let src = entry.expect("read dir_a entry").path();
+        let dst = backups_b.join(src.file_name().expect("src file name"));
+        std::fs::copy(&src, &dst).expect("copy backup file");
+    }
+
+    let output = Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir_b.to_str().unwrap(),
+            "--passkey",
+            "pw-b",
+            "recover",
+            "list",
+        ])
+        .output()
+        .expect("spawn client");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let archived_pos = stdout
+        .find("archived ")
+        .unwrap_or_else(|| panic!("expected 'archived ' in stdout, got: {stdout}"));
+    let after_archived = &stdout[archived_pos + "archived ".len()..];
+    let hex_run: usize = after_archived
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit())
+        .count();
+    assert!(
+        hex_run >= 8,
+        "expected 8+ hex chars after 'archived ', got {hex_run} in: {stdout}"
+    );
+}
+
+#[test]
 fn recover_no_subcommand_non_tty_prints_help() {
     let dir = common::temp_dir();
     let data_dir = dir.path();

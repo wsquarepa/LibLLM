@@ -1,5 +1,7 @@
 //! Background event processing for passkey derivation and model name resolution.
 
+use std::path::Path;
+
 use libllm::db::Database;
 use libllm::session::{self, SaveMode};
 
@@ -7,6 +9,19 @@ use crate::tui::business;
 use crate::tui::types::{BackgroundEvent, Focus, StatusLevel};
 
 use super::App;
+
+fn prepare_backup_rekey(
+    data_dir: &Path,
+    old_passkey: &str,
+    new_passkey: &str,
+) -> anyhow::Result<()> {
+    let old_kek = backup::crypto::resolve_backup_key(data_dir, Some(old_passkey))?;
+    let new_kek = backup::crypto::resolve_backup_key(data_dir, Some(new_passkey))?;
+    match (old_kek, new_kek) {
+        (Some(ok), Some(nk)) => backup::rekey::prepare_rekey(data_dir, &ok, &nk),
+        _ => Ok(()),
+    }
+}
 
 fn post_passkey_focus(app: &App) -> Focus {
     if app.model_name.is_none() {
@@ -149,16 +164,57 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 }
             } else {
                 if let Some(ref db) = app.db {
+                    let data_dir = libllm::config::data_dir();
+                    let old_passkey = app.resolved_passkey.clone();
+                    let new_passkey = app.pending_new_passkey.take();
+
+                    let rekey_result = match (old_passkey.as_deref(), new_passkey.as_deref()) {
+                        (Some(old_pw), Some(new_pw)) => {
+                            prepare_backup_rekey(&data_dir, old_pw, new_pw)
+                        }
+                        _ => {
+                            tracing::warn!(
+                                "passkey change: missing old or new passkey string; skipping backup rewrap"
+                            );
+                            Ok(())
+                        }
+                    };
+
+                    if let Err(err) = rekey_result {
+                        app.set_status(
+                            format!("Failed to rewrap backups: {err}"),
+                            StatusLevel::Error,
+                        );
+                        app.focus = Focus::Input;
+                        return;
+                    }
+
                     match db.rekey(&new_key) {
                         Ok(()) => {
+                            app.resolved_passkey = new_passkey;
+                            if let Err(err) = backup::rekey::finalize_rekey(&data_dir) {
+                                app.set_status(
+                                    format!("Passkey changed, but failed to clean up backup journal: {err}"),
+                                    StatusLevel::Warning,
+                                );
+                            }
                             app.passkey_changed = true;
                             app.should_quit = true;
                         }
                         Err(err) => {
-                            app.set_status(
-                                format!("Failed to change passkey: {err}"),
-                                StatusLevel::Error,
-                            );
+                            if let Err(rb_err) = backup::rekey::rollback_rekey(&data_dir) {
+                                app.set_status(
+                                    format!(
+                                        "Failed to change passkey: {err}; additionally, backup rollback failed: {rb_err}"
+                                    ),
+                                    StatusLevel::Error,
+                                );
+                            } else {
+                                app.set_status(
+                                    format!("Failed to change passkey: {err}"),
+                                    StatusLevel::Error,
+                                );
+                            }
                         }
                     }
                 } else {

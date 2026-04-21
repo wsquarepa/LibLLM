@@ -5,11 +5,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::RngCore;
+use rand::TryRngCore;
 
 use crate::BackupConfig;
 use crate::index::{
-    BackupEntry, BackupIndex, BackupType, backup_filename, generate_backup_id,
-    is_safe_backup_filename, load_index, parse_backup_filename, save_index,
+    BackupEntry, BackupIndex, BackupType, FingerprintField, WrappedDek, backup_filename,
+    generate_backup_id, is_safe_backup_filename, open_index, parse_backup_filename, save_index,
 };
 
 /// Creates a new backup snapshot (base or diff) of the database at `data_dir/data.db`.
@@ -26,9 +27,8 @@ pub fn create_snapshot(
     std::fs::create_dir_all(&backups_dir).context("failed to create backups directory")?;
 
     let index_path = backups_dir.join("index.json");
-    let mut index = load_index(&index_path)?;
-
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let mut index = open_index(&index_path, backup_key.as_ref())?;
     let db_key: Option<libllm::crypto::DerivedKey> = match passkey {
         Some(pk) => {
             let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
@@ -37,14 +37,49 @@ pub fn create_snapshot(
         None => None,
     };
 
+    let kek_fingerprint = backup_key
+        .as_ref()
+        .map(crate::crypto::compute_kek_fingerprint);
+
+    let existing_chain_dek: Option<[u8; 32]> = match (&backup_key, index.latest_base()) {
+        (Some(kek), Some(_)) => Some(resolve_chain_dek(&index, kek)?),
+        _ => None,
+    };
+
     let plaintext = crate::export::export_plaintext_db(&db_path, db_key.as_ref())?;
     let plaintext_hash = crate::hash::hash_bytes(&plaintext);
 
     let (backup_type, compressed) =
-        build_payload(&plaintext, &index, &backups_dir, &backup_key, config)?;
+        build_payload(&plaintext, &index, &backups_dir, &existing_chain_dek, config)?;
 
-    let stored = match &backup_key {
-        Some(key) => crate::crypto::encrypt_payload(&compressed, key)?,
+    let (dek_for_this_entry, wrapped_dek_for_base, fingerprint_for_base): (
+        Option<[u8; 32]>,
+        Option<WrappedDek>,
+        Option<FingerprintField>,
+    ) = match (&backup_key, &backup_type) {
+        (Some(kek), BackupType::Base) => {
+            let dek = generate_dek()?;
+            let wrapped = crate::crypto::wrap_dek(&dek, kek)?;
+            let fp = kek_fingerprint
+                .clone()
+                .expect("kek present => fingerprint present");
+            (
+                Some(dek),
+                Some(wrapped),
+                Some(FingerprintField::Known(fp)),
+            )
+        }
+        (Some(_), BackupType::Diff) => {
+            let dek = existing_chain_dek.expect(
+                "existing_chain_dek resolved above whenever backup_key and latest_base are present",
+            );
+            (Some(dek), None, None)
+        }
+        (None, _) => (None, None, None),
+    };
+
+    let stored = match dek_for_this_entry {
+        Some(ref dek) => crate::crypto::encrypt_payload(&compressed, dek)?,
         None => compressed,
     };
 
@@ -71,6 +106,8 @@ pub fn create_snapshot(
         stored_size: stored.len() as u64,
         encrypted: backup_key.is_some(),
         created_at: Utc::now(),
+        wrapped_dek: wrapped_dek_for_base,
+        kek_fingerprint: fingerprint_for_base,
     };
 
     index.entries.push(entry);
@@ -110,11 +147,14 @@ fn unique_backup_id(
 }
 
 /// Returns (BackupType, compressed_payload). The payload is already zstd-compressed.
+///
+/// `chain_dek` is the DEK for the current chain. When present, the latest base file is
+/// decrypted under the DEK (not the KEK) before diff computation.
 fn build_payload(
     plaintext: &[u8],
     index: &BackupIndex,
     backups_dir: &Path,
-    backup_key: &Option<[u8; 32]>,
+    chain_dek: &Option<[u8; 32]>,
     config: &BackupConfig,
 ) -> Result<(BackupType, Vec<u8>)> {
     let compress_as_base =
@@ -132,8 +172,8 @@ fn build_payload(
     let base_file_bytes = std::fs::read(&base_file_path)
         .with_context(|| format!("failed to read base file: {}", base_file_path.display()))?;
 
-    let decrypted = match backup_key {
-        Some(key) => crate::crypto::decrypt_payload(&base_file_bytes, key)?,
+    let decrypted = match chain_dek {
+        Some(dek) => crate::crypto::decrypt_payload(&base_file_bytes, dek)?,
         None => base_file_bytes,
     };
     let base_plaintext = crate::diff::decompress(&decrypted)?;
@@ -149,22 +189,23 @@ fn build_payload(
     Ok((BackupType::Diff, compressed_patch))
 }
 
-/// Reconstructs the backup index by scanning on-disk `.bak` files in `backups_dir`.
+/// Reconstructs `backups/index.json` from the on-disk backup files.
 ///
-/// Reads every file matching the `*-base.bak` and `*-diff.bak` naming convention, computes
-/// file hashes, and replays diff chains to recover `plaintext_hash` and `plaintext_size` for
-/// each entry. The resulting index is sorted chronologically by file modification time and
-/// written to `backups_dir/index.json`.
-///
-/// Diff entries require the corresponding base file to be present and decryptable. Any
-/// file that cannot be read, decrypted, or parsed is skipped with a warning printed to stderr.
-/// When `passkey` is provided, backup files are decrypted before use.
+/// For unencrypted data dirs, the rebuilt index carries accurate
+/// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs, the
+/// per-chain DEK data is stored only inside the index (not in the `.bak`
+/// files), so a rebuilt index loses all DEK metadata: chain roots are stamped
+/// with `FingerprintField::Unknown` and `wrapped_dek: None`, and
+/// `plaintext_hash` is filled with a sentinel. Restoring from a rebuilt
+/// encrypted index requires the originating passkey via
+/// `--archived-passkey` and will skip hash verification.
 pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<BackupIndex> {
     let data_dir = backups_dir
         .parent()
         .with_context(|| format!("backups_dir has no parent: {}", backups_dir.display()))?;
 
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let encrypted = backup_key.is_some();
 
     let mut file_entries: Vec<(std::time::SystemTime, String, String, BackupType)> = Vec::new();
 
@@ -216,33 +257,30 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
         let file_hash = crate::hash::hash_bytes(&file_bytes);
         let stored_size = file_bytes.len() as u64;
 
-        let encrypted = backup_key.is_some();
-
         let created_at = Utc::now();
 
         match entry_type {
             BackupType::Base => {
-                let decrypted = match &backup_key {
-                    Some(key) => match crate::crypto::decrypt_payload(&file_bytes, key) {
-                        Ok(d) => d,
+                let (plaintext_hash, plaintext_size, kek_fingerprint) = if encrypted {
+                    (
+                        "unknown".to_string(),
+                        stored_size,
+                        Some(FingerprintField::Unknown),
+                    )
+                } else {
+                    let plaintext = match crate::diff::decompress(&file_bytes) {
+                        Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Warning: skipping {filename}: decryption failed: {e}");
+                            eprintln!("Warning: skipping {filename}: decompression failed: {e}");
                             continue;
                         }
-                    },
-                    None => file_bytes,
+                    };
+                    (
+                        crate::hash::hash_bytes(&plaintext),
+                        plaintext.len() as u64,
+                        None,
+                    )
                 };
-
-                let plaintext = match crate::diff::decompress(&decrypted) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("Warning: skipping {filename}: decompression failed: {e}");
-                        continue;
-                    }
-                };
-
-                let plaintext_hash = crate::hash::hash_bytes(&plaintext);
-                let plaintext_size = plaintext.len() as u64;
 
                 index.entries.push(BackupEntry {
                     id,
@@ -255,6 +293,8 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     stored_size,
                     encrypted,
                     created_at,
+                    wrapped_dek: None,
+                    kek_fingerprint,
                 });
             }
 
@@ -271,55 +311,54 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
 
                 let base_id = base_entry.id.clone();
 
-                let chain = match index.chain_to(&base_id) {
-                    Ok(c) => c.into_iter().cloned().collect::<Vec<_>>(),
-                    Err(e) => {
-                        eprintln!("Warning: skipping {filename}: failed to build base chain: {e}");
-                        continue;
-                    }
-                };
-
-                let chain_refs: Vec<&BackupEntry> = chain.iter().collect();
-                let base_plaintext =
-                    match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
-                        Ok(p) => p,
+                let (plaintext_hash, plaintext_size) = if encrypted {
+                    ("unknown".to_string(), stored_size)
+                } else {
+                    let chain = match index.chain_to(&base_id) {
+                        Ok(c) => c.into_iter().cloned().collect::<Vec<_>>(),
                         Err(e) => {
                             eprintln!(
-                                "Warning: skipping {filename}: failed to replay base chain: {e}"
+                                "Warning: skipping {filename}: failed to build base chain: {e}"
                             );
                             continue;
                         }
                     };
 
-                let diff_decrypted = match &backup_key {
-                    Some(key) => match crate::crypto::decrypt_payload(&file_bytes, key) {
-                        Ok(d) => d,
+                    let chain_refs: Vec<&BackupEntry> = chain.iter().collect();
+                    let base_plaintext =
+                        match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                eprintln!(
+                                "Warning: skipping {filename}: failed to replay base chain: {e}"
+                            );
+                                continue;
+                            }
+                        };
+
+                    let patch = match crate::diff::decompress(&file_bytes) {
+                        Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Warning: skipping {filename}: decryption failed: {e}");
+                            eprintln!(
+                                "Warning: skipping {filename}: failed to decompress diff: {e}"
+                            );
                             continue;
                         }
-                    },
-                    None => file_bytes,
-                };
+                    };
 
-                let patch = match crate::diff::decompress(&diff_decrypted) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("Warning: skipping {filename}: failed to decompress diff: {e}");
-                        continue;
-                    }
-                };
+                    let plaintext = match crate::diff::apply_patch(&base_plaintext, &patch) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("Warning: skipping {filename}: failed to apply patch: {e}");
+                            continue;
+                        }
+                    };
 
-                let plaintext = match crate::diff::apply_patch(&base_plaintext, &patch) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("Warning: skipping {filename}: failed to apply patch: {e}");
-                        continue;
-                    }
+                    (
+                        crate::hash::hash_bytes(&plaintext),
+                        plaintext.len() as u64,
+                    )
                 };
-
-                let plaintext_hash = crate::hash::hash_bytes(&plaintext);
-                let plaintext_size = plaintext.len() as u64;
 
                 index.entries.push(BackupEntry {
                     id,
@@ -332,12 +371,33 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     stored_size,
                     encrypted,
                     created_at,
+                    wrapped_dek: None,
+                    kek_fingerprint: None,
                 });
             }
         }
     }
 
     Ok(index)
+}
+
+fn generate_dek() -> Result<[u8; 32]> {
+    let mut dek = [0u8; 32];
+    rand::rng()
+        .try_fill_bytes(&mut dek)
+        .context("RNG fill_bytes failed for DEK")?;
+    Ok(dek)
+}
+
+fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {
+    let base = index
+        .latest_base()
+        .ok_or_else(|| anyhow::anyhow!("diff created without a base"))?;
+    let wrapped = base
+        .wrapped_dek
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("base entry {} missing wrapped DEK", base.id))?;
+    crate::crypto::unwrap_dek(wrapped, kek)
 }
 
 #[cfg(test)]
@@ -540,6 +600,33 @@ mod tests {
             diff_rebuilt.plaintext_size > 0,
             "diff size must not be zero"
         );
+    }
+
+    #[test]
+    fn rebuild_index_marks_encrypted_chains_as_unknown() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        // Pre-create the salt so resolve_backup_key succeeds without needing a DB.
+        let _ = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap();
+
+        // Drop an encrypted-looking base file with no corresponding index.
+        let id = "20260421T040000.000Z".to_string();
+        let filename = crate::index::backup_filename(&id, BackupType::Base);
+        libllm::crypto::write_atomic(&backups_dir.join(&filename), &[0u8; 128]).unwrap();
+
+        let idx = rebuild_index(&backups_dir, Some("pw")).unwrap();
+
+        assert_eq!(idx.version, crate::index::SCHEMA_VERSION);
+        let base = idx.entries.iter().find(|e| e.id == id).unwrap();
+        assert!(
+            matches!(base.kek_fingerprint, Some(crate::index::FingerprintField::Unknown)),
+            "expected Unknown fingerprint, got {:?}",
+            base.kek_fingerprint
+        );
+        assert!(base.wrapped_dek.is_none());
     }
 
     #[test]

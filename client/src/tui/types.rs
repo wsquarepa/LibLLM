@@ -209,6 +209,7 @@ pub(super) struct App<'a> {
     pub(super) passkey_error: String,
     pub(super) passkey_deriving: bool,
     pub(super) resolved_passkey: Option<String>,
+    pub(super) pending_new_passkey: Option<String>,
 
     pub(super) set_passkey_input: String,
     pub(super) set_passkey_confirm: String,

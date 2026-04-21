@@ -7,7 +7,7 @@
 use std::io::{self, IsTerminal};
 
 use anyhow::{Context, Result};
-use dialoguer::{Confirm, Select, theme::ColorfulTheme};
+use dialoguer::{Confirm, FuzzySelect, Select, theme::ColorfulTheme};
 
 /// Returns true when both stdin and stderr are TTYs.
 ///
@@ -28,6 +28,16 @@ pub fn select<T: ToString>(prompt: &str, items: &[T]) -> Result<Option<usize>> {
         .default(0)
         .interact_opt()
         .context("failed to show selection prompt")
+}
+
+/// Fuzzy-filtered variant of [`select`] with a capped viewport.
+pub fn fuzzy_select(prompt: &str, items: &[String], max_length: usize) -> Result<Option<usize>> {
+    let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .items(items)
+        .max_length(max_length)
+        .interact_opt()?;
+    Ok(selection)
 }
 
 /// Show a yes/no confirm prompt.

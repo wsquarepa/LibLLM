@@ -19,7 +19,7 @@ ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 tui-textarea-2 = "0.10"
 rpassword = "7"
-dialoguer = "0.11"
+dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 rustyline = { version = "14", features = ["with-file-history"] }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 arboard = "3"

@@ -11,10 +11,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 blake3 = "1"
 chacha20poly1305 = "0.5"
+base64 = "0.22"
+hkdf = "0.12"
 bsdiff = "0.2"
 zstd = "0.13"
 argon2 = "0.5"
 rand = "0.9"
+sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl", "backup"] }
 tempfile = "3"

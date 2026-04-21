@@ -5,6 +5,8 @@ pub mod diff;
 pub mod export;
 pub mod hash;
 pub mod index;
+pub mod migrations;
+pub mod rekey;
 pub mod restore;
 pub mod retention;
 pub mod snapshot;

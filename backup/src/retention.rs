@@ -174,6 +174,8 @@ mod tests {
             stored_size: 512,
             encrypted: false,
             created_at,
+            wrapped_dek: None,
+            kek_fingerprint: None,
         }
     }
 

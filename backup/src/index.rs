@@ -64,6 +64,14 @@ impl<'de> serde::Deserialize<'de> for FingerprintField {
     }
 }
 
+/// DEK (data-encryption key) encrypted under a KEK (key-encryption key).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WrappedDek {
+    /// Output of `crypto::encrypt_payload(dek_bytes, kek)`; XChaCha20-Poly1305
+    /// nonce is embedded in the first 24 bytes of this blob.
+    pub blob: Vec<u8>,
+}
+
 /// Metadata for a single backup file: type, hashes, sizes, and timestamps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupEntry {
@@ -538,14 +546,6 @@ mod tests {
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("cycle"), "expected cycle error, got: {msg}");
     }
-}
-
-/// DEK (data-encryption key) encrypted under a KEK (key-encryption key).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WrappedDek {
-    /// Output of `crypto::encrypt_payload(dek_bytes, kek)`; XChaCha20-Poly1305
-    /// nonce is embedded in the first 24 bytes of this blob.
-    pub blob: Vec<u8>,
 }
 
 #[cfg(test)]

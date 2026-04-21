@@ -75,18 +75,57 @@ pub(crate) fn replay_chain(
 /// is written as an encrypted SQLCipher database using the DB key derived from that passkey.
 /// When `passkey` is None, backup files are read as plaintext and the restored database is
 /// written as a plaintext SQLite file.
-pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>) -> Result<()> {
+pub fn restore_to_point(
+    data_dir: &Path,
+    target_id: &str,
+    passkey: Option<&str>,
+    archived_passkey: Option<&str>,
+) -> Result<()> {
     let backups_dir = data_dir.join("backups");
     let index_path = backups_dir.join("index.json");
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
     let index = open_index(&index_path, backup_key.as_ref())?;
 
+    let current_fp = backup_key
+        .as_ref()
+        .map(crate::crypto::compute_kek_fingerprint);
+    let target_entry = index
+        .find_entry(target_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown backup id: {target_id}"))?;
+    let root = if target_entry.entry_type == crate::index::BackupType::Base {
+        target_entry
+    } else {
+        let base_id = target_entry
+            .base_id
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("diff {} has no base_id", target_entry.id))?;
+        index
+            .find_entry(base_id)
+            .ok_or_else(|| anyhow::anyhow!("chain root {base_id} missing"))?
+    };
+
+    let effective_kek: Option<[u8; 32]> = match &root.kek_fingerprint {
+        None => backup_key,
+        Some(crate::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
+            backup_key
+        }
+        Some(_) if backup_key.is_none() => {
+            // No passkey was given at all; let replay_chain produce the standard
+            // "encrypted but no passkey" error rather than the archived-chain error.
+            backup_key
+        }
+        Some(other) => {
+            let pw = archived_passkey.ok_or_else(|| archived_chain_error(target_id, other))?;
+            crate::crypto::resolve_backup_key(data_dir, Some(pw))?
+        }
+    };
+
     let chain = index
         .chain_to(target_id)
         .with_context(|| format!("backup id not found or chain is broken: {target_id}"))?;
 
-    let plaintext =
-        replay_chain(&backups_dir, &chain, &backup_key).context("failed to replay backup chain")?;
+    let plaintext = replay_chain(&backups_dir, &chain, &effective_kek)
+        .context("failed to replay backup chain")?;
 
     let target_entry = chain.last().expect("chain is non-empty");
     let actual_hash = crate::hash::hash_bytes(&plaintext);
@@ -152,6 +191,23 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
     Ok(())
 }
 
+fn archived_chain_error(
+    target_id: &str,
+    fingerprint: &crate::index::FingerprintField,
+) -> anyhow::Error {
+    match fingerprint {
+        crate::index::FingerprintField::Known(fp) => anyhow::anyhow!(
+            "backup chain {target_id} is archived under passkey fingerprint {fp}. \
+             Provide that passkey with --archived-passkey (or LIBLLM_ARCHIVED_PASSKEY) to restore."
+        ),
+        crate::index::FingerprintField::Unknown => anyhow::anyhow!(
+            "backup chain {target_id} has no recorded passkey fingerprint \
+             (likely produced by `rebuild index` on a blob from a different passkey). \
+             Provide the originating passkey with --archived-passkey to restore."
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,7 +253,7 @@ mod tests {
         add_row(&db_path, "extra row");
         assert_eq!(count_rows(&db_path), base_row_count + 1);
 
-        restore_to_point(dir.path(), &base_id, None).unwrap();
+        restore_to_point(dir.path(), &base_id, None, None).unwrap();
 
         assert_eq!(count_rows(&db_path), base_row_count);
     }
@@ -230,7 +286,7 @@ mod tests {
         add_row(&db_path, "third row beyond diff");
         assert!(count_rows(&db_path) > row_count_after_diff);
 
-        restore_to_point(dir.path(), &diff_id, None).unwrap();
+        restore_to_point(dir.path(), &diff_id, None, None).unwrap();
 
         assert_eq!(count_rows(&db_path), row_count_after_diff);
     }
@@ -249,7 +305,7 @@ mod tests {
 
         add_row(&db_path, "extra row");
 
-        restore_to_point(dir.path(), &target_id, None).unwrap();
+        restore_to_point(dir.path(), &target_id, None, None).unwrap();
 
         let backups_dir = dir.path().join("backups");
         let pre_restore_exists = std::fs::read_dir(&backups_dir)
@@ -261,5 +317,57 @@ mod tests {
             pre_restore_exists,
             "expected a pre-restore-* file in backups dir"
         );
+    }
+}
+
+#[cfg(test)]
+mod archived_tests {
+    use crate::crypto::{compute_kek_fingerprint, encrypt_payload, resolve_backup_key, wrap_dek};
+    use crate::index::{
+        backup_filename, save_index, BackupEntry, BackupIndex, BackupType, FingerprintField,
+        SCHEMA_VERSION,
+    };
+    use chrono::Utc;
+    use tempfile::TempDir;
+
+    #[test]
+    fn restore_refuses_archived_chain_without_archived_passkey() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let _current_kek = resolve_backup_key(data_dir, Some("current")).unwrap().unwrap();
+        let foreign_kek = resolve_backup_key(data_dir, Some("foreign")).unwrap().unwrap();
+        let dek = [7u8; 32];
+        let id = "20260421T030000.000Z".to_string();
+        let filename = backup_filename(&id, BackupType::Base);
+        libllm::crypto::write_atomic(
+            &backups_dir.join(&filename),
+            &encrypt_payload(b"x", &dek).unwrap(),
+        )
+        .unwrap();
+
+        let index = BackupIndex {
+            version: SCHEMA_VERSION,
+            entries: vec![BackupEntry {
+                id: id.clone(),
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: 1,
+                stored_size: 0,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: Some(wrap_dek(&dek, &foreign_kek).unwrap()),
+                kek_fingerprint: Some(FingerprintField::Known(compute_kek_fingerprint(&foreign_kek))),
+            }],
+        };
+        save_index(&backups_dir.join("index.json"), &index).unwrap();
+
+        let err = super::restore_to_point(data_dir, &id, Some("current"), None).unwrap_err();
+        assert!(err.to_string().contains("archived"));
     }
 }

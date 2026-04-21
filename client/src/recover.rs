@@ -52,8 +52,12 @@ pub fn run_with_interactivity(
     tracing::info!(phase = "start", subcommand = subcommand, data_dir = %data_dir.display(), has_passkey = passkey.is_some(), interactive = interactive, "recover.run");
     match command {
         Some(RecoverCommand::List) => cmd_list(data_dir, passkey),
-        Some(RecoverCommand::Verify { full }) => cmd_verify(data_dir, passkey, *full),
-        Some(RecoverCommand::Restore { id, yes }) => cmd_restore(data_dir, passkey, id, *yes),
+        Some(RecoverCommand::Verify { full, archived_passkey }) => {
+            cmd_verify(data_dir, passkey, archived_passkey.as_deref(), *full)
+        }
+        Some(RecoverCommand::Restore { id, yes, archived_passkey }) => {
+            cmd_restore(data_dir, passkey, id, *yes, archived_passkey.as_deref())
+        }
         Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
         None if interactive => run_interactive_menu(data_dir, passkey),
         None => print_recover_help(),
@@ -101,12 +105,12 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
                 }
             }
             1 => {
-                if let Err(err) = cmd_verify(data_dir, passkey, false) {
+                if let Err(err) = cmd_verify(data_dir, passkey, None, false) {
                     eprintln!("error: {err}");
                 }
             }
             2 => {
-                if let Err(err) = cmd_verify(data_dir, passkey, true) {
+                if let Err(err) = cmd_verify(data_dir, passkey, None, true) {
                     eprintln!("error: {err}");
                 }
             }
@@ -178,7 +182,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         stored_size = entry.stored_size,
         encrypted = entry.encrypted,
         source = "interactive" ;
-        { restore_to_point(data_dir, &entry.id, passkey)}
+        { restore_to_point(data_dir, &entry.id, passkey, None)}
     )?;
 
     println!("Restore to '{}' completed successfully.", entry.id);
@@ -221,12 +225,17 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> {
+fn cmd_verify(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    archived_passkey: Option<&str>,
+    full: bool,
+) -> Result<()> {
     let result = libllm::timed_result!(
         tracing::Level::INFO,
         "recover.verify",
         full = full ;
-        { verify_chain(data_dir, passkey, full)}
+        { verify_chain(data_dir, passkey, archived_passkey, full)}
     )?;
     tracing::info!(
         phase = "summary",
@@ -253,7 +262,13 @@ fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> 
     }
 }
 
-fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> Result<()> {
+fn cmd_restore(
+    data_dir: &Path,
+    passkey: Option<&str>,
+    id: &str,
+    yes: bool,
+    archived_passkey: Option<&str>,
+) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
     let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
     let index = open_index(&index_path, kek.as_ref())?;
@@ -301,7 +316,7 @@ fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> R
         plaintext_size = entry.plaintext_size,
         stored_size = entry.stored_size,
         encrypted = entry.encrypted ;
-        { restore_to_point(data_dir, id, passkey)}
+        { restore_to_point(data_dir, id, passkey, archived_passkey)}
     )?;
     println!("Restore to '{id}' completed successfully.");
     Ok(())

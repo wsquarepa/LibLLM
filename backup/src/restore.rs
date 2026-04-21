@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use zeroize::Zeroizing;
 
-use crate::index::{BackupEntry, load_index};
+use crate::index::{BackupEntry, open_index};
 
 /// Replays a backup chain (base + diffs) and returns the resulting plaintext bytes.
 ///
@@ -64,13 +64,12 @@ pub(crate) fn replay_chain(
 pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>) -> Result<()> {
     let backups_dir = data_dir.join("backups");
     let index_path = backups_dir.join("index.json");
-    let index = load_index(&index_path)?;
+    let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let index = open_index(&index_path, backup_key.as_ref())?;
 
     let chain = index
         .chain_to(target_id)
         .with_context(|| format!("backup id not found or chain is broken: {target_id}"))?;
-
-    let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
 
     let plaintext =
         replay_chain(&backups_dir, &chain, &backup_key).context("failed to replay backup chain")?;
@@ -142,6 +141,7 @@ pub fn restore_to_point(data_dir: &Path, target_id: &str, passkey: Option<&str>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::index::load_index;
 
     fn setup_test_db(dir: &Path) -> std::path::PathBuf {
         let db_path = dir.join("data.db");

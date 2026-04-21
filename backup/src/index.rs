@@ -252,6 +252,9 @@ pub fn is_safe_backup_filename(name: &str) -> bool {
 ///
 /// Returns an empty index at `SCHEMA_VERSION` when the file does not exist.
 /// Returns an error if any entry contains an unsafe filename (absolute path, `..`, separators).
+///
+/// Low-level load with no migrations. Callers that observe the live on-disk
+/// format should use [`open_index`] instead.
 pub fn load_index(path: &Path) -> Result<BackupIndex> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
@@ -281,9 +284,27 @@ pub fn save_index(path: &Path, index: &BackupIndex) -> Result<()> {
         .with_context(|| format!("failed to write index file: {}", path.display()))
 }
 
+/// Loads an index and runs pending migrations in place. Persists the migrated
+/// index when any migration applied. Callers that don't have a KEK (e.g.,
+/// unencrypted data dirs, or ops that will only read raw file hashes) pass
+/// `None`; in that case only the unencrypted migration branch runs.
+pub fn open_index(path: &Path, kek: Option<&[u8; 32]>) -> Result<BackupIndex> {
+    let mut index = load_index(path)?;
+    let starting_version = index.version;
+    let backups_dir = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("index path {} has no parent", path.display()))?;
+    crate::migrations::run_migrations(&mut index, backups_dir, kek)?;
+    if index.version != starting_version {
+        save_index(path, &index)?;
+    }
+    Ok(index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::resolve_backup_key;
     use tempfile::TempDir;
 
     fn make_base_entry(id: &str) -> BackupEntry {
@@ -571,6 +592,45 @@ mod tests {
         assert!(result.is_err(), "expected Err for cyclic chain");
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("cycle"), "expected cycle error, got: {msg}");
+    }
+
+    #[test]
+    fn open_index_runs_migrations_on_outdated_index() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+
+        let plaintext = b"x" as &[u8];
+        let id = "20260421T010000.000Z".to_string();
+        let filename = backup_filename(&id, BackupType::Base);
+        let payload = crate::crypto::encrypt_payload(plaintext, &kek).unwrap();
+        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+
+        let legacy = BackupIndex {
+            version: 1,
+            entries: vec![BackupEntry {
+                id,
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: plaintext.len() as u64,
+                stored_size: payload.len() as u64,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: None,
+                kek_fingerprint: None,
+            }],
+        };
+        let index_path = backups_dir.join("index.json");
+        save_index(&index_path, &legacy).unwrap();
+
+        let opened = open_index(&index_path, Some(&kek)).unwrap();
+        assert_eq!(opened.version, SCHEMA_VERSION);
+        assert!(opened.entries[0].wrapped_dek.is_some());
     }
 }
 

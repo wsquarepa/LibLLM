@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::index::load_index;
+use crate::index::open_index;
 
 /// Summary of a backup verification run: how many entries were checked and any errors found.
 pub struct VerifyResult {
@@ -27,9 +27,8 @@ pub fn verify_chain(
 ) -> Result<VerifyResult> {
     let backups_dir = data_dir.join("backups");
     let index_path = backups_dir.join("index.json");
-    let index = load_index(&index_path)?;
-
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let index = open_index(&index_path, backup_key.as_ref())?;
 
     let mut result = VerifyResult {
         checked_count: 0,

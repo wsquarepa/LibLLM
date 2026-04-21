@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use clap::CommandFactory;
 
-use backup::index::{BackupType, load_index};
+use backup::index::{BackupType, open_index};
 use backup::restore::restore_to_point;
 use backup::snapshot::rebuild_index;
 use backup::verify::verify_chain;
@@ -128,7 +128,8 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
 fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let index = load_index(&index_path)?;
+    let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+    let index = open_index(&index_path, kek.as_ref())?;
 
     if index.entries.is_empty() {
         println!("No backup points found.");
@@ -186,7 +187,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
 fn cmd_list(data_dir: &Path) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let index = load_index(&index_path)?;
+    let index = open_index(&index_path, None)?;
     tracing::info!(
         result = "ok",
         entry_count = index.entries.len(),
@@ -253,7 +254,8 @@ fn cmd_verify(data_dir: &Path, passkey: Option<&str>, full: bool) -> Result<()> 
 
 fn cmd_restore(data_dir: &Path, passkey: Option<&str>, id: &str, yes: bool) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let index = load_index(&index_path)?;
+    let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+    let index = open_index(&index_path, kek.as_ref())?;
 
     let entry = index
         .find_entry(id)

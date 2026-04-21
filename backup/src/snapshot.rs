@@ -9,7 +9,7 @@ use rand::RngCore;
 use crate::BackupConfig;
 use crate::index::{
     BackupEntry, BackupIndex, BackupType, backup_filename, generate_backup_id,
-    is_safe_backup_filename, load_index, parse_backup_filename, save_index,
+    is_safe_backup_filename, open_index, parse_backup_filename, save_index,
 };
 
 /// Creates a new backup snapshot (base or diff) of the database at `data_dir/data.db`.
@@ -26,9 +26,8 @@ pub fn create_snapshot(
     std::fs::create_dir_all(&backups_dir).context("failed to create backups directory")?;
 
     let index_path = backups_dir.join("index.json");
-    let mut index = load_index(&index_path)?;
-
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+    let mut index = open_index(&index_path, backup_key.as_ref())?;
     let db_key: Option<libllm::crypto::DerivedKey> = match passkey {
         Some(pk) => {
             let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;

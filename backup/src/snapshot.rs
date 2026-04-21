@@ -5,11 +5,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::RngCore;
+use rand::TryRngCore;
 
 use crate::BackupConfig;
 use crate::index::{
-    BackupEntry, BackupIndex, BackupType, backup_filename, generate_backup_id,
-    is_safe_backup_filename, open_index, parse_backup_filename, save_index,
+    BackupEntry, BackupIndex, BackupType, FingerprintField, WrappedDek, backup_filename,
+    generate_backup_id, is_safe_backup_filename, open_index, parse_backup_filename, save_index,
 };
 
 /// Creates a new backup snapshot (base or diff) of the database at `data_dir/data.db`.
@@ -36,14 +37,49 @@ pub fn create_snapshot(
         None => None,
     };
 
+    let kek_fingerprint = backup_key
+        .as_ref()
+        .map(crate::crypto::compute_kek_fingerprint);
+
+    let existing_chain_dek: Option<[u8; 32]> = match (&backup_key, index.latest_base()) {
+        (Some(kek), Some(_)) => Some(resolve_chain_dek(&index, kek)?),
+        _ => None,
+    };
+
     let plaintext = crate::export::export_plaintext_db(&db_path, db_key.as_ref())?;
     let plaintext_hash = crate::hash::hash_bytes(&plaintext);
 
     let (backup_type, compressed) =
-        build_payload(&plaintext, &index, &backups_dir, &backup_key, config)?;
+        build_payload(&plaintext, &index, &backups_dir, &existing_chain_dek, config)?;
 
-    let stored = match &backup_key {
-        Some(key) => crate::crypto::encrypt_payload(&compressed, key)?,
+    let (dek_for_this_entry, wrapped_dek_for_base, fingerprint_for_base): (
+        Option<[u8; 32]>,
+        Option<WrappedDek>,
+        Option<FingerprintField>,
+    ) = match (&backup_key, &backup_type) {
+        (Some(kek), BackupType::Base) => {
+            let dek = generate_dek()?;
+            let wrapped = crate::crypto::wrap_dek(&dek, kek)?;
+            let fp = kek_fingerprint
+                .clone()
+                .expect("kek present => fingerprint present");
+            (
+                Some(dek),
+                Some(wrapped),
+                Some(FingerprintField::Known(fp)),
+            )
+        }
+        (Some(_), BackupType::Diff) => {
+            let dek = existing_chain_dek.expect(
+                "existing_chain_dek resolved above whenever backup_key and latest_base are present",
+            );
+            (Some(dek), None, None)
+        }
+        (None, _) => (None, None, None),
+    };
+
+    let stored = match dek_for_this_entry {
+        Some(ref dek) => crate::crypto::encrypt_payload(&compressed, dek)?,
         None => compressed,
     };
 
@@ -70,8 +106,8 @@ pub fn create_snapshot(
         stored_size: stored.len() as u64,
         encrypted: backup_key.is_some(),
         created_at: Utc::now(),
-        wrapped_dek: None,
-        kek_fingerprint: None,
+        wrapped_dek: wrapped_dek_for_base,
+        kek_fingerprint: fingerprint_for_base,
     };
 
     index.entries.push(entry);
@@ -111,11 +147,14 @@ fn unique_backup_id(
 }
 
 /// Returns (BackupType, compressed_payload). The payload is already zstd-compressed.
+///
+/// `chain_dek` is the DEK for the current chain. When present, the latest base file is
+/// decrypted under the DEK (not the KEK) before diff computation.
 fn build_payload(
     plaintext: &[u8],
     index: &BackupIndex,
     backups_dir: &Path,
-    backup_key: &Option<[u8; 32]>,
+    chain_dek: &Option<[u8; 32]>,
     config: &BackupConfig,
 ) -> Result<(BackupType, Vec<u8>)> {
     let compress_as_base =
@@ -133,8 +172,8 @@ fn build_payload(
     let base_file_bytes = std::fs::read(&base_file_path)
         .with_context(|| format!("failed to read base file: {}", base_file_path.display()))?;
 
-    let decrypted = match backup_key {
-        Some(key) => crate::crypto::decrypt_payload(&base_file_bytes, key)?,
+    let decrypted = match chain_dek {
+        Some(dek) => crate::crypto::decrypt_payload(&base_file_bytes, dek)?,
         None => base_file_bytes,
     };
     let base_plaintext = crate::diff::decompress(&decrypted)?;
@@ -343,6 +382,25 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
     }
 
     Ok(index)
+}
+
+fn generate_dek() -> Result<[u8; 32]> {
+    let mut dek = [0u8; 32];
+    rand::rng()
+        .try_fill_bytes(&mut dek)
+        .context("RNG fill_bytes failed for DEK")?;
+    Ok(dek)
+}
+
+fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {
+    let base = index
+        .latest_base()
+        .ok_or_else(|| anyhow::anyhow!("diff created without a base"))?;
+    let wrapped = base
+        .wrapped_dek
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("base entry {} missing wrapped DEK", base.id))?;
+    crate::crypto::unwrap_dek(wrapped, kek)
 }
 
 #[cfg(test)]

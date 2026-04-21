@@ -10,8 +10,8 @@ use crate::index::{BackupEntry, open_index};
 /// Replays a backup chain (base + diffs) and returns the resulting plaintext bytes.
 ///
 /// `chain` must be ordered base-first (as returned by `BackupIndex::chain_to`).
-/// Each file is read from `backups_dir`, optionally decrypted, decompressed,
-/// and diffs are applied sequentially over the base.
+/// Each file is read from `backups_dir`, optionally decrypted under the chain DEK,
+/// decompressed, and diffs are applied sequentially over the base.
 pub(crate) fn replay_chain(
     backups_dir: &Path,
     chain: &[&BackupEntry],
@@ -26,11 +26,24 @@ pub(crate) fn replay_chain(
         );
     }
 
+    let dek = match (backup_key, chain.first()) {
+        (Some(kek), Some(root)) if root.encrypted => {
+            let wrapped = root.wrapped_dek.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "chain root {} has no wrapped DEK (run migrations or rebuild index)",
+                    root.id
+                )
+            })?;
+            Some(crate::crypto::unwrap_dek(wrapped, kek)?)
+        }
+        _ => None,
+    };
+
     let base_entry = chain[0];
     let base_bytes = std::fs::read(backups_dir.join(&base_entry.filename))
         .with_context(|| format!("failed to read base backup: {}", base_entry.filename))?;
 
-    let base_decrypted = match backup_key {
+    let base_decrypted = match dek.as_ref() {
         Some(key) => crate::crypto::decrypt_payload(&base_bytes, key)?,
         None => base_bytes,
     };
@@ -40,7 +53,7 @@ pub(crate) fn replay_chain(
         let diff_bytes = std::fs::read(backups_dir.join(&diff_entry.filename))
             .with_context(|| format!("failed to read diff backup: {}", diff_entry.filename))?;
 
-        let diff_decrypted = match backup_key {
+        let diff_decrypted = match dek.as_ref() {
             Some(key) => crate::crypto::decrypt_payload(&diff_bytes, key)?,
             None => diff_bytes,
         };

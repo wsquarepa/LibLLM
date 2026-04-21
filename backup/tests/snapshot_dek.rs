@@ -100,6 +100,6 @@ fn diff_backup_reuses_chain_dek_and_restore_succeeds() {
     assert!(diff.wrapped_dek.is_none(), "diff must not carry its own DEK");
 
     let last_id = idx.entries.last().unwrap().id.clone();
-    backup::restore::restore_to_point(data_dir, &last_id, Some(passkey)).unwrap();
+    backup::restore::restore_to_point(data_dir, &last_id, Some(passkey), None).unwrap();
     assert_eq!(count_kv_encrypted(data_dir, passkey), 2);
 }

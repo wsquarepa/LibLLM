@@ -25,6 +25,40 @@ impl fmt::Display for BackupType {
     }
 }
 
+/// Identifies which key-encryption key wrapped the data-encryption key for a backup chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FingerprintField {
+    Known(String),
+    Unknown,
+}
+
+impl serde::Serialize for FingerprintField {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            FingerprintField::Known(hex) => s.serialize_str(&format!("known:{hex}")),
+            FingerprintField::Unknown => s.serialize_str("unknown"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for FingerprintField {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        if raw == "unknown" {
+            return Ok(FingerprintField::Unknown);
+        }
+        if let Some(hex) = raw.strip_prefix("known:") {
+            if hex.is_empty() {
+                return Err(serde::de::Error::custom("empty fingerprint hex"));
+            }
+            return Ok(FingerprintField::Known(hex.to_string()));
+        }
+        Err(serde::de::Error::custom(format!(
+            "invalid fingerprint field: {raw}"
+        )))
+    }
+}
+
 /// Metadata for a single backup file: type, hashes, sizes, and timestamps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupEntry {
@@ -498,5 +532,42 @@ mod tests {
         assert!(result.is_err(), "expected Err for cyclic chain");
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("cycle"), "expected cycle error, got: {msg}");
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_field_tests {
+    use super::FingerprintField;
+
+    #[test]
+    fn serializes_known_as_prefixed_string() {
+        let f = FingerprintField::Known("abc12345".into());
+        let json = serde_json::to_string(&f).unwrap();
+        assert_eq!(json, "\"known:abc12345\"");
+    }
+
+    #[test]
+    fn serializes_unknown_as_literal() {
+        let f = FingerprintField::Unknown;
+        let json = serde_json::to_string(&f).unwrap();
+        assert_eq!(json, "\"unknown\"");
+    }
+
+    #[test]
+    fn deserializes_known() {
+        let f: FingerprintField = serde_json::from_str("\"known:deadbeef\"").unwrap();
+        assert!(matches!(f, FingerprintField::Known(ref h) if h == "deadbeef"));
+    }
+
+    #[test]
+    fn deserializes_unknown() {
+        let f: FingerprintField = serde_json::from_str("\"unknown\"").unwrap();
+        assert!(matches!(f, FingerprintField::Unknown));
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        assert!(serde_json::from_str::<FingerprintField>("\"garbage\"").is_err());
+        assert!(serde_json::from_str::<FingerprintField>("\"known:\"").is_err());
     }
 }

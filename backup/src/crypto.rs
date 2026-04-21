@@ -13,6 +13,8 @@ use hkdf::Hkdf;
 use rand::RngCore;
 use sha2::Sha256;
 
+use crate::index::WrappedDek;
+
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
 const MIN_CIPHERTEXT_LEN: usize = NONCE_LEN + TAG_LEN;
@@ -122,13 +124,13 @@ pub fn compute_kek_fingerprint(kek: &[u8; 32]) -> String {
 }
 
 /// Encrypts a DEK under a KEK using the existing AEAD.
-pub fn wrap_dek(dek: &[u8; 32], kek: &[u8; 32]) -> Result<crate::index::WrappedDek> {
+pub fn wrap_dek(dek: &[u8; 32], kek: &[u8; 32]) -> Result<WrappedDek> {
     let blob = encrypt_payload(dek, kek)?;
-    Ok(crate::index::WrappedDek { blob })
+    Ok(WrappedDek { blob })
 }
 
 /// Decrypts a wrapped DEK with a KEK. Returns error on authentication failure.
-pub fn unwrap_dek(wrapped: &crate::index::WrappedDek, kek: &[u8; 32]) -> Result<[u8; 32]> {
+pub fn unwrap_dek(wrapped: &WrappedDek, kek: &[u8; 32]) -> Result<[u8; 32]> {
     let bytes = decrypt_payload(&wrapped.blob, kek)?;
     if bytes.len() != 32 {
         anyhow::bail!(

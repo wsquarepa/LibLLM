@@ -540,6 +540,27 @@ mod tests {
     }
 }
 
+/// DEK (data-encryption key) encrypted under a KEK (key-encryption key).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WrappedDek {
+    /// Output of `crypto::encrypt_payload(dek_bytes, kek)`; XChaCha20-Poly1305
+    /// nonce is embedded in the first 24 bytes of this blob.
+    pub blob: Vec<u8>,
+}
+
+#[cfg(test)]
+mod wrapped_dek_tests {
+    use super::WrappedDek;
+
+    #[test]
+    fn round_trips_through_json() {
+        let w = WrappedDek { blob: vec![1, 2, 3, 4, 5] };
+        let json = serde_json::to_string(&w).unwrap();
+        let back: WrappedDek = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, w);
+    }
+}
+
 #[cfg(test)]
 mod fingerprint_field_tests {
     use super::FingerprintField;

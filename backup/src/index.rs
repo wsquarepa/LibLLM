@@ -8,6 +8,20 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+mod base64_bytes {
+    use base64::engine::{general_purpose::STANDARD, Engine};
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let raw = String::deserialize(d)?;
+        STANDARD.decode(&raw).map_err(D::Error::custom)
+    }
+}
+
 /// Whether a backup entry is a full base snapshot or an incremental diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,6 +83,7 @@ impl<'de> serde::Deserialize<'de> for FingerprintField {
 pub struct WrappedDek {
     /// Output of `crypto::encrypt_payload(dek_bytes, kek)`; XChaCha20-Poly1305
     /// nonce is embedded in the first 24 bytes of this blob.
+    #[serde(with = "base64_bytes")]
     pub blob: Vec<u8>,
 }
 
@@ -100,7 +115,7 @@ pub struct BackupIndex {
     pub entries: Vec<BackupEntry>,
 }
 
-/// Current on-disk schema version. Bumped to 2 for the DEK-wrapping overhaul.
+/// On-disk schema version for the backup index. Version 2 introduces per-chain DEK wrapping.
 pub const SCHEMA_VERSION: u32 = 2;
 
 impl Default for BackupIndex {
@@ -569,6 +584,13 @@ mod wrapped_dek_tests {
         let json = serde_json::to_string(&w).unwrap();
         let back: WrappedDek = serde_json::from_str(&json).unwrap();
         assert_eq!(back, w);
+    }
+
+    #[test]
+    fn blob_serializes_as_base64_string() {
+        let w = WrappedDek { blob: vec![0xde, 0xad, 0xbe, 0xef] };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains("\"blob\":\"3q2+7w==\""), "unexpected encoding: {json}");
     }
 }
 

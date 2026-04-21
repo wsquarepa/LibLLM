@@ -3,7 +3,7 @@ use rand::TryRngCore;
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{compute_kek_fingerprint, decrypt_payload, encrypt_payload, wrap_dek};
-use crate::index::{BackupIndex, BackupType, FingerprintField};
+use crate::index::{save_index, BackupIndex, BackupType, FingerprintField};
 
 pub(super) fn migrate(
     index: &mut BackupIndex,
@@ -21,9 +21,6 @@ fn migrate_encrypted(
     backups_dir: &Path,
     kek: &[u8; 32],
 ) -> Result<()> {
-    // Staging + batch-rename + late root stamp means a mid-chain crash is
-    // recoverable: the idempotency guard re-enters the chain, generates a
-    // new DEK, and overwrites any orphaned .tmp files from the prior attempt.
     let fingerprint = compute_kek_fingerprint(kek);
     let chain_roots: Vec<String> = index
         .entries
@@ -31,6 +28,8 @@ fn migrate_encrypted(
         .filter(|e| e.entry_type == BackupType::Base)
         .map(|e| e.id.clone())
         .collect();
+
+    let index_path = backups_dir.join("index.json");
 
     for root_id in chain_roots {
         let root_done = index
@@ -73,9 +72,16 @@ fn migrate_encrypted(
             .entries
             .iter_mut()
             .find(|e| e.id == root_id)
-            .expect("root_id was collected from the index moments ago");
+            .expect("root_id was collected from the same index");
         root.wrapped_dek = Some(wrapped);
         root.kek_fingerprint = Some(FingerprintField::Known(fingerprint.clone()));
+
+        // Persist the index after each chain so a mid-migration crash leaves
+        // completed chains flagged (wrapped_dek.is_some()) in the on-disk
+        // index, which the idempotency guard at the top of this loop uses
+        // to skip them on retry.
+        save_index(&index_path, index)
+            .with_context(|| format!("persist index after chain {root_id}"))?;
     }
 
     Ok(())
@@ -128,7 +134,8 @@ mod tests {
     use super::migrate;
     use crate::crypto::{encrypt_payload, resolve_backup_key, unwrap_dek};
     use crate::index::{
-        backup_filename, save_index, BackupEntry, BackupIndex, BackupType, FingerprintField,
+        backup_filename, load_index, save_index, BackupEntry, BackupIndex, BackupType,
+        FingerprintField,
     };
     use chrono::Utc;
     use libllm::crypto::write_atomic;
@@ -257,6 +264,67 @@ mod tests {
         assert!(index.entries[0].wrapped_dek.is_none());
         assert!(index.entries[0].kek_fingerprint.is_none());
         assert_eq!(std::fs::read(backups_dir.join(&filename)).unwrap(), plaintext);
+    }
+
+    #[test]
+    fn migrate_is_idempotent_across_runs_for_multi_chain_index() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+
+        let plaintexts: Vec<Vec<u8>> = (0..3u8).map(|i| vec![i; 11]).collect();
+        let mut entries = Vec::new();
+        for (i, plaintext) in plaintexts.iter().enumerate() {
+            let id = format!("20260421T05000{i}.000Z");
+            let filename = backup_filename(&id, BackupType::Base);
+            let payload = encrypt_payload(plaintext, &kek).unwrap();
+            write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+            entries.push(BackupEntry {
+                id,
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: plaintext.len() as u64,
+                stored_size: payload.len() as u64,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: None,
+                kek_fingerprint: None,
+            });
+        }
+
+        let mut index = BackupIndex { version: 1, entries };
+        let index_path = backups_dir.join("index.json");
+        save_index(&index_path, &index).unwrap();
+
+        migrate(&mut index, &backups_dir, Some(&kek)).unwrap();
+
+        // After migration, the on-disk index must carry wrapped_dek for all
+        // three chains. This verifies save_index is called after each chain,
+        // not just at the end.
+        let after_first = load_index(&index_path).unwrap();
+        assert!(
+            after_first.entries.iter().all(|e| e.wrapped_dek.is_some()),
+            "on-disk index must reflect all migrated chains after first run"
+        );
+
+        // Running migrate again must be a no-op: wrapped_dek values must be
+        // identical across both runs.
+        let mut index2 = load_index(&index_path).unwrap();
+        migrate(&mut index2, &backups_dir, Some(&kek)).unwrap();
+        let after_second = load_index(&index_path).unwrap();
+        for (a, b) in after_first.entries.iter().zip(after_second.entries.iter()) {
+            assert_eq!(a.wrapped_dek, b.wrapped_dek, "wrapped_dek must be stable");
+            assert_eq!(
+                a.kek_fingerprint, b.kek_fingerprint,
+                "kek_fingerprint must be stable"
+            );
+        }
     }
 
     #[test]

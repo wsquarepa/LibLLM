@@ -172,9 +172,15 @@ pub fn recover_journal_if_present(
                 return Ok(());
             }
             anyhow::bail!(
-                "rekey journal present but current passkey fingerprint ({fp}) matches neither old_fp ({}) nor new_fp ({}); cannot auto-recover",
+                "rekey journal present but current passkey fingerprint ({fp}) matches neither \
+                 old_fp ({}) nor new_fp ({}); cannot auto-recover. \
+                 To abandon the rekey manually: (1) rename '{}' over '{}' to restore the \
+                 pre-rekey index, (2) delete '{}' to remove the journal.",
                 journal.old_fp,
-                journal.new_fp
+                journal.new_fp,
+                sidecar_path(&backups_dir).display(),
+                backups_dir.join("index.json").display(),
+                journal_path(&backups_dir).display(),
             )
         }
     }

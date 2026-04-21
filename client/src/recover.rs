@@ -384,6 +384,19 @@ fn cmd_restore(
         .find_entry(id)
         .with_context(|| format!("backup id not found: {id}"))?;
 
+    let current_fp = kek
+        .as_ref()
+        .map(backup::crypto::compute_kek_fingerprint);
+    let root = chain_root_for(&index, entry);
+    let status = match &root.kek_fingerprint {
+        Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
+            "current".to_string()
+        }
+        Some(backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
+        Some(backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
+        None => "n/a".to_string(),
+    };
+
     println!("Restore target:");
     println!("  ID:          {}", entry.id);
     println!("  Type:        {}", entry.entry_type);
@@ -392,6 +405,7 @@ fn cmd_restore(
         "  Created:     {}",
         entry.created_at.format("%Y-%m-%d %H:%M:%S UTC")
     );
+    println!("  Status:      {status}");
 
     if !yes {
         print!("Continue? [y/N] ");

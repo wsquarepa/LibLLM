@@ -214,4 +214,40 @@ mod tests {
         migrate(&mut index, &backups_dir, Some(&kek)).unwrap();
         assert_eq!(index.entries[0].wrapped_dek, snapshot);
     }
+
+    #[test]
+    fn unencrypted_migration_leaves_entries_alone() {
+        let tmp = TempDir::new().unwrap();
+        let backups_dir = tmp.path().join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let id = "20260421T000002.000Z".to_string();
+        let filename = backup_filename(&id, BackupType::Base);
+        let plaintext = b"plain";
+        write_atomic(&backups_dir.join(&filename), plaintext).unwrap();
+
+        let mut index = BackupIndex {
+            version: 1,
+            entries: vec![BackupEntry {
+                id,
+                entry_type: BackupType::Base,
+                filename: filename.clone(),
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: plaintext.len() as u64,
+                stored_size: plaintext.len() as u64,
+                encrypted: false,
+                created_at: Utc::now(),
+                wrapped_dek: None,
+                kek_fingerprint: None,
+            }],
+        };
+
+        migrate(&mut index, &backups_dir, None).unwrap();
+
+        assert!(index.entries[0].wrapped_dek.is_none());
+        assert!(index.entries[0].kek_fingerprint.is_none());
+        assert_eq!(std::fs::read(backups_dir.join(&filename)).unwrap(), plaintext);
+    }
 }

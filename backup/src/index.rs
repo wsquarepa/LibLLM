@@ -289,11 +289,15 @@ pub fn save_index(path: &Path, index: &BackupIndex) -> Result<()> {
 /// unencrypted data dirs, or ops that will only read raw file hashes) pass
 /// `None`; in that case only the unencrypted migration branch runs.
 pub fn open_index(path: &Path, kek: Option<&[u8; 32]>) -> Result<BackupIndex> {
-    let mut index = load_index(path)?;
-    let starting_version = index.version;
     let backups_dir = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("index path {} has no parent", path.display()))?;
+    let data_dir = backups_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("backups dir {} has no parent", backups_dir.display()))?;
+    crate::rekey::recover_journal_if_present(data_dir, kek)?;
+    let mut index = load_index(path)?;
+    let starting_version = index.version;
     crate::migrations::run_migrations(&mut index, backups_dir, kek)?;
     if index.version != starting_version {
         save_index(path, &index)?;

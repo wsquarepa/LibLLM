@@ -189,22 +189,28 @@ fn build_payload(
     Ok((BackupType::Diff, compressed_patch))
 }
 
-/// Reconstructs the backup index by scanning on-disk `.bak` files in `backups_dir`.
+/// Reconstructs `backups/index.json` from the on-disk backup files.
 ///
-/// Reads every file matching the `*-base.bak` and `*-diff.bak` naming convention, computes
-/// file hashes, and replays diff chains to recover `plaintext_hash` and `plaintext_size` for
-/// each entry. The resulting index is sorted chronologically by file modification time and
-/// written to `backups_dir/index.json`.
-///
-/// Diff entries require the corresponding base file to be present and decryptable. Any
-/// file that cannot be read, decrypted, or parsed is skipped with a warning printed to stderr.
-/// When `passkey` is provided, backup files are decrypted before use.
+/// Currently supports unencrypted data dirs only. For encrypted dirs,
+/// rebuilding requires per-chain DEK reconstruction which is not yet
+/// implemented — call sites that attempt this will receive an
+/// actionable error.
 pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<BackupIndex> {
     let data_dir = backups_dir
         .parent()
         .with_context(|| format!("backups_dir has no parent: {}", backups_dir.display()))?;
 
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
+
+    if backup_key.is_some() {
+        anyhow::bail!(
+            "rebuild_index temporarily does not support encrypted backups \
+             (will be re-added with fingerprint-unknown labeling; see Task 21 \
+             of the backup REPL overhaul plan). Run without a passkey to \
+             rebuild unencrypted data dirs, or restore from the existing \
+             index.json."
+        );
+    }
 
     let mut file_entries: Vec<(std::time::SystemTime, String, String, BackupType)> = Vec::new();
 

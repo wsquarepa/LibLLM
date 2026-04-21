@@ -26,8 +26,9 @@ pub(crate) fn replay_chain(
         );
     }
 
-    let dek = match (backup_key, chain.first()) {
-        (Some(kek), Some(root)) if root.encrypted => {
+    let dek = match backup_key {
+        Some(kek) if chain[0].encrypted => {
+            let root = chain[0];
             let wrapped = root.wrapped_dek.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
                     "chain root {} has no wrapped DEK (run migrations or rebuild index)",

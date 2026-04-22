@@ -96,7 +96,7 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     writeln!(&mut out, "{}", border).unwrap();
     writeln!(
         &mut out,
-        "Events (offsets are +hh:mm:ss.sss from run start):"
+        "Events:"
     )
     .unwrap();
     writeln!(&mut out).unwrap();
@@ -210,7 +210,7 @@ mod tests {
         assert!(out.contains("Memory        64.0 GiB total"));
         assert!(out.contains("Terminal      xterm-256color  (158 x 42)"));
         assert!(out.contains("Filter        info  (source: default)"));
-        assert!(out.ends_with("Events (offsets are +hh:mm:ss.sss from run start):\n\n"));
+        assert!(out.ends_with("Events:\n\n"));
         for line in out
             .lines()
             .take_while(|l| l.starts_with('=') || l.starts_with('-') || l.starts_with(' '))

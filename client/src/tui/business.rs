@@ -826,6 +826,13 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
     }
 }
 
+pub(super) fn refresh_sidebar_ages(app: &mut App) {
+    prepare_sidebar_entries(&mut app.sidebar_sessions);
+    app.sidebar_cache = None;
+    app.sidebar_age_refresh_at =
+        std::time::Instant::now() + super::types::SIDEBAR_AGE_REFRESH_INTERVAL;
+}
+
 pub(super) fn refresh_sidebar(app: &mut App) {
     let mut sessions = discover_sidebar_sessions(&app.save_mode, app.db.as_ref());
 
@@ -847,6 +854,8 @@ pub(super) fn refresh_sidebar(app: &mut App) {
     app.sidebar_sessions = sessions;
     app.sidebar_state.select(Some(selected));
     app.sidebar_cache = None;
+    app.sidebar_age_refresh_at =
+        std::time::Instant::now() + super::types::SIDEBAR_AGE_REFRESH_INTERVAL;
 }
 
 /// Loads the sidebar session list from the database, prepending a "New Chat" entry.

@@ -264,6 +264,7 @@ pub(super) struct App<'a> {
     pub(super) token_counter: libllm::tokenizer::TokenCounter,
     pub(super) tokenizer_tx: mpsc::Sender<libllm::tokenizer::TokenCountUpdate>,
     pub(super) sidebar_cache: Option<render::SidebarCache>,
+    pub(super) sidebar_age_refresh_at: std::time::Instant,
     pub(super) raw_edit_node: Option<NodeId>,
     pub(super) edit_original_content: String,
     pub(super) edit_confirm_selected: usize,
@@ -321,5 +322,6 @@ pub(super) const STATUS_DURATION: std::time::Duration = std::time::Duration::fro
 pub(super) const NOTIFICATION_SLIDE_DURATION: std::time::Duration =
     std::time::Duration::from_millis(300);
 pub(super) const STREAM_REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
+pub(super) const SIDEBAR_AGE_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 pub(super) const AUTOSAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
 pub(super) const AUTOSAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);

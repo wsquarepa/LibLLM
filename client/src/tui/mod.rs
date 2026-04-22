@@ -241,6 +241,7 @@ pub async fn run(
         token_counter,
         tokenizer_tx,
         sidebar_cache: None,
+        sidebar_age_refresh_at: std::time::Instant::now() + SIDEBAR_AGE_REFRESH_INTERVAL,
         raw_edit_node: None,
         edit_original_content: String::new(),
         edit_confirm_selected: 0,
@@ -407,6 +408,10 @@ pub async fn run(
                     if let Err(err) = app.flush_session_save(trigger) {
                         app.set_status(format!("Save error: {err}"), StatusLevel::Error);
                     }
+                    needs_redraw = true;
+                }
+                if std::time::Instant::now() >= app.sidebar_age_refresh_at {
+                    business::refresh_sidebar_ages(&mut app);
                     needs_redraw = true;
                 }
                 if let Some(ref msg) = app.status_message {

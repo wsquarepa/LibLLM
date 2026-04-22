@@ -227,10 +227,10 @@ fn validate_data_dir_rejects_non_libllm_dir() {
 }
 
 #[test]
-fn validate_data_dir_accepts_encrypted_dir_with_config_and_salt() {
+fn validate_data_dir_accepts_encrypted_dir_with_salt_and_data_db() {
     let dir = common::temp_dir();
-    std::fs::write(dir.path().join("config.toml"), "").unwrap();
     std::fs::write(dir.path().join(".salt"), [0u8; 16]).unwrap();
+    std::fs::write(dir.path().join("data.db"), "").unwrap();
 
     let is_existing = validation::validate_data_dir(dir.path(), false).unwrap();
     assert!(is_existing);
@@ -249,21 +249,21 @@ fn validate_data_dir_rejects_config_only_in_encrypted_mode() {
 }
 
 #[test]
-fn validate_data_dir_rejects_salt_only_in_encrypted_mode() {
+fn validate_data_dir_rejects_salt_without_data_db_in_encrypted_mode() {
     let dir = common::temp_dir();
     std::fs::write(dir.path().join(".salt"), [0u8; 16]).unwrap();
 
     let err = validation::validate_data_dir(dir.path(), false).unwrap_err();
+    let msg = format!("{err}");
     assert!(
-        format!("{err}").contains("does not appear to be a libllm data directory"),
-        "unexpected error: {err}"
+        msg.contains(".salt") && msg.contains("data.db"),
+        "expected error to mention .salt/data.db mismatch, got: {msg}"
     );
 }
 
 #[test]
 fn validate_data_dir_rejects_data_db_without_salt_in_encrypted_mode() {
     let dir = common::temp_dir();
-    std::fs::write(dir.path().join("config.toml"), "").unwrap();
     std::fs::write(dir.path().join("data.db"), "").unwrap();
 
     let err = validation::validate_data_dir(dir.path(), false).unwrap_err();
@@ -318,20 +318,23 @@ fn validate_data_dir_rejects_file_path() {
 }
 
 #[test]
-fn is_libllm_data_dir_encrypted_requires_config_and_salt() {
+fn is_libllm_data_dir_encrypted_requires_salt_and_data_db() {
     let dir = common::temp_dir();
     assert!(!validation::is_libllm_data_dir(dir.path(), false));
 
-    std::fs::write(dir.path().join("config.toml"), "").unwrap();
+    std::fs::write(dir.path().join(".salt"), [0u8; 16]).unwrap();
     assert!(!validation::is_libllm_data_dir(dir.path(), false));
 
-    std::fs::write(dir.path().join(".salt"), [0u8; 16]).unwrap();
+    std::fs::write(dir.path().join("data.db"), "").unwrap();
     assert!(validation::is_libllm_data_dir(dir.path(), false));
 }
 
 #[test]
-fn is_libllm_data_dir_plaintext_accepts_either_marker() {
+fn is_libllm_data_dir_plaintext_requires_data_db() {
     let dir = common::temp_dir();
+    assert!(!validation::is_libllm_data_dir(dir.path(), true));
+
+    std::fs::write(dir.path().join("config.toml"), "").unwrap();
     assert!(!validation::is_libllm_data_dir(dir.path(), true));
 
     std::fs::write(dir.path().join("data.db"), "").unwrap();

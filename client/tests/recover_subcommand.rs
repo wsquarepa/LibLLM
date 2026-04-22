@@ -367,8 +367,13 @@ fn recover_list_labels_archived_chain() {
 
     let dir_b = common::temp_dir();
     let data_dir_b = dir_b.path();
-    libllm::crypto::load_or_create_salt(&data_dir_b.join(".salt")).expect("create dir_b salt");
-    std::fs::write(data_dir_b.join("config.toml"), "").expect("create dir_b config.toml");
+    let salt_b =
+        libllm::crypto::load_or_create_salt(&data_dir_b.join(".salt")).expect("create dir_b salt");
+    let key_b = libllm::crypto::derive_key("pw-b", &salt_b).expect("derive dir_b key");
+    {
+        let _db = Database::open(&data_dir_b.join("data.db"), Some(&key_b))
+            .expect("create dir_b encrypted db");
+    }
 
     let backups_b = data_dir_b.join("backups");
     std::fs::create_dir_all(&backups_b).expect("create dir_b backups");

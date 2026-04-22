@@ -4,21 +4,15 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-const ENCRYPTED_REQUIRED_MARKERS: &[&str] = &["config.toml", ".salt"];
-const PLAINTEXT_ANY_MARKERS: &[&str] = &["config.toml", "data.db"];
-
 /// Check whether a non-empty directory looks like a libllm data directory.
 ///
-/// In encrypted mode (`no_encrypt=false`), requires every file in
-/// `ENCRYPTED_REQUIRED_MARKERS` to be present so a dropped `.salt` or a stray
-/// `config.toml` alone cannot bless a random directory -- and so a `data.db`
-/// sitting without a matching `.salt` is refused rather than silently treated
-/// as encrypted. `data.db` is intentionally not required here because it is
-/// legitimately absent during a legacy (v1.0) migration before the migrate
-/// utility has run.
+/// In encrypted mode (`no_encrypt=false`), both `.salt` and `data.db` must be
+/// present. A lone `.salt` or a lone `data.db` is refused so a stray marker
+/// cannot bless a random directory and a mismatched pair is surfaced to the
+/// user via [`validate_data_dir`].
 ///
-/// In plaintext mode (`no_encrypt=true`), accepts any of
-/// `PLAINTEXT_ANY_MARKERS`; encrypted-mode markers are irrelevant.
+/// In plaintext mode (`no_encrypt=true`), `data.db` is the sole marker.
+/// `.salt` is encrypted-mode only and irrelevant here.
 ///
 /// A directory containing legacy file-based storage always qualifies so the
 /// migration path remains reachable.
@@ -26,14 +20,11 @@ pub fn is_libllm_data_dir(path: &Path, no_encrypt: bool) -> bool {
     if crate::legacy_migration::has_legacy_data(path) {
         return true;
     }
+    let has_db = path.join("data.db").exists();
     if no_encrypt {
-        PLAINTEXT_ANY_MARKERS
-            .iter()
-            .any(|m| path.join(m).exists())
+        has_db
     } else {
-        ENCRYPTED_REQUIRED_MARKERS
-            .iter()
-            .all(|m| path.join(m).exists())
+        has_db && path.join(".salt").exists()
     }
 }
 
@@ -68,6 +59,14 @@ pub fn validate_data_dir(data_path: &Path, no_encrypt: bool) -> Result<bool> {
                     anyhow::bail!(
                         "--data directory has data.db but no .salt: {}\n\
                          pass --no-encrypt to open it as plaintext, or restore the .salt file before proceeding",
+                        data_path.display()
+                    );
+                }
+                if !no_encrypt && has_salt && !has_db {
+                    tracing::warn!(phase = "summary", result = "error", reason = "salt_without_db", path = %data_path.display(), "validation.data_dir");
+                    anyhow::bail!(
+                        "--data directory has .salt but no data.db: {}\n\
+                         restore the data.db file or remove the .salt to start fresh",
                         data_path.display()
                     );
                 }

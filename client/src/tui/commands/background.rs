@@ -133,6 +133,12 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         };
                         app.db = Some(db);
                         app.save_mode = SaveMode::Database { id };
+                        if let Err(e) = libllm::config::save(&app.config) {
+                            app.set_status(
+                                format!("Failed to write default config: {e}"),
+                                StatusLevel::Warning,
+                            );
+                        }
                         match business::build_file_summarizer(
                             &db_path,
                             Some(&new_key),

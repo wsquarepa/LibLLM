@@ -20,7 +20,6 @@ pub struct SessionListEntry {
     pub id: String,
     pub display_name: String,
     pub message_count: usize,
-    pub last_assistant_preview: Option<String>,
     pub updated_at: String,
 }
 
@@ -289,10 +288,7 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.display_name, s.updated_at,
-                        COUNT(m.id) AS message_count,
-                        (SELECT content FROM messages
-                         WHERE session_id = s.id AND role = 'assistant'
-                         ORDER BY id DESC LIMIT 1) AS last_assistant_preview
+                        COUNT(m.id) AS message_count
                  FROM sessions s
                  LEFT JOIN messages m ON m.session_id = s.id
                  GROUP BY s.id
@@ -306,12 +302,10 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
                 let display_name: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
                 let updated_at: String = row.get(2)?;
                 let message_count: i64 = row.get(3)?;
-                let last_assistant_preview: Option<String> = row.get(4)?;
                 Ok(SessionListEntry {
                     id,
                     display_name,
                     message_count: message_count as usize,
-                    last_assistant_preview,
                     updated_at,
                 })
             })
@@ -626,15 +620,12 @@ mod tests {
         assert_eq!(entries[0].id, "sess-2");
         assert_eq!(entries[0].display_name, "Assistant");
         assert_eq!(entries[0].message_count, 0);
-        assert!(entries[0].last_assistant_preview.is_none());
+        assert_eq!(entries[0].updated_at, "2026-01-02T00:00:00Z");
 
         assert_eq!(entries[1].id, "sess-1");
         assert_eq!(entries[1].display_name, "TestChar");
         assert_eq!(entries[1].message_count, 2);
-        assert_eq!(
-            entries[1].last_assistant_preview.as_deref(),
-            Some("Hi there!")
-        );
+        assert_eq!(entries[1].updated_at, "2026-01-01T00:00:00Z");
     }
 
     #[test]

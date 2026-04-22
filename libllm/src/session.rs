@@ -48,7 +48,7 @@ pub struct SessionEntry {
     pub id: String,
     pub display_name: String,
     pub message_count: Option<usize>,
-    pub last_assistant_preview: Option<String>,
+    pub updated_at: Option<String>,
     pub sidebar_label: String,
     pub sidebar_preview: Option<String>,
     pub is_new_chat: bool,

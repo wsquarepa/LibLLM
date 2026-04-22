@@ -12,8 +12,6 @@ use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
 use super::{App, BackgroundEvent};
 
-const SIDEBAR_PREVIEW_CHARS: usize = 28;
-
 pub fn non_empty(s: &str) -> Option<String> {
     if s.trim().is_empty() {
         None
@@ -776,34 +774,33 @@ pub fn new_chat_entry() -> SessionEntry {
         id: String::new(),
         display_name: "+ New Chat".to_owned(),
         message_count: None,
-        last_assistant_preview: None,
+        updated_at: None,
         sidebar_label: "+ New Chat".to_owned(),
         sidebar_preview: None,
         is_new_chat: true,
     }
 }
 
-fn truncate_preview(msg: &str) -> String {
-    let sanitized: String = msg
-        .chars()
-        .filter(|c| !c.is_control() || *c == ' ')
-        .collect();
-    let truncated: String = sanitized.chars().take(SIDEBAR_PREVIEW_CHARS).collect();
-    if sanitized.chars().count() > SIDEBAR_PREVIEW_CHARS {
-        format!("  {truncated}...")
+/// Formats an RFC 3339 timestamp as an age relative to `now`: `1d`, `2h`, `5m`, or `now`.
+/// Returns `None` when the timestamp cannot be parsed.
+pub(crate) fn format_relative_age(timestamp: &str, now: time::OffsetDateTime) -> Option<String> {
+    let parsed =
+        time::OffsetDateTime::parse(timestamp, &time::format_description::well_known::Rfc3339)
+            .ok()?;
+    let diff = now - parsed;
+    Some(if diff.whole_days() > 0 {
+        format!("{}d", diff.whole_days())
+    } else if diff.whole_hours() > 0 {
+        format!("{}h", diff.whole_hours())
+    } else if diff.whole_minutes() > 0 {
+        format!("{}m", diff.whole_minutes())
     } else {
-        format!("  {truncated}")
-    }
+        "now".to_owned()
+    })
 }
 
 pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
-    let mut name_totals: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
-    for entry in entries.iter().filter(|entry| !entry.is_new_chat) {
-        *name_totals.entry(entry.display_name.clone()).or_insert(0) += 1;
-    }
-
-    let mut name_remaining = name_totals;
+    let now = time::OffsetDateTime::now_utc();
     for entry in entries.iter_mut() {
         if entry.is_new_chat {
             entry.sidebar_label.clone_from(&entry.display_name);
@@ -811,20 +808,21 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
             continue;
         }
 
-        let Some(rem) = name_remaining.get_mut(&entry.display_name) else {
-            continue;
-        };
-        let idx = *rem;
-        *rem -= 1;
-        let count_str = entry
-            .message_count
-            .map(|n| format!(" ({n})"))
-            .unwrap_or_default();
-        entry.sidebar_label = format!("[{idx}] {}{count_str}", entry.display_name);
-        entry.sidebar_preview = entry
-            .last_assistant_preview
+        let age = entry
+            .updated_at
             .as_deref()
-            .map(truncate_preview);
+            .and_then(|ts| format_relative_age(ts, now))
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    entry_id = %entry.id,
+                    updated_at = ?entry.updated_at,
+                    "sidebar: unparseable updated_at timestamp"
+                );
+                "?".to_owned()
+            });
+        let count = entry.message_count.unwrap_or(0);
+        entry.sidebar_label = format!("{age} • {}", entry.display_name);
+        entry.sidebar_preview = Some(format!("  {count} messages"));
     }
 }
 
@@ -840,13 +838,6 @@ pub(super) fn refresh_sidebar(app: &mut App) {
             current_entry.display_name.clone_from(character);
         }
         current_entry.message_count = Some(app.session.tree.node_count());
-        if current_entry.last_assistant_preview.is_none() {
-            current_entry.last_assistant_preview = app
-                .session
-                .tree
-                .current_last_assistant_preview()
-                .map(str::to_owned);
-        }
     }
 
     let selected = current_id
@@ -878,7 +869,7 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) ->
                             id: e.id,
                             display_name: e.display_name,
                             message_count: Some(e.message_count),
-                            last_assistant_preview: e.last_assistant_preview,
+                            updated_at: Some(e.updated_at),
                             sidebar_label: String::new(),
                             sidebar_preview: None,
                             is_new_chat: false,
@@ -1104,5 +1095,75 @@ mod tests {
             libllm::config::FileSummarizeMode::Lazy
         );
         assert_eq!(rebuilt.files.summary_prompt, "Custom file summary prompt.");
+    }
+
+    use time::macros::datetime;
+
+    #[test]
+    fn format_relative_age_days_hours_minutes_now() {
+        let now = datetime!(2026-04-22 12:00:00 UTC);
+        assert_eq!(
+            format_relative_age("2026-04-20T12:00:00Z", now).as_deref(),
+            Some("2d")
+        );
+        assert_eq!(
+            format_relative_age("2026-04-22T09:30:00Z", now).as_deref(),
+            Some("2h")
+        );
+        assert_eq!(
+            format_relative_age("2026-04-22T11:45:00Z", now).as_deref(),
+            Some("15m")
+        );
+        assert_eq!(
+            format_relative_age("2026-04-22T11:59:30Z", now).as_deref(),
+            Some("now")
+        );
+    }
+
+    #[test]
+    fn format_relative_age_unparseable_returns_none() {
+        let now = datetime!(2026-04-22 12:00:00 UTC);
+        assert!(format_relative_age("not-a-date", now).is_none());
+        assert!(format_relative_age("", now).is_none());
+    }
+
+    fn make_session_entry(display_name: &str, updated_at: Option<&str>, count: Option<usize>) -> SessionEntry {
+        SessionEntry {
+            id: "id".to_owned(),
+            display_name: display_name.to_owned(),
+            message_count: count,
+            updated_at: updated_at.map(str::to_owned),
+            sidebar_label: String::new(),
+            sidebar_preview: None,
+            is_new_chat: false,
+        }
+    }
+
+    #[test]
+    fn prepare_sidebar_entries_preserves_new_chat_label() {
+        let mut entries = vec![new_chat_entry()];
+        prepare_sidebar_entries(&mut entries);
+        assert_eq!(entries[0].sidebar_label, "+ New Chat");
+        assert!(entries[0].sidebar_preview.is_none());
+    }
+
+    #[test]
+    fn prepare_sidebar_entries_formats_label_and_preview() {
+        let mut entries = vec![make_session_entry(
+            "Alice",
+            Some("2020-01-01T00:00:00Z"),
+            Some(7),
+        )];
+        prepare_sidebar_entries(&mut entries);
+        assert!(entries[0].sidebar_label.ends_with(" • Alice"));
+        assert_eq!(entries[0].sidebar_preview.as_deref(), Some("  7 messages"));
+    }
+
+    #[test]
+    fn prepare_sidebar_entries_marks_unparseable_timestamp() {
+        let mut entries = vec![make_session_entry("Bob", Some("garbage"), Some(0))];
+        prepare_sidebar_entries(&mut entries);
+        assert_eq!(entries[0].sidebar_label, "? • Bob");
+        assert_eq!(entries[0].sidebar_preview.as_deref(), Some("  0 messages"));
     }
 }

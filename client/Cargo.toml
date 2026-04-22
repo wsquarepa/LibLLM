@@ -23,7 +23,7 @@ dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 rustyline = { version = "14", features = ["with-file-history"] }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 arboard = "3"
-time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
 uuid = { version = "1.23.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 zeroize = "1.8.2"

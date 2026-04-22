@@ -201,7 +201,7 @@ fn new_chat_entry_is_new_chat() {
     assert_eq!(entry.display_name, "+ New Chat");
     assert_eq!(entry.sidebar_label, "+ New Chat");
     assert!(entry.message_count.is_none());
-    assert!(entry.last_assistant_preview.is_none());
+    assert!(entry.updated_at.is_none());
     assert!(entry.sidebar_preview.is_none());
 }
 

@@ -22,7 +22,7 @@ impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
     }
 }
 
-pub(in crate::tui::commands) fn loaded_worldbooks(
+pub(in crate::tui) fn loaded_worldbooks(
     app: &mut App,
 ) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
     let enabled_names = business::enabled_worldbook_names(app.session, &app.config);
@@ -217,7 +217,7 @@ fn push_user_segments(app: &mut App<'_>, content: &str) {
 
 async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.mark_session_dirty(SaveTrigger::Debounced, false);
-    app.invalidate_chat_cache();
+    app.invalidate_chat_caches();
     app.is_streaming = true;
     app.focus = crate::tui::Focus::Input;
     app.nav_cursor = None;
@@ -405,7 +405,7 @@ pub(in crate::tui) async fn handle_stream_token(
                 "stream.done"
             );
             app.mark_session_dirty(SaveTrigger::StreamDone, true);
-            app.invalidate_chat_cache();
+            app.invalidate_chat_caches();
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.auto_scroll = true;

@@ -65,7 +65,7 @@ fn cmd_clear(app: &mut App) {
     app.active_persona_name = None;
     app.active_persona_desc = None;
     app.discard_pending_session_save();
-    app.invalidate_chat_cache();
+    app.invalidate_chat_caches();
     app.invalidate_worldbook_cache();
     app.chat_scroll = 0;
     app.auto_scroll = true;
@@ -367,7 +367,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
 
     app.config.theme = Some(arg.to_owned());
     app.theme = super::theme::resolve_theme(&app.config);
-    app.invalidate_chat_cache();
+    app.invalidate_chat_render_cache();
 
     if let Err(err) = libllm::config::save(&app.config) {
         app.set_status(

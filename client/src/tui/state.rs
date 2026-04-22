@@ -98,9 +98,17 @@ impl App<'_> {
         });
     }
 
-    pub(super) fn invalidate_chat_cache(&mut self) {
+    pub(super) fn invalidate_chat_render_cache(&mut self) {
         self.chat_content_cache = None;
+    }
+
+    pub(super) fn invalidate_prompt_cache(&mut self) {
         self.cached_token_count = None;
+    }
+
+    pub(super) fn invalidate_chat_caches(&mut self) {
+        self.invalidate_chat_render_cache();
+        self.invalidate_prompt_cache();
     }
 
     /// Clear the textarea only when it still holds `submitted_content` (trimmed).
@@ -118,6 +126,7 @@ impl App<'_> {
 
     pub(super) fn invalidate_worldbook_cache(&mut self) {
         self.worldbook_cache = None;
+        self.invalidate_prompt_cache();
     }
 
     pub(super) fn mark_session_dirty(&mut self, trigger: SaveTrigger, immediate: bool) {

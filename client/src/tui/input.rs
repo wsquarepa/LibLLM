@@ -293,7 +293,7 @@ fn switch_nav_sibling(app: &mut App, offset: isize) -> bool {
         return false;
     };
     app.session.tree.switch_to(siblings[new_idx]);
-    app.invalidate_chat_cache();
+    app.invalidate_chat_caches();
     app.nav_cursor = Some(siblings[new_idx]);
     app.mark_session_dirty(super::SaveTrigger::Debounced, false);
     true
@@ -628,7 +628,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
             ..Session::default()
         };
         super::business::load_active_persona(app);
-        app.invalidate_chat_cache();
+        app.invalidate_chat_caches();
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
         app.auto_scroll = true;
@@ -645,7 +645,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
                 app.discard_pending_session_save();
                 *app.session = loaded;
                 super::business::load_active_persona(app);
-                app.invalidate_chat_cache();
+                app.invalidate_chat_caches();
                 app.invalidate_worldbook_cache();
                 app.set_status(format!("Loaded: {session_id}"), super::StatusLevel::Info);
                 app.save_mode.set_id(session_id);

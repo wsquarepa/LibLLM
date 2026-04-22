@@ -376,7 +376,7 @@ pub async fn run(
                                             ),
                                         );
                                         app.mark_session_dirty(SaveTrigger::StreamDone, true);
-                                        app.invalidate_chat_cache();
+                                        app.invalidate_chat_caches();
                                     }
                                 }
                             }
@@ -399,7 +399,7 @@ pub async fn run(
                         status = ?event.status,
                         "tui.file_summary.ready"
                     );
-                    app.invalidate_chat_cache();
+                    app.invalidate_chat_render_cache();
                     app.file_summary_revision = app.file_summary_revision.wrapping_add(1);
                     needs_redraw = true;
                 }
@@ -554,16 +554,19 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let max_scroll;
     let mut cache = app.chat_content_cache.take();
     {
-        let branch_ids = app.session.tree.current_branch_ids();
         let state = match app.cached_token_count {
             Some(state) => state,
             None => {
+                if app.worldbook_cache.is_none() {
+                    commands::streaming::loaded_worldbooks(app);
+                }
                 let text = commands::streaming::build_rendered_prompt(app, 0);
                 let state = app.token_counter.count_cached(&text);
                 app.cached_token_count = Some(state);
                 state
             }
         };
+        let branch_ids = app.session.tree.current_branch_ids();
         let msg_count = branch_ids.len();
         tracing::trace!(node_count = msg_count, "chat.branch");
         {

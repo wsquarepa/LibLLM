@@ -33,7 +33,7 @@ pub(super) fn cancel_generation(app: &mut App) {
     app.streaming_buffer.clear();
     app.is_streaming = false;
     app.mark_session_dirty(SaveTrigger::StreamDone, true);
-    app.invalidate_chat_cache();
+    app.invalidate_chat_caches();
     app.auto_scroll = true;
 }
 
@@ -173,7 +173,7 @@ pub(super) fn handle_field_dialog_key(
                 } else {
                     app.config = libllm::config::load();
                     app.theme = crate::tui::theme::resolve_theme(&app.config);
-                    app.invalidate_chat_cache();
+                    app.invalidate_chat_render_cache();
                 }
                 app.theme_dialog = None;
                 app.focus = Focus::Input;
@@ -205,7 +205,7 @@ pub(super) fn handle_field_dialog_key(
                 }
                 app.config = libllm::config::load();
                 app.theme = crate::tui::theme::resolve_theme(&app.config);
-                app.invalidate_chat_cache();
+                app.invalidate_chat_render_cache();
                 app.theme_dialog = None;
                 app.focus = Focus::Input;
             }
@@ -335,8 +335,9 @@ pub(super) fn handle_field_dialog_key(
                         .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
                     {
                         Ok(_) => {
-                            app.invalidate_chat_cache();
                             if app.session.persona.as_deref() == Some(old_slug.as_str()) {
+                                app.invalidate_prompt_cache();
+                                app.invalidate_chat_render_cache();
                                 app.active_persona_name = Some(persona.name.clone());
                                 app.active_persona_desc = Some(persona.persona.clone());
                                 app.session.persona = Some(new_slug.clone());
@@ -396,7 +397,7 @@ pub(super) fn handle_field_dialog_key(
                     Some(content.clone())
                 };
                 app.session.system_prompt = value;
-                app.invalidate_chat_cache();
+                app.invalidate_prompt_cache();
                 app.mark_session_dirty(SaveTrigger::Debounced, false);
 
                 if !original_name.is_empty() {
@@ -524,7 +525,7 @@ pub(super) fn handle_field_dialog_key(
                             app.session.system_prompt =
                                 Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                             app.session.character = Some(card.name.clone());
-                            app.invalidate_chat_cache();
+                            app.invalidate_chat_caches();
                         }
                     }
                     Err(e) => {
@@ -569,7 +570,7 @@ pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {
     let new_theme = crate::tui::theme::resolve_theme(&preview);
     if new_theme != app.theme {
         app.theme = new_theme;
-        app.invalidate_chat_cache();
+        app.invalidate_chat_render_cache();
     }
 }
 

@@ -109,7 +109,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.session.system_prompt =
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
-                    app.invalidate_chat_cache();
+                    app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();
                     if !card.first_mes.is_empty() {
                         app.session

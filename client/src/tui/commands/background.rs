@@ -61,7 +61,9 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                     };
                     app.db = Some(db);
                     app.save_mode = SaveMode::Database { id };
+                    business::load_active_persona(app);
                     app.invalidate_worldbook_cache();
+                    app.invalidate_chat_render_cache();
                     match business::build_file_summarizer(
                         &db_path,
                         Some(&key),
@@ -119,6 +121,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             }
             app.set_passkey_deriving = false;
             app.invalidate_worldbook_cache();
+            app.invalidate_chat_render_cache();
             if app.set_passkey_is_initial {
                 let db_path = libllm::config::data_dir().join("data.db");
                 match Database::open(&db_path, Some(&new_key)) {
@@ -133,6 +136,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         };
                         app.db = Some(db);
                         app.save_mode = SaveMode::Database { id };
+                        business::load_active_persona(app);
                         if let Err(e) = libllm::config::save(&app.config) {
                             app.set_status(
                                 format!("Failed to write default config: {e}"),
@@ -285,7 +289,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
         BackgroundEvent::TokenizerReloaded(token_counter) => {
             let is_heuristic = token_counter.is_heuristic();
             app.token_counter = token_counter;
-            app.invalidate_chat_cache();
+            app.invalidate_prompt_cache();
             if is_heuristic {
                 app.set_status(
                     "token counts approximate — llama.cpp /tokenize unavailable".to_owned(),
@@ -300,7 +304,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 "tokenizer.update"
             );
             app.token_counter.apply_update(update);
-            app.invalidate_chat_cache();
+            app.invalidate_prompt_cache();
         }
     }
 }

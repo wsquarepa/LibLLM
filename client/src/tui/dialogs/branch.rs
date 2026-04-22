@@ -98,7 +98,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
         KeyCode::Enter => {
             let (node_id, _) = app.branch_dialog_items[selected];
             app.session.tree.switch_to(node_id);
-            app.invalidate_chat_cache();
+            app.invalidate_chat_caches();
             app.nav_cursor = None;
             app.auto_scroll = true;
             app.focus = Focus::Input;

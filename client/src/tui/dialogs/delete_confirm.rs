@@ -192,6 +192,8 @@ fn delete_selected_session(app: &mut App) {
             ..libllm::session::Session::default()
         };
         business::load_active_persona(app);
+        app.invalidate_chat_caches();
+        app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
         app.auto_scroll = true;
         let new_id = libllm::session::generate_session_id();
@@ -238,7 +240,7 @@ fn delete_persona(app: &mut App, slug: &str) {
         app.active_persona_name = None;
         app.active_persona_desc = None;
         app.session.persona = None;
-        app.invalidate_chat_cache();
+        app.invalidate_chat_caches();
     }
 
     maintenance::reload_persona_picker(app);
@@ -278,7 +280,7 @@ fn delete_chat_message(app: &mut App, node_id: libllm::session::NodeId) {
     app.nav_cursor = None;
     app.hover_node = None;
     app.raw_edit_node = None;
-    app.invalidate_chat_cache();
+    app.invalidate_chat_caches();
     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
     if prev_head != app.session.tree.head() {

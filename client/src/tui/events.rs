@@ -214,7 +214,7 @@ fn handle_edit_message(
             && app.session.tree.set_message_content(new_root, content)
         {
             app.session.tree.switch_to(new_root);
-            app.invalidate_chat_cache();
+            app.invalidate_chat_caches();
             app.nav_cursor = Some(new_root);
             app.focus = Focus::Chat;
             app.mark_session_dirty(SaveTrigger::Debounced, false);
@@ -287,7 +287,7 @@ fn handle_edit_message(
     );
 
     app.session.tree.switch_to(new_user);
-    app.invalidate_chat_cache();
+    app.invalidate_chat_caches();
     app.nav_cursor = Some(new_user);
     app.focus = Focus::Chat;
     app.mark_session_dirty(SaveTrigger::Debounced, false);

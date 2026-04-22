@@ -109,7 +109,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
                     app.active_persona_name = Some(pf.name);
                     app.active_persona_desc = Some(pf.persona);
                     app.session.persona = Some(slug.clone());
-                    app.invalidate_chat_cache();
+                    app.invalidate_chat_caches();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
                     app.config.default_persona = Some(slug.clone());

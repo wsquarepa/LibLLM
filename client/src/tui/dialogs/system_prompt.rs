@@ -98,7 +98,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
                 .map(|p| p.content);
 
             app.session.system_prompt = content;
-            app.invalidate_chat_cache();
+            app.invalidate_prompt_cache();
             app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
             app.set_status(
                 format!("System prompt set to '{name}'."),

@@ -703,7 +703,7 @@ pub(super) fn apply_config(app: &mut App) {
     app.theme = runtime.theme;
     app.config = runtime.config;
     app.invalidate_worldbook_cache();
-    app.invalidate_chat_cache();
+    app.invalidate_chat_render_cache();
 
     if runtime.connection != previous_connection {
         app.client = runtime.connection.build_client();

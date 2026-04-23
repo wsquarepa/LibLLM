@@ -488,7 +488,16 @@ pub(in crate::tui) async fn handle_stream_token(
                     }
                 };
 
-                if actual_tokens >= threshold_tokens {
+                if actual_tokens < threshold_tokens {
+                    tracing::debug!(
+                        result = "not_fired",
+                        context_size,
+                        trigger_percent,
+                        actual_tokens,
+                        threshold_tokens,
+                        "stream.summary.trigger"
+                    );
+                } else {
                     let keep_last = app.config.summarization.keep_last;
                     let droppable = libllm::context::droppable_count(&summary_aware);
                     let dropped = droppable.saturating_sub(keep_last).min(max_drop);
@@ -505,6 +514,7 @@ pub(in crate::tui) async fn handle_stream_token(
                             result = "scheduled",
                             dropped,
                             trigger_percent,
+                            context_size,
                             actual_tokens,
                             threshold_tokens,
                             summary_boundary,

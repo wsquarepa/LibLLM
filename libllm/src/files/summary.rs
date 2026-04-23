@@ -692,6 +692,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn check_file_fits_rejects_when_context_size_below_response_reserve() {
+        // saturating_sub guarantees `limit = 0` when context_size <
+        // MAX_SUMMARY_RESPONSE_TOKENS + SAFETY_PAD. Any file — including an
+        // empty one — must reject; future refactors that replace saturating_sub
+        // with `-` would panic on release/debug or silently underflow.
+        let (counter, _rx) = heuristic_token_counter();
+        let file = small_file("tiny");
+        let result = check_file_fits(&counter, &file, "Summarize.", 100).await;
+        match result {
+            Err(FileError::TooLargeForSummary { limit, .. }) => assert_eq!(limit, 0),
+            other => panic!("expected TooLargeForSummary with limit=0, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn ensure_ready_resolves_when_rows_are_already_done() {
         let conn = summarizer_conn();
         let (tx, _rx) = mpsc::unbounded_channel();

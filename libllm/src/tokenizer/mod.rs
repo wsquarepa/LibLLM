@@ -542,27 +542,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn count_many_authoritative_returns_per_input_result_in_order() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/tokenize"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "tokens": vec![0u32; 4]
-            })))
-            .mount(&server)
-            .await;
+    async fn count_many_authoritative_preserves_input_order() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
 
-        let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
-        let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        let counter = TokenCounter::new(client, tx).await;
-
+        // Heuristic: ceil(len * 10 / 33) + 2; distinct input lengths produce distinct counts,
+        // so order preservation in the output is actually verifiable.
+        let a = "a";
+        let bbbb = "bbbb";
+        let ccccccccc = "ccccccccc";
         let results = counter
-            .count_many_authoritative(&["a", "bb", "ccc"])
+            .count_many_authoritative(&[a, bbbb, ccccccccc])
             .await;
         assert_eq!(results.len(), 3);
-        for r in results {
-            assert_eq!(r.unwrap(), 4);
-        }
+        assert_eq!(
+            results[0].as_ref().unwrap(),
+            &HeuristicTokenizer::standard().count(a, 1)
+        );
+        assert_eq!(
+            results[1].as_ref().unwrap(),
+            &HeuristicTokenizer::standard().count(bbbb, 1)
+        );
+        assert_eq!(
+            results[2].as_ref().unwrap(),
+            &HeuristicTokenizer::standard().count(ccccccccc, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn count_many_authoritative_empty_slice_returns_empty() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
+        let results = counter.count_many_authoritative(&[]).await;
+        assert!(results.is_empty());
     }
 }

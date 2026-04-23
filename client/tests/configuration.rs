@@ -134,7 +134,7 @@ fn summarization_config_defaults() {
         config.summarization.context_size,
         libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE
     );
-    assert_eq!(config.summarization.trigger_threshold, 5);
+    assert_eq!(config.summarization.trigger_percent, 90);
     assert_eq!(config.summarization.keep_last, 4);
     assert!(config.summarization.api_url.is_none());
     assert!(!config.summarization.prompt.is_empty());
@@ -147,7 +147,7 @@ fn summarization_config_custom() {
 enabled = false
 api_url = "http://other:8080/v1"
 context_size = 16384
-trigger_threshold = 10
+trigger_percent = 10
 keep_last = 6
 prompt = "Custom prompt"
 "#;
@@ -158,9 +158,42 @@ prompt = "Custom prompt"
         Some("http://other:8080/v1")
     );
     assert_eq!(config.summarization.context_size, 16384);
-    assert_eq!(config.summarization.trigger_threshold, 10);
+    assert_eq!(config.summarization.trigger_percent, 10);
     assert_eq!(config.summarization.keep_last, 6);
     assert_eq!(config.summarization.prompt, "Custom prompt");
+}
+
+#[test]
+fn summarization_trigger_percent_clamps_on_out_of_range() {
+    let toml_str = r#"
+[summarization]
+trigger_percent = 250
+"#;
+    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.summarization.trigger_percent, 250);
+    assert_eq!(config.summarization.effective_trigger_percent(), 100);
+}
+
+#[test]
+fn summarization_trigger_percent_clamps_zero() {
+    let toml_str = r#"
+[summarization]
+trigger_percent = 0
+"#;
+    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.summarization.trigger_percent, 0);
+    assert_eq!(config.summarization.effective_trigger_percent(), 1);
+}
+
+#[test]
+fn summarization_trigger_threshold_old_field_is_ignored() {
+    // Upgrading users with the old field name get the new default silently.
+    let toml_str = r#"
+[summarization]
+trigger_threshold = 42
+"#;
+    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.summarization.trigger_percent, 90);
 }
 
 // ---------------------------------------------------------------------------

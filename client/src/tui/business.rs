@@ -286,7 +286,7 @@ pub fn load_tabbed_config_sections(
         cfg.summarization.enabled.to_string(),
         cfg.summarization.api_url.clone().unwrap_or_default(),
         cfg.summarization.context_size.to_string(),
-        cfg.summarization.trigger_threshold.to_string(),
+        cfg.summarization.trigger_percent.to_string(),
         cfg.summarization.keep_last.to_string(),
         cfg.summarization.prompt.clone(),
     ];
@@ -441,7 +441,7 @@ pub fn apply_tabbed_config_fields(
             512,
             libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE,
         ),
-        trigger_threshold: parse_usize_clamped(&summarization[3], 1, 100),
+        trigger_percent: parse_u8_clamped(&summarization[3], 1, 100),
         keep_last: parse_usize_clamped(&summarization[4], 1, 100),
         prompt: summarization[5].clone(),
     };
@@ -511,6 +511,10 @@ fn parse_usize_clamped(value: &str, min: usize, max: usize) -> usize {
         .ok()
         .map(|v| v.clamp(min, max))
         .unwrap_or(min)
+}
+
+fn parse_u8_clamped(s: &str, min: u8, max: u8) -> u8 {
+    s.parse::<u8>().unwrap_or(min).clamp(min, max)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -994,7 +998,7 @@ mod tests {
                 enabled: true,
                 api_url: None,
                 context_size: 4096,
-                trigger_threshold: 10,
+                trigger_percent: 10,
                 keep_last: 4,
                 prompt: "summarize".to_owned(),
             },

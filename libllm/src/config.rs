@@ -326,7 +326,7 @@ const DEFAULT_SUMMARIZATION_PROMPT: &str = "Summarize the following conversation
 pub const MAX_SUMMARIZATION_CONTEXT_SIZE: usize = 131_072;
 const DEFAULT_CONTEXT_SIZE: usize = MAX_SUMMARIZATION_CONTEXT_SIZE;
 
-const DEFAULT_TRIGGER_THRESHOLD: usize = 5;
+const DEFAULT_TRIGGER_PERCENT: u8 = 90;
 const DEFAULT_KEEP_LAST: usize = 4;
 
 const DEFAULT_BACKUP_ENABLED: bool = true;
@@ -344,8 +344,8 @@ fn default_context_size() -> usize {
     DEFAULT_CONTEXT_SIZE
 }
 
-fn default_trigger_threshold() -> usize {
-    DEFAULT_TRIGGER_THRESHOLD
+fn default_trigger_percent() -> u8 {
+    DEFAULT_TRIGGER_PERCENT
 }
 
 fn default_keep_last() -> usize {
@@ -365,8 +365,8 @@ pub struct SummarizationConfig {
     pub api_url: Option<String>,
     #[serde(default = "default_context_size")]
     pub context_size: usize,
-    #[serde(default = "default_trigger_threshold")]
-    pub trigger_threshold: usize,
+    #[serde(default = "default_trigger_percent")]
+    pub trigger_percent: u8,
     /// Number of most-recent non-Summary messages preserved verbatim after a summary
     /// fires. Once the trigger fires, the summary collapses every older non-Summary
     /// message so subsequent turns do not re-summarize after just a message or two.
@@ -382,10 +382,25 @@ impl Default for SummarizationConfig {
             enabled: true,
             api_url: None,
             context_size: DEFAULT_CONTEXT_SIZE,
-            trigger_threshold: DEFAULT_TRIGGER_THRESHOLD,
+            trigger_percent: DEFAULT_TRIGGER_PERCENT,
             keep_last: DEFAULT_KEEP_LAST,
             prompt: DEFAULT_SUMMARIZATION_PROMPT.to_owned(),
         }
+    }
+}
+
+impl SummarizationConfig {
+    /// Clamp `trigger_percent` into `[1, 100]` at read time. Emits a one-shot warn when
+    /// the stored value is out of range. Called at each use site instead of at load to
+    /// avoid the loader's current "return defaults on parse error" contract.
+    pub fn effective_trigger_percent(&self) -> u8 {
+        if !(1..=100).contains(&self.trigger_percent) {
+            tracing::warn!(
+                value = self.trigger_percent,
+                "summarization.trigger_percent out of range [1, 100]; clamping",
+            );
+        }
+        self.trigger_percent.clamp(1, 100)
     }
 }
 

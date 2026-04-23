@@ -482,9 +482,9 @@ pub(in crate::tui) async fn handle_stream_token(
                             0
                         }
                     };
-                let trigger_threshold = app.config.summarization.trigger_threshold;
+                let trigger_percent = app.config.summarization.effective_trigger_percent();
 
-                if dropped >= trigger_threshold {
+                if dropped >= trigger_percent as usize {
                     let keep_last = app.config.summarization.keep_last;
                     let droppable = libllm::context::droppable_count(&summary_aware);
                     let aggressive = droppable.saturating_sub(keep_last);
@@ -501,7 +501,7 @@ pub(in crate::tui) async fn handle_stream_token(
                         tracing::info!(
                             result = "scheduled",
                             dropped,
-                            trigger_threshold,
+                            trigger_percent,
                             summary_boundary,
                             messages_to_summarize = messages_to_summarize.len(),
                             "stream.summary.schedule"

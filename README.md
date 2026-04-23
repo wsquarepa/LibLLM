@@ -136,11 +136,13 @@ You may find the following documentation useful:
 
 ### Auto-summarization
 
-Long conversations are summarized in the background so older turns can be compressed into a single `Summary` node instead of being dropped outright. The summarizer kicks in once enough new messages have accumulated past the context budget (`trigger_threshold`), runs a non-streaming completion against the main API (or a separate `api_url` under `[summarization]`), and inserts the result into the tree. Summary nodes render as a compact dimmed line. Disable for a single run with `--no-summarize`, or set `enabled = false` under `[summarization]` in `config.toml`.
+Long conversations are summarized in the background so older turns can be compressed into a single `Summary` node instead of being dropped outright. The summarizer kicks in when the authoritative token count of the rendered prompt reaches `trigger_percent` of the configured `context_size` (default 90%), runs a non-streaming completion against the main API (or a separate `api_url` under `[summarization]`), and inserts the result into the tree. Summary nodes render as a compact dimmed line. Disable for a single run with `--no-summarize`, or set `enabled = false` under `[summarization]` in `config.toml`.
+
+Files attached via `@<path>` are token-counted against `context_size` before the turn is sent. A file whose assembled summarizer prompt (body + instruction + response reserve + safety pad) would not fit in `context_size` is rejected up front with `"file '…' is too large to summarize (X tokens, max Y)"`, so the chat never enters a state where the pending attachment breaks the next summarization call.
 
 ### Token counting
 
-LibLLM probes the configured API at startup to pick a tokenizer backend: llama.cpp's `/tokenize`, KoboldCPP's `/api/extra/tokencount`, or a 4-chars-per-token heuristic when neither is available. The chat pane shows the authoritative token total with a percent-of-context indicator colored by the `token_band_ok` / `token_band_warn` / `token_band_over` theme keys. While you are typing, the input box shows an `Est.` prefix; the count becomes authoritative once the server tokenizer confirms it.
+LibLLM probes the configured API at startup to pick a tokenizer backend: llama.cpp's `/tokenize`, KoboldCPP's `/api/extra/tokencount`, or a 3.3-chars-per-token heuristic (plus 2-token per-message overhead) when neither is available. The chat pane shows the authoritative token total with a percent-of-context indicator colored by the `token_band_ok` / `token_band_warn` / `token_band_over` theme keys; color bands scale with `summarization.trigger_percent` (green below 55% of the threshold, yellow up to 90% of it, red at or above). While you are typing, the input box shows an `Est.` prefix; the count becomes authoritative once the server tokenizer confirms it.
 
 ### Encryption
 
@@ -429,7 +431,7 @@ type = "none"  # none | basic | bearer | header | query
 [summarization]
 enabled = true
 context_size = 131072          # max tokens before truncation
-trigger_threshold = 5          # pending messages that trigger a summary
+trigger_percent = 90           # fire summary when prompt tokens reach this % of context_size
 keep_last = 4                  # non-summary messages kept verbatim after a summary fires
 # api_url = "http://..."       # optional separate endpoint for the summarizer
 # prompt = "Summarize..."      # override the default summarization prompt

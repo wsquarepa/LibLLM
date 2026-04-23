@@ -681,11 +681,7 @@ pub fn render_chat(
     }
 
     if app.is_streaming && !app.streaming_buffer.is_empty() {
-        if app.is_continuation {
-            if lines.last().is_some_and(|l| l.spans.is_empty()) {
-                lines.pop();
-            }
-        } else {
+        if !app.is_continuation {
             lines.push(Line::from(vec![Span::styled(
                 format!("{assistant_label}: "),
                 Style::default()
@@ -700,14 +696,32 @@ pub fn render_chat(
             app.stream_started_at,
             app.stream_first_think_closed_at,
         );
-        lines.extend(render_assistant_lines(
+        let stream_lines = render_assistant_lines(
             &buffer,
             thought_seconds,
             &app.theme,
             implicit_open_from_start,
             app.stream_first_think_closed_at.is_some(),
             true,
-        ));
+        );
+        if app.is_continuation {
+            if lines.last().is_some_and(|l| l.spans.is_empty()) {
+                lines.pop();
+            }
+            let mut stream_iter = stream_lines.into_iter();
+            if let (Some(last), Some(first_stream)) = (lines.last_mut(), stream_iter.next()) {
+                let mut spans = first_stream.spans.into_iter();
+                if let Some(first_span) = spans.next()
+                    && first_span.content.as_ref() != "  "
+                {
+                    last.spans.push(first_span);
+                }
+                last.spans.extend(spans);
+            }
+            lines.extend(stream_iter);
+        } else {
+            lines.extend(stream_lines);
+        }
     }
 
     let visible_height = area.height.saturating_sub(2);

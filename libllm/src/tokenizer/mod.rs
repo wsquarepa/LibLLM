@@ -112,6 +112,13 @@ impl TokenizerBackend {
         }
     }
 
+    /// Counts tokens in `text` using the active backend.
+    ///
+    /// The heuristic branch passes `message_count = 1` because every caller of
+    /// `TokenCounter::count_authoritative` hands us a single already-assembled
+    /// prompt string, which we account for as one logical message for overhead
+    /// purposes. Multi-message heuristic estimates happen through `count_cached`
+    /// and `heuristic_count`, which take `message_count` directly.
     pub async fn count(&self, text: &str) -> Result<usize> {
         match self {
             Self::Server(s) => s.count(text).await,

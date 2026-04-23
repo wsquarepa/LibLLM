@@ -229,6 +229,7 @@ pub struct TokenDisplayParams {
     pub token_state: libllm::tokenizer::CountState,
     pub is_heuristic: bool,
     pub budget: usize,
+    pub trigger_percent: u8,
 }
 
 pub fn border_style(focused: bool, theme: &Theme) -> Style {
@@ -421,6 +422,7 @@ pub fn render_chat(
         token_state,
         is_heuristic,
         budget,
+        trigger_percent,
     } = token_display;
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
@@ -831,7 +833,7 @@ pub fn render_chat(
         let prefix = if show_est_prefix { "Est. " } else { "" };
         let effective_budget = budget.max(1);
         let pct = (count as f64 / effective_budget as f64) * 100.0;
-        let token_color = token_band_color(&app.theme, pct);
+        let token_color = token_band_color(&app.theme, pct, trigger_percent);
         let token_label = format!(" {prefix}{count} tokens ({pct:.0}%) ");
 
         chat_block = chat_block
@@ -881,13 +883,20 @@ pub fn render_chat(
     max_scroll
 }
 
-const TOKEN_BAND_WARN_PCT: f64 = 90.0;
-const TOKEN_BAND_OVER_PCT: f64 = 110.0;
+const TOKEN_BAND_WARN_FRAC: f64 = 0.55;
+const TOKEN_BAND_OVER_FRAC: f64 = 0.90;
 
-fn token_band_color(theme: &crate::tui::theme::Theme, pct: f64) -> ratatui::style::Color {
-    if pct < TOKEN_BAND_WARN_PCT {
+fn token_band_color(
+    theme: &crate::tui::theme::Theme,
+    pct_of_context: f64,
+    trigger_percent: u8,
+) -> ratatui::style::Color {
+    let trigger = trigger_percent as f64;
+    let warn_at = trigger * TOKEN_BAND_WARN_FRAC;
+    let over_at = trigger * TOKEN_BAND_OVER_FRAC;
+    if pct_of_context < warn_at {
         theme.token_band_ok
-    } else if pct < TOKEN_BAND_OVER_PCT {
+    } else if pct_of_context < over_at {
         theme.token_band_warn
     } else {
         theme.token_band_over
@@ -1092,24 +1101,37 @@ mod tests {
     }
 
     #[test]
-    fn token_band_color_picks_ok_below_warn() {
+    fn token_band_color_picks_ok_below_warn_frac_of_threshold() {
         let theme = crate::tui::theme::Theme::dark();
-        assert_eq!(token_band_color(&theme, 0.0), theme.token_band_ok);
-        assert_eq!(token_band_color(&theme, 89.9), theme.token_band_ok);
+        // threshold 90; warn at 49.5, over at 81.
+        assert_eq!(token_band_color(&theme, 0.0, 90), theme.token_band_ok);
+        assert_eq!(token_band_color(&theme, 49.4, 90), theme.token_band_ok);
     }
 
     #[test]
-    fn token_band_color_picks_warn_between_90_and_110() {
+    fn token_band_color_picks_warn_between_55_and_90_frac_of_threshold() {
         let theme = crate::tui::theme::Theme::dark();
-        assert_eq!(token_band_color(&theme, 90.0), theme.token_band_warn);
-        assert_eq!(token_band_color(&theme, 109.9), theme.token_band_warn);
+        // threshold 90; warn at 90*0.55=49.5, over at 90*0.90=81.
+        assert_eq!(token_band_color(&theme, 50.0, 90), theme.token_band_warn);
+        assert_eq!(token_band_color(&theme, 80.0, 90), theme.token_band_warn);
     }
 
     #[test]
-    fn token_band_color_picks_over_at_110_and_above() {
+    fn token_band_color_picks_over_at_or_above_90_frac_of_threshold() {
         let theme = crate::tui::theme::Theme::dark();
-        assert_eq!(token_band_color(&theme, 110.0), theme.token_band_over);
-        assert_eq!(token_band_color(&theme, 200.0), theme.token_band_over);
+        assert_eq!(token_band_color(&theme, 82.0, 90), theme.token_band_over);
+        assert_eq!(token_band_color(&theme, 200.0, 90), theme.token_band_over);
+    }
+
+    #[test]
+    fn token_band_color_scales_with_custom_threshold() {
+        let theme = crate::tui::theme::Theme::dark();
+        // threshold 50; warn at 50*0.55=27.5, over at 50*0.90=45.
+        assert_eq!(token_band_color(&theme, 0.0, 50), theme.token_band_ok);
+        assert_eq!(token_band_color(&theme, 27.0, 50), theme.token_band_ok);
+        assert_eq!(token_band_color(&theme, 28.0, 50), theme.token_band_warn);
+        assert_eq!(token_band_color(&theme, 44.0, 50), theme.token_band_warn);
+        assert_eq!(token_band_color(&theme, 46.0, 50), theme.token_band_over);
     }
 
     #[test]

@@ -585,6 +585,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                     token_state: state,
                     is_heuristic: app.token_counter.is_heuristic(),
                     budget: app.context_mgr.token_limit(),
+                    trigger_percent: app.config.summarization.effective_trigger_percent(),
                 },
                 render::ChatRenderState {
                     chat_scroll: &mut chat_scroll,

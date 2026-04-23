@@ -640,7 +640,13 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 app.nav_cursor = None;
                 app.auto_scroll = true;
                 app.textarea.cancel_selection();
-                move_textarea_cursor_to_mouse(&mut app.textarea, input, mouse.column, mouse.row);
+                let input_content = inner_content_rect(input);
+                move_textarea_cursor_to_mouse(
+                    &mut app.textarea,
+                    input_content,
+                    mouse.column,
+                    mouse.row,
+                );
             }
             None
         }
@@ -649,7 +655,13 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 if app.textarea.selection_range().is_none() {
                     app.textarea.start_selection();
                 }
-                move_textarea_cursor_to_mouse(&mut app.textarea, input, mouse.column, mouse.row);
+                let input_content = inner_content_rect(input);
+                move_textarea_cursor_to_mouse(
+                    &mut app.textarea,
+                    input_content,
+                    mouse.column,
+                    mouse.row,
+                );
             } else if app.focus == Focus::EditDialog
                 && let Some(ref mut editor) = app.edit_editor
                 && let Ok((tw, th)) = crossterm::terminal::size()
@@ -668,6 +680,8 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                     editor.start_selection();
                 }
                 move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+            } else {
+                dispatch_dialog_editor_drag(app, mouse.column, mouse.row);
             }
             None
         }
@@ -774,15 +788,147 @@ fn scroll_dialog(app: &mut App, direction: ScrollDirection) {
     }
 }
 
+fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) {
+    let Ok((tw, th)) = crossterm::terminal::size() else {
+        return;
+    };
+    let terminal_area = Rect::new(0, 0, tw, th);
+    match app.focus {
+        Focus::PresetEditorDialog => {
+            if let Some(ref mut d) = app.preset_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::PersonaEditorDialog => {
+            if let Some(ref mut d) = app.persona_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::CharacterEditorDialog => {
+            if let Some(ref mut d) = app.character_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::SystemPromptEditorDialog => {
+            if let Some(ref mut d) = app.system_prompt_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::WorldbookEntryEditorDialog => {
+            if let Some(ref mut d) = app.worldbook_entry_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::ConfigDialog => {
+            if let Some(ref mut d) = app.config_dialog {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::ThemeDialog => {
+            if let Some(ref mut d) = app.theme_dialog {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Strip a single-cell border off `outer`, returning the inner content rect.
+fn inner_content_rect(outer: Rect) -> Rect {
+    Rect {
+        x: outer.x.saturating_add(1),
+        y: outer.y.saturating_add(1),
+        width: outer.width.saturating_sub(2),
+        height: outer.height.saturating_sub(2),
+    }
+}
+
+/// Map a mouse click/drag at `(screen_col, screen_row)` inside the textarea's
+/// inner content rect `content_area` to the corresponding logical cursor
+/// position and move the caret there.
+///
+/// The textarea soft-wraps long lines at render time; a given visual row may
+/// belong to a logical line that contains several wrapped segments. Using
+/// `CursorMove::Jump` with the raw screen-relative row/col treats them as a
+/// logical (row, col), which causes selection to overshoot wherever text
+/// wraps -- the caret jumps to the end of the underlying logical line instead
+/// of staying on the visible row. We translate the visual coordinates back to
+/// a logical position by simulating the wrap layout ourselves.
 pub(super) fn move_textarea_cursor_to_mouse(
     textarea: &mut TextArea,
-    widget_area: Rect,
+    content_area: Rect,
     screen_col: u16,
     screen_row: u16,
 ) {
-    let inner_row = screen_row.saturating_sub(widget_area.y + 1);
-    let inner_col = screen_col.saturating_sub(widget_area.x + 1);
-    textarea.move_cursor(CursorMove::Jump(inner_row, inner_col));
+    let visual_row = screen_row.saturating_sub(content_area.y) as usize;
+    let visual_col = screen_col.saturating_sub(content_area.x) as usize;
+    let width = content_area.width as usize;
+    let (row, col) = visual_to_logical(textarea.lines(), width, visual_row, visual_col);
+    textarea.move_cursor(CursorMove::Jump(row, col));
+}
+
+fn visual_to_logical(
+    lines: &[String],
+    width: usize,
+    visual_row: usize,
+    visual_col: usize,
+) -> (u16, u16) {
+    let mut remaining = visual_row;
+    for (lidx, line) in lines.iter().enumerate() {
+        let segments = wrap_line_segments(line, width);
+        if remaining < segments.len() {
+            let (seg_start, seg_end) = segments[remaining];
+            let col = (seg_start + visual_col).min(seg_end);
+            return (lidx as u16, col as u16);
+        }
+        remaining -= segments.len();
+    }
+    let lidx = lines.len().saturating_sub(1);
+    let end = lines.get(lidx).map(|s| s.chars().count()).unwrap_or(0);
+    (lidx as u16, end as u16)
+}
+
+/// Approximate tui-textarea's `WrapMode::WordOrGlyph` wrapping. Returns a
+/// list of `(start_char, end_char)` ranges (char indices, end-exclusive)
+/// describing the visual segments of `line`. Uses greedy word wrap falling
+/// back to glyph (char-count) breaks for words wider than `width`.
+///
+/// This is an approximation: tui-textarea's real wrap uses Unicode display
+/// width, while we count chars. For ASCII/typical prose the answers agree;
+/// for CJK or emoji the cursor may drift by a few cells on wrapped lines.
+fn wrap_line_segments(line: &str, width: usize) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return vec![(0, 0)];
+    }
+    let width = width.max(1);
+    let mut segments: Vec<(usize, usize)> = Vec::new();
+    let mut start = 0usize;
+    let mut last_break: Option<usize> = None;
+    let mut i = 0usize;
+    while i < chars.len() {
+        if i - start == width {
+            let break_at = last_break.filter(|&lb| lb > start).unwrap_or(i);
+            segments.push((start, break_at));
+            let consume_break = chars.get(break_at).is_some_and(|c| c.is_whitespace());
+            start = if consume_break {
+                break_at + 1
+            } else {
+                break_at
+            };
+            last_break = None;
+            i = start;
+            continue;
+        }
+        if chars[i].is_whitespace() {
+            last_break = Some(i);
+        }
+        i += 1;
+    }
+    if start < chars.len() || segments.is_empty() {
+        segments.push((start, chars.len()));
+    }
+    segments
 }
 
 pub(super) fn is_dialog_focus(focus: Focus) -> bool {
@@ -902,5 +1048,74 @@ mod paste_tests {
         assert!(out.starts_with('@'));
         assert!(!out.starts_with(r#"@""#));
         assert!(!out.ends_with('"'));
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::{visual_to_logical, wrap_line_segments};
+
+    fn lines(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn empty_line_produces_single_empty_segment() {
+        assert_eq!(wrap_line_segments("", 10), vec![(0, 0)]);
+    }
+
+    #[test]
+    fn short_line_fits_in_one_segment() {
+        assert_eq!(wrap_line_segments("hello", 10), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn exact_width_line_fits_in_one_segment() {
+        assert_eq!(wrap_line_segments("helloworld", 10), vec![(0, 10)]);
+    }
+
+    #[test]
+    fn word_wrap_breaks_at_space() {
+        assert_eq!(wrap_line_segments("hello world", 8), vec![(0, 5), (6, 11)]);
+    }
+
+    #[test]
+    fn long_word_falls_back_to_glyph_break() {
+        assert_eq!(wrap_line_segments("abcdefghij", 4), vec![(0, 4), (4, 8), (8, 10)]);
+    }
+
+    #[test]
+    fn drag_past_right_edge_clamps_to_visible_segment() {
+        let text = lines(&["hello world", "short"]);
+        let (row, col) = visual_to_logical(&text, 8, 0, 100);
+        assert_eq!(row, 0);
+        assert_eq!(col, 5);
+    }
+
+    #[test]
+    fn drag_onto_wrapped_continuation_stays_on_first_logical_line() {
+        let text = lines(&["aaaaa bbbbb ccccc", "next"]);
+        let (row, col) = visual_to_logical(&text, 6, 1, 5);
+        assert_eq!(row, 0);
+        assert_eq!(col, 11);
+    }
+
+    #[test]
+    fn drag_below_last_line_lands_at_eof() {
+        let text = lines(&["one", "two"]);
+        let (row, col) = visual_to_logical(&text, 20, 10, 0);
+        assert_eq!(row, 1);
+        assert_eq!(col, 3);
+    }
+
+    #[test]
+    fn drag_onto_second_logical_line_after_wrap() {
+        let text = lines(&["aaaa bbbb cccc", "ZZZ"]);
+        let (row, col) = visual_to_logical(&text, 5, 2, 0);
+        assert_eq!(row, 0);
+        assert_eq!(col, 10);
+        let (row, col) = visual_to_logical(&text, 5, 3, 1);
+        assert_eq!(row, 1);
+        assert_eq!(col, 1);
     }
 }

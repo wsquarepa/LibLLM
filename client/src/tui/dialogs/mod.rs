@@ -103,6 +103,18 @@ pub(in crate::tui) fn byte_pos_at_char(s: &str, char_idx: usize) -> usize {
         .unwrap_or(s.len())
 }
 
+/// Content rect of the multiline editor region inside a dialog rendered by
+/// `render_multiline_editor`. Must stay in sync with the `editor_area`
+/// computation in that function.
+pub(in crate::tui) fn multiline_editor_content_rect(dialog: ratatui::layout::Rect) -> Rect {
+    Rect {
+        x: dialog.x.saturating_add(2),
+        y: dialog.y.saturating_add(3),
+        width: dialog.width.saturating_sub(4),
+        height: dialog.height.saturating_sub(5),
+    }
+}
+
 pub(in crate::tui) fn render_multiline_editor(
     f: &mut ratatui::Frame,
     dialog: ratatui::layout::Rect,
@@ -129,12 +141,7 @@ pub(in crate::tui) fn render_multiline_editor(
     ]));
     let header_area = ratatui::layout::Rect { height: 2, ..inner };
     f.render_widget(header, header_area);
-    let editor_area = ratatui::layout::Rect {
-        x: inner.x + 1,
-        y: inner.y + 2,
-        width: inner.width.saturating_sub(2),
-        height: inner.height.saturating_sub(3),
-    };
+    let editor_area = multiline_editor_content_rect(dialog);
     f.render_widget(editor, editor_area);
     f.render_widget(
         crate::tui::render::dialog_block(title, ratatui::style::Color::Yellow),
@@ -298,7 +305,7 @@ impl<'a> FieldDialog<'a> {
         } else {
             lines
         });
-        super::dialog_handler::configure_textarea_at_end(&mut editor);
+        super::dialog_handler::configure_textarea_at_start(&mut editor);
         self.editor = Some(editor);
     }
 
@@ -462,7 +469,7 @@ impl<'a> FieldDialog<'a> {
                         crate::tui::clipboard::handle_clipboard_key(&key, editor);
                     self.clipboard_warning = warning;
                     if !consumed {
-                        editor.input(key);
+                        super::dialog_handler::input_with_eof_jump(editor, key);
                     }
                 }
             }
@@ -510,10 +517,10 @@ impl<'a> FieldDialog<'a> {
                         self.cursor_pos += 1;
                     }
                 }
-                KeyCode::Home => {
+                KeyCode::Home | KeyCode::Up => {
                     self.cursor_pos = 0;
                 }
-                KeyCode::End => {
+                KeyCode::End | KeyCode::Down => {
                     self.cursor_pos = self.values[self.selected].chars().count();
                 }
                 _ => {}
@@ -578,22 +585,49 @@ impl<'a> FieldDialog<'a> {
             return false;
         }
 
-        if self.editor.is_some() {
-            if let Some(ref mut editor) = self.editor {
-                editor.input(crossterm::event::Event::Mouse(
-                    crossterm::event::MouseEvent {
-                        kind: crossterm::event::MouseEventKind::Down(
-                            crossterm::event::MouseButton::Left,
-                        ),
-                        column: screen_col,
-                        row: screen_row,
-                        modifiers: crossterm::event::KeyModifiers::NONE,
-                    },
-                ));
-            }
+        if let Some(ref mut editor) = self.editor {
+            let editor_area = multiline_editor_content_rect(dialog);
+            editor.cancel_selection();
+            crate::tui::events::move_textarea_cursor_to_mouse(
+                editor,
+                editor_area,
+                screen_col,
+                screen_row,
+            );
             return true;
         }
 
+        self.handle_non_editor_click(dialog, screen_row)
+    }
+
+    /// Extend or start a text selection in the active multiline editor.
+    /// Returns true if a drag was consumed.
+    pub fn handle_mouse_drag(
+        &mut self,
+        terminal_area: Rect,
+        screen_col: u16,
+        screen_row: u16,
+    ) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let (w, h) = self.dialog_dimensions(terminal_area);
+        let dialog = super::render::centered_rect(w, h, terminal_area);
+        let editor_area = multiline_editor_content_rect(dialog);
+        let editor = self.editor.as_mut().unwrap();
+        if editor.selection_range().is_none() {
+            editor.start_selection();
+        }
+        crate::tui::events::move_textarea_cursor_to_mouse(
+            editor,
+            editor_area,
+            screen_col,
+            screen_row,
+        );
+        true
+    }
+
+    fn handle_non_editor_click(&mut self, dialog: Rect, screen_row: u16) -> bool {
         if self.editing {
             return true;
         }

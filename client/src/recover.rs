@@ -146,10 +146,11 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         .as_ref()
         .map(backup::crypto::compute_kek_fingerprint);
 
-    let rows: Vec<String> = index
-        .entries
+    let display_order: Vec<usize> = (0..index.entries.len()).rev().collect();
+    let rows: Vec<String> = display_order
         .iter()
-        .map(|entry| {
+        .map(|&i| {
+            let entry = &index.entries[i];
             let time_col = format_relative(now, entry.created_at);
             let type_col = match entry.entry_type {
                 backup::index::BackupType::Base => "Base",
@@ -188,7 +189,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         return Ok(());
     };
 
-    let entry = &index.entries[chosen];
+    let entry = &index.entries[display_order[chosen]];
     let root = chain_root_for(&index, entry);
     let status_detail = match &root.kek_fingerprint {
         Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
@@ -305,7 +306,7 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     );
     println!("{}", "-".repeat(100));
 
-    for entry in &index.entries {
+    for entry in index.entries.iter().rev() {
         let root = chain_root_for(&index, entry);
         let status = match &root.kek_fingerprint {
             Some(backup::index::FingerprintField::Known(fp))

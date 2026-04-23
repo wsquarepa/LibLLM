@@ -125,7 +125,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 app.set_status(msg, super::StatusLevel::Warning);
             }
             if !consumed {
-                app.textarea.input(key);
+                super::dialog_handler::input_with_eof_jump(&mut app.textarea, key);
             }
             app.command_picker_selected = 0;
             None
@@ -135,7 +135,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 KeyCode::Char(c) => Some(c),
                 _ => None,
             };
-            app.textarea.input(key);
+            super::dialog_handler::input_with_eof_jump(&mut app.textarea, key);
             app.command_picker_selected = 0;
             if let Some(ch) = typed_char
                 && should_open_file_picker(&app.textarea, ch)

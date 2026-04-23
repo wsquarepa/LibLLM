@@ -1,6 +1,6 @@
 //! Dialog-level key event routing and generation cancellation logic.
 
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::style::Style;
 use tui_textarea::TextArea;
 
@@ -78,7 +78,7 @@ pub(super) fn open_edit_dialog_with(app: &mut App, content: &str) {
     } else {
         lines
     });
-    configure_textarea_at_end(&mut editor);
+    configure_textarea_at_start(&mut editor);
     app.edit_editor = Some(editor);
     app.edit_original_content = content.lines().collect::<Vec<_>>().join("\n");
     app.focus = Focus::EditDialog;
@@ -93,6 +93,29 @@ pub(super) fn configure_textarea_at_end(ta: &mut TextArea<'_>) {
     configure_textarea(ta);
     ta.move_cursor(tui_textarea::CursorMove::Bottom);
     ta.move_cursor(tui_textarea::CursorMove::End);
+}
+
+pub(super) fn configure_textarea_at_start(ta: &mut TextArea<'_>) {
+    configure_textarea(ta);
+    ta.move_cursor(tui_textarea::CursorMove::Top);
+    ta.move_cursor(tui_textarea::CursorMove::Head);
+}
+
+/// Dispatch `key` to `ta.input()`. When Up/Down would have had no effect --
+/// because the caret is already on the first/last visual row -- jump to
+/// start/end of line instead, so single-line content behaves like a
+/// single-line field and multi-line content lands cleanly at either edge.
+pub(super) fn input_with_eof_jump(ta: &mut TextArea<'_>, key: KeyEvent) {
+    let before = ta.cursor();
+    ta.input(key);
+    if ta.cursor() != before {
+        return;
+    }
+    match key.code {
+        KeyCode::Down => ta.move_cursor(tui_textarea::CursorMove::End),
+        KeyCode::Up => ta.move_cursor(tui_textarea::CursorMove::Head),
+        _ => {}
+    }
 }
 
 pub(super) enum DialogKind {

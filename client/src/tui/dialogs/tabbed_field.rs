@@ -241,7 +241,7 @@ impl<'a> TabbedFieldDialog<'a> {
         } else {
             lines
         });
-        crate::tui::dialog_handler::configure_textarea_at_end(&mut editor);
+        crate::tui::dialog_handler::configure_textarea_at_start(&mut editor);
         self.editor = Some(editor);
     }
 
@@ -301,7 +301,7 @@ impl<'a> TabbedFieldDialog<'a> {
                         crate::tui::clipboard::handle_clipboard_key(&key, editor);
                     self.clipboard_warning = warning;
                     if !consumed {
-                        editor.input(key);
+                        crate::tui::dialog_handler::input_with_eof_jump(editor, key);
                     }
                 }
             }
@@ -368,8 +368,8 @@ impl<'a> TabbedFieldDialog<'a> {
                         self.cursor_pos += 1;
                     }
                 }
-                KeyCode::Home => self.cursor_pos = 0,
-                KeyCode::End => {
+                KeyCode::Home | KeyCode::Up => self.cursor_pos = 0,
+                KeyCode::End | KeyCode::Down => {
                     self.cursor_pos = self.sections[tab].values[idx].chars().count();
                 }
                 _ => {}
@@ -649,29 +649,58 @@ impl<'a> TabbedFieldDialog<'a> {
         }
 
         if let Some(ref mut editor) = self.editor {
-            editor.input(crossterm::event::Event::Mouse(
-                crossterm::event::MouseEvent {
-                    kind: crossterm::event::MouseEventKind::Down(
-                        crossterm::event::MouseButton::Left,
-                    ),
-                    column: screen_col,
-                    row: screen_row,
-                    modifiers: crossterm::event::KeyModifiers::NONE,
-                },
-            ));
+            let editor_area = super::multiline_editor_content_rect(dialog);
+            editor.cancel_selection();
+            crate::tui::events::move_textarea_cursor_to_mouse(
+                editor,
+                editor_area,
+                screen_col,
+                screen_row,
+            );
             return true;
         }
 
         if self.editing {
             return true;
         }
+        self.hit_test_field_rows(dialog, screen_col, screen_row);
+        true
+    }
 
+    /// Extend or start a text selection in the active multiline editor.
+    /// Returns true if a drag was consumed.
+    pub fn handle_mouse_drag(
+        &mut self,
+        terminal_area: Rect,
+        screen_col: u16,
+        screen_row: u16,
+    ) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let (w, h) = self.dialog_dimensions(terminal_area);
+        let dialog = centered_rect(w, h, terminal_area);
+        let editor_area = super::multiline_editor_content_rect(dialog);
+        let editor = self.editor.as_mut().unwrap();
+        if editor.selection_range().is_none() {
+            editor.start_selection();
+        }
+        crate::tui::events::move_textarea_cursor_to_mouse(
+            editor,
+            editor_area,
+            screen_col,
+            screen_row,
+        );
+        true
+    }
+
+    fn hit_test_field_rows(&mut self, dialog: Rect, screen_col: u16, screen_row: u16) {
         let tab_bar_y = dialog.y + 2;
         if screen_row == tab_bar_y {
             if let Some(target) = self.hit_test_tab_bar(dialog.x + 2, screen_col) {
                 self.current_tab = target;
             }
-            return true;
+            return;
         }
 
         let fields_start_y = dialog.y + 4;
@@ -686,12 +715,11 @@ impl<'a> TabbedFieldDialog<'a> {
                 }
                 if visible_idx == inner_row {
                     section.selected = i;
-                    return true;
+                    return;
                 }
                 visible_idx += 1;
             }
         }
-        true
     }
 
     fn hit_test_tab_bar(&self, start_col: u16, click_col: u16) -> Option<usize> {

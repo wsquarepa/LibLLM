@@ -70,7 +70,7 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
 
     let (consumed, warning) = crate::tui::clipboard::handle_clipboard_key(&key, editor);
     if !consumed {
-        editor.input(key);
+        crate::tui::dialog_handler::input_with_eof_jump(editor, key);
     }
     if let Some(msg) = warning {
         app.set_status(msg, crate::tui::StatusLevel::Warning);

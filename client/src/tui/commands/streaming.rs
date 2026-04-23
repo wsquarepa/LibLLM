@@ -295,12 +295,38 @@ pub(in crate::tui) async fn start_streaming(
     }
     debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let sys_messages = match libllm::files::resolve_all(content, &cwd, &app.config.files) {
+    let resolved = match libllm::files::resolve_all_resolved(content, &cwd, &app.config.files) {
         Ok(v) => v,
         Err(libllm::files::FileError::Collision { path, kind }) => {
             crate::tui::dialogs::injection_warning::open(app, &path, kind);
             return;
         }
+        Err(err) => {
+            app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+            return;
+        }
+    };
+
+    if app.config.summarization.enabled && app.file_summarizer.is_some() {
+        let context_size = app.context_mgr.token_limit();
+        for file in &resolved {
+            if let Err(err) = libllm::files::check_file_fits(
+                &app.token_counter,
+                file,
+                &app.config.summarization.prompt,
+                context_size,
+            )
+            .await
+            {
+                app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
+                return;
+            }
+        }
+    }
+
+    let sys_messages = match libllm::files::assemble_snapshot_messages(resolved, &app.config.files)
+    {
+        Ok(v) => v,
         Err(err) => {
             app.set_status(err.to_string(), crate::tui::types::StatusLevel::Error);
             return;

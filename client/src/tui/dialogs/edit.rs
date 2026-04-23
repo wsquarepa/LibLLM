@@ -9,7 +9,7 @@ use ratatui::widgets::Paragraph;
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
 
-pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let width = (area.width as f32 * super::DIALOG_WIDTH_RATIO) as u16;
     let height = (area.height as f32 * super::DIALOG_HEIGHT_RATIO) as u16;
     let dialog = clear_centered(f, width, height, area);
@@ -23,6 +23,8 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &App, area
             width: dialog.width.saturating_sub(4),
             height: dialog.height.saturating_sub(2),
         };
+        app.edit_scroll_top =
+            crate::tui::events::update_scroll_top(app.edit_scroll_top, editor, editor_area);
         f.render_widget(editor, editor_area);
     }
 

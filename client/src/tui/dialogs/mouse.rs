@@ -392,6 +392,7 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 crate::tui::events::move_textarea_cursor_to_mouse(
                     editor,
                     editor_area,
+                    app.edit_scroll_top,
                     mouse.column,
                     mouse.row,
                 );

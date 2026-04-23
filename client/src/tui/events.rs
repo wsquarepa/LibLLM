@@ -641,9 +641,11 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 app.auto_scroll = true;
                 app.textarea.cancel_selection();
                 let input_content = inner_content_rect(input);
+                let scroll_top = app.input_scroll_top;
                 move_textarea_cursor_to_mouse(
                     &mut app.textarea,
                     input_content,
+                    scroll_top,
                     mouse.column,
                     mouse.row,
                 );
@@ -656,9 +658,11 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                     app.textarea.start_selection();
                 }
                 let input_content = inner_content_rect(input);
+                let scroll_top = app.input_scroll_top;
                 move_textarea_cursor_to_mouse(
                     &mut app.textarea,
                     input_content,
+                    scroll_top,
                     mouse.column,
                     mouse.row,
                 );
@@ -679,15 +683,25 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 if editor.selection_range().is_none() {
                     editor.start_selection();
                 }
-                move_textarea_cursor_to_mouse(editor, editor_area, mouse.column, mouse.row);
+                move_textarea_cursor_to_mouse(
+                    editor,
+                    editor_area,
+                    app.edit_scroll_top,
+                    mouse.column,
+                    mouse.row,
+                );
             } else {
                 dispatch_dialog_editor_drag(app, mouse.column, mouse.row);
             }
             None
         }
         MouseEventKind::ScrollUp => {
-            if is_dialog_focus(app.focus) {
+            if dispatch_editor_wheel(app, -3) {
+                // consumed by a textarea; cursor is pulled with the scroll.
+            } else if is_dialog_focus(app.focus) {
                 scroll_dialog(app, ScrollDirection::Up);
+            } else if input.contains(pos) && app.focus == Focus::Input {
+                app.textarea.scroll((-3, 0));
             } else if chat.contains(pos) {
                 app.chat_scroll = app.chat_scroll.saturating_sub(3);
                 app.auto_scroll = false;
@@ -700,8 +714,12 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
             None
         }
         MouseEventKind::ScrollDown => {
-            if is_dialog_focus(app.focus) {
+            if dispatch_editor_wheel(app, 3) {
+                // consumed by a textarea; cursor is pulled with the scroll.
+            } else if is_dialog_focus(app.focus) {
                 scroll_dialog(app, ScrollDirection::Down);
+            } else if input.contains(pos) && app.focus == Focus::Input {
+                app.textarea.scroll((3, 0));
             } else if chat.contains(pos) {
                 app.chat_scroll = app.chat_scroll.saturating_add(3).min(app.chat_max_scroll);
                 app.auto_scroll = false;
@@ -788,6 +806,58 @@ fn scroll_dialog(app: &mut App, direction: ScrollDirection) {
     }
 }
 
+/// Forward a mouse-wheel delta to whichever multiline textarea currently
+/// has focus. Returns true when a textarea consumed it. tui-textarea's
+/// `scroll` pulls the cursor along with the viewport, which is the
+/// "mouse-scrolling moves the cursor" behavior we want for long inputs.
+fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
+    match app.focus {
+        Focus::EditDialog => {
+            if let Some(ref mut editor) = app.edit_editor {
+                editor.scroll((rows, 0));
+                return true;
+            }
+        }
+        Focus::PresetEditorDialog => {
+            if let Some(ref mut d) = app.preset_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        Focus::PersonaEditorDialog => {
+            if let Some(ref mut d) = app.persona_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        Focus::CharacterEditorDialog => {
+            if let Some(ref mut d) = app.character_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        Focus::SystemPromptEditorDialog => {
+            if let Some(ref mut d) = app.system_prompt_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        Focus::WorldbookEntryEditorDialog => {
+            if let Some(ref mut d) = app.worldbook_entry_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        Focus::ConfigDialog => {
+            if let Some(ref mut d) = app.config_dialog {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        Focus::ThemeDialog => {
+            if let Some(ref mut d) = app.theme_dialog {
+                return d.scroll_editor_by(rows);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
 fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) {
     let Ok((tw, th)) = crossterm::terminal::size() else {
         return;
@@ -845,7 +915,9 @@ fn inner_content_rect(outer: Rect) -> Rect {
 
 /// Map a mouse click/drag at `(screen_col, screen_row)` inside the textarea's
 /// inner content rect `content_area` to the corresponding logical cursor
-/// position and move the caret there.
+/// position and move the caret there. `scroll_top` is the visual row that is
+/// currently showing at the top of `content_area` (0 when the textarea has
+/// not scrolled).
 ///
 /// The textarea soft-wraps long lines at render time; a given visual row may
 /// belong to a logical line that contains several wrapped segments. Using
@@ -857,14 +929,68 @@ fn inner_content_rect(outer: Rect) -> Rect {
 pub(super) fn move_textarea_cursor_to_mouse(
     textarea: &mut TextArea,
     content_area: Rect,
+    scroll_top: u16,
     screen_col: u16,
     screen_row: u16,
 ) {
-    let visual_row = screen_row.saturating_sub(content_area.y) as usize;
+    let screen_offset = screen_row.saturating_sub(content_area.y) as usize;
+    let visual_row = screen_offset.saturating_add(scroll_top as usize);
     let visual_col = screen_col.saturating_sub(content_area.x) as usize;
     let width = content_area.width as usize;
     let (row, col) = visual_to_logical(textarea.lines(), width, visual_row, visual_col);
     textarea.move_cursor(CursorMove::Jump(row, col));
+}
+
+/// Recompute the textarea's scroll-top (the visual row that is currently at
+/// the top of the viewport) based on the cursor position. Mirrors
+/// tui-textarea's internal `next_scroll_top` so the caret always stays inside
+/// the viewport without us needing access to its private `viewport` field.
+pub(super) fn update_scroll_top(
+    prev_top: u16,
+    textarea: &TextArea<'_>,
+    content_area: Rect,
+) -> u16 {
+    if content_area.height == 0 || content_area.width == 0 {
+        return prev_top;
+    }
+    let width = content_area.width as usize;
+    let cursor_visual = cursor_visual_row(textarea.lines(), width, textarea.cursor());
+    next_scroll_top(prev_top, cursor_visual, content_area.height)
+}
+
+fn next_scroll_top(prev_top: u16, cursor_visual: u16, height: u16) -> u16 {
+    if cursor_visual < prev_top {
+        cursor_visual
+    } else if prev_top.saturating_add(height) <= cursor_visual {
+        cursor_visual.saturating_add(1).saturating_sub(height)
+    } else {
+        prev_top
+    }
+}
+
+fn cursor_visual_row(lines: &[String], width: usize, cursor: (usize, usize)) -> u16 {
+    let mut total: usize = 0;
+    for (lidx, line) in lines.iter().enumerate() {
+        let segments = wrap_line_segments(line, width);
+        if lidx == cursor.0 {
+            for (i, &(start, end)) in segments.iter().enumerate() {
+                let last = i + 1 == segments.len();
+                let in_range = if last {
+                    start <= cursor.1 && cursor.1 <= end
+                } else {
+                    start <= cursor.1 && cursor.1 < end
+                };
+                if in_range {
+                    return total.saturating_add(i).min(u16::MAX as usize) as u16;
+                }
+            }
+            return total
+                .saturating_add(segments.len().saturating_sub(1))
+                .min(u16::MAX as usize) as u16;
+        }
+        total = total.saturating_add(segments.len());
+    }
+    total.min(u16::MAX as usize) as u16
 }
 
 fn visual_to_logical(
@@ -1053,7 +1179,7 @@ mod paste_tests {
 
 #[cfg(test)]
 mod wrap_tests {
-    use super::{visual_to_logical, wrap_line_segments};
+    use super::{cursor_visual_row, next_scroll_top, visual_to_logical, wrap_line_segments};
 
     fn lines(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| (*s).to_owned()).collect()
@@ -1117,5 +1243,51 @@ mod wrap_tests {
         let (row, col) = visual_to_logical(&text, 5, 3, 1);
         assert_eq!(row, 1);
         assert_eq!(col, 1);
+    }
+
+    #[test]
+    fn cursor_visual_row_basic_cases() {
+        let text = lines(&["hello", "world"]);
+        assert_eq!(cursor_visual_row(&text, 10, (0, 0)), 0);
+        assert_eq!(cursor_visual_row(&text, 10, (0, 5)), 0);
+        assert_eq!(cursor_visual_row(&text, 10, (1, 0)), 1);
+        assert_eq!(cursor_visual_row(&text, 10, (1, 5)), 1);
+    }
+
+    #[test]
+    fn cursor_visual_row_across_wrap() {
+        let text = lines(&["aaaa bbbb cccc"]);
+        assert_eq!(cursor_visual_row(&text, 5, (0, 0)), 0);
+        assert_eq!(cursor_visual_row(&text, 5, (0, 3)), 0);
+        assert_eq!(cursor_visual_row(&text, 5, (0, 5)), 1);
+        assert_eq!(cursor_visual_row(&text, 5, (0, 8)), 1);
+        assert_eq!(cursor_visual_row(&text, 5, (0, 10)), 2);
+    }
+
+    #[test]
+    fn next_scroll_top_keeps_cursor_in_viewport() {
+        assert_eq!(next_scroll_top(0, 0, 5), 0);
+        assert_eq!(next_scroll_top(0, 4, 5), 0);
+        assert_eq!(next_scroll_top(0, 5, 5), 1);
+        assert_eq!(next_scroll_top(0, 10, 5), 6);
+    }
+
+    #[test]
+    fn next_scroll_top_pulls_up_when_cursor_is_above() {
+        assert_eq!(next_scroll_top(10, 3, 5), 3);
+    }
+
+    #[test]
+    fn next_scroll_top_stays_put_when_cursor_visible() {
+        assert_eq!(next_scroll_top(10, 12, 5), 10);
+    }
+
+    #[test]
+    fn visual_to_logical_respects_scroll() {
+        let text = lines(&["a", "b", "c", "d", "e", "f"]);
+        let (row, _col) = visual_to_logical(&text, 10, 2, 0);
+        assert_eq!(row, 2);
+        let (row, _col) = visual_to_logical(&text, 10, 2 + 3, 0);
+        assert_eq!(row, 5);
     }
 }

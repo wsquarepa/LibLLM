@@ -187,6 +187,7 @@ pub struct FieldDialog<'a> {
     validated_fields: Vec<(usize, FieldValidation)>,
     separator_fields: &'static [usize],
     selector_fields: &'static [usize],
+    editor_scroll_top: std::cell::Cell<u16>,
     pub reject_flash: Option<std::time::Instant>,
     pub clipboard_warning: Option<String>,
 }
@@ -226,6 +227,7 @@ impl<'a> FieldDialog<'a> {
             validated_fields: Vec::new(),
             separator_fields: &[],
             selector_fields: &[],
+            editor_scroll_top: std::cell::Cell::new(0),
             reject_flash: None,
             clipboard_warning: None,
         }
@@ -307,6 +309,7 @@ impl<'a> FieldDialog<'a> {
         });
         super::dialog_handler::configure_textarea_at_start(&mut editor);
         self.editor = Some(editor);
+        self.editor_scroll_top.set(0);
     }
 
     pub fn render(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -453,6 +456,13 @@ impl<'a> FieldDialog<'a> {
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let editor = self.editor.as_ref().unwrap();
         let label = self.labels[self.selected];
+        let editor_area = multiline_editor_content_rect(dialog);
+        let new_top = crate::tui::events::update_scroll_top(
+            self.editor_scroll_top.get(),
+            editor,
+            editor_area,
+        );
+        self.editor_scroll_top.set(new_top);
         render_multiline_editor(f, dialog, area, editor, label, self.title);
     }
 
@@ -587,10 +597,12 @@ impl<'a> FieldDialog<'a> {
 
         if let Some(ref mut editor) = self.editor {
             let editor_area = multiline_editor_content_rect(dialog);
+            let scroll_top = self.editor_scroll_top.get();
             editor.cancel_selection();
             crate::tui::events::move_textarea_cursor_to_mouse(
                 editor,
                 editor_area,
+                scroll_top,
                 screen_col,
                 screen_row,
             );
@@ -614,6 +626,7 @@ impl<'a> FieldDialog<'a> {
         let (w, h) = self.dialog_dimensions(terminal_area);
         let dialog = super::render::centered_rect(w, h, terminal_area);
         let editor_area = multiline_editor_content_rect(dialog);
+        let scroll_top = self.editor_scroll_top.get();
         let editor = self.editor.as_mut().unwrap();
         if editor.selection_range().is_none() {
             editor.start_selection();
@@ -621,9 +634,20 @@ impl<'a> FieldDialog<'a> {
         crate::tui::events::move_textarea_cursor_to_mouse(
             editor,
             editor_area,
+            scroll_top,
             screen_col,
             screen_row,
         );
+        true
+    }
+
+    /// Scroll the active multiline editor by the given row delta. Returns
+    /// true if the wheel was consumed.
+    pub fn scroll_editor_by(&mut self, rows: i16) -> bool {
+        let Some(ref mut editor) = self.editor else {
+            return false;
+        };
+        editor.scroll((rows, 0));
         true
     }
 

@@ -118,6 +118,7 @@ pub struct TabbedFieldDialog<'a> {
     editing: bool,
     cursor_pos: usize,
     editor: Option<TextArea<'a>>,
+    editor_scroll_top: std::cell::Cell<u16>,
     value_changed: bool,
     pub reject_flash: Option<Instant>,
     pub clipboard_warning: Option<String>,
@@ -132,6 +133,7 @@ impl<'a> TabbedFieldDialog<'a> {
             editing: false,
             cursor_pos: 0,
             editor: None,
+            editor_scroll_top: std::cell::Cell::new(0),
             value_changed: false,
             reject_flash: None,
             clipboard_warning: None,
@@ -243,6 +245,7 @@ impl<'a> TabbedFieldDialog<'a> {
         });
         crate::tui::dialog_handler::configure_textarea_at_start(&mut editor);
         self.editor = Some(editor);
+        self.editor_scroll_top.set(0);
     }
 
     fn move_selection_down(&mut self) {
@@ -650,10 +653,12 @@ impl<'a> TabbedFieldDialog<'a> {
 
         if let Some(ref mut editor) = self.editor {
             let editor_area = super::multiline_editor_content_rect(dialog);
+            let scroll_top = self.editor_scroll_top.get();
             editor.cancel_selection();
             crate::tui::events::move_textarea_cursor_to_mouse(
                 editor,
                 editor_area,
+                scroll_top,
                 screen_col,
                 screen_row,
             );
@@ -681,6 +686,7 @@ impl<'a> TabbedFieldDialog<'a> {
         let (w, h) = self.dialog_dimensions(terminal_area);
         let dialog = centered_rect(w, h, terminal_area);
         let editor_area = super::multiline_editor_content_rect(dialog);
+        let scroll_top = self.editor_scroll_top.get();
         let editor = self.editor.as_mut().unwrap();
         if editor.selection_range().is_none() {
             editor.start_selection();
@@ -688,9 +694,20 @@ impl<'a> TabbedFieldDialog<'a> {
         crate::tui::events::move_textarea_cursor_to_mouse(
             editor,
             editor_area,
+            scroll_top,
             screen_col,
             screen_row,
         );
+        true
+    }
+
+    /// Scroll the active multiline editor by the given row delta. Returns
+    /// true if the wheel was consumed.
+    pub fn scroll_editor_by(&mut self, rows: i16) -> bool {
+        let Some(ref mut editor) = self.editor else {
+            return false;
+        };
+        editor.scroll((rows, 0));
         true
     }
 
@@ -740,6 +757,13 @@ impl<'a> TabbedFieldDialog<'a> {
         let tab = self.current_tab;
         let idx = self.sections[tab].selected;
         let label = self.sections[tab].labels[idx];
+        let editor_area = super::multiline_editor_content_rect(dialog);
+        let new_top = crate::tui::events::update_scroll_top(
+            self.editor_scroll_top.get(),
+            editor,
+            editor_area,
+        );
+        self.editor_scroll_top.set(new_top);
         super::render_multiline_editor(f, dialog, area, editor, label, self.title);
     }
 }

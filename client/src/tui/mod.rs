@@ -156,6 +156,8 @@ pub async fn run(
         sampling,
         context_mgr: ContextManager::new(config.summarization.context_size),
         textarea,
+        input_scroll_top: 0,
+        edit_scroll_top: 0,
         chat_scroll: 0,
         chat_max_scroll: 0,
         auto_scroll: true,
@@ -537,6 +539,14 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             );
         }
     }
+    let input_content_area = ratatui::layout::Rect {
+        x: input_area.x.saturating_add(1),
+        y: input_area.y.saturating_add(1),
+        width: input_area.width.saturating_sub(2),
+        height: input_area.height.saturating_sub(2),
+    };
+    app.input_scroll_top =
+        events::update_scroll_top(app.input_scroll_top, &app.textarea, input_content_area);
     f.render_widget(&app.textarea, input_area);
 
     let (messages_area, queue_area) = render::split_chat_area_for_queue(chat_area, app);

@@ -183,6 +183,8 @@ pub(super) struct App<'a> {
 
     pub(super) focus: Focus,
     pub(super) textarea: TextArea<'a>,
+    pub(super) input_scroll_top: u16,
+    pub(super) edit_scroll_top: u16,
     pub(super) chat_scroll: u16,
     pub(super) chat_max_scroll: u16,
     pub(super) auto_scroll: bool,

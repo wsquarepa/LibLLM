@@ -80,6 +80,7 @@ pub(super) fn open_edit_dialog_with(app: &mut App, content: &str) {
     });
     configure_textarea_at_start(&mut editor);
     app.edit_editor = Some(editor);
+    app.edit_scroll_top = 0;
     app.edit_original_content = content.lines().collect::<Vec<_>>().join("\n");
     app.focus = Focus::EditDialog;
 }

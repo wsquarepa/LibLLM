@@ -63,8 +63,10 @@ impl ServerTokenizer {
     }
 }
 
-/// Offline estimator using a fixed-point chars-per-token ratio plus a per-message overhead.
-/// The formula is `ceil(text.len() * numerator / denominator) + overhead_per_message * message_count`.
+/// Offline estimator using a fixed-point tokens-per-char ratio plus a per-message overhead.
+/// `chars_numerator / chars_denominator` is a tokens-per-char multiplier
+/// (e.g. 10/33 ≈ 0.303 tokens/char, equivalent to 3.3 chars/token).
+/// The formula is `ceil(text.len() * chars_numerator / chars_denominator) + overhead_per_message * message_count`.
 #[derive(Clone)]
 pub struct HeuristicTokenizer {
     chars_numerator: u32,

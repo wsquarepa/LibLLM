@@ -29,6 +29,8 @@ pub enum FileError {
     PdfNoText(PathBuf),
     Collision { path: PathBuf, kind: DelimiterKind },
     Io { path: PathBuf, source: std::io::Error },
+    TooLargeForSummary { path: PathBuf, tokens: usize, limit: usize },
+    SummaryTokenize { path: PathBuf, source: anyhow::Error },
 }
 
 impl std::fmt::Display for FileError {
@@ -64,6 +66,16 @@ impl std::fmt::Display for FileError {
             FileError::Io { path, source } => {
                 write!(f, "I/O error reading {}: {source}", path.display())
             }
+            FileError::TooLargeForSummary { path, tokens, limit } => write!(
+                f,
+                "file '{}' is too large to summarize ({tokens} tokens, max {limit})",
+                path.display()
+            ),
+            FileError::SummaryTokenize { path, source } => write!(
+                f,
+                "could not tokenize '{}' for summary size check: {source}",
+                path.display()
+            ),
         }
     }
 }
@@ -72,6 +84,7 @@ impl std::error::Error for FileError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             FileError::Io { source, .. } => Some(source),
+            FileError::SummaryTokenize { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }
@@ -118,6 +131,31 @@ mod tests {
             path: PathBuf::from("/tmp/x"),
             source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope"),
         };
+        assert!(std::error::Error::source(&err).is_some());
+    }
+
+    #[test]
+    fn too_large_for_summary_display_includes_path_and_counts() {
+        let err = FileError::TooLargeForSummary {
+            path: PathBuf::from("/tmp/big.md"),
+            tokens: 150_000,
+            limit: 100_000,
+        };
+        let s = err.to_string();
+        assert!(s.contains("/tmp/big.md"));
+        assert!(s.contains("150000"));
+        assert!(s.contains("100000"));
+    }
+
+    #[test]
+    fn summary_tokenize_display_names_path_and_exposes_source() {
+        let err = FileError::SummaryTokenize {
+            path: PathBuf::from("/tmp/notes.md"),
+            source: anyhow::anyhow!("connection refused"),
+        };
+        let s = err.to_string();
+        assert!(s.contains("/tmp/notes.md"));
+        assert!(s.contains("connection refused"));
         assert!(std::error::Error::source(&err).is_some());
     }
 }

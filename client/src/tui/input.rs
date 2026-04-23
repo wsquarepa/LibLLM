@@ -531,7 +531,7 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 app.sidebar_cache = None;
                 return None;
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Tab => {
                 app.sidebar_search.commit();
                 app.sidebar_cache = None;
                 return None;

@@ -52,6 +52,13 @@ impl SearchState {
         self.pre_search_selected.take()
     }
 
+    pub fn deactivate_and_clear(&mut self) {
+        self.active = false;
+        self.query.clear();
+        self.compiled = None;
+        self.pre_search_selected = None;
+    }
+
     pub fn push_char(&mut self, c: char) {
         self.query.push(c);
         self.recompile();
@@ -210,7 +217,7 @@ pub(in crate::tui) fn handle_paged_list_key(
                     }
                     return PagedListAction::ExitedSearch;
                 }
-                KeyCode::Enter => {
+                KeyCode::Enter | KeyCode::Tab => {
                     state.commit();
                     return PagedListAction::ExitedSearch;
                 }
@@ -910,6 +917,20 @@ mod tests {
     }
 
     #[test]
+    fn search_tab_commits_and_keeps_query() {
+        let mut sel = 0usize;
+        let labels = vec!["alpha".to_owned()];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('a');
+        let action =
+            handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Tab), Some(&mut state));
+        assert_eq!(action, PagedListAction::ExitedSearch);
+        assert!(!state.active);
+        assert_eq!(state.query, "a");
+    }
+
+    #[test]
     fn search_esc_cancels_and_restores_selection() {
         // sel starts at 0 to simulate the user having navigated within the filtered view.
         // The snapshot captured by enter(2) is what Esc must restore.
@@ -1065,6 +1086,20 @@ mod tests {
         assert!(!s.active);
         assert!(s.query.is_empty());
         assert!(!s.is_filtering());
+    }
+
+    #[test]
+    fn search_state_deactivate_and_clear_clears_everything() {
+        let mut s = SearchState::new();
+        s.enter(4);
+        s.push_char('a');
+        s.push_char('b');
+        s.deactivate_and_clear();
+        assert!(!s.active);
+        assert!(s.query.is_empty());
+        assert!(!s.is_filtering());
+        assert!(!s.compile_error());
+        assert_eq!(s.pre_search_selected(), None);
     }
 
     #[test]

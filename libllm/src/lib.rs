@@ -20,5 +20,6 @@ pub mod side_character;
 pub mod summarize;
 pub mod system_prompt;
 pub mod template;
+pub mod thought;
 pub mod tokenizer;
 pub mod worldinfo;

@@ -25,14 +25,15 @@ pub(super) fn cancel_generation(app: &mut App) {
                 .tree
                 .node(head)
                 .and_then(|node| node.message.thought_seconds);
-            let measured_seconds = crate::tui::thought::measured_thought_seconds(
+            let measured_seconds = libllm::thought::measured_thought_seconds(
                 app.stream_started_at,
                 app.stream_first_think_closed_at,
             );
-            let final_seconds = crate::tui::thought::resolve_thought_seconds(
+            let final_seconds = libllm::thought::resolve_thought_seconds(
                 &app.session.tree.node(head).unwrap().message.content,
                 current_seconds,
                 measured_seconds,
+                app.reasoning_preset.as_ref(),
                 false,
             );
             app.session.tree.set_message_thought_seconds(head, final_seconds);
@@ -41,14 +42,15 @@ pub(super) fn cancel_generation(app: &mut App) {
     } else if !app.streaming_buffer.is_empty() {
         let content = std::mem::take(&mut app.streaming_buffer);
         let head = app.session.tree.head().unwrap();
-        let measured_seconds = crate::tui::thought::measured_thought_seconds(
+        let measured_seconds = libllm::thought::measured_thought_seconds(
             app.stream_started_at,
             app.stream_first_think_closed_at,
         );
-        let thought_seconds = crate::tui::thought::resolve_thought_seconds(
+        let thought_seconds = libllm::thought::resolve_thought_seconds(
             &content,
             None,
             measured_seconds,
+            app.reasoning_preset.as_ref(),
             app.reasoning_preset.is_some(),
         );
         app.session

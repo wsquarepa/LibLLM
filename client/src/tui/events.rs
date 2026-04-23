@@ -215,12 +215,13 @@ fn handle_edit_message(
 
     if file_refs_unchanged {
         let resolved_thought_seconds = if old_role == libllm::session::Role::Assistant {
-            let implicit_open_from_start =
-                old_thought_seconds.is_some() || old_content.contains("</think>");
-            crate::tui::thought::resolve_thought_seconds(
+            let implicit_open_from_start = old_thought_seconds.is_some()
+                || libllm::thought::contains_close_marker(&old_content, app.reasoning_preset.as_ref());
+            libllm::thought::resolve_thought_seconds(
                 &content,
                 old_thought_seconds,
                 None,
+                app.reasoning_preset.as_ref(),
                 implicit_open_from_start,
             )
         } else {

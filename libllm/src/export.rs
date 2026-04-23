@@ -1,53 +1,9 @@
 //! Session and character export to Markdown and JSON formats.
 
+use crate::preset::ReasoningPreset;
 use crate::session::{self, Message, Role};
 use crate::template;
-
-const THINK_OPEN_TAG: &str = "<think>";
-const THINK_CLOSE_TAG: &str = "</think>";
-
-struct ThoughtSplit<'a> {
-    thought: &'a str,
-    after: &'a str,
-    closed: bool,
-}
-
-/// Thought blocks are only captured when they sit at the very start of the
-/// response, matching the TUI's render semantics. Any later `<think>` /
-/// `</think>` tokens are treated as literal content.
-fn split_thought_at_start<'a>(content: &'a str, assume_implicit: bool) -> Option<ThoughtSplit<'a>> {
-    if let Some(after_open) = content.strip_prefix(THINK_OPEN_TAG) {
-        if let Some(close_rel) = after_open.find(THINK_CLOSE_TAG) {
-            let after_idx = close_rel + THINK_CLOSE_TAG.len();
-            return Some(ThoughtSplit {
-                thought: &after_open[..close_rel],
-                after: &after_open[after_idx..],
-                closed: true,
-            });
-        }
-        return Some(ThoughtSplit {
-            thought: after_open,
-            after: "",
-            closed: false,
-        });
-    }
-    if assume_implicit {
-        if let Some(close_idx) = content.find(THINK_CLOSE_TAG) {
-            let after_idx = close_idx + THINK_CLOSE_TAG.len();
-            return Some(ThoughtSplit {
-                thought: &content[..close_idx],
-                after: &content[after_idx..],
-                closed: true,
-            });
-        }
-        return Some(ThoughtSplit {
-            thought: content,
-            after: "",
-            closed: false,
-        });
-    }
-    None
-}
+use crate::thought::{self, ThinkSplit};
 
 fn thought_label(seconds: Option<u32>) -> String {
     match seconds {
@@ -57,31 +13,44 @@ fn thought_label(seconds: Option<u32>) -> String {
     }
 }
 
-fn assume_implicit_thought(msg: &Message) -> bool {
-    msg.role == Role::Assistant
-        && (msg.thought_seconds.is_some() || msg.content.contains(THINK_CLOSE_TAG))
+fn split_assistant_thought<'a>(
+    content: &'a str,
+    msg: &Message,
+    preset: Option<&ReasoningPreset>,
+) -> ThinkSplit<'a> {
+    let implicit = msg.thought_seconds.is_some() || thought::contains_close_marker(content, preset);
+    thought::split_first_think_block(content, preset, implicit)
 }
 
-fn markdown_format_assistant_body(content: &str, msg: &Message) -> String {
-    let assume_implicit = assume_implicit_thought(msg);
-    let Some(split) = split_thought_at_start(content, assume_implicit) else {
+fn markdown_format_assistant_body(
+    content: &str,
+    msg: &Message,
+    preset: Option<&ReasoningPreset>,
+) -> String {
+    let split = split_assistant_thought(content, msg, preset);
+    let Some(thought) = split.thought else {
         return content.to_owned();
     };
     if !split.closed {
-        return split.thought.to_owned();
+        return thought.to_owned();
     }
     let label = thought_label(msg.thought_seconds);
     if split.after.is_empty() {
-        format!("<details>\n<summary>{label}</summary>\n\n{}\n\n</details>", split.thought)
+        format!("<details>\n<summary>{label}</summary>\n\n{thought}\n\n</details>")
     } else {
         format!(
-            "<details>\n<summary>{label}</summary>\n\n{}\n\n</details>\n\n{}",
-            split.thought, split.after
+            "<details>\n<summary>{label}</summary>\n\n{thought}\n\n</details>\n\n{}",
+            split.after
         )
     }
 }
 
-pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) -> String {
+pub fn render_markdown(
+    messages: &[&Message],
+    char_name: &str,
+    user_name: &str,
+    reasoning_preset: Option<&ReasoningPreset>,
+) -> String {
     let _span = tracing::info_span!("export.markdown", message_count = messages.len()).entered();
     let mut out = String::new();
     for msg in messages {
@@ -92,7 +61,7 @@ pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) 
         };
         let content = template::apply_template_vars(&msg.content, char_name, user_name);
         let body = if msg.role == Role::Assistant {
-            markdown_format_assistant_body(&content, msg)
+            markdown_format_assistant_body(&content, msg, reasoning_preset)
         } else {
             content
         };
@@ -102,7 +71,12 @@ pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) 
     out
 }
 
-pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> String {
+pub fn render_html(
+    messages: &[&Message],
+    char_name: &str,
+    user_name: &str,
+    reasoning_preset: Option<&ReasoningPreset>,
+) -> String {
     let _span = tracing::info_span!("export.html", message_count = messages.len()).entered();
     {
         let mut body = String::new();
@@ -114,7 +88,7 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
             };
             let content = template::apply_template_vars(&msg.content, char_name, user_name);
             let formatted = if msg.role == Role::Assistant {
-                html_format_assistant_body(&content, msg)
+                html_format_assistant_body(&content, msg, reasoning_preset)
             } else {
                 html_format_content(&content)
             };
@@ -387,16 +361,20 @@ pub fn html_format_content(content: &str) -> String {
         .join("\n")
 }
 
-fn html_format_assistant_body(content: &str, msg: &Message) -> String {
-    let assume_implicit = assume_implicit_thought(msg);
-    let Some(split) = split_thought_at_start(content, assume_implicit) else {
+fn html_format_assistant_body(
+    content: &str,
+    msg: &Message,
+    preset: Option<&ReasoningPreset>,
+) -> String {
+    let split = split_assistant_thought(content, msg, preset);
+    let Some(thought) = split.thought else {
         return html_format_content(content);
     };
     if !split.closed {
-        return html_format_content(split.thought);
+        return html_format_content(thought);
     }
     let label = html_escape(&thought_label(msg.thought_seconds));
-    let thought_formatted = html_format_content(split.thought);
+    let thought_formatted = html_format_content(thought);
     if split.after.is_empty() {
         format!("<details class=\"thought\"><summary>{label}</summary>\n{thought_formatted}\n</details>")
     } else {
@@ -458,6 +436,15 @@ mod tests {
         Message::new(Role::System, content.to_string())
     }
 
+    fn deepseek() -> ReasoningPreset {
+        ReasoningPreset {
+            name: "DeepSeek".to_owned(),
+            prefix: "<think>\n".to_owned(),
+            suffix: "\n</think>".to_owned(),
+            separator: "\n\n".to_owned(),
+        }
+    }
+
     fn test_messages() -> Vec<Message> {
         vec![
             Message {
@@ -479,7 +466,7 @@ mod tests {
     fn markdown_basic() {
         let msgs = test_messages();
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Alice", "Bob");
+        let result = render_markdown(&refs, "Alice", "Bob", None);
         assert!(result.contains("## Bob\n\nHello Alice"));
         assert!(result.contains("## Alice\n\nHi Bob!"));
     }
@@ -488,14 +475,14 @@ mod tests {
     fn markdown_system_message() {
         let msgs = [system_msg("You are helpful.")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User");
+        let result = render_markdown(&refs, "Char", "User", None);
         assert!(result.contains("## System\n\nYou are helpful."));
     }
 
     #[test]
     fn markdown_empty() {
         let refs: Vec<&Message> = vec![];
-        let result = render_markdown(&refs, "Char", "User");
+        let result = render_markdown(&refs, "Char", "User", None);
         assert!(result.is_empty());
     }
 
@@ -503,7 +490,7 @@ mod tests {
     fn html_escapes_content() {
         let msgs = [user_msg("<script>alert('xss')</script>")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let result = render_html(&refs, "Char", "User", None);
         assert!(result.contains("&lt;script&gt;"));
         assert!(!result.contains("<script>alert"));
     }
@@ -512,7 +499,7 @@ mod tests {
     fn html_has_structure() {
         let msgs = test_messages();
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Alice", "Bob");
+        let result = render_html(&refs, "Alice", "Bob", None);
         assert!(result.starts_with("<!DOCTYPE html>"));
         assert!(result.contains("class=\"message user\""));
         assert!(result.contains("class=\"message assistant\""));
@@ -522,7 +509,7 @@ mod tests {
     fn html_applies_template_vars() {
         let msgs = test_messages();
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Alice", "Bob");
+        let result = render_html(&refs, "Alice", "Bob", None);
         assert!(result.contains("Hello Alice"));
         assert!(result.contains("Hi Bob!"));
     }
@@ -531,7 +518,7 @@ mod tests {
     fn html_formats_bold() {
         let msgs = [user_msg("This is **bold** text")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let result = render_html(&refs, "Char", "User", None);
         assert!(result.contains("<strong>bold</strong>"));
         assert!(!result.contains("**bold**"));
     }
@@ -540,7 +527,7 @@ mod tests {
     fn html_formats_italic() {
         let msgs = [user_msg("This is *italic* text")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let result = render_html(&refs, "Char", "User", None);
         assert!(result.contains("<em>italic</em>"));
         assert!(!result.contains("*italic*"));
     }
@@ -549,7 +536,7 @@ mod tests {
     fn html_formats_dialogue() {
         let msgs = [assistant_msg("She said \"hello there\" softly")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let result = render_html(&refs, "Char", "User", None);
         assert!(result.contains("<q>hello there</q>"));
     }
 
@@ -557,7 +544,7 @@ mod tests {
     fn html_formats_mixed_markdown() {
         let msgs = [user_msg("**bold** and *italic* and \"dialogue\"")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let result = render_html(&refs, "Char", "User", None);
         assert!(result.contains("<strong>bold</strong>"));
         assert!(result.contains("<em>italic</em>"));
         assert!(result.contains("<q>dialogue</q>"));
@@ -633,7 +620,8 @@ mod tests {
             Some(12),
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User");
+        let preset = deepseek();
+        let result = render_markdown(&refs, "Char", "User", Some(&preset));
         assert!(result.contains("<details>\n<summary>Thought for 12 seconds</summary>"));
         assert!(result.contains("\n\nplanning\n\n"));
         assert!(result.contains("</details>\n\nAnswer"));
@@ -644,7 +632,8 @@ mod tests {
     fn markdown_collapses_implicit_thought_block_with_moment_label() {
         let msgs = [assistant_thought_msg("musing</think>Answer", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User");
+        let preset = deepseek();
+        let result = render_markdown(&refs, "Char", "User", Some(&preset));
         assert!(result.contains("<summary>Thought for a moment</summary>"));
         assert!(result.contains("</details>\n\nAnswer"));
     }
@@ -653,7 +642,8 @@ mod tests {
     fn markdown_unclosed_explicit_thought_drops_opening_marker() {
         let msgs = [assistant_thought_msg("<think>still thinking", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User");
+        let preset = deepseek();
+        let result = render_markdown(&refs, "Char", "User", Some(&preset));
         assert!(!result.contains("<think>"));
         assert!(!result.contains("<details>"));
         assert!(result.contains("still thinking"));
@@ -666,8 +656,21 @@ mod tests {
             Some(3),
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User");
+        let preset = deepseek();
+        let result = render_markdown(&refs, "Char", "User", Some(&preset));
         assert!(result.contains("</details>\n\ncode: <think>b</think>"));
+    }
+
+    #[test]
+    fn markdown_without_preset_preserves_raw_think_tags() {
+        let msgs = [assistant_thought_msg(
+            "<think>planning</think>Answer",
+            Some(12),
+        )];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Char", "User", None);
+        assert!(!result.contains("<details>"));
+        assert!(result.contains("<think>planning</think>Answer"));
     }
 
     #[test]
@@ -677,7 +680,8 @@ mod tests {
             Some(7),
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let preset = deepseek();
+        let result = render_html(&refs, "Char", "User", Some(&preset));
         assert!(
             result.contains("<details class=\"thought\"><summary>Thought for 7 seconds</summary>")
         );
@@ -689,7 +693,8 @@ mod tests {
     fn html_assistant_without_thought_is_unaffected() {
         let msgs = [assistant_thought_msg("Just an answer", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User");
+        let preset = deepseek();
+        let result = render_html(&refs, "Char", "User", Some(&preset));
         assert!(!result.contains("<details"));
         assert!(result.contains("Just an answer"));
     }

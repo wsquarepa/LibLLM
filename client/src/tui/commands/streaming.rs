@@ -389,8 +389,9 @@ pub(in crate::tui) async fn handle_stream_token(
             app.streaming_buffer.push_str(&text);
             let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
             if app.stream_first_think_closed_at.is_none()
-                && crate::tui::thought::split_first_think_block(
+                && libllm::thought::split_first_think_block(
                     &app.streaming_buffer,
+                    app.reasoning_preset.as_ref(),
                     implicit_open_from_start,
                 )
                 .closed
@@ -404,7 +405,7 @@ pub(in crate::tui) async fn handle_stream_token(
             let response_bytes = full_response.len();
             let is_continuation = app.is_continuation;
             let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
-            let measured_seconds = crate::tui::thought::measured_thought_seconds(
+            let measured_seconds = libllm::thought::measured_thought_seconds(
                 app.stream_started_at,
                 app.stream_first_think_closed_at,
             );
@@ -417,19 +418,21 @@ pub(in crate::tui) async fn handle_stream_token(
                     .tree
                     .node(head)
                     .and_then(|node| node.message.thought_seconds);
-                let final_seconds = crate::tui::thought::resolve_thought_seconds(
+                let final_seconds = libllm::thought::resolve_thought_seconds(
                     &app.session.tree.node(head).unwrap().message.content,
                     current_seconds,
                     measured_seconds,
+                    app.reasoning_preset.as_ref(),
                     implicit_open_from_start,
                 );
                 app.session.tree.set_message_thought_seconds(head, final_seconds);
                 app.is_continuation = false;
             } else {
-                let final_seconds = crate::tui::thought::resolve_thought_seconds(
+                let final_seconds = libllm::thought::resolve_thought_seconds(
                     &full_response,
                     None,
                     measured_seconds,
+                    app.reasoning_preset.as_ref(),
                     implicit_open_from_start,
                 );
                 app.session

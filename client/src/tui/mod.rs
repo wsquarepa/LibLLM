@@ -11,7 +11,6 @@ mod input_file_cache;
 mod maintenance;
 mod render;
 mod state;
-mod thought;
 pub mod theme;
 mod types;
 

@@ -67,9 +67,12 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
     let char_name = app.session.character.as_deref().unwrap_or("Assistant");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
 
+    let preset = app.reasoning_preset.as_ref();
     let content = match format {
-        ExportFormat::Markdown => libllm::export::render_markdown(&messages, char_name, user_name),
-        ExportFormat::Html => libllm::export::render_html(&messages, char_name, user_name),
+        ExportFormat::Markdown => {
+            libllm::export::render_markdown(&messages, char_name, user_name, preset)
+        }
+        ExportFormat::Html => libllm::export::render_html(&messages, char_name, user_name, preset),
         ExportFormat::Jsonl => libllm::export::render_jsonl(&messages, char_name, user_name),
     };
 

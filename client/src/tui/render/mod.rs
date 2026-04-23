@@ -86,6 +86,8 @@ fn render_assistant_lines(
         );
     }
 
+    let tail = split.after.trim_start();
+
     if !collapse_completed {
         let mut lines = render_indented_text_lines(
             thought,
@@ -93,10 +95,9 @@ fn render_assistant_lines(
             theme.dialogue,
             theme.file_reference_fg,
         );
-        if !split.after.is_empty() {
-            lines.push(Line::from(""));
+        if !tail.is_empty() {
             lines.extend(render_indented_text_lines(
-                split.after,
+                tail,
                 Style::default(),
                 theme.dialogue,
                 theme.file_reference_fg,
@@ -112,10 +113,9 @@ fn render_assistant_lines(
             Style::default().fg(theme.summary_indicator),
         ),
     ])];
-    if !split.after.is_empty() {
-        lines.push(Line::from(""));
+    if !tail.is_empty() {
         lines.extend(render_indented_text_lines(
-            split.after,
+            tail,
             Style::default(),
             theme.dialogue,
             theme.file_reference_fg,
@@ -1225,7 +1225,7 @@ mod tests {
         );
 
         assert_eq!(lines[0].spans[1].content, "(Thought for 12 seconds)");
-        assert_eq!(lines[2].spans[1].content, "Answer");
+        assert_eq!(lines[1].spans[1].content, "Answer");
     }
 
     #[test]

@@ -59,7 +59,7 @@ pub(in crate::tui) fn loaded_worldbooks(
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-fn build_rendered_prompt_common<F>(app: &crate::tui::App, dropped: usize, render: F) -> String
+fn build_rendered_prompt_common<F>(app: &crate::tui::App, dropped: usize, render: F) -> (String, usize)
 where
     F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
 {
@@ -84,24 +84,29 @@ where
             _ => m,
         })
         .collect();
+    let message_count = injected.len();
     let injected_refs: Vec<&libllm::session::Message> = injected.iter().collect();
-    render(
+    let rendered = render(
         &app.instruct_preset,
         &injected_refs,
         effective_prompt.as_deref(),
-    )
+    );
+    (rendered, message_count)
 }
 
 /// Builds the final prompt string for streaming, with the `dropped` oldest non-summary
 /// messages removed. This is the exact byte stream that would be POSTed to `/completion`.
-/// Used by both the pre-send shrink loop and the chat pane's displayed-count path.
-pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> String {
-    let prompt =
+/// Returns the rendered prompt and the number of messages that composed it (after
+/// summary-aware trim, drop, worldbook injection, and template rewrite). Callers that
+/// only need the string can `.0` the tuple.
+pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> (String, usize) {
+    let (prompt, message_count) =
         build_rendered_prompt_common(app, dropped, |preset, refs, sys| preset.render(refs, sys));
-    match app.reasoning_preset.as_ref() {
+    let final_prompt = match app.reasoning_preset.as_ref() {
         Some(preset) => preset.apply_prefix(&prompt),
         None => prompt,
-    }
+    };
+    (final_prompt, message_count)
 }
 
 /// Same as `build_rendered_prompt` but uses `InstructPreset::render_continuation` instead
@@ -109,7 +114,7 @@ pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usiz
 pub(in crate::tui) fn build_rendered_prompt_continuation(
     app: &crate::tui::App,
     dropped: usize,
-) -> String {
+) -> (String, usize) {
     build_rendered_prompt_common(app, dropped, |preset, refs, sys| {
         preset.render_continuation(refs, sys)
     })
@@ -234,7 +239,7 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
     let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
 
-    let render = |k: usize| -> String { build_rendered_prompt(app, k) };
+    let render = |k: usize| -> String { build_rendered_prompt(app, k).0 };
 
     let dropped = match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
         Ok(k) => k,
@@ -248,7 +253,7 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
         }
     };
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
-    let prompt = build_rendered_prompt(app, dropped);
+    let prompt = build_rendered_prompt(app, dropped).0;
     let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();
 
@@ -464,7 +469,7 @@ pub(in crate::tui) async fn handle_stream_token(
                 let branch_path = app.session.tree.branch_path();
                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                 let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
-                let render = |k: usize| -> String { build_rendered_prompt(app, k) };
+                let render = |k: usize| -> String { build_rendered_prompt(app, k).0 };
                 let dropped =
                     match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
                         Ok(k) => k,

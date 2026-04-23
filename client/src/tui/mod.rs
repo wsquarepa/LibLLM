@@ -564,8 +564,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 if app.worldbook_cache.is_none() {
                     commands::streaming::loaded_worldbooks(app);
                 }
-                let text = commands::streaming::build_rendered_prompt(app, 0);
-                let state = app.token_counter.count_cached(&text, 1);
+                let (text, message_count) = commands::streaming::build_rendered_prompt(app, 0);
+                let state = app.token_counter.count_cached(&text, message_count);
                 app.cached_token_count = Some(state);
                 state
             }

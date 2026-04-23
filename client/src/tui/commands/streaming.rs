@@ -465,30 +465,33 @@ pub(in crate::tui) async fn handle_stream_token(
             app.flush_session_save(SaveTrigger::StreamDone)?;
             business::refresh_sidebar(app);
             if app.summarization_enabled && app.summary_receiver.is_none() {
-                let budget = app.context_mgr.token_limit();
+                let context_size = app.context_mgr.token_limit();
+                let trigger_percent = app.config.summarization.effective_trigger_percent();
+                let threshold_tokens = context_size * trigger_percent as usize / 100;
                 let branch_path = app.session.tree.branch_path();
                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                 let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
-                let render = |k: usize| -> String { build_rendered_prompt(app, k).0 };
-                let dropped =
-                    match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
-                        Ok(k) => k,
-                        Err(err) => {
-                            tracing::warn!(
-                                result = "fallback_heuristic",
-                                error = %err,
-                                "stream.summary.truncate"
-                            );
-                            0
-                        }
-                    };
-                let trigger_percent = app.config.summarization.effective_trigger_percent();
+                let (full_prompt, _) = build_rendered_prompt(app, 0);
+                let actual_tokens = match app
+                    .token_counter
+                    .count_authoritative(&full_prompt)
+                    .await
+                {
+                    Ok(n) => n,
+                    Err(err) => {
+                        tracing::warn!(
+                            result = "fallback_skip",
+                            error = %err,
+                            "stream.summary.trigger"
+                        );
+                        0
+                    }
+                };
 
-                if dropped >= trigger_percent as usize {
+                if actual_tokens >= threshold_tokens {
                     let keep_last = app.config.summarization.keep_last;
                     let droppable = libllm::context::droppable_count(&summary_aware);
-                    let aggressive = droppable.saturating_sub(keep_last);
-                    let dropped = aggressive.max(dropped).min(max_drop);
+                    let dropped = droppable.saturating_sub(keep_last).min(max_drop);
                     let summary_boundary = branch_path.len() - summary_aware.len();
                     let split_idx = libllm::context::drop_split_index(&summary_aware, dropped);
                     let messages_to_summarize: Vec<Message> = branch_path
@@ -502,6 +505,8 @@ pub(in crate::tui) async fn handle_stream_token(
                             result = "scheduled",
                             dropped,
                             trigger_percent,
+                            actual_tokens,
+                            threshold_tokens,
                             summary_boundary,
                             messages_to_summarize = messages_to_summarize.len(),
                             "stream.summary.schedule"
@@ -669,6 +674,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(k, 0);
+    }
+
+    #[test]
+    fn threshold_tokens_math_matches_spec() {
+        let context_size = 131_072usize;
+        let trigger_percent = 90u8;
+        let threshold = context_size * trigger_percent as usize / 100;
+        assert_eq!(threshold, 117_964);
+
+        let context_size = 4096usize;
+        let trigger_percent = 50u8;
+        let threshold = context_size * trigger_percent as usize / 100;
+        assert_eq!(threshold, 2048);
+
+        let context_size = 1000usize;
+        let trigger_percent = 100u8;
+        let threshold = context_size * trigger_percent as usize / 100;
+        assert_eq!(threshold, 1000);
     }
 
     #[test]

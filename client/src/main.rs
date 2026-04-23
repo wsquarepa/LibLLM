@@ -301,6 +301,7 @@ async fn main() -> Result<()> {
                     role: m.role,
                     content: libllm::files::rewrite_user_message(&m.content),
                     timestamp: m.timestamp.clone(),
+                    thought_seconds: m.thought_seconds,
                 },
                 _ => m.clone(),
             })

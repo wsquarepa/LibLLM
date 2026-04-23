@@ -137,6 +137,8 @@ async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>
     app.is_streaming = true;
     app.is_continuation = true;
     app.streaming_buffer.clear();
+    app.stream_started_at = None;
+    app.stream_first_think_closed_at = None;
     app.auto_scroll = true;
 
     streaming::loaded_worldbooks(app);

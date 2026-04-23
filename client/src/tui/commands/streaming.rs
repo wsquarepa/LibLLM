@@ -79,6 +79,7 @@ where
                 role: m.role,
                 content: libllm::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
+                thought_seconds: m.thought_seconds,
             },
             _ => m,
         })
@@ -219,6 +220,8 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_caches();
     app.is_streaming = true;
+    app.stream_started_at = None;
+    app.stream_first_think_closed_at = None;
     app.focus = crate::tui::Focus::Input;
     app.nav_cursor = None;
     app.hover_node = None;
@@ -380,22 +383,62 @@ pub(in crate::tui) async fn handle_stream_token(
     }
     match token {
         StreamToken::Token(text) => {
+            if app.stream_started_at.is_none() {
+                app.stream_started_at = Some(std::time::Instant::now());
+            }
             app.streaming_buffer.push_str(&text);
+            let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
+            if app.stream_first_think_closed_at.is_none()
+                && crate::tui::thought::split_first_think_block(
+                    &app.streaming_buffer,
+                    implicit_open_from_start,
+                )
+                .closed
+            {
+                app.stream_first_think_closed_at = Some(std::time::Instant::now());
+            }
             app.auto_scroll = true;
         }
         StreamToken::Done(full_response) => {
             let head = app.session.tree.head().unwrap();
             let response_bytes = full_response.len();
             let is_continuation = app.is_continuation;
+            let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
+            let measured_seconds = crate::tui::thought::measured_thought_seconds(
+                app.stream_started_at,
+                app.stream_first_think_closed_at,
+            );
             if app.is_continuation {
                 let existing = app.session.tree.node(head).unwrap().message.content.clone();
                 let combined = format!("{}{}", existing, full_response);
                 app.session.tree.set_message_content(head, combined);
+                let current_seconds = app
+                    .session
+                    .tree
+                    .node(head)
+                    .and_then(|node| node.message.thought_seconds);
+                let final_seconds = crate::tui::thought::resolve_thought_seconds(
+                    &app.session.tree.node(head).unwrap().message.content,
+                    current_seconds,
+                    measured_seconds,
+                    implicit_open_from_start,
+                );
+                app.session.tree.set_message_thought_seconds(head, final_seconds);
                 app.is_continuation = false;
             } else {
+                let final_seconds = crate::tui::thought::resolve_thought_seconds(
+                    &full_response,
+                    None,
+                    measured_seconds,
+                    implicit_open_from_start,
+                );
                 app.session
                     .tree
-                    .push(Some(head), Message::new(Role::Assistant, full_response));
+                    .push(
+                        Some(head),
+                        Message::new(Role::Assistant, full_response)
+                            .with_thought_seconds(final_seconds),
+                    );
             }
             tracing::info!(
                 result = "ok",
@@ -408,6 +451,8 @@ pub(in crate::tui) async fn handle_stream_token(
             app.invalidate_chat_caches();
             app.streaming_buffer.clear();
             app.is_streaming = false;
+            app.stream_started_at = None;
+            app.stream_first_think_closed_at = None;
             app.auto_scroll = true;
             app.flush_session_save(SaveTrigger::StreamDone)?;
             business::refresh_sidebar(app);
@@ -569,6 +614,8 @@ pub(in crate::tui) async fn handle_stream_token(
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.is_continuation = false;
+            app.stream_started_at = None;
+            app.stream_first_think_closed_at = None;
             app.message_queue.clear();
             app.set_status(format!("Error: {err}"), StatusLevel::Error);
         }
@@ -633,6 +680,7 @@ mod tests {
                     role: m.role,
                     content: libllm::files::rewrite_user_message(&m.content),
                     timestamp: m.timestamp.clone(),
+                    thought_seconds: m.thought_seconds,
                 },
                 _ => m.clone(),
             })

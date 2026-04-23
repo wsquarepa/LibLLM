@@ -95,6 +95,8 @@ pub struct Message {
     pub role: Role,
     pub content: String,
     pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thought_seconds: Option<u32>,
 }
 
 impl Message {
@@ -103,7 +105,13 @@ impl Message {
             role,
             content,
             timestamp: now_iso8601(),
+            thought_seconds: None,
         }
+    }
+
+    pub fn with_thought_seconds(mut self, thought_seconds: Option<u32>) -> Self {
+        self.thought_seconds = thought_seconds;
+        self
     }
 }
 
@@ -318,6 +326,15 @@ impl MessageTree {
             return false;
         };
         node.message.content = content;
+        self.refresh_runtime_caches();
+        true
+    }
+
+    pub fn set_message_thought_seconds(&mut self, id: NodeId, thought_seconds: Option<u32>) -> bool {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return false;
+        };
+        node.message.thought_seconds = thought_seconds;
         self.refresh_runtime_caches();
         true
     }

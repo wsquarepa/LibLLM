@@ -20,18 +20,49 @@ pub(super) fn cancel_generation(app: &mut App) {
             let existing = app.session.tree.node(head).unwrap().message.content.clone();
             let combined = format!("{}{}", existing, app.streaming_buffer);
             app.session.tree.set_message_content(head, combined);
+            let current_seconds = app
+                .session
+                .tree
+                .node(head)
+                .and_then(|node| node.message.thought_seconds);
+            let measured_seconds = crate::tui::thought::measured_thought_seconds(
+                app.stream_started_at,
+                app.stream_first_think_closed_at,
+            );
+            let final_seconds = crate::tui::thought::resolve_thought_seconds(
+                &app.session.tree.node(head).unwrap().message.content,
+                current_seconds,
+                measured_seconds,
+                false,
+            );
+            app.session.tree.set_message_thought_seconds(head, final_seconds);
         }
         app.is_continuation = false;
     } else if !app.streaming_buffer.is_empty() {
         let content = std::mem::take(&mut app.streaming_buffer);
         let head = app.session.tree.head().unwrap();
+        let measured_seconds = crate::tui::thought::measured_thought_seconds(
+            app.stream_started_at,
+            app.stream_first_think_closed_at,
+        );
+        let thought_seconds = crate::tui::thought::resolve_thought_seconds(
+            &content,
+            None,
+            measured_seconds,
+            app.reasoning_preset.is_some(),
+        );
         app.session
             .tree
-            .push(Some(head), Message::new(Role::Assistant, content));
+            .push(
+                Some(head),
+                Message::new(Role::Assistant, content).with_thought_seconds(thought_seconds),
+            );
     }
 
     app.streaming_buffer.clear();
     app.is_streaming = false;
+    app.stream_started_at = None;
+    app.stream_first_think_closed_at = None;
     app.mark_session_dirty(SaveTrigger::StreamDone, true);
     app.invalidate_chat_caches();
     app.auto_scroll = true;

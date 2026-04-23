@@ -20,6 +20,109 @@ use super::App;
 
 use super::theme::Theme;
 
+fn thought_summary_label(thought_seconds: Option<u32>) -> String {
+    match thought_seconds {
+        Some(1) => "(Thought for 1 second)".to_owned(),
+        Some(seconds) => format!("(Thought for {seconds} seconds)"),
+        None => "(Thought for a moment)".to_owned(),
+    }
+}
+
+fn render_indented_text_lines(
+    text: &str,
+    base_style: Style,
+    dialogue_color: Color,
+    file_reference_color: Color,
+) -> Vec<Line<'static>> {
+    text.lines()
+        .map(|line| {
+            let styled = parse_styled_line(line, dialogue_color, file_reference_color);
+            let mut indented: Vec<Span<'static>> = vec![Span::raw("  ")];
+            for span in styled.spans {
+                indented.push(Span::styled(
+                    span.content.into_owned(),
+                    span.style.patch(base_style),
+                ));
+            }
+            Line::from(indented)
+        })
+        .collect()
+}
+
+fn render_assistant_lines(
+    content: &str,
+    thought_seconds: Option<u32>,
+    theme: &Theme,
+    implicit_open_from_start: bool,
+    collapse_completed: bool,
+    highlight_incomplete_thought: bool,
+) -> Vec<Line<'static>> {
+    let split = super::thought::split_first_think_block(content, implicit_open_from_start);
+
+    let Some(thought) = split.thought else {
+        return render_indented_text_lines(
+            content,
+            Style::default(),
+            theme.dialogue,
+            theme.file_reference_fg,
+        );
+    };
+
+    if !split.closed {
+        if highlight_incomplete_thought {
+            return render_indented_text_lines(
+                thought,
+                Style::default().fg(theme.summary_indicator),
+                theme.summary_indicator,
+                theme.summary_indicator,
+            );
+        }
+        return render_indented_text_lines(
+            thought,
+            Style::default(),
+            theme.dialogue,
+            theme.file_reference_fg,
+        );
+    }
+
+    if !collapse_completed {
+        let mut lines = render_indented_text_lines(
+            thought,
+            Style::default(),
+            theme.dialogue,
+            theme.file_reference_fg,
+        );
+        if !split.after.is_empty() {
+            lines.push(Line::from(""));
+            lines.extend(render_indented_text_lines(
+                split.after,
+                Style::default(),
+                theme.dialogue,
+                theme.file_reference_fg,
+            ));
+        }
+        return lines;
+    }
+
+    let mut lines = vec![Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            thought_summary_label(thought_seconds),
+            Style::default().fg(theme.summary_indicator),
+        ),
+    ])];
+    if !split.after.is_empty() {
+        lines.push(Line::from(""));
+        lines.extend(render_indented_text_lines(
+            split.after,
+            Style::default(),
+            theme.dialogue,
+            theme.file_reference_fg,
+        ));
+    }
+    lines
+}
+
 fn format_file_snapshot_block(
     content: &str,
     summary: Option<&libllm::files::FileSummary>,
@@ -469,16 +572,25 @@ pub fn render_chat(
                         None => msg.content.as_str(),
                     };
                     let content = replace_vars(raw_content);
-                    let dialogue_color = app.theme.dialogue;
-                    content
-                        .lines()
-                        .map(|line| {
-                            let styled = parse_styled_line(line, dialogue_color, app.theme.file_reference_fg);
-                            let mut indented = vec![Span::raw("  ")];
-                            indented.extend(styled.spans);
-                            Line::from(indented)
-                        })
-                        .collect()
+                    if msg.role == Role::Assistant {
+                        let implicit_open_from_start = msg.thought_seconds.is_some()
+                            || content.contains("</think>");
+                        render_assistant_lines(
+                            &content,
+                            msg.thought_seconds,
+                            &app.theme,
+                            implicit_open_from_start,
+                            true,
+                            false,
+                        )
+                    } else {
+                        render_indented_text_lines(
+                            &content,
+                            Style::default(),
+                            app.theme.dialogue,
+                            app.theme.file_reference_fg,
+                        )
+                    }
                 };
 
                 let total_height = content_lines
@@ -583,12 +695,19 @@ pub fn render_chat(
             )]));
         }
         let buffer = replace_vars(&app.streaming_buffer);
-        for content_line in buffer.lines() {
-            let styled = parse_styled_line(content_line, app.theme.dialogue, app.theme.file_reference_fg);
-            let mut indented = vec![Span::raw("  ")];
-            indented.extend(styled.spans);
-            lines.push(Line::from(indented));
-        }
+        let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
+        let thought_seconds = crate::tui::thought::measured_thought_seconds(
+            app.stream_started_at,
+            app.stream_first_think_closed_at,
+        );
+        lines.extend(render_assistant_lines(
+            &buffer,
+            thought_seconds,
+            &app.theme,
+            implicit_open_from_start,
+            app.stream_first_think_closed_at.is_some(),
+            true,
+        ));
     }
 
     let visible_height = area.height.saturating_sub(2);
@@ -1062,5 +1181,41 @@ mod tests {
         let body = libllm::files::build_snapshot_body("x.md", "hello\nworld");
         let size = inner_snapshot_size(&body);
         assert_eq!(size, "hello\nworld".len());
+    }
+
+    #[test]
+    fn render_assistant_lines_collapses_completed_thought() {
+        let theme = crate::tui::theme::Theme::dark();
+        let lines = render_assistant_lines(
+            "brainstorm</think>Answer",
+            Some(12),
+            &theme,
+            true,
+            true,
+            false,
+        );
+
+        assert_eq!(lines[0].spans[1].content, "(Thought for 12 seconds)");
+        assert_eq!(lines[2].spans[1].content, "Answer");
+    }
+
+    #[test]
+    fn render_assistant_lines_shows_inflight_thought_in_gray() {
+        let theme = crate::tui::theme::Theme::dark();
+        let lines = render_assistant_lines("planning answer", None, &theme, true, false, true);
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[1].content, "planning answer");
+        assert_eq!(lines[0].spans[1].style.fg, Some(theme.summary_indicator));
+    }
+
+    #[test]
+    fn render_assistant_lines_hides_unclosed_explicit_tags_in_final_message() {
+        let theme = crate::tui::theme::Theme::dark();
+        let lines = render_assistant_lines("<think>unfinished", None, &theme, false, true, false);
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[1].content, "unfinished");
+        assert_ne!(lines[0].spans[1].style.fg, Some(theme.summary_indicator));
     }
 }

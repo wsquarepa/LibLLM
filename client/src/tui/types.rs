@@ -146,6 +146,10 @@ pub(super) struct ScrollState {
     /// dirty the scroll state and let `auto_scroll` re-snap to the new bottom.
     pub(super) branch_len: usize,
     pub(super) buffer_len: usize,
+    /// Tracks whether the first streamed think block has closed. The transition
+    /// collapses the rendered chat height without changing `buffer_len`, so
+    /// without this the auto-scroll re-snap misses the collapse frame.
+    pub(super) first_think_closed: bool,
     pub(super) width: u16,
     pub(super) height: u16,
     /// Monotonic counter bumped whenever a file-summary completion lands. File
@@ -188,6 +192,8 @@ pub(super) struct App<'a> {
     pub(super) streaming_buffer: String,
     pub(super) is_streaming: bool,
     pub(super) is_continuation: bool,
+    pub(super) stream_started_at: Option<std::time::Instant>,
+    pub(super) stream_first_think_closed_at: Option<std::time::Instant>,
     pub(super) message_queue: Vec<String>,
     pub(super) streaming_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) is_summarizing: bool,

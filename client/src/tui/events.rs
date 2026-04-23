@@ -196,8 +196,12 @@ fn handle_edit_message(
     node_id: libllm::session::NodeId,
     content: String,
 ) {
-    let old_content = match app.session.tree.node(node_id) {
-        Some(n) => n.message.content.clone(),
+    let (old_role, old_content, old_thought_seconds) = match app.session.tree.node(node_id) {
+        Some(n) => (
+            n.message.role,
+            n.message.content.clone(),
+            n.message.thought_seconds,
+        ),
         None => {
             app.set_status(
                 "edit target vanished from the tree".to_owned(),
@@ -210,9 +214,24 @@ fn handle_edit_message(
     let file_refs_unchanged = file_ref_paths(&old_content) == file_ref_paths(&content);
 
     if file_refs_unchanged {
+        let resolved_thought_seconds = if old_role == libllm::session::Role::Assistant {
+            let implicit_open_from_start =
+                old_thought_seconds.is_some() || old_content.contains("</think>");
+            crate::tui::thought::resolve_thought_seconds(
+                &content,
+                old_thought_seconds,
+                None,
+                implicit_open_from_start,
+            )
+        } else {
+            None
+        };
         if let Some(new_root) = app.session.tree.duplicate_subtree(node_id)
             && app.session.tree.set_message_content(new_root, content)
         {
+            app.session
+                .tree
+                .set_message_thought_seconds(new_root, resolved_thought_seconds);
             app.session.tree.switch_to(new_root);
             app.invalidate_chat_caches();
             app.nav_cursor = Some(new_root);

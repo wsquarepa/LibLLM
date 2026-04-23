@@ -178,6 +178,7 @@ fn rendered_prompt_contains_wrapped_body_and_basename_substitution() {
                 role: m.role,
                 content: libllm::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
+                thought_seconds: m.thought_seconds,
             },
             _ => m.clone(),
         })
@@ -224,6 +225,7 @@ fn rendered_prompt_preserves_snapshot_for_multiple_files_in_order() {
                 role: m.role,
                 content: libllm::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
+                thought_seconds: m.thought_seconds,
             },
             _ => m.clone(),
         })

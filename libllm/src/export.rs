@@ -3,6 +3,84 @@
 use crate::session::{self, Message, Role};
 use crate::template;
 
+const THINK_OPEN_TAG: &str = "<think>";
+const THINK_CLOSE_TAG: &str = "</think>";
+
+struct ThoughtSplit<'a> {
+    thought: &'a str,
+    after: &'a str,
+    closed: bool,
+}
+
+/// Thought blocks are only captured when they sit at the very start of the
+/// response, matching the TUI's render semantics. Any later `<think>` /
+/// `</think>` tokens are treated as literal content.
+fn split_thought_at_start<'a>(content: &'a str, assume_implicit: bool) -> Option<ThoughtSplit<'a>> {
+    if let Some(after_open) = content.strip_prefix(THINK_OPEN_TAG) {
+        if let Some(close_rel) = after_open.find(THINK_CLOSE_TAG) {
+            let after_idx = close_rel + THINK_CLOSE_TAG.len();
+            return Some(ThoughtSplit {
+                thought: &after_open[..close_rel],
+                after: &after_open[after_idx..],
+                closed: true,
+            });
+        }
+        return Some(ThoughtSplit {
+            thought: after_open,
+            after: "",
+            closed: false,
+        });
+    }
+    if assume_implicit {
+        if let Some(close_idx) = content.find(THINK_CLOSE_TAG) {
+            let after_idx = close_idx + THINK_CLOSE_TAG.len();
+            return Some(ThoughtSplit {
+                thought: &content[..close_idx],
+                after: &content[after_idx..],
+                closed: true,
+            });
+        }
+        return Some(ThoughtSplit {
+            thought: content,
+            after: "",
+            closed: false,
+        });
+    }
+    None
+}
+
+fn thought_label(seconds: Option<u32>) -> String {
+    match seconds {
+        Some(1) => "Thought for 1 second".to_owned(),
+        Some(n) => format!("Thought for {n} seconds"),
+        None => "Thought for a moment".to_owned(),
+    }
+}
+
+fn assume_implicit_thought(msg: &Message) -> bool {
+    msg.role == Role::Assistant
+        && (msg.thought_seconds.is_some() || msg.content.contains(THINK_CLOSE_TAG))
+}
+
+fn markdown_format_assistant_body(content: &str, msg: &Message) -> String {
+    let assume_implicit = assume_implicit_thought(msg);
+    let Some(split) = split_thought_at_start(content, assume_implicit) else {
+        return content.to_owned();
+    };
+    if !split.closed {
+        return split.thought.to_owned();
+    }
+    let label = thought_label(msg.thought_seconds);
+    if split.after.is_empty() {
+        format!("<details>\n<summary>{label}</summary>\n\n{}\n\n</details>", split.thought)
+    } else {
+        format!(
+            "<details>\n<summary>{label}</summary>\n\n{}\n\n</details>\n\n{}",
+            split.thought, split.after
+        )
+    }
+}
+
 pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) -> String {
     let _span = tracing::info_span!("export.markdown", message_count = messages.len()).entered();
     let mut out = String::new();
@@ -13,7 +91,12 @@ pub fn render_markdown(messages: &[&Message], char_name: &str, user_name: &str) 
             Role::System | Role::Summary => "System",
         };
         let content = template::apply_template_vars(&msg.content, char_name, user_name);
-        out.push_str(&format!("## {role_label}\n\n{content}\n\n---\n\n"));
+        let body = if msg.role == Role::Assistant {
+            markdown_format_assistant_body(&content, msg)
+        } else {
+            content
+        };
+        out.push_str(&format!("## {role_label}\n\n{body}\n\n---\n\n"));
     }
     tracing::info!(phase = "done", output_bytes = out.len(), "export.markdown");
     out
@@ -30,7 +113,11 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
                 Role::System | Role::Summary => "System",
             };
             let content = template::apply_template_vars(&msg.content, char_name, user_name);
-            let formatted = html_format_content(&content);
+            let formatted = if msg.role == Role::Assistant {
+                html_format_assistant_body(&content, msg)
+            } else {
+                html_format_content(&content)
+            };
             let class = match msg.role {
                 Role::User => "user",
                 Role::Assistant => "assistant",
@@ -185,6 +272,17 @@ pub fn render_html(messages: &[&Message], char_name: &str, user_name: &str) -> S
       color: var(--accent-assistant);
     }}
 
+    .content details.thought {{
+      margin-bottom: 0.5rem;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }}
+
+    .content details.thought summary {{
+      cursor: pointer;
+      font-style: italic;
+    }}
+
     time {{
       display: block;
       color: var(--text-dim);
@@ -289,6 +387,26 @@ pub fn html_format_content(content: &str) -> String {
         .join("\n")
 }
 
+fn html_format_assistant_body(content: &str, msg: &Message) -> String {
+    let assume_implicit = assume_implicit_thought(msg);
+    let Some(split) = split_thought_at_start(content, assume_implicit) else {
+        return html_format_content(content);
+    };
+    if !split.closed {
+        return html_format_content(split.thought);
+    }
+    let label = html_escape(&thought_label(msg.thought_seconds));
+    let thought_formatted = html_format_content(split.thought);
+    if split.after.is_empty() {
+        format!("<details class=\"thought\"><summary>{label}</summary>\n{thought_formatted}\n</details>")
+    } else {
+        let after_formatted = html_format_content(split.after);
+        format!(
+            "<details class=\"thought\"><summary>{label}</summary>\n{thought_formatted}\n</details>\n{after_formatted}"
+        )
+    }
+}
+
 pub fn render_jsonl(messages: &[&Message], char_name: &str, user_name: &str) -> String {
     let _span = tracing::info_span!("export.jsonl", message_count = messages.len()).entered();
     let mut lines = Vec::new();
@@ -346,11 +464,13 @@ mod tests {
                 role: Role::User,
                 content: "Hello {{char}}".to_owned(),
                 timestamp: "2026-01-15T10:00:00Z".to_owned(),
+                thought_seconds: None,
             },
             Message {
                 role: Role::Assistant,
                 content: "Hi {{user}}!".to_owned(),
                 timestamp: "2026-01-15T10:00:05Z".to_owned(),
+                thought_seconds: None,
             },
         ]
     }
@@ -495,5 +615,82 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         let user_entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(user_entry["mes"], "Hello Alice");
+    }
+
+    fn assistant_thought_msg(content: &str, thought_seconds: Option<u32>) -> Message {
+        Message {
+            role: Role::Assistant,
+            content: content.to_owned(),
+            timestamp: "2026-01-15T10:00:05Z".to_owned(),
+            thought_seconds,
+        }
+    }
+
+    #[test]
+    fn markdown_collapses_explicit_thought_block() {
+        let msgs = [assistant_thought_msg(
+            "<think>planning</think>Answer",
+            Some(12),
+        )];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Char", "User");
+        assert!(result.contains("<details>\n<summary>Thought for 12 seconds</summary>"));
+        assert!(result.contains("\n\nplanning\n\n"));
+        assert!(result.contains("</details>\n\nAnswer"));
+        assert!(!result.contains("<think>"));
+    }
+
+    #[test]
+    fn markdown_collapses_implicit_thought_block_with_moment_label() {
+        let msgs = [assistant_thought_msg("musing</think>Answer", None)];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Char", "User");
+        assert!(result.contains("<summary>Thought for a moment</summary>"));
+        assert!(result.contains("</details>\n\nAnswer"));
+    }
+
+    #[test]
+    fn markdown_unclosed_explicit_thought_drops_opening_marker() {
+        let msgs = [assistant_thought_msg("<think>still thinking", None)];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Char", "User");
+        assert!(!result.contains("<think>"));
+        assert!(!result.contains("<details>"));
+        assert!(result.contains("still thinking"));
+    }
+
+    #[test]
+    fn markdown_leaves_later_literal_think_tags_in_body() {
+        let msgs = [assistant_thought_msg(
+            "<think>a</think>code: <think>b</think>",
+            Some(3),
+        )];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_markdown(&refs, "Char", "User");
+        assert!(result.contains("</details>\n\ncode: <think>b</think>"));
+    }
+
+    #[test]
+    fn html_collapses_explicit_thought_block() {
+        let msgs = [assistant_thought_msg(
+            "<think>planning</think>Hi!",
+            Some(7),
+        )];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(
+            result.contains("<details class=\"thought\"><summary>Thought for 7 seconds</summary>")
+        );
+        assert!(result.contains("</summary>\nplanning\n</details>"));
+        assert!(result.contains("Hi!"));
+    }
+
+    #[test]
+    fn html_assistant_without_thought_is_unaffected() {
+        let msgs = [assistant_thought_msg("Just an answer", None)];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let result = render_html(&refs, "Char", "User");
+        assert!(!result.contains("<details"));
+        assert!(result.contains("Just an answer"));
     }
 }

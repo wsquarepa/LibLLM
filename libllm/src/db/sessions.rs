@@ -96,8 +96,8 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
             .get(&node.id)
             .map(|&c| c as i64);
         conn.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 node.id as i64,
                 id,
@@ -106,6 +106,7 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
                 node.message.role.to_string(),
                 node.message.content,
                 node.message.timestamp,
+                node.message.thought_seconds.map(i64::from),
             ],
         )
         .context("failed to insert message row")?;
@@ -206,7 +207,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp
+                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds
                      FROM messages WHERE session_id = ?1 ORDER BY id",
                 )
                 .context("failed to prepare message query")?;
@@ -222,23 +223,46 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     let role_str: String = row.get(3)?;
                     let content: String = row.get(4)?;
                     let timestamp: String = row.get(5)?;
-                    Ok((msg_id, parent_id, preferred_child_id, role_str, content, timestamp))
+                    let thought_seconds: Option<i64> = row.get(6)?;
+                    Ok((
+                        msg_id,
+                        parent_id,
+                        preferred_child_id,
+                        role_str,
+                        content,
+                        timestamp,
+                        thought_seconds,
+                    ))
                 })
                 .context("failed to query messages")?;
 
             for row in rows {
-                let (msg_id, parent_id, preferred_child_id, role_str, content, timestamp) =
-                    row.context("failed to read message row")?;
+                let (
+                    msg_id,
+                    parent_id,
+                    preferred_child_id,
+                    role_str,
+                    content,
+                    timestamp,
+                    thought_seconds,
+                ) = row.context("failed to read message row")?;
 
                 let role: Role = role_str
                     .parse()
                     .with_context(|| format!("invalid role in message {msg_id}: {role_str}"))?;
+                let thought_seconds: Option<u32> =
+                    thought_seconds.and_then(|seconds| u32::try_from(seconds).ok());
 
                 let node = Node {
                     id: msg_id as usize,
                     parent: parent_id.map(|p| p as usize),
                     children: Vec::new(),
-                    message: Message { role, content, timestamp },
+                    message: Message {
+                        role,
+                        content,
+                        timestamp,
+                        thought_seconds,
+                    },
                 };
 
                 if let Some(child_id) = preferred_child_id {
@@ -346,8 +370,8 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
         content_bytes = content_bytes
         ; {
             conn.execute(
-                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     node.id as i64,
                     session_id,
@@ -356,6 +380,7 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
                     node.message.role.to_string(),
                     node.message.content,
                     node.message.timestamp,
+                    node.message.thought_seconds.map(i64::from),
                 ],
             )
             .context("failed to upsert message")?;
@@ -452,6 +477,7 @@ mod tests {
                     role: Role::User,
                     content: "Hello".to_owned(),
                     timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                    thought_seconds: None,
                 },
             },
             Node {
@@ -462,6 +488,7 @@ mod tests {
                     role: Role::Assistant,
                     content: "Hi there!".to_owned(),
                     timestamp: "2026-01-01T00:00:01Z".to_owned(),
+                    thought_seconds: Some(7),
                 },
             },
         ];
@@ -475,6 +502,23 @@ mod tests {
             worldbooks: vec!["book1".to_owned(), "book2".to_owned()],
             persona: Some("TestUser".to_owned()),
         }
+    }
+
+    #[test]
+    fn negative_thought_seconds_in_row_loads_as_none() {
+        let mut conn = setup_db();
+        let session = make_session_with_messages();
+        insert_session(&mut conn, "sess-neg", &session).unwrap();
+
+        conn.execute(
+            "UPDATE messages SET thought_seconds = -1 WHERE session_id = 'sess-neg' AND id = 1",
+            [],
+        )
+        .unwrap();
+
+        let loaded = load_session(&conn, "sess-neg").unwrap();
+        let node1 = loaded.tree.node(1).unwrap();
+        assert_eq!(node1.message.thought_seconds, None);
     }
 
     #[test]
@@ -504,6 +548,7 @@ mod tests {
         assert_eq!(node1.message.content, "Hi there!");
         assert_eq!(node1.message.role, Role::Assistant);
         assert_eq!(node1.parent, Some(0));
+        assert_eq!(node1.message.thought_seconds, Some(7));
     }
 
     #[test]
@@ -522,6 +567,7 @@ mod tests {
                     role: Role::User,
                     content: "Hello".to_owned(),
                     timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                    thought_seconds: None,
                 },
             },
             Node {
@@ -532,6 +578,7 @@ mod tests {
                     role: Role::Assistant,
                     content: "Response A".to_owned(),
                     timestamp: "2026-01-01T00:00:01Z".to_owned(),
+                    thought_seconds: None,
                 },
             },
             Node {
@@ -542,6 +589,7 @@ mod tests {
                     role: Role::Assistant,
                     content: "Response B".to_owned(),
                     timestamp: "2026-01-01T00:00:02Z".to_owned(),
+                    thought_seconds: None,
                 },
             },
             Node {
@@ -552,6 +600,7 @@ mod tests {
                     role: Role::User,
                     content: "Follow up".to_owned(),
                     timestamp: "2026-01-01T00:00:03Z".to_owned(),
+                    thought_seconds: None,
                 },
             },
         ];
@@ -698,6 +747,7 @@ mod tests {
                 role: Role::User,
                 content: "Another message".to_owned(),
                 timestamp: "2026-01-01T00:00:05Z".to_owned(),
+                thought_seconds: None,
             },
         };
 

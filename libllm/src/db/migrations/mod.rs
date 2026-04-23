@@ -8,11 +8,12 @@
 
 mod v1;
 mod v2;
+mod v3;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 2;
+pub const CURRENT_VERSION: i64 = 3;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -40,6 +41,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 2 {
             v2::migrate(conn)?;
             stamp_version(conn, 2)?;
+            applied += 1;
+        }
+        if version < 3 {
+            v3::migrate(conn)?;
+            stamp_version(conn, 3)?;
             applied += 1;
         }
 
@@ -156,6 +162,24 @@ mod tests {
     }
 
     #[test]
+    fn v3_adds_messages_thought_seconds_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let mut stmt = conn.prepare("PRAGMA table_info(messages)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert!(
+            cols.iter().any(|c| c == "thought_seconds"),
+            "missing column 'thought_seconds' in {cols:?}"
+        );
+    }
+
+    #[test]
     fn upgrade_from_v1_preserves_existing_rows() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -181,6 +205,48 @@ mod tests {
             )
             .unwrap();
         assert_eq!(name, "Alice");
+    }
+
+    #[test]
+    fn upgrade_from_v2_preserves_existing_messages() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (2);",
+        )
+        .unwrap();
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+             VALUES (0, 's1', NULL, NULL, 'assistant', 'hello', 'now')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM messages WHERE session_id = 's1' AND id = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let thought_seconds: Option<i64> = conn
+            .query_row(
+                "SELECT thought_seconds FROM messages WHERE session_id = 's1' AND id = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content, "hello");
+        assert_eq!(thought_seconds, None);
     }
 
     #[test]

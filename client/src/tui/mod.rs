@@ -11,6 +11,7 @@ mod input_file_cache;
 mod maintenance;
 mod render;
 mod state;
+mod thought;
 pub mod theme;
 mod types;
 
@@ -165,6 +166,7 @@ pub async fn run(
             head: None,
             branch_len: 0,
             buffer_len: 0,
+            first_think_closed: false,
             width: 0,
             height: 0,
             summary_revision: 0,
@@ -174,6 +176,8 @@ pub async fn run(
         streaming_buffer: String::new(),
         is_streaming: false,
         is_continuation: false,
+        stream_started_at: None,
+        stream_first_think_closed_at: None,
         message_queue: Vec::new(),
         streaming_task: None,
         is_summarizing: false,
@@ -544,6 +548,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         head: app.session.tree.head(),
         branch_len: app.session.tree.current_branch_ids().len(),
         buffer_len: app.streaming_buffer.len(),
+        first_think_closed: app.stream_first_think_closed_at.is_some(),
         width: messages_area.width,
         height: messages_area.height,
         summary_revision: app.file_summary_revision,

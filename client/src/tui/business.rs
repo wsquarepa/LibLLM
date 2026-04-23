@@ -513,8 +513,13 @@ fn parse_usize_clamped(value: &str, min: usize, max: usize) -> usize {
         .unwrap_or(min)
 }
 
-fn parse_u8_clamped(s: &str, min: u8, max: u8) -> u8 {
-    s.parse::<u8>().unwrap_or(min).clamp(min, max)
+fn parse_u8_clamped(value: &str, min: u8, max: u8) -> u8 {
+    value
+        .trim()
+        .parse::<u8>()
+        .ok()
+        .map(|v| v.clamp(min, max))
+        .unwrap_or(min)
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -24,16 +24,14 @@ pub struct ResolvedFile {
     pub byte_size: usize,
 }
 
-/// Resolve and classify every `@<token>` in `content`, producing a list
-/// of `Role::System` messages in input order. Returns `Ok(Vec::new())`
-/// when `content` contains no file references. Does not touch the
-/// synthetic `@stdin` token — callers that handle stdin attach it
-/// separately via `stdin_attachment`.
-pub fn resolve_all(
+/// Resolve every `@<token>` in `content` into `ResolvedFile`s with their canonical
+/// paths retained. Returns `Ok(Vec::new())` when `content` contains no file references.
+/// Does not touch `@stdin`; see `stdin_attachment` for that path.
+pub fn resolve_all_resolved(
     content: &str,
     cwd: &Path,
     config: &FilesConfig,
-) -> Result<Vec<Message>, FileError> {
+) -> Result<Vec<ResolvedFile>, FileError> {
     if !config.enabled {
         return Ok(Vec::new());
     }
@@ -41,11 +39,23 @@ pub fn resolve_all(
     let mut files: Vec<ResolvedFile> = Vec::with_capacity(refs.len());
     for r in refs {
         if r.path() == "stdin" {
-            continue; // handled by stdin_attachment path, not this loop
+            continue;
         }
         files.push(resolve_one(&r.raw, cwd, config)?);
     }
-    finalise(files, config)
+    Ok(files)
+}
+
+/// Resolve and classify every `@<token>` in `content`, producing a list of
+/// `Role::System` messages in input order. Thin wrapper around
+/// `resolve_all_resolved` + `assemble_snapshot_messages`.
+pub fn resolve_all(
+    content: &str,
+    cwd: &Path,
+    config: &FilesConfig,
+) -> Result<Vec<Message>, FileError> {
+    let files = resolve_all_resolved(content, cwd, config)?;
+    assemble_snapshot_messages(files, config)
 }
 
 /// Build a `ResolvedFile` for piped stdin bytes, labelled as `stdin`.
@@ -76,16 +86,15 @@ pub fn stdin_attachment(
     })
 }
 
-/// Consume an already-resolved list (e.g. `stdin_attachment` outputs)
-/// plus a `content` body, run the per-token resolution for the rest,
-/// and produce the final message list. Used by the CLI path to merge
-/// the stdin attachment into the input-order stream.
-pub fn resolve_with_prepended(
+/// Same as `resolve_all_resolved` but accepts a prepended list of already-resolved
+/// files (e.g. a stdin attachment) that are merged into the returned vector ahead
+/// of the `@<path>` resolutions.
+pub fn resolve_with_prepended_resolved(
     prepended: Vec<ResolvedFile>,
     content: &str,
     cwd: &Path,
     config: &FilesConfig,
-) -> Result<Vec<Message>, FileError> {
+) -> Result<Vec<ResolvedFile>, FileError> {
     if !config.enabled {
         return Ok(Vec::new());
     }
@@ -96,7 +105,20 @@ pub fn resolve_with_prepended(
         }
         files.push(resolve_one(&r.raw, cwd, config)?);
     }
-    finalise(files, config)
+    Ok(files)
+}
+
+/// Consume an already-resolved list plus a `content` body, run the per-token
+/// resolution for the rest, and produce the final message list. Thin wrapper
+/// around `resolve_with_prepended_resolved` + `assemble_snapshot_messages`.
+pub fn resolve_with_prepended(
+    prepended: Vec<ResolvedFile>,
+    content: &str,
+    cwd: &Path,
+    config: &FilesConfig,
+) -> Result<Vec<Message>, FileError> {
+    let files = resolve_with_prepended_resolved(prepended, content, cwd, config)?;
+    assemble_snapshot_messages(files, config)
 }
 
 fn resolve_one(
@@ -152,7 +174,9 @@ fn resolve_one(
     })
 }
 
-fn finalise(
+/// Convert a list of resolved files into snapshot `Role::System` messages. The only
+/// failure mode is a combined body exceeding the per-message byte cap.
+pub fn assemble_snapshot_messages(
     files: Vec<ResolvedFile>,
     config: &FilesConfig,
 ) -> Result<Vec<Message>, FileError> {
@@ -419,5 +443,33 @@ mod tests {
         assert_eq!(msgs.len(), 1);
         assert!(msgs[0].content.contains("<<<FILE Lecture 29 notes.md>>>"));
         assert!(msgs[0].content.contains("lecture body"));
+    }
+
+    #[test]
+    fn resolve_all_resolved_preserves_canonical_path() {
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("note.md");
+        std::fs::write(&target, "body").unwrap();
+        let resolved = resolve_all_resolved("see @note.md", tmp.path(), &config()).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].canonical_path, std::fs::canonicalize(&target).unwrap());
+        assert_eq!(resolved[0].body, "body");
+    }
+
+    #[test]
+    fn assemble_snapshot_messages_respects_per_message_cap() {
+        let cfg = FilesConfig {
+            per_message_bytes: 4,
+            ..FilesConfig::default()
+        };
+        let rf = ResolvedFile {
+            raw_token: "@x.md".to_owned(),
+            canonical_path: PathBuf::from("/tmp/x.md"),
+            basename: "x.md".to_owned(),
+            body: "abcdef".to_owned(),
+            byte_size: 6,
+        };
+        let err = assemble_snapshot_messages(vec![rf], &cfg).unwrap_err();
+        assert!(matches!(err, FileError::MessageTooLarge { .. }));
     }
 }

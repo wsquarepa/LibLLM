@@ -93,7 +93,7 @@ impl HeuristicTokenizer {
         let chars = text.len() as u64;
         let num = self.chars_numerator as u64;
         let den = self.chars_denominator as u64;
-        let content = ((chars * num + den - 1) / den) as usize;
+        let content = (chars * num).div_ceil(den) as usize;
         content + self.overhead_per_message * message_count
     }
 }
@@ -115,7 +115,7 @@ impl TokenizerBackend {
     pub async fn count(&self, text: &str) -> Result<usize> {
         match self {
             Self::Server(s) => s.count(text).await,
-            Self::Heuristic(h) => Ok(h.count(text, 0)),
+            Self::Heuristic(h) => Ok(h.count(text, 1)),
         }
     }
 }
@@ -250,8 +250,8 @@ impl TokenCounter {
 
     /// Returns a heuristic count for arbitrary text without touching the cache or backend.
     /// Used by the input-box render path.
-    pub fn heuristic_count(&self, text: &str) -> usize {
-        self.fallback.count(text, 0)
+    pub fn heuristic_count(&self, text: &str, message_count: usize) -> usize {
+        self.fallback.count(text, message_count)
     }
 
     fn hash_key(text: &str) -> u64 {
@@ -259,7 +259,7 @@ impl TokenCounter {
     }
 
     /// Sync read. Never awaits. Enqueues a background refresh on miss.
-    pub fn count_cached(&self, text: &str) -> CountState {
+    pub fn count_cached(&self, text: &str, message_count: usize) -> CountState {
         let key = Self::hash_key(text);
 
         if let Some(&n) = self
@@ -287,7 +287,7 @@ impl TokenCounter {
             .expect("tokenizer last_authoritative poisoned");
         match (is_server_backend, last) {
             (true, Some(n)) => CountState::Stale(n),
-            _ => CountState::Estimated(self.fallback.count(text, 0)),
+            _ => CountState::Estimated(self.fallback.count(text, message_count)),
         }
     }
 
@@ -407,7 +407,7 @@ mod tests {
         );
         // Prime the cache with a known value.
         counter.insert_cached_for_test("hello", 42);
-        match counter.count_cached("hello") {
+        match counter.count_cached("hello", 1) {
             CountState::Authoritative(n) => assert_eq!(n, 42),
             other => panic!("expected Authoritative, got {other:?}"),
         }
@@ -420,9 +420,9 @@ mod tests {
             TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
             tx,
         );
-        match counter.count_cached("abcdefgh") {
+        match counter.count_cached("abcdefgh", 1) {
             CountState::Estimated(n) => {
-                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh", 0));
+                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh", 1));
             }
             other => panic!("expected Estimated, got {other:?}"),
         }
@@ -504,7 +504,7 @@ mod tests {
         let n = counter.count_authoritative("first").await.unwrap();
         assert_eq!(n, 9);
 
-        match counter.count_cached("different text") {
+        match counter.count_cached("different text", 1) {
             CountState::Stale(prev) => assert_eq!(prev, 9),
             other => panic!("expected Stale(9), got {other:?}"),
         }

@@ -648,7 +648,7 @@ mod tests {
         let k = find_smallest_drop(&counter, 60, 8, &render_at)
             .await
             .unwrap();
-        assert_eq!(k, 5);
+        assert_eq!(k, 6);
     }
 
     #[tokio::test]

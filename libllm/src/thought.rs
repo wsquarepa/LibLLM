@@ -69,11 +69,11 @@ pub fn split_first_think_block<'a>(
 }
 
 /// Reasoning presets attach their prefix to the *prompt* via `apply_prefix`, so
-/// the model's streamed response does not echo the opener back. Persist the
-/// response with the opener restored whenever the model genuinely engaged with
-/// thinking mode (the close marker is present), producing fully-tagged content
-/// that round-trips through storage, edit, and export. Noop when the preset is
-/// absent, the opener is already present, or no close marker exists.
+/// the model's streamed response does not echo the opener back. Restore the
+/// opener whenever one is configured and not already present, producing
+/// fully-tagged content that round-trips through streaming preview, storage,
+/// edit, and export. When the thought never closes, downstream rendering
+/// strips the opener and shows the body as plain text per the spec.
 pub fn normalize_assistant_content<'a>(
     content: &'a str,
     preset: Option<&ReasoningPreset>,
@@ -83,11 +83,7 @@ pub fn normalize_assistant_content<'a>(
         return Cow::Borrowed(content);
     };
     let open = preset.prefix.trim();
-    let close = preset.suffix.trim();
-    if open.is_empty() || close.is_empty() {
-        return Cow::Borrowed(content);
-    }
-    if content.starts_with(open) || !content.contains(close) {
+    if open.is_empty() || content.starts_with(open) {
         return Cow::Borrowed(content);
     }
     Cow::Owned(format!("{}{}", preset.prefix, content))
@@ -225,10 +221,10 @@ mod tests {
     }
 
     #[test]
-    fn normalize_is_noop_without_close_marker() {
+    fn normalize_adds_opener_even_without_close_marker() {
         let p = deepseek();
-        let out = normalize_assistant_content("plain answer", Some(&p));
-        assert_eq!(out, "plain answer");
+        let out = normalize_assistant_content("still thinking", Some(&p));
+        assert_eq!(out, "<think>\nstill thinking");
     }
 
     #[test]

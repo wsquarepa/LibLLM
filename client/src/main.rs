@@ -270,13 +270,43 @@ async fn main() -> Result<()> {
 
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let prepended = stdin_attachment.into_iter().collect::<Vec<_>>();
-        let system_messages = match libllm::files::resolve_with_prepended(
+        let resolved_files = match libllm::files::resolve_with_prepended_resolved(
             prepended,
             &text,
             &cwd,
             &cfg.files,
         ) {
-            Ok(msgs) => msgs,
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        };
+
+        if cfg.summarization.enabled && !resolved_files.is_empty() {
+            let (refresh_tx, _refresh_rx) = tokio::sync::mpsc::channel(8);
+            let token_counter =
+                libllm::tokenizer::TokenCounter::new(client.clone(), refresh_tx).await;
+            for file in &resolved_files {
+                if let Err(err) = libllm::files::check_file_fits(
+                    &token_counter,
+                    file,
+                    &cfg.files.summary_prompt,
+                    cfg.summarization.context_size,
+                )
+                .await
+                {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        let system_messages = match libllm::files::assemble_snapshot_messages(
+            resolved_files,
+            &cfg.files,
+        ) {
+            Ok(v) => v,
             Err(err) => {
                 eprintln!("{err}");
                 std::process::exit(1);

@@ -63,28 +63,38 @@ impl ServerTokenizer {
     }
 }
 
-/// Offline estimator matching the original 4-chars-per-token heuristic with a per-message overhead.
+/// Offline estimator using a fixed-point tokens-per-char ratio plus a per-message overhead.
+/// `chars_numerator / chars_denominator` is a tokens-per-char multiplier
+/// (e.g. 10/33 ≈ 0.303 tokens/char, equivalent to 3.3 chars/token).
+/// The formula is `ceil(text.len() * chars_numerator / chars_denominator) + overhead_per_message * message_count`.
 #[derive(Clone)]
 pub struct HeuristicTokenizer {
-    chars_per_token: usize,
+    chars_numerator: u32,
+    chars_denominator: u32,
     overhead_per_message: usize,
 }
 
 impl HeuristicTokenizer {
-    pub fn new(chars_per_token: usize, overhead_per_message: usize) -> Self {
+    pub fn new(chars_numerator: u32, chars_denominator: u32, overhead_per_message: usize) -> Self {
+        assert!(chars_denominator > 0, "chars_denominator must be non-zero");
         Self {
-            chars_per_token,
+            chars_numerator,
+            chars_denominator,
             overhead_per_message,
         }
     }
 
-    /// Default is the existing 4-chars-per-token + 4-per-message overhead.
+    /// 3.3 chars per token + 2 per-message overhead, ceiling-divided in integer arithmetic.
     pub fn standard() -> Self {
-        Self::new(4, 4)
+        Self::new(10, 33, 2)
     }
 
-    pub fn count(&self, text: &str) -> usize {
-        text.len() / self.chars_per_token + self.overhead_per_message
+    pub fn count(&self, text: &str, message_count: usize) -> usize {
+        let chars = text.len() as u64;
+        let num = self.chars_numerator as u64;
+        let den = self.chars_denominator as u64;
+        let content = (chars * num).div_ceil(den) as usize;
+        content + self.overhead_per_message * message_count
     }
 }
 
@@ -102,10 +112,17 @@ impl TokenizerBackend {
         }
     }
 
+    /// Counts tokens in `text` using the active backend.
+    ///
+    /// The heuristic branch passes `message_count = 1` because every caller of
+    /// `TokenCounter::count_authoritative` hands us a single already-assembled
+    /// prompt string, which we account for as one logical message for overhead
+    /// purposes. Multi-message heuristic estimates happen through `count_cached`
+    /// and `heuristic_count`, which take `message_count` directly.
     pub async fn count(&self, text: &str) -> Result<usize> {
         match self {
             Self::Server(s) => s.count(text).await,
-            Self::Heuristic(h) => Ok(h.count(text)),
+            Self::Heuristic(h) => Ok(h.count(text, 1)),
         }
     }
 }
@@ -240,8 +257,8 @@ impl TokenCounter {
 
     /// Returns a heuristic count for arbitrary text without touching the cache or backend.
     /// Used by the input-box render path.
-    pub fn heuristic_count(&self, text: &str) -> usize {
-        self.fallback.count(text)
+    pub fn heuristic_count(&self, text: &str, message_count: usize) -> usize {
+        self.fallback.count(text, message_count)
     }
 
     fn hash_key(text: &str) -> u64 {
@@ -249,7 +266,7 @@ impl TokenCounter {
     }
 
     /// Sync read. Never awaits. Enqueues a background refresh on miss.
-    pub fn count_cached(&self, text: &str) -> CountState {
+    pub fn count_cached(&self, text: &str, message_count: usize) -> CountState {
         let key = Self::hash_key(text);
 
         if let Some(&n) = self
@@ -277,7 +294,7 @@ impl TokenCounter {
             .expect("tokenizer last_authoritative poisoned");
         match (is_server_backend, last) {
             (true, Some(n)) => CountState::Stale(n),
-            _ => CountState::Estimated(self.fallback.count(text)),
+            _ => CountState::Estimated(self.fallback.count(text, message_count)),
         }
     }
 
@@ -302,6 +319,13 @@ impl TokenCounter {
             .lock()
             .expect("tokenizer last_authoritative poisoned") = Some(n);
         Ok(n)
+    }
+
+    /// Authoritatively tokenize N strings in parallel. Returns one result per input in
+    /// the same order. Failures are per-item: one bad request does not poison the others.
+    pub async fn count_many_authoritative(&self, texts: &[&str]) -> Vec<Result<usize>> {
+        let futures = texts.iter().map(|t| self.count_authoritative(t));
+        futures::future::join_all(futures).await
     }
 
     /// Called by the main event loop when a `TokenCountUpdate` arrives from a background task.
@@ -365,17 +389,27 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
-    fn heuristic_matches_legacy_formula() {
+    fn heuristic_matches_3_3_formula() {
         let t = HeuristicTokenizer::standard();
-        assert_eq!(t.count("a]bc"), 4 / 4 + 4);
-        assert_eq!(t.count("12345678"), 8 / 4 + 4);
-        assert_eq!(t.count(""), 4);
+        // ceil(0 * 10 / 33) + 2 * 0 = 0
+        assert_eq!(t.count("", 0), 0);
+        // ceil(0 * 10 / 33) + 2 * 1 = 2
+        assert_eq!(t.count("", 1), 2);
+        // ceil(3 * 10 / 33) + 2 * 0 = ceil(30/33) = 1
+        assert_eq!(t.count("abc", 0), 1);
+        // ceil(5 * 10 / 33) + 2 * 1 = ceil(50/33) + 2 = 2 + 2 = 4
+        assert_eq!(t.count("abcde", 1), 4);
+        // ceil(33 * 10 / 33) + 2 * 0 = 10
+        assert_eq!(t.count(&"a".repeat(33), 0), 10);
+        // ceil(34 * 10 / 33) + 2 * 0 = ceil(340/33) = 11
+        assert_eq!(t.count(&"a".repeat(34), 0), 11);
     }
 
     #[test]
     fn heuristic_tunable_overhead() {
-        let t = HeuristicTokenizer::new(4, 0);
-        assert_eq!(t.count("12345678"), 2);
+        let t = HeuristicTokenizer::new(10, 33, 0);
+        // no overhead; ceil(33 * 10 / 33) = 10
+        assert_eq!(t.count(&"a".repeat(33), 1), 10);
     }
 
     #[tokio::test]
@@ -387,7 +421,7 @@ mod tests {
         );
         // Prime the cache with a known value.
         counter.insert_cached_for_test("hello", 42);
-        match counter.count_cached("hello") {
+        match counter.count_cached("hello", 1) {
             CountState::Authoritative(n) => assert_eq!(n, 42),
             other => panic!("expected Authoritative, got {other:?}"),
         }
@@ -400,9 +434,9 @@ mod tests {
             TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
             tx,
         );
-        match counter.count_cached("abcdefgh") {
+        match counter.count_cached("abcdefgh", 1) {
             CountState::Estimated(n) => {
-                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh"));
+                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh", 1));
             }
             other => panic!("expected Estimated, got {other:?}"),
         }
@@ -484,7 +518,7 @@ mod tests {
         let n = counter.count_authoritative("first").await.unwrap();
         assert_eq!(n, 9);
 
-        match counter.count_cached("different text") {
+        match counter.count_cached("different text", 1) {
             CountState::Stale(prev) => assert_eq!(prev, 9),
             other => panic!("expected Stale(9), got {other:?}"),
         }
@@ -505,5 +539,47 @@ mod tests {
 
         let counter = TokenCounter::new(client, tx).await;
         assert_eq!(counter.kind(), TokenizerKind::Heuristic);
+    }
+
+    #[tokio::test]
+    async fn count_many_authoritative_preserves_input_order() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
+
+        // Heuristic: ceil(len * 10 / 33) + 2; distinct input lengths produce distinct counts,
+        // so order preservation in the output is actually verifiable.
+        let a = "a";
+        let bbbb = "bbbb";
+        let ccccccccc = "ccccccccc";
+        let results = counter
+            .count_many_authoritative(&[a, bbbb, ccccccccc])
+            .await;
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0].as_ref().unwrap(),
+            &HeuristicTokenizer::standard().count(a, 1)
+        );
+        assert_eq!(
+            results[1].as_ref().unwrap(),
+            &HeuristicTokenizer::standard().count(bbbb, 1)
+        );
+        assert_eq!(
+            results[2].as_ref().unwrap(),
+            &HeuristicTokenizer::standard().count(ccccccccc, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn count_many_authoritative_empty_slice_returns_empty() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
+        let results = counter.count_many_authoritative(&[]).await;
+        assert!(results.is_empty());
     }
 }

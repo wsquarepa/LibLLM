@@ -564,8 +564,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                 if app.worldbook_cache.is_none() {
                     commands::streaming::loaded_worldbooks(app);
                 }
-                let text = commands::streaming::build_rendered_prompt(app, 0);
-                let state = app.token_counter.count_cached(&text);
+                let (text, message_count) = commands::streaming::build_rendered_prompt(app, 0);
+                let state = app.token_counter.count_cached(&text, message_count);
                 app.cached_token_count = Some(state);
                 state
             }
@@ -585,6 +585,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
                     token_state: state,
                     is_heuristic: app.token_counter.is_heuristic(),
                     budget: app.context_mgr.token_limit(),
+                    trigger_percent: app.config.summarization.effective_trigger_percent(),
                 },
                 render::ChatRenderState {
                     chat_scroll: &mut chat_scroll,
@@ -700,7 +701,7 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
                 Err(_) => continue,
             };
             let text = classified.text().to_owned();
-            let estimated = app.token_counter.heuristic_count(&text);
+            let estimated = app.token_counter.heuristic_count(&text, 1);
             app.input_file_cache.insert(
                 canonical.clone(),
                 input_file_cache::CachedResolution {
@@ -741,7 +742,7 @@ fn estimate_input_tokens_from_text(
         return 0;
     }
 
-    token_counter.heuristic_count(trimmed)
+    token_counter.heuristic_count(trimmed, 1)
 }
 
 fn format_token_count(count: usize) -> String {
@@ -912,13 +913,13 @@ mod tests {
     #[test]
     fn estimate_input_tokens_from_text_trims_outer_whitespace() {
         let counter = heuristic_counter();
-        assert_eq!(estimate_input_tokens_from_text("  abcd  ", &counter), 5);
+        assert_eq!(estimate_input_tokens_from_text("  abcd  ", &counter), 4);
     }
 
     #[test]
     fn estimate_input_tokens_from_text_counts_multiline_content() {
         let counter = heuristic_counter();
-        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh", &counter), 6);
+        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh", &counter), 5);
     }
 
     #[test]

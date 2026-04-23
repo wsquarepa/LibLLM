@@ -10,9 +10,12 @@ LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a 
 
 ## Build and Test
 
+Always pipe `cargo test` and `cargo clippy` through `tee` so the full output lands in a log file you can re-inspect. Re-running a build just to see its output burns 1-to-5 minutes of CPU; re-reading the log is free.
+
 ```sh
 cargo build --workspace
-cargo test --workspace
+cargo test --workspace 2>&1 | tee /tmp/libllm-test.log
+cargo clippy --workspace --all-targets 2>&1 | tee /tmp/libllm-clippy.log
 ```
 
 CI runs `cargo test --workspace` on all pushes and PRs. Run tests locally before submitting changes.
@@ -33,13 +36,21 @@ Integration tests live in `client/tests/` across eight files: `business_logic`, 
 
 ### Verifying test results
 
-`cargo test --workspace` runs multiple binaries. Some may report `0 tests`. Do not use `tail` to check results. Instead:
+`cargo test --workspace` runs multiple binaries. Some may report `0 tests`. Do not use `tail` to check results. Read the captured log from `/tmp/libllm-test.log`:
 
 ```sh
-cargo test --workspace 2>&1 | grep -E "^test result:"
+grep -E "^test result:" /tmp/libllm-test.log
 ```
 
 Every line must show `0 failed`.
+
+When a line shows `FAILED`, investigate from the same log -- **do not re-run a narrower `cargo test -p ...` just to see the failure output again.** The full stdout of the failing test is already in the log:
+
+```sh
+grep -B2 -A20 -E "FAILED|^---- .* stdout ----" /tmp/libllm-test.log
+```
+
+Only re-run `cargo test` after you've edited code to fix the failure.
 
 ### No warning suppression
 
@@ -50,7 +61,13 @@ Never silence compiler warnings with `#[allow(...)]` attributes, `#![allow(...)]
 - Unused import → delete it.
 - Unused variable → delete it or use it.
 
-The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; `cargo clippy --workspace --all-targets` fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,build}.yml` runs this command on every PR and push; run it locally before pushing.
+The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; `cargo clippy --workspace --all-targets` fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,build}.yml` runs this command on every PR and push; run it locally before pushing. Pipe clippy through `tee` the same way and read back from `/tmp/libllm-clippy.log`:
+
+```sh
+grep -E "^error|^warning:" /tmp/libllm-clippy.log
+```
+
+Empty output means clean. Again, do not re-run clippy just to re-read its output.
 
 `#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `client/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
 

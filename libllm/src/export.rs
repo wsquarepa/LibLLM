@@ -3,7 +3,7 @@
 use crate::preset::ReasoningPreset;
 use crate::session::{self, Message, Role};
 use crate::template;
-use crate::thought::{self, ThinkSplit};
+use crate::thought;
 
 fn thought_label(seconds: Option<u32>) -> String {
     match seconds {
@@ -13,21 +13,12 @@ fn thought_label(seconds: Option<u32>) -> String {
     }
 }
 
-fn split_assistant_thought<'a>(
-    content: &'a str,
-    msg: &Message,
-    preset: Option<&ReasoningPreset>,
-) -> ThinkSplit<'a> {
-    let implicit = msg.thought_seconds.is_some() || thought::contains_close_marker(content, preset);
-    thought::split_first_think_block(content, preset, implicit)
-}
-
 fn markdown_format_assistant_body(
     content: &str,
     msg: &Message,
     preset: Option<&ReasoningPreset>,
 ) -> String {
-    let split = split_assistant_thought(content, msg, preset);
+    let split = thought::split_first_think_block(content, preset);
     let Some(thought) = split.thought else {
         return content.to_owned();
     };
@@ -366,7 +357,7 @@ fn html_format_assistant_body(
     msg: &Message,
     preset: Option<&ReasoningPreset>,
 ) -> String {
-    let split = split_assistant_thought(content, msg, preset);
+    let split = thought::split_first_think_block(content, preset);
     let Some(thought) = split.thought else {
         return html_format_content(content);
     };
@@ -629,13 +620,23 @@ mod tests {
     }
 
     #[test]
-    fn markdown_collapses_implicit_thought_block_with_moment_label() {
-        let msgs = [assistant_thought_msg("musing</think>Answer", None)];
+    fn markdown_uses_moment_label_when_duration_unknown() {
+        let msgs = [assistant_thought_msg("<think>musing</think>Answer", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
         let result = render_markdown(&refs, "Char", "User", Some(&preset));
         assert!(result.contains("<summary>Thought for a moment</summary>"));
         assert!(result.contains("</details>\n\nAnswer"));
+    }
+
+    #[test]
+    fn markdown_content_without_opener_is_not_collapsed() {
+        let msgs = [assistant_thought_msg("musing</think>Answer", Some(5))];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let preset = deepseek();
+        let result = render_markdown(&refs, "Char", "User", Some(&preset));
+        assert!(!result.contains("<details>"));
+        assert!(result.contains("musing</think>Answer"));
     }
 
     #[test]

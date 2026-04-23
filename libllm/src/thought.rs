@@ -6,6 +6,11 @@
 //! the marker without matching the configured whitespace (e.g. `</think>`
 //! instead of `\n</think>`). Without an active preset, no thought block can be
 //! detected.
+//!
+//! Stored assistant messages always carry the opener at the start: the model's
+//! raw response is normalized via [`normalize_assistant_content`] before it
+//! lands in the tree. Messages that lack an explicit opener at position 0 are
+//! treated as plain content.
 
 use std::time::Instant;
 
@@ -18,15 +23,12 @@ pub struct ThinkSplit<'a> {
     pub closed: bool,
 }
 
-/// A thinking block is only recognized when it sits at the very start of the
-/// response — either as a literal `preset.prefix.trim()` prefix, or, when
-/// `implicit_open_from_start` is set, as the initial body of the response up
-/// to the first `preset.suffix.trim()` occurrence. Any later marker tokens are
-/// treated as literal content.
+/// Recognize a thinking block only when the configured opener sits at position
+/// 0 of `content`. Any later occurrences of the opener or closer are treated
+/// as literal content.
 pub fn split_first_think_block<'a>(
     content: &'a str,
     preset: Option<&ReasoningPreset>,
-    implicit_open_from_start: bool,
 ) -> ThinkSplit<'a> {
     let Some(preset) = preset else {
         return ThinkSplit {
@@ -44,55 +46,51 @@ pub fn split_first_think_block<'a>(
             closed: false,
         };
     }
-
-    if let Some(after_open) = content.strip_prefix(open) {
-        if let Some(close_rel) = after_open.find(close) {
-            let after_idx = close_rel + close.len();
-            return ThinkSplit {
-                thought: Some(&after_open[..close_rel]),
-                after: &after_open[after_idx..],
-                closed: true,
-            };
-        }
+    let Some(after_open) = content.strip_prefix(open) else {
         return ThinkSplit {
-            thought: Some(after_open),
-            after: "",
+            thought: None,
+            after: content,
             closed: false,
         };
-    }
-
-    if implicit_open_from_start
-        && let Some(close_idx) = content.find(close)
-    {
-        let after_idx = close_idx + close.len();
+    };
+    if let Some(close_rel) = after_open.find(close) {
+        let after_idx = close_rel + close.len();
         return ThinkSplit {
-            thought: Some(&content[..close_idx]),
-            after: &content[after_idx..],
+            thought: Some(&after_open[..close_rel]),
+            after: &after_open[after_idx..],
             closed: true,
         };
     }
-
-    if implicit_open_from_start {
-        return ThinkSplit {
-            thought: Some(content),
-            after: "",
-            closed: false,
-        };
-    }
-
     ThinkSplit {
-        thought: None,
-        after: content,
+        thought: Some(after_open),
+        after: "",
         closed: false,
     }
 }
 
-pub fn contains_close_marker(content: &str, preset: Option<&ReasoningPreset>) -> bool {
+/// Reasoning presets attach their prefix to the *prompt* via `apply_prefix`, so
+/// the model's streamed response does not echo the opener back. Persist the
+/// response with the opener restored whenever the model genuinely engaged with
+/// thinking mode (the close marker is present), producing fully-tagged content
+/// that round-trips through storage, edit, and export. Noop when the preset is
+/// absent, the opener is already present, or no close marker exists.
+pub fn normalize_assistant_content<'a>(
+    content: &'a str,
+    preset: Option<&ReasoningPreset>,
+) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
     let Some(preset) = preset else {
-        return false;
+        return Cow::Borrowed(content);
     };
+    let open = preset.prefix.trim();
     let close = preset.suffix.trim();
-    !close.is_empty() && content.contains(close)
+    if open.is_empty() || close.is_empty() {
+        return Cow::Borrowed(content);
+    }
+    if content.starts_with(open) || !content.contains(close) {
+        return Cow::Borrowed(content);
+    }
+    Cow::Owned(format!("{}{}", preset.prefix, content))
 }
 
 pub fn measured_thought_seconds(
@@ -114,9 +112,8 @@ pub fn resolve_thought_seconds(
     existing: Option<u32>,
     measured: Option<u32>,
     preset: Option<&ReasoningPreset>,
-    implicit_open_from_start: bool,
 ) -> Option<u32> {
-    if !split_first_think_block(content, preset, implicit_open_from_start).closed {
+    if !split_first_think_block(content, preset).closed {
         return None;
     }
     existing.or(measured)
@@ -141,7 +138,7 @@ mod tests {
 
     #[test]
     fn split_without_preset_returns_no_thought() {
-        let s = split_first_think_block("<think>a</think>post", None, true);
+        let s = split_first_think_block("<think>a</think>post", None);
         assert_eq!(s.thought, None);
         assert_eq!(s.after, "<think>a</think>post");
         assert!(!s.closed);
@@ -150,7 +147,7 @@ mod tests {
     #[test]
     fn split_explicit_open_and_close_at_start() {
         let p = deepseek();
-        let s = split_first_think_block("<think>a</think>post", Some(&p), false);
+        let s = split_first_think_block("<think>a</think>post", Some(&p));
         assert_eq!(s.thought, Some("a"));
         assert_eq!(s.after, "post");
         assert!(s.closed);
@@ -159,8 +156,7 @@ mod tests {
     #[test]
     fn split_tolerates_missing_whitespace_around_tags() {
         let p = deepseek();
-        // Model emits `</think>` without the preset's leading `\n`.
-        let s = split_first_think_block("<think>a</think>answer", Some(&p), false);
+        let s = split_first_think_block("<think>a</think>answer", Some(&p));
         assert_eq!(s.thought, Some("a"));
         assert_eq!(s.after, "answer");
         assert!(s.closed);
@@ -169,7 +165,7 @@ mod tests {
     #[test]
     fn split_respects_custom_preset_tags() {
         let p = preset("<reasoning>", "</reasoning>");
-        let s = split_first_think_block("<reasoning>thoughts</reasoning>answer", Some(&p), false);
+        let s = split_first_think_block("<reasoning>thoughts</reasoning>answer", Some(&p));
         assert_eq!(s.thought, Some("thoughts"));
         assert_eq!(s.after, "answer");
         assert!(s.closed);
@@ -178,7 +174,7 @@ mod tests {
     #[test]
     fn split_explicit_open_without_close() {
         let p = deepseek();
-        let s = split_first_think_block("<think>a", Some(&p), false);
+        let s = split_first_think_block("<think>a", Some(&p));
         assert_eq!(s.thought, Some("a"));
         assert_eq!(s.after, "");
         assert!(!s.closed);
@@ -187,37 +183,19 @@ mod tests {
     #[test]
     fn split_explicit_open_not_at_start_is_literal() {
         let p = deepseek();
-        let s = split_first_think_block("pre<think>a</think>post", Some(&p), false);
+        let s = split_first_think_block("pre<think>a</think>post", Some(&p));
         assert_eq!(s.thought, None);
         assert_eq!(s.after, "pre<think>a</think>post");
         assert!(!s.closed);
     }
 
     #[test]
-    fn split_implicit_open_uses_start_when_close_present() {
+    fn split_content_without_opener_is_plain() {
         let p = deepseek();
-        let s = split_first_think_block("a</think>post", Some(&p), true);
-        assert_eq!(s.thought, Some("a"));
-        assert_eq!(s.after, "post");
-        assert!(s.closed);
-    }
-
-    #[test]
-    fn split_implicit_open_without_close_is_unclosed_thought() {
-        let p = deepseek();
-        let s = split_first_think_block("still thinking", Some(&p), true);
-        assert_eq!(s.thought, Some("still thinking"));
-        assert_eq!(s.after, "");
+        let s = split_first_think_block("a</think>post", Some(&p));
+        assert_eq!(s.thought, None);
+        assert_eq!(s.after, "a</think>post");
         assert!(!s.closed);
-    }
-
-    #[test]
-    fn split_explicit_at_start_wins_over_implicit() {
-        let p = deepseek();
-        let s = split_first_think_block("<think>a</think>post", Some(&p), true);
-        assert_eq!(s.thought, Some("a"));
-        assert_eq!(s.after, "post");
-        assert!(s.closed);
     }
 
     #[test]
@@ -226,11 +204,37 @@ mod tests {
         let s = split_first_think_block(
             "<think>a</think>tail with <think>second</think> literal",
             Some(&p),
-            false,
         );
         assert_eq!(s.thought, Some("a"));
         assert_eq!(s.after, "tail with <think>second</think> literal");
         assert!(s.closed);
+    }
+
+    #[test]
+    fn normalize_adds_opener_when_close_marker_present() {
+        let p = deepseek();
+        let out = normalize_assistant_content("thinking body</think>answer", Some(&p));
+        assert_eq!(out, "<think>\nthinking body</think>answer");
+    }
+
+    #[test]
+    fn normalize_is_noop_when_opener_present() {
+        let p = deepseek();
+        let out = normalize_assistant_content("<think>body</think>tail", Some(&p));
+        assert_eq!(out, "<think>body</think>tail");
+    }
+
+    #[test]
+    fn normalize_is_noop_without_close_marker() {
+        let p = deepseek();
+        let out = normalize_assistant_content("plain answer", Some(&p));
+        assert_eq!(out, "plain answer");
+    }
+
+    #[test]
+    fn normalize_is_noop_without_preset() {
+        let out = normalize_assistant_content("body</think>answer", None);
+        assert_eq!(out, "body</think>answer");
     }
 
     #[test]
@@ -243,11 +247,11 @@ mod tests {
     fn resolve_thought_seconds_returns_none_without_closed_block() {
         let p = deepseek();
         assert_eq!(
-            resolve_thought_seconds("hello", Some(3), Some(2), Some(&p), false),
+            resolve_thought_seconds("hello", Some(3), Some(2), Some(&p)),
             None
         );
         assert_eq!(
-            resolve_thought_seconds("<think>hello", Some(3), Some(2), Some(&p), false),
+            resolve_thought_seconds("<think>hello", Some(3), Some(2), Some(&p)),
             None
         );
     }
@@ -256,7 +260,7 @@ mod tests {
     fn resolve_thought_seconds_prefers_existing_when_closed() {
         let p = deepseek();
         assert_eq!(
-            resolve_thought_seconds("hello</think>world", Some(9), Some(2), Some(&p), true),
+            resolve_thought_seconds("<think>body</think>world", Some(9), Some(2), Some(&p)),
             Some(9)
         );
     }
@@ -265,7 +269,7 @@ mod tests {
     fn resolve_thought_seconds_uses_measured_when_no_existing() {
         let p = deepseek();
         assert_eq!(
-            resolve_thought_seconds("hello</think>world", None, Some(2), Some(&p), true),
+            resolve_thought_seconds("<think>body</think>world", None, Some(2), Some(&p)),
             Some(2)
         );
     }
@@ -274,44 +278,8 @@ mod tests {
     fn resolve_thought_seconds_allows_moment_fallback() {
         let p = deepseek();
         assert_eq!(
-            resolve_thought_seconds("hello</think>world", None, None, Some(&p), true),
+            resolve_thought_seconds("<think>body</think>world", None, None, Some(&p)),
             None
         );
-    }
-
-    #[test]
-    fn resolve_thought_seconds_discards_continuation_timing_for_implicit_open() {
-        let p = deepseek();
-        // Original message had an unclosed implicit-open thought. Continuation
-        // runs with implicit_open=false, so the combined content is not
-        // recognized as a thought block and the misleading measurement is
-        // correctly discarded.
-        assert_eq!(
-            resolve_thought_seconds(
-                "early thoughts</think>answer",
-                None,
-                Some(3),
-                Some(&p),
-                false
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn resolve_thought_seconds_preserves_existing_across_edit_when_implicit() {
-        let p = deepseek();
-        assert_eq!(
-            resolve_thought_seconds("musing</think>fixed answer", Some(11), None, Some(&p), true),
-            Some(11)
-        );
-    }
-
-    #[test]
-    fn contains_close_marker_uses_preset_suffix() {
-        let p = deepseek();
-        assert!(contains_close_marker("hello</think>there", Some(&p)));
-        assert!(!contains_close_marker("hello</done>there", Some(&p)));
-        assert!(!contains_close_marker("hello</think>there", None));
     }
 }

@@ -387,16 +387,14 @@ pub(in crate::tui) async fn handle_stream_token(
                 app.stream_started_at = Some(std::time::Instant::now());
             }
             app.streaming_buffer.push_str(&text);
-            let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
             if app.stream_first_think_closed_at.is_none()
-                && libllm::thought::split_first_think_block(
-                    &app.streaming_buffer,
-                    app.reasoning_preset.as_ref(),
-                    implicit_open_from_start,
-                )
-                .closed
+                && !app.is_continuation
+                && let Some(preset) = app.reasoning_preset.as_ref()
             {
-                app.stream_first_think_closed_at = Some(std::time::Instant::now());
+                let close = preset.suffix.trim();
+                if !close.is_empty() && app.streaming_buffer.contains(close) {
+                    app.stream_first_think_closed_at = Some(std::time::Instant::now());
+                }
             }
             app.auto_scroll = true;
         }
@@ -404,7 +402,6 @@ pub(in crate::tui) async fn handle_stream_token(
             let head = app.session.tree.head().unwrap();
             let response_bytes = full_response.len();
             let is_continuation = app.is_continuation;
-            let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
             let measured_seconds = libllm::thought::measured_thought_seconds(
                 app.stream_started_at,
                 app.stream_first_think_closed_at,
@@ -423,23 +420,26 @@ pub(in crate::tui) async fn handle_stream_token(
                     current_seconds,
                     measured_seconds,
                     app.reasoning_preset.as_ref(),
-                    implicit_open_from_start,
                 );
                 app.session.tree.set_message_thought_seconds(head, final_seconds);
                 app.is_continuation = false;
             } else {
-                let final_seconds = libllm::thought::resolve_thought_seconds(
+                let stored_content = libllm::thought::normalize_assistant_content(
                     &full_response,
+                    app.reasoning_preset.as_ref(),
+                )
+                .into_owned();
+                let final_seconds = libllm::thought::resolve_thought_seconds(
+                    &stored_content,
                     None,
                     measured_seconds,
                     app.reasoning_preset.as_ref(),
-                    implicit_open_from_start,
                 );
                 app.session
                     .tree
                     .push(
                         Some(head),
-                        Message::new(Role::Assistant, full_response)
+                        Message::new(Role::Assistant, stored_content)
                             .with_thought_seconds(final_seconds),
                     );
             }

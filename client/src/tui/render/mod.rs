@@ -54,11 +54,10 @@ fn render_assistant_lines(
     thought_seconds: Option<u32>,
     theme: &Theme,
     preset: Option<&libllm::preset::ReasoningPreset>,
-    implicit_open_from_start: bool,
     collapse_completed: bool,
     highlight_incomplete_thought: bool,
 ) -> Vec<Line<'static>> {
-    let split = libllm::thought::split_first_think_block(content, preset, implicit_open_from_start);
+    let split = libllm::thought::split_first_think_block(content, preset);
 
     let Some(thought) = split.thought else {
         return render_indented_text_lines(
@@ -574,15 +573,11 @@ pub fn render_chat(
                     };
                     let content = replace_vars(raw_content);
                     if msg.role == Role::Assistant {
-                        let preset = app.reasoning_preset.as_ref();
-                        let implicit_open_from_start = msg.thought_seconds.is_some()
-                            || libllm::thought::contains_close_marker(&content, preset);
                         render_assistant_lines(
                             &content,
                             msg.thought_seconds,
                             &app.theme,
-                            preset,
-                            implicit_open_from_start,
+                            app.reasoning_preset.as_ref(),
                             true,
                             false,
                         )
@@ -693,8 +688,16 @@ pub fn render_chat(
                     .add_modifier(Modifier::BOLD),
             )]));
         }
-        let buffer = replace_vars(&app.streaming_buffer);
-        let implicit_open_from_start = app.reasoning_preset.is_some() && !app.is_continuation;
+        let raw_buffer = replace_vars(&app.streaming_buffer);
+        let buffer = if app.is_continuation {
+            raw_buffer
+        } else {
+            libllm::thought::normalize_assistant_content(
+                &raw_buffer,
+                app.reasoning_preset.as_ref(),
+            )
+            .into_owned()
+        };
         let thought_seconds = libllm::thought::measured_thought_seconds(
             app.stream_started_at,
             app.stream_first_think_closed_at,
@@ -704,7 +707,6 @@ pub fn render_chat(
             thought_seconds,
             &app.theme,
             app.reasoning_preset.as_ref(),
-            implicit_open_from_start,
             app.stream_first_think_closed_at.is_some(),
             true,
         );
@@ -1215,11 +1217,10 @@ mod tests {
         let theme = crate::tui::theme::Theme::dark();
         let preset = deepseek_preset();
         let lines = render_assistant_lines(
-            "brainstorm</think>Answer",
+            "<think>brainstorm</think>Answer",
             Some(12),
             &theme,
             Some(&preset),
-            true,
             true,
             false,
         );
@@ -1233,11 +1234,10 @@ mod tests {
         let theme = crate::tui::theme::Theme::dark();
         let preset = deepseek_preset();
         let lines = render_assistant_lines(
-            "planning answer",
+            "<think>planning answer",
             None,
             &theme,
             Some(&preset),
-            true,
             false,
             true,
         );
@@ -1256,7 +1256,6 @@ mod tests {
             None,
             &theme,
             Some(&preset),
-            false,
             true,
             false,
         );
@@ -1274,7 +1273,6 @@ mod tests {
             Some(5),
             &theme,
             None,
-            true,
             true,
             false,
         );

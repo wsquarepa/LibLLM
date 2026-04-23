@@ -34,30 +34,31 @@ pub(super) fn cancel_generation(app: &mut App) {
                 current_seconds,
                 measured_seconds,
                 app.reasoning_preset.as_ref(),
-                false,
             );
             app.session.tree.set_message_thought_seconds(head, final_seconds);
         }
         app.is_continuation = false;
     } else if !app.streaming_buffer.is_empty() {
-        let content = std::mem::take(&mut app.streaming_buffer);
+        let raw = std::mem::take(&mut app.streaming_buffer);
         let head = app.session.tree.head().unwrap();
+        let stored_content =
+            libllm::thought::normalize_assistant_content(&raw, app.reasoning_preset.as_ref())
+                .into_owned();
         let measured_seconds = libllm::thought::measured_thought_seconds(
             app.stream_started_at,
             app.stream_first_think_closed_at,
         );
         let thought_seconds = libllm::thought::resolve_thought_seconds(
-            &content,
+            &stored_content,
             None,
             measured_seconds,
             app.reasoning_preset.as_ref(),
-            app.reasoning_preset.is_some(),
         );
         app.session
             .tree
             .push(
                 Some(head),
-                Message::new(Role::Assistant, content).with_thought_seconds(thought_seconds),
+                Message::new(Role::Assistant, stored_content).with_thought_seconds(thought_seconds),
             );
     }
 

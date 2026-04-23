@@ -313,7 +313,7 @@ pub(in crate::tui) async fn start_streaming(
             if let Err(err) = libllm::files::check_file_fits(
                 &app.token_counter,
                 file,
-                &app.config.summarization.prompt,
+                &app.config.files.summary_prompt,
                 context_size,
             )
             .await

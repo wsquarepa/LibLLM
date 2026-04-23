@@ -291,7 +291,7 @@ async fn main() -> Result<()> {
                 if let Err(err) = libllm::files::check_file_fits(
                     &token_counter,
                     file,
-                    &cfg.summarization.prompt,
+                    &cfg.files.summary_prompt,
                     cfg.summarization.context_size,
                 )
                 .await

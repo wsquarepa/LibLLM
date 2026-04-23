@@ -321,6 +321,13 @@ impl TokenCounter {
         Ok(n)
     }
 
+    /// Authoritatively tokenize N strings in parallel. Returns one result per input in
+    /// the same order. Failures are per-item: one bad request does not poison the others.
+    pub async fn count_many_authoritative(&self, texts: &[&str]) -> Vec<Result<usize>> {
+        let futures = texts.iter().map(|t| self.count_authoritative(t));
+        futures::future::join_all(futures).await
+    }
+
     /// Called by the main event loop when a `TokenCountUpdate` arrives from a background task.
     /// Writes successful counts into the cache. Errors are already logged by the refresh task.
     pub fn apply_update(&self, update: TokenCountUpdate) {
@@ -532,5 +539,30 @@ mod tests {
 
         let counter = TokenCounter::new(client, tx).await;
         assert_eq!(counter.kind(), TokenizerKind::Heuristic);
+    }
+
+    #[tokio::test]
+    async fn count_many_authoritative_returns_per_input_result_in_order() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tokenize"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tokens": vec![0u32; 4]
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let counter = TokenCounter::new(client, tx).await;
+
+        let results = counter
+            .count_many_authoritative(&["a", "bb", "ccc"])
+            .await;
+        assert_eq!(results.len(), 3);
+        for r in results {
+            assert_eq!(r.unwrap(), 4);
+        }
     }
 }

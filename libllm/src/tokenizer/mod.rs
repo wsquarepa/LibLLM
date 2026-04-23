@@ -63,28 +63,36 @@ impl ServerTokenizer {
     }
 }
 
-/// Offline estimator matching the original 4-chars-per-token heuristic with a per-message overhead.
+/// Offline estimator using a fixed-point chars-per-token ratio plus a per-message overhead.
+/// The formula is `ceil(text.len() * numerator / denominator) + overhead_per_message * message_count`.
 #[derive(Clone)]
 pub struct HeuristicTokenizer {
-    chars_per_token: usize,
+    chars_numerator: u32,
+    chars_denominator: u32,
     overhead_per_message: usize,
 }
 
 impl HeuristicTokenizer {
-    pub fn new(chars_per_token: usize, overhead_per_message: usize) -> Self {
+    pub fn new(chars_numerator: u32, chars_denominator: u32, overhead_per_message: usize) -> Self {
+        assert!(chars_denominator > 0, "chars_denominator must be non-zero");
         Self {
-            chars_per_token,
+            chars_numerator,
+            chars_denominator,
             overhead_per_message,
         }
     }
 
-    /// Default is the existing 4-chars-per-token + 4-per-message overhead.
+    /// 3.3 chars per token + 2 per-message overhead, ceiling-divided in integer arithmetic.
     pub fn standard() -> Self {
-        Self::new(4, 4)
+        Self::new(10, 33, 2)
     }
 
-    pub fn count(&self, text: &str) -> usize {
-        text.len() / self.chars_per_token + self.overhead_per_message
+    pub fn count(&self, text: &str, message_count: usize) -> usize {
+        let chars = text.len() as u64;
+        let num = self.chars_numerator as u64;
+        let den = self.chars_denominator as u64;
+        let content = ((chars * num + den - 1) / den) as usize;
+        content + self.overhead_per_message * message_count
     }
 }
 
@@ -105,7 +113,7 @@ impl TokenizerBackend {
     pub async fn count(&self, text: &str) -> Result<usize> {
         match self {
             Self::Server(s) => s.count(text).await,
-            Self::Heuristic(h) => Ok(h.count(text)),
+            Self::Heuristic(h) => Ok(h.count(text, 0)),
         }
     }
 }
@@ -241,7 +249,7 @@ impl TokenCounter {
     /// Returns a heuristic count for arbitrary text without touching the cache or backend.
     /// Used by the input-box render path.
     pub fn heuristic_count(&self, text: &str) -> usize {
-        self.fallback.count(text)
+        self.fallback.count(text, 0)
     }
 
     fn hash_key(text: &str) -> u64 {
@@ -277,7 +285,7 @@ impl TokenCounter {
             .expect("tokenizer last_authoritative poisoned");
         match (is_server_backend, last) {
             (true, Some(n)) => CountState::Stale(n),
-            _ => CountState::Estimated(self.fallback.count(text)),
+            _ => CountState::Estimated(self.fallback.count(text, 0)),
         }
     }
 
@@ -365,17 +373,27 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
-    fn heuristic_matches_legacy_formula() {
+    fn heuristic_matches_3_3_formula() {
         let t = HeuristicTokenizer::standard();
-        assert_eq!(t.count("a]bc"), 4 / 4 + 4);
-        assert_eq!(t.count("12345678"), 8 / 4 + 4);
-        assert_eq!(t.count(""), 4);
+        // ceil(0 * 10 / 33) + 2 * 0 = 0
+        assert_eq!(t.count("", 0), 0);
+        // ceil(0 * 10 / 33) + 2 * 1 = 2
+        assert_eq!(t.count("", 1), 2);
+        // ceil(3 * 10 / 33) + 2 * 0 = ceil(30/33) = 1
+        assert_eq!(t.count("abc", 0), 1);
+        // ceil(5 * 10 / 33) + 2 * 1 = ceil(50/33) + 2 = 2 + 2 = 4
+        assert_eq!(t.count("abcde", 1), 4);
+        // ceil(33 * 10 / 33) + 2 * 0 = 10
+        assert_eq!(t.count(&"a".repeat(33), 0), 10);
+        // ceil(34 * 10 / 33) + 2 * 0 = ceil(340/33) = 11
+        assert_eq!(t.count(&"a".repeat(34), 0), 11);
     }
 
     #[test]
     fn heuristic_tunable_overhead() {
-        let t = HeuristicTokenizer::new(4, 0);
-        assert_eq!(t.count("12345678"), 2);
+        let t = HeuristicTokenizer::new(10, 33, 0);
+        // no overhead; ceil(33 * 10 / 33) = 10
+        assert_eq!(t.count(&"a".repeat(33), 1), 10);
     }
 
     #[tokio::test]
@@ -402,7 +420,7 @@ mod tests {
         );
         match counter.count_cached("abcdefgh") {
             CountState::Estimated(n) => {
-                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh"));
+                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh", 0));
             }
             other => panic!("expected Estimated, got {other:?}"),
         }

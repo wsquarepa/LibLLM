@@ -9,11 +9,12 @@
 mod v1;
 mod v2;
 mod v3;
+mod v4;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 3;
+pub const CURRENT_VERSION: i64 = 4;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -46,6 +47,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 3 {
             v3::migrate(conn)?;
             stamp_version(conn, 3)?;
+            applied += 1;
+        }
+        if version < 4 {
+            v4::migrate(conn)?;
+            stamp_version(conn, 4)?;
             applied += 1;
         }
 
@@ -273,5 +279,27 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM file_summaries", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn fresh_db_has_dismissed_template_prompts_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                ["dismissed_template_prompts"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(exists);
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, super::CURRENT_VERSION);
     }
 }

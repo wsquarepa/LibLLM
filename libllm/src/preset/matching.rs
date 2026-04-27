@@ -7,6 +7,9 @@ use minijinja::{Environment, UndefinedBehavior, Value};
 use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
+use crate::preset::InstructPreset;
+use crate::session::{Message, Role};
+
 const BOS_PREFIXES: &[&str] = &[
     "<|begin_of_text|>",
     "<|begin▁of▁sentence|>",
@@ -113,6 +116,18 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
         .context("failed to render server chat_template")
 }
 
+/// Render an `InstructPreset` against the same canonical conversation `render_jinja` uses,
+/// reusing the existing production renderer (`InstructPreset::render_continuation`) so
+/// matching reflects what we actually send to the API.
+pub fn render_preset(preset: &InstructPreset, _ctx: &CanonicalContext) -> String {
+    let messages = vec![
+        Message::new(Role::User, CANONICAL_USER.to_owned()),
+        Message::new(Role::Assistant, CANONICAL_ASSISTANT.to_owned()),
+    ];
+    let refs: Vec<&Message> = messages.iter().collect();
+    preset.render_continuation(&refs, Some(CANONICAL_SYSTEM))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,5 +204,25 @@ mod tests {
     fn render_jinja_parse_error_returns_err() {
         let bad = "{% for m in messages %}{{ m.role }}";
         assert!(render_jinja(bad, &CanonicalContext::fixed()).is_err());
+    }
+
+    #[test]
+    fn render_preset_chatml_produces_im_start_tags() {
+        let preset = crate::preset::resolve_instruct_preset("ChatML");
+        let out = render_preset(&preset, &CanonicalContext::fixed());
+        assert!(out.contains("<|im_start|>"));
+        assert!(out.contains("<|im_end|>"));
+        assert!(out.contains("system"));
+        assert!(out.contains("user"));
+        assert!(out.contains("assistant"));
+    }
+
+    #[test]
+    fn render_preset_llama3_produces_header_id_tags() {
+        let preset = crate::preset::resolve_instruct_preset("Llama 3 Instruct");
+        let out = render_preset(&preset, &CanonicalContext::fixed());
+        assert!(out.contains("<|start_header_id|>"));
+        assert!(out.contains("<|end_header_id|>"));
+        assert!(out.contains("<|eot_id|>"));
     }
 }

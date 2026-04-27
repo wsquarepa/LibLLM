@@ -74,6 +74,39 @@ pub(crate) fn write_defaults_if_dir_missing(dir: &Path, builtins: &[(&str, &str)
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegenerateSummary {
+    pub written: usize,
+    pub failed: Vec<(String, String)>,
+}
+
+/// Re-extracts the bundled built-in instruct presets into the given directory,
+/// overwriting same-name files. User-renamed copies (different filenames) are untouched.
+pub fn regenerate_builtins(dir: &std::path::Path) -> RegenerateSummary {
+    if let Err(err) = std::fs::create_dir_all(dir) {
+        return RegenerateSummary {
+            written: 0,
+            failed: vec![("(create dir)".to_owned(), err.to_string())],
+        };
+    }
+    let mut written = 0;
+    let mut failed = Vec::new();
+    for (name, json) in BUILTIN_INSTRUCT {
+        let filename = builtin_filename_for(name);
+        let path = dir.join(filename);
+        match std::fs::write(&path, json) {
+            Ok(()) => written += 1,
+            Err(err) => failed.push(((*name).to_owned(), err.to_string())),
+        }
+    }
+    RegenerateSummary { written, failed }
+}
+
+fn builtin_filename_for(name: &str) -> String {
+    let slug = name.to_lowercase().replace([' ', '-'], "_");
+    format!("{slug}.json")
+}
+
 pub(crate) fn backward_compat_alias(name: &str) -> Option<&'static str> {
     match name {
         "llama2" | "mistral" => Some("Mistral V3-Tekken"),
@@ -124,4 +157,46 @@ pub(crate) fn list_json_names_in_dir(dir: &Path) -> Vec<String> {
     }
     names.sort();
     names
+}
+
+#[cfg(test)]
+mod regen_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn regenerate_writes_all_builtins() {
+        let dir = TempDir::new().unwrap();
+        let summary = regenerate_builtins(dir.path());
+        assert_eq!(summary.written, BUILTIN_INSTRUCT.len());
+        assert!(summary.failed.is_empty());
+        for (name, _) in BUILTIN_INSTRUCT {
+            let path = dir.path().join(builtin_filename_for(name));
+            assert!(path.exists(), "missing file for built-in {name}");
+        }
+    }
+
+    #[test]
+    fn regenerate_overwrites_existing_files() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join(builtin_filename_for("ChatML"));
+        std::fs::write(&target, b"corrupted contents").unwrap();
+        let summary = regenerate_builtins(dir.path());
+        assert_eq!(summary.failed, Vec::<(String, String)>::new());
+        let restored = std::fs::read_to_string(&target).unwrap();
+        assert!(
+            restored.contains("ChatML") || restored.contains("im_start"),
+            "ChatML preset content was not restored: {restored}"
+        );
+    }
+
+    #[test]
+    fn regenerate_preserves_user_renamed_files() {
+        let dir = TempDir::new().unwrap();
+        let user_file = dir.path().join("my_custom.json");
+        std::fs::write(&user_file, b"user content").unwrap();
+        regenerate_builtins(dir.path());
+        let still_there = std::fs::read_to_string(&user_file).unwrap();
+        assert_eq!(still_there, "user content");
+    }
 }

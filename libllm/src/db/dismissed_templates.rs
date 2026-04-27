@@ -21,7 +21,10 @@ pub fn is_dismissed(conn: &Connection, template_hash: &str) -> Result<bool> {
 
 pub fn record_dismissal(conn: &Connection, template_hash: &str) -> Result<()> {
     timed_result!(tracing::Level::INFO, "db.dismissed_template.record", hash = template_hash ; {
-        let now = unix_secs_now();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
         conn.execute(
             "INSERT INTO dismissed_template_prompts (template_hash, dismissed_at) \
              VALUES (?1, ?2) \
@@ -40,13 +43,6 @@ pub fn clear_all(conn: &Connection) -> Result<u64> {
             .context("failed to clear dismissed_template_prompts")?;
         Ok(affected as u64)
     })
-}
-
-fn unix_secs_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

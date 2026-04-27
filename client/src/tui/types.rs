@@ -176,11 +176,11 @@ pub(super) struct TemplatePromptState {
     pub(super) expanded: bool,
 }
 
-#[expect(dead_code, reason = "wired in Task T25 (typed-confirm dialog renderer)")]
 #[derive(Debug, Clone)]
 pub(super) struct TypedConfirmState {
     pub(super) challenge: String,
     pub(super) input: String,
+    #[expect(dead_code, reason = "read by render_danger_typed_confirm, wired in Task T27")]
     pub(super) op: DangerOp,
     pub(super) snapshot_path: std::path::PathBuf,
     pub(super) focus_idx: usize,

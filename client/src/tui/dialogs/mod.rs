@@ -6,6 +6,7 @@ pub mod branch;
 pub mod character;
 pub mod danger_confirm;
 pub mod danger_tab;
+pub mod danger_typed_confirm;
 pub mod delete_confirm;
 pub mod edit;
 pub mod file_picker;

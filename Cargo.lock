@@ -510,6 +510,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "libllm",
+ "rand 0.9.4",
  "ratatui",
  "regex",
  "reqwest",

@@ -347,7 +347,10 @@ fn handle_key(
             | Focus::BranchDialog
             | Focus::DeleteConfirmDialog
             | Focus::ApiErrorDialog
-            | Focus::LoadingDialog => true,
+            | Focus::LoadingDialog
+            | Focus::TemplatePromptDialog
+            | Focus::DangerConfirmDialog
+            | Focus::DangerTypedConfirmDialog => true,
         };
         debug_assert!(
             invariant_ok,

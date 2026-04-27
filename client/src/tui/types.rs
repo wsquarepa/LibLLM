@@ -48,6 +48,9 @@ pub(super) enum Focus {
     FilePickerDialog,
     InjectionWarningDialog,
     LoadingDialog,
+    TemplatePromptDialog,
+    DangerConfirmDialog,
+    DangerTypedConfirmDialog,
 }
 
 pub(super) enum Action {
@@ -134,6 +137,58 @@ pub(super) enum BackgroundEvent {
     ServerContextSize(usize),
     TokenizerReloaded(libllm::tokenizer::TokenCounter),
     TokenCountReady(libllm::tokenizer::TokenCountUpdate),
+    TemplateMatch {
+        outcome: libllm::preset::matching::MatchOutcome,
+        server_template_hash: String,
+    },
+    EndpointChanged,
+    DangerOpComplete(DangerOp, std::result::Result<DangerSummary, String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DangerOp {
+    ClearStores,
+    RegeneratePresets,
+    PurgeChats,
+    PurgeCharacters,
+    PurgePersonas,
+    PurgeWorldbooks,
+    DestroyAll,
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum DangerSummary {
+    RowsAffected(u64),
+    PresetsWritten { written: usize, failed: usize },
+    SnapshotPath(std::path::PathBuf),
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct TemplatePromptState {
+    pub(super) suggested_preset: libllm::preset::InstructPreset,
+    pub(super) score: f64,
+    pub(super) is_best_guess: bool,
+    pub(super) server_template_hash: String,
+    pub(super) button_selected: usize,
+    pub(super) expanded: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct TypedConfirmState {
+    pub(super) challenge: String,
+    pub(super) input: String,
+    pub(super) op: DangerOp,
+    pub(super) snapshot_path: std::path::PathBuf,
+    pub(super) focus_idx: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConfigTab {
+    General,
+    Sampling,
+    Network,
+    Theme,
+    Danger,
 }
 
 #[derive(PartialEq, Eq)]
@@ -317,6 +372,11 @@ pub(super) struct App<'a> {
     /// Monotonic counter bumped on each file-summary completion so that the
     /// next render sees `scroll_dirty` and re-snaps to the new bottom.
     pub(super) file_summary_revision: u64,
+    pub(super) pending_template_prompt: Option<TemplatePromptState>,
+    pub(super) template_prompt_state: Option<TemplatePromptState>,
+    pub(super) danger_selected: usize,
+    pub(super) danger_confirm_op: Option<DangerOp>,
+    pub(super) danger_typed_confirm: Option<TypedConfirmState>,
 }
 
 impl<'a> App<'a> {

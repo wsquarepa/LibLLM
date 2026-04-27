@@ -285,6 +285,11 @@ pub async fn run(
         file_summary_ready_tx,
         file_summary_ready_rx,
         file_summary_revision: 0,
+        pending_template_prompt: None,
+        template_prompt_state: None,
+        danger_selected: 0,
+        danger_confirm_op: None,
+        danger_typed_confirm: None,
     };
 
     business::load_active_persona(&mut app);

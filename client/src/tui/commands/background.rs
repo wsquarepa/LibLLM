@@ -306,5 +306,8 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             app.token_counter.apply_update(update);
             app.invalidate_prompt_cache();
         }
+        BackgroundEvent::TemplateMatch { .. }
+        | BackgroundEvent::EndpointChanged
+        | BackgroundEvent::DangerOpComplete(_, _) => {}
     }
 }

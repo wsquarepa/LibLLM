@@ -14,6 +14,7 @@ use crate::system_prompt::SystemPromptFile;
 use crate::worldinfo::WorldBook;
 
 mod characters;
+mod dismissed_templates;
 pub mod file_summaries;
 pub mod migrations;
 mod personas;
@@ -21,6 +22,10 @@ mod prompts;
 mod sessions;
 mod worldbooks;
 
+pub use dismissed_templates::{
+    clear_all as clear_dismissed_templates, is_dismissed as is_template_dismissed,
+    record_dismissal as record_template_dismissal,
+};
 pub use file_summaries::{FileSummaryRow, FileSummaryStatus};
 pub use migrations::CURRENT_VERSION;
 pub use prompts::PromptListEntry;

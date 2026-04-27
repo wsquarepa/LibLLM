@@ -4,12 +4,13 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "CREATE TABLE dismissed_template_prompts (
-            template_hash TEXT PRIMARY KEY NOT NULL,
-            dismissed_at INTEGER NOT NULL
-        );",
-    )
-    .context("failed to create dismissed_template_prompts table")?;
-    Ok(())
+    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v4" ; {
+        conn.execute_batch(
+            "CREATE TABLE dismissed_template_prompts (
+                template_hash TEXT PRIMARY KEY,
+                dismissed_at INTEGER NOT NULL
+            );",
+        )
+        .context("failed to create dismissed_template_prompts table")
+    })
 }

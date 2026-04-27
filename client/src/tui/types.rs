@@ -147,7 +147,6 @@ pub(super) enum BackgroundEvent {
     DangerOpComplete(DangerOp, std::result::Result<DangerSummary, String>),
 }
 
-#[expect(dead_code, reason = "wired in Task T26 (dispatch handler)")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DangerOp {
     ClearStores,

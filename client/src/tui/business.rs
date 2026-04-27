@@ -612,24 +612,24 @@ async fn emit_startup_probe_events(
             .await;
     }
 
-    if !cli_override_template_set {
-        if let Some(server_template) = client.fetch_server_chat_template().await {
-            let presets: Vec<libllm::preset::InstructPreset> =
-                libllm::preset::list_instruct_preset_names()
-                    .into_iter()
-                    .map(|n| libllm::preset::resolve_instruct_preset(&n))
-                    .collect();
-            let outcome =
-                libllm::preset::matching::pick_best_match(&server_template, &presets);
-            let _ = bg_tx
-                .send(BackgroundEvent::TemplateMatch {
-                    outcome,
-                    server_template_hash: libllm::preset::matching::template_hash(
-                        &server_template,
-                    ),
-                })
-                .await;
-        }
+    if !cli_override_template_set
+        && let Some(server_template) = client.fetch_server_chat_template().await
+    {
+        let presets: Vec<libllm::preset::InstructPreset> =
+            libllm::preset::list_instruct_preset_names()
+                .into_iter()
+                .map(|n| libllm::preset::resolve_instruct_preset(&n))
+                .collect();
+        let outcome =
+            libllm::preset::matching::pick_best_match(&server_template, &presets);
+        let _ = bg_tx
+            .send(BackgroundEvent::TemplateMatch {
+                outcome,
+                server_template_hash: libllm::preset::matching::template_hash(
+                    &server_template,
+                ),
+            })
+            .await;
     }
 }
 

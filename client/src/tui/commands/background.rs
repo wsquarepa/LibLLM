@@ -6,7 +6,7 @@ use libllm::db::Database;
 use libllm::session::{self, SaveMode};
 
 use crate::tui::business;
-use crate::tui::types::{BackgroundEvent, Focus, StatusLevel};
+use crate::tui::types::{BackgroundEvent, Focus, StatusLevel, TemplatePromptState};
 
 use super::App;
 
@@ -306,8 +306,55 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             app.token_counter.apply_update(update);
             app.invalidate_prompt_cache();
         }
-        BackgroundEvent::TemplateMatch { .. }
-        | BackgroundEvent::EndpointChanged
-        | BackgroundEvent::DangerOpComplete(_, _) => {}
+        BackgroundEvent::TemplateMatch { outcome, server_template_hash } => {
+            use libllm::preset::matching::MatchOutcome;
+            let (preset_name, score, is_best_guess) = match outcome {
+                MatchOutcome::Confident { preset, score } => (preset, score, false),
+                MatchOutcome::BestGuess { preset, score } => (preset, score, true),
+                MatchOutcome::NoMatch { best_score } => {
+                    tracing::info!(best_score = best_score, "template_match.no_match");
+                    app.set_status(
+                        "model template doesn't match any preset".to_owned(),
+                        StatusLevel::Warning,
+                    );
+                    return;
+                }
+            };
+
+            if preset_name == app.instruct_preset.name {
+                tracing::debug!(preset = %preset_name, "template_match.already_current");
+                return;
+            }
+
+            let dismissed = match app.db.as_ref().map(|db| db.is_template_dismissed(&server_template_hash)) {
+                Some(Ok(d)) => d,
+                Some(Err(err)) => {
+                    tracing::error!(error = %err, "template_match.dismissed_lookup_failed");
+                    false
+                }
+                None => false,
+            };
+            if dismissed {
+                tracing::debug!(hash = %server_template_hash, "template_match.dismissed_skip");
+                return;
+            }
+
+            let suggested = libllm::preset::resolve_instruct_preset(&preset_name);
+            let state = TemplatePromptState {
+                suggested_preset: suggested,
+                score,
+                is_best_guess,
+                server_template_hash,
+                button_selected: 1,
+                expanded: false,
+            };
+            if matches!(app.focus, Focus::Input) {
+                app.template_prompt_state = Some(state);
+                app.focus = Focus::TemplatePromptDialog;
+            } else {
+                app.pending_template_prompt = Some(state);
+            }
+        }
+        BackgroundEvent::EndpointChanged | BackgroundEvent::DangerOpComplete(_, _) => {}
     }
 }

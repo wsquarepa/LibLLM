@@ -48,7 +48,6 @@ pub(super) enum Focus {
     FilePickerDialog,
     InjectionWarningDialog,
     LoadingDialog,
-    #[expect(dead_code, reason = "wired in Task T18 (renderer + dialog handler routing)")]
     TemplatePromptDialog,
     #[expect(dead_code, reason = "wired in Task T26 (sync ops dispatch)")]
     DangerConfirmDialog,
@@ -141,9 +140,7 @@ pub(super) enum BackgroundEvent {
     TokenizerReloaded(libllm::tokenizer::TokenCounter),
     TokenCountReady(libllm::tokenizer::TokenCountUpdate),
     TemplateMatch {
-        #[expect(dead_code, reason = "read in Task T17 (event handler applies matched preset)")]
         outcome: libllm::preset::matching::MatchOutcome,
-        #[expect(dead_code, reason = "read in Task T17 (event handler deduplicates by hash)")]
         server_template_hash: String,
     },
     #[expect(dead_code, reason = "wired in Task T19 (config-apply emit)")]
@@ -384,9 +381,7 @@ pub(super) struct App<'a> {
     /// Monotonic counter bumped on each file-summary completion so that the
     /// next render sees `scroll_dirty` and re-snaps to the new bottom.
     pub(super) file_summary_revision: u64,
-    #[expect(dead_code, reason = "wired in Task T17 (event handler defers when dialog open)")]
     pub(super) pending_template_prompt: Option<TemplatePromptState>,
-    #[expect(dead_code, reason = "wired in Task T17 (set by event handler)")]
     pub(super) template_prompt_state: Option<TemplatePromptState>,
     #[expect(dead_code, reason = "wired in Task T22 (Danger tab list cursor)")]
     pub(super) danger_selected: usize,

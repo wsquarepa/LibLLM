@@ -116,37 +116,11 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
         .context("failed to render server chat_template")
 }
 
-/// Render an `InstructPreset` against the same canonical conversation `render_jinja` uses,
-/// reusing the existing production renderer (`InstructPreset::render_continuation`) so
-/// matching reflects what we actually send to the API.
-pub fn render_preset(preset: &InstructPreset, _ctx: &CanonicalContext) -> String {
-    let messages = [
-        Message::new(Role::User, CANONICAL_USER.to_owned()),
-        Message::new(Role::Assistant, CANONICAL_ASSISTANT.to_owned()),
-    ];
-    let refs: Vec<&Message> = messages.iter().collect();
-    preset.render_continuation(&refs, Some(CANONICAL_SYSTEM))
-}
-
-/// Scoring context for `pick_best_match`: a single user turn with no system message
-/// and `add_generation_prompt: true`. Both the Jinja side (via the flag) and the preset
-/// side (because the last message is a user turn) append the assistant prompt, keeping
-/// both sides structurally aligned. Omitting system avoids false mismatches on templates
-/// that silently drop system messages (e.g., Mistral V3).
-fn scoring_context() -> CanonicalContext {
-    CanonicalContext {
-        messages: vec![CanonicalMessage { role: "user", content: CANONICAL_USER }],
-        bos_token: "",
-        eos_token: "",
-        add_generation_prompt: true,
-    }
-}
-
 /// Render a preset over the scoring conversation (single user turn, no system).
 ///
 /// Because the last message is a user turn, `render_continuation` appends the output
 /// sequence, mirroring what the Jinja side produces via `add_generation_prompt: true`.
-fn render_preset_for_scoring(preset: &InstructPreset) -> String {
+pub(crate) fn render_preset(preset: &InstructPreset) -> String {
     let messages = [Message::new(Role::User, CANONICAL_USER.to_owned())];
     let refs: Vec<&Message> = messages.iter().collect();
     preset.render_continuation(&refs, None)
@@ -175,7 +149,16 @@ pub enum MatchOutcome {
 /// 1. preset with the smallest sum of byte lengths across distinctive sequence fields
 /// 2. alphabetical by `name` (deterministic fallback)
 pub fn pick_best_match(server_template: &str, presets: &[InstructPreset]) -> MatchOutcome {
-    let ctx = scoring_context();
+    // Single user turn, no system message. Omitting system avoids false mismatches on templates
+    // that silently drop system messages (e.g., Mistral V3). Both the Jinja side (via
+    // add_generation_prompt) and the preset side (last message is a user turn) append the
+    // assistant prompt, keeping both sides structurally aligned.
+    let ctx = CanonicalContext {
+        messages: vec![CanonicalMessage { role: "user", content: CANONICAL_USER }],
+        bos_token: "",
+        eos_token: "",
+        add_generation_prompt: true,
+    };
     let server_rendered = match render_jinja(server_template, &ctx) {
         Ok(s) => s,
         Err(err) => {
@@ -188,7 +171,7 @@ pub fn pick_best_match(server_template: &str, presets: &[InstructPreset]) -> Mat
     let scored: Vec<(f64, &InstructPreset)> = presets
         .iter()
         .map(|p| {
-            let rendered = render_preset_for_scoring(p);
+            let rendered = render_preset(p);
             let norm = normalize(&rendered);
             (score(&server_norm, &norm), p)
         })
@@ -324,18 +307,16 @@ mod tests {
     #[test]
     fn render_preset_chatml_produces_im_start_tags() {
         let preset = crate::preset::resolve_instruct_preset("ChatML");
-        let out = render_preset(&preset, &CanonicalContext::fixed());
+        let out = render_preset(&preset);
         assert!(out.contains("<|im_start|>"));
         assert!(out.contains("<|im_end|>"));
-        assert!(out.contains("system"));
         assert!(out.contains("user"));
-        assert!(out.contains("assistant"));
     }
 
     #[test]
     fn render_preset_llama3_produces_header_id_tags() {
         let preset = crate::preset::resolve_instruct_preset("Llama 3 Instruct");
-        let out = render_preset(&preset, &CanonicalContext::fixed());
+        let out = render_preset(&preset);
         assert!(out.contains("<|start_header_id|>"));
         assert!(out.contains("<|end_header_id|>"));
         assert!(out.contains("<|eot_id|>"));

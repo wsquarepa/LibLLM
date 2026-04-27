@@ -146,10 +146,18 @@ pub enum MatchOutcome {
 /// score, and return the best outcome. Skips presets that fail to render. Returns
 /// `NoMatch { best_score: 0.0 }` if every preset fails or `presets` is empty.
 ///
-/// Tiebreak (when multiple presets share the top score):
+/// `current_preset_name` is the name of the preset currently active in the caller. When it
+/// appears in the tie set, spec edge case 3 applies: the current preset wins so the caller's
+/// "already-current" check suppresses the popup without any user-visible disruption.
+///
+/// Tiebreak (when multiple presets share the top score and the current preset is not among them):
 /// 1. preset with the smallest sum of byte lengths across distinctive sequence fields
 /// 2. alphabetical by `name` (deterministic fallback)
-pub fn pick_best_match(server_template: &str, presets: &[InstructPreset]) -> MatchOutcome {
+pub fn pick_best_match(
+    server_template: &str,
+    presets: &[InstructPreset],
+    current_preset_name: &str,
+) -> MatchOutcome {
     // Single user turn, no system message. Omitting system avoids false mismatches on templates
     // that silently drop system messages (e.g., Mistral V3). Both the Jinja side (via
     // add_generation_prompt) and the preset side (last message is a user turn) append the
@@ -193,13 +201,16 @@ pub fn pick_best_match(server_template: &str, presets: &[InstructPreset]) -> Mat
         .map(|(_, p)| *p)
         .collect();
 
-    top.sort_by(|a, b| {
-        sequence_length_sum(a)
-            .cmp(&sequence_length_sum(b))
-            .then_with(|| a.name.cmp(&b.name))
-    });
-
-    let winner = top[0];
+    let winner = if let Some(current) = top.iter().find(|p| p.name == current_preset_name) {
+        *current
+    } else {
+        top.sort_by(|a, b| {
+            sequence_length_sum(a)
+                .cmp(&sequence_length_sum(b))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        top[0]
+    };
 
     if top_score >= CONFIDENT_THRESHOLD {
         MatchOutcome::Confident { preset: winner.name.clone(), score: top_score }
@@ -371,7 +382,7 @@ mod tests {
     #[test]
     fn pick_best_match_llama3_template_picks_llama3_preset() {
         let presets = all_builtin_presets();
-        let outcome = pick_best_match(LLAMA3_JINJA, &presets);
+        let outcome = pick_best_match(LLAMA3_JINJA, &presets, "");
         match outcome {
             MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
                 assert_eq!(preset, "Llama 3 Instruct");
@@ -385,7 +396,7 @@ mod tests {
     #[test]
     fn pick_best_match_chatml_template_picks_chatml_preset() {
         let presets = all_builtin_presets();
-        let outcome = pick_best_match(CHATML_JINJA, &presets);
+        let outcome = pick_best_match(CHATML_JINJA, &presets, "");
         match outcome {
             MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
                 assert_eq!(preset, "ChatML");
@@ -399,7 +410,7 @@ mod tests {
     #[test]
     fn pick_best_match_mistral_template_picks_mistral_preset() {
         let presets = all_builtin_presets();
-        let outcome = pick_best_match(MISTRAL_V3_JINJA, &presets);
+        let outcome = pick_best_match(MISTRAL_V3_JINJA, &presets, "");
         match outcome {
             MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
                 assert_eq!(preset, "Mistral V3-Tekken");
@@ -413,7 +424,7 @@ mod tests {
     #[test]
     fn pick_best_match_nonsense_template_returns_no_match() {
         let presets = all_builtin_presets();
-        let outcome = pick_best_match(NONSENSE_JINJA, &presets);
+        let outcome = pick_best_match(NONSENSE_JINJA, &presets, "");
         match outcome {
             MatchOutcome::NoMatch { best_score } => {
                 assert!(best_score < BEST_GUESS_THRESHOLD, "score={best_score}");
@@ -424,14 +435,14 @@ mod tests {
 
     #[test]
     fn pick_best_match_empty_preset_list_returns_no_match() {
-        let outcome = pick_best_match(LLAMA3_JINJA, &[]);
+        let outcome = pick_best_match(LLAMA3_JINJA, &[], "");
         assert_eq!(outcome, MatchOutcome::NoMatch { best_score: 0.0 });
     }
 
     #[test]
     fn pick_best_match_invalid_jinja_returns_no_match() {
         let presets = all_builtin_presets();
-        let outcome = pick_best_match("{% for m in messages %}{{ m.role }}", &presets);
+        let outcome = pick_best_match("{% for m in messages %}{{ m.role }}", &presets, "");
         assert_eq!(outcome, MatchOutcome::NoMatch { best_score: 0.0 });
     }
 
@@ -452,10 +463,40 @@ mod tests {
             "[unused-padding-string-that-does-not-render]".to_owned(),
         ]);
         let presets = vec![long_preset, short_preset];
-        let outcome = pick_best_match(CHATML_JINJA, &presets);
+        let outcome = pick_best_match(CHATML_JINJA, &presets, "");
         match outcome {
             MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
                 assert_eq!(preset, "ChatML", "expected shorter preset to win tiebreak");
+            }
+            other => panic!("expected match, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pick_best_match_skips_tiebreak_when_current_is_in_tie_set() {
+        // Two presets that render identically (ChatML and ChatML-padded from the tiebreak test).
+        // Normally ChatML wins (shorter sequence sum). Here we set current to ChatML-padded,
+        // which would lose the tiebreak — but the current-in-tie-set rule must return it instead
+        // so the caller's "already-current" check suppresses any popup.
+        let short_preset: InstructPreset = crate::preset::BUILTIN_INSTRUCT
+            .iter()
+            .find(|(name, _)| *name == "ChatML")
+            .and_then(|(_, json)| serde_json::from_str(json).ok())
+            .expect("ChatML builtin must exist");
+        let mut long_preset = short_preset.clone();
+        long_preset.name = "ChatML-padded".to_owned();
+        long_preset.stop_sequence = crate::preset::StopSequence::Multiple(vec![
+            "<|im_end|>".to_owned(),
+            "[unused-padding-string-that-does-not-render]".to_owned(),
+        ]);
+        let presets = vec![long_preset, short_preset];
+        let outcome = pick_best_match(CHATML_JINJA, &presets, "ChatML-padded");
+        match outcome {
+            MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
+                assert_eq!(
+                    preset, "ChatML-padded",
+                    "current-in-tie-set should win over tiebreak winner"
+                );
             }
             other => panic!("expected match, got {other:?}"),
         }

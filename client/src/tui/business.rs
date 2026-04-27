@@ -592,6 +592,7 @@ async fn emit_startup_probe_events(
     tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
     cli_override_template_set: bool,
+    current_preset_name: String,
 ) {
     let result = client.fetch_model_name().await;
     let models_ok = result.is_ok();
@@ -621,7 +622,7 @@ async fn emit_startup_probe_events(
                 .map(|n| libllm::preset::resolve_instruct_preset(&n))
                 .collect();
         let outcome =
-            libllm::preset::matching::pick_best_match(&server_template, &presets);
+            libllm::preset::matching::pick_best_match(&server_template, &presets, &current_preset_name);
         let _ = bg_tx
             .send(BackgroundEvent::TemplateMatch {
                 outcome,
@@ -638,9 +639,10 @@ pub(super) fn spawn_startup_probes(
     tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
     cli_override_template_set: bool,
+    current_preset_name: String,
 ) {
     tokio::spawn(async move {
-        emit_startup_probe_events(client, tokenizer_tx, bg_tx, cli_override_template_set).await;
+        emit_startup_probe_events(client, tokenizer_tx, bg_tx, cli_override_template_set, current_preset_name).await;
     });
 }
 
@@ -746,6 +748,7 @@ pub(super) fn apply_config(app: &mut App) {
             app.tokenizer_tx.clone(),
             app.bg_tx.clone(),
             app.cli_overrides.template.is_some(),
+            app.instruct_preset.name.clone(),
         );
     } else {
         spawn_context_probe(app.client.clone(), app.bg_tx.clone());

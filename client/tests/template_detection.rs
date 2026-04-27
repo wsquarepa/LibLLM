@@ -18,7 +18,7 @@ fn all_builtins() -> Vec<libllm::preset::InstructPreset> {
 
 #[test]
 fn real_llama3_template_resolves_to_llama3_preset() {
-    let outcome = pick_best_match(REAL_LLAMA3_TEMPLATE, &all_builtins());
+    let outcome = pick_best_match(REAL_LLAMA3_TEMPLATE, &all_builtins(), "");
     match outcome {
         MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
             assert_eq!(preset, "Llama 3 Instruct");
@@ -42,9 +42,26 @@ fn unknown_template_falls_below_best_guess_threshold() {
     let outcome = pick_best_match(
         "This is just plain text with no Jinja tags or chat structure.",
         &all_builtins(),
+        "",
     );
     match outcome {
         MatchOutcome::NoMatch { best_score } => assert!(best_score < BEST_GUESS_THRESHOLD),
         other => panic!("expected NoMatch, got {other:?}"),
     }
+}
+
+#[test]
+fn dismissal_gate_records_and_detects_dismissed_hash() {
+    use rusqlite::Connection;
+
+    let conn = Connection::open_in_memory().unwrap();
+    libllm::db::migrations::run_migrations(&conn).unwrap();
+
+    let hash = template_hash(REAL_LLAMA3_TEMPLATE);
+
+    assert!(!libllm::db::is_template_dismissed(&conn, &hash).unwrap());
+
+    libllm::db::record_template_dismissal(&conn, &hash).unwrap();
+
+    assert!(libllm::db::is_template_dismissed(&conn, &hash).unwrap());
 }

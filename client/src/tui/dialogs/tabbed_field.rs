@@ -28,6 +28,8 @@ pub struct TabSection {
     pub locked_fields: Vec<usize>,
     pub validated_fields: Vec<(usize, FieldValidation)>,
     pub color_preview_fields: &'static [usize],
+    /// When true, the tab label renders in the error/danger color instead of the default.
+    pub danger_style: bool,
     selected: usize,
 }
 
@@ -49,8 +51,14 @@ impl TabSection {
             locked_fields: Vec::new(),
             validated_fields: Vec::new(),
             color_preview_fields: &[],
+            danger_style: false,
             selected: 0,
         }
+    }
+
+    pub fn with_danger_style(mut self) -> Self {
+        self.danger_style = true;
+        self
     }
 
     pub fn with_boolean_fields(mut self, fields: &'static [usize]) -> Self {
@@ -394,36 +402,40 @@ impl<'a> TabbedFieldDialog<'a> {
             KeyCode::Down => self.move_selection_down(),
             KeyCode::Enter => {
                 let tab = self.current_tab;
-                let idx = self.sections[tab].selected;
-                if self.is_locked(tab, idx) {
-                } else if self.is_action(tab, idx) {
-                    return TabbedFieldAction::InvokeAction {
-                        section: tab,
-                        field: idx,
-                    };
-                } else if self.is_selector(tab, idx) {
-                    return TabbedFieldAction::OpenSelector {
-                        section: tab,
-                        field: idx,
-                    };
-                } else if self.is_boolean(tab, idx) {
-                    self.toggle_boolean();
-                } else if self.is_multiline(tab, idx) {
-                    self.open_multiline_editor();
-                } else {
-                    self.cursor_pos = self.sections[tab].values[idx].chars().count();
-                    self.editing = true;
+                if !self.sections[tab].labels.is_empty() {
+                    let idx = self.sections[tab].selected;
+                    if self.is_locked(tab, idx) {
+                    } else if self.is_action(tab, idx) {
+                        return TabbedFieldAction::InvokeAction {
+                            section: tab,
+                            field: idx,
+                        };
+                    } else if self.is_selector(tab, idx) {
+                        return TabbedFieldAction::OpenSelector {
+                            section: tab,
+                            field: idx,
+                        };
+                    } else if self.is_boolean(tab, idx) {
+                        self.toggle_boolean();
+                    } else if self.is_multiline(tab, idx) {
+                        self.open_multiline_editor();
+                    } else {
+                        self.cursor_pos = self.sections[tab].values[idx].chars().count();
+                        self.editing = true;
+                    }
                 }
             }
             KeyCode::Delete => {
                 let tab = self.current_tab;
-                let idx = self.sections[tab].selected;
-                if self.is_color_preview(tab, idx)
-                    && !self.is_locked(tab, idx)
-                    && !self.sections[tab].values[idx].is_empty()
-                {
-                    self.sections[tab].values[idx].clear();
-                    self.value_changed = true;
+                if !self.sections[tab].labels.is_empty() {
+                    let idx = self.sections[tab].selected;
+                    if self.is_color_preview(tab, idx)
+                        && !self.is_locked(tab, idx)
+                        && !self.sections[tab].values[idx].is_empty()
+                    {
+                        self.sections[tab].values[idx].clear();
+                        self.value_changed = true;
+                    }
                 }
             }
             KeyCode::Esc => {
@@ -440,7 +452,7 @@ impl<'a> TabbedFieldDialog<'a> {
     const MULTILINE_WIDTH_PERCENT: u16 = 70;
     const MULTILINE_HEIGHT_PERCENT: u16 = 60;
 
-    fn dialog_dimensions(&self, area: Rect) -> (u16, u16) {
+    pub fn dialog_dimensions(&self, area: Rect) -> (u16, u16) {
         if self.editor.is_some() {
             let w = (area.width as f32 * Self::MULTILINE_WIDTH_PERCENT as f32 / 100.0) as u16;
             let h = (area.height as f32 * Self::MULTILINE_HEIGHT_PERCENT as f32 / 100.0) as u16;
@@ -475,7 +487,7 @@ impl<'a> TabbedFieldDialog<'a> {
     ) {
         let mut lines: Vec<Line> = Vec::new();
         lines.push(Line::from(""));
-        lines.push(self.build_tab_bar_line());
+        lines.push(self.build_tab_bar_line(theme));
         lines.push(Line::from(""));
         let section = &self.sections[self.current_tab];
         for (i, &label) in section.labels.iter().enumerate() {
@@ -505,14 +517,21 @@ impl<'a> TabbedFieldDialog<'a> {
         }
     }
 
-    fn build_tab_bar_line(&self) -> Line<'static> {
+    fn build_tab_bar_line(&self, theme: &Theme) -> Line<'static> {
         let mut spans: Vec<Span<'static>> = vec![Span::raw("  ")];
         for (i, section) in self.sections.iter().enumerate() {
             let label = format!("[ {} ]", section.title);
             let style = if i == self.current_tab {
+                let base_color = if section.danger_style {
+                    theme.status_error_fg
+                } else {
+                    Color::Yellow
+                };
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(base_color)
                     .add_modifier(Modifier::BOLD)
+            } else if section.danger_style {
+                Style::default().fg(theme.status_error_bg)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
@@ -976,9 +995,10 @@ mod tests {
 
     #[test]
     fn tab_bar_highlights_current_tab() {
+        let theme = crate::tui::theme::Theme::dark();
         let sections = vec![make_section("Alpha", &["x"]), make_section("Beta", &["y"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
-        let line = d.build_tab_bar_line();
+        let line = d.build_tab_bar_line(&theme);
         let rendered: String = line
             .spans
             .iter()
@@ -988,7 +1008,7 @@ mod tests {
         assert!(rendered.contains("Beta"));
 
         d.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        let line_after = d.build_tab_bar_line();
+        let line_after = d.build_tab_bar_line(&theme);
         let styles: Vec<Style> = line_after.spans.iter().map(|s| s.style).collect();
         assert!(styles.iter().any(|s| s.fg == Some(Color::Yellow)));
     }

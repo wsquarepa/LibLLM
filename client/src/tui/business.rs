@@ -302,7 +302,7 @@ pub fn load_tabbed_config_sections(
         cfg.files.summary_prompt.clone(),
     ];
 
-    vec![general, sampling, backup, summarization, files]
+    vec![general, sampling, backup, summarization, files, Vec::new()]
 }
 
 pub fn config_locked_fields_by_section(overrides: &crate::cli::CliOverrides) -> Vec<Vec<usize>> {
@@ -349,7 +349,7 @@ pub fn config_locked_fields_by_section(overrides: &crate::cli::CliOverrides) -> 
     if overrides.sampling.max_tokens.is_some() {
         sampling.push(6);
     }
-    vec![general, sampling, Vec::new(), Vec::new(), Vec::new()]
+    vec![general, sampling, Vec::new(), Vec::new(), Vec::new(), Vec::new()]
 }
 
 pub fn apply_tabbed_config_fields(

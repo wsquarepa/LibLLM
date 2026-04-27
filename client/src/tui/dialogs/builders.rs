@@ -121,15 +121,16 @@ pub fn open_config_editor(
     sections: Vec<Vec<String>>,
     locked: Vec<Vec<usize>>,
 ) -> TabbedFieldDialog<'static> {
-    let [general_vals, sampling_vals, backup_vals, summarization_vals, files_vals]: [Vec<String>; 5] =
-        sections.try_into().expect("expected 5 section vectors");
+    let [general_vals, sampling_vals, backup_vals, summarization_vals, files_vals, _danger_vals]: [Vec<String>; 6] =
+        sections.try_into().expect("expected 6 section vectors");
     let [
         general_locked,
         sampling_locked,
         backup_locked,
         summarization_locked,
         files_locked,
-    ]: [Vec<usize>; 5] = locked.try_into().expect("expected 5 lock vectors");
+        _danger_locked,
+    ]: [Vec<usize>; 6] = locked.try_into().expect("expected 6 lock vectors");
 
     let general = TabSection::new("General", GENERAL_LABELS, general_vals)
         .with_boolean_fields(GENERAL_BOOLEAN)
@@ -197,9 +198,11 @@ pub fn open_config_editor(
             (2, FieldValidation::Int { min: 0, max: 134217728 }),
         ]);
 
+    let danger = TabSection::new("Danger", &[], vec![]).with_danger_style();
+
     TabbedFieldDialog::new(
         " Configuration ",
-        vec![general, sampling, backup, summarization, files],
+        vec![general, sampling, backup, summarization, files, danger],
     )
 }
 

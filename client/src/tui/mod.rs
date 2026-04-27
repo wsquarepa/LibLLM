@@ -781,6 +781,13 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         Focus::ConfigDialog => {
             if let Some(ref dialog) = app.config_dialog {
                 dialog.render(f, f.area(), &app.theme);
+                if dialog.current_tab() == dialogs::danger_tab::DANGER_TAB_INDEX {
+                    let area = f.area();
+                    let (w, h) = dialog.dialog_dimensions(area);
+                    let outer = render::centered_rect(w, h, area);
+                    let body = dialogs::danger_tab::tab_body_rect(outer);
+                    dialogs::danger_tab::render_danger_tab_body(f, body, app, &app.theme);
+                }
             }
         }
         Focus::ThemeDialog => {

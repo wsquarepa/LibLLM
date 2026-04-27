@@ -187,16 +187,6 @@ pub(super) struct TypedConfirmState {
     pub(super) focus_idx: usize,
 }
 
-#[expect(dead_code, reason = "wired in Task T22 (Danger tab variant integration)")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ConfigTab {
-    General,
-    Sampling,
-    Network,
-    Theme,
-    Danger,
-}
-
 #[derive(PartialEq, Eq)]
 pub(super) struct ScrollState {
     pub(super) auto_scroll: bool,
@@ -380,7 +370,6 @@ pub(super) struct App<'a> {
     pub(super) file_summary_revision: u64,
     pub(super) pending_template_prompt: Option<TemplatePromptState>,
     pub(super) template_prompt_state: Option<TemplatePromptState>,
-    #[expect(dead_code, reason = "wired in Task T22 (Danger tab list cursor)")]
     pub(super) danger_selected: usize,
     #[expect(dead_code, reason = "wired in Task T26 (dispatch state)")]
     pub(super) danger_confirm_op: Option<DangerOp>,

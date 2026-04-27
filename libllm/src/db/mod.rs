@@ -345,6 +345,38 @@ impl Database {
     pub fn record_template_dismissal(&self, template_hash: &str) -> Result<()> {
         dismissed_templates::record_dismissal(&self.conn, template_hash)
     }
+
+    pub fn clear_dismissed_templates(&self) -> Result<u64> {
+        dismissed_templates::clear_all(&self.conn)
+    }
+
+    pub fn purge_sessions(&self) -> Result<u64> {
+        let affected = self.conn
+            .execute("DELETE FROM sessions", [])
+            .context("failed to purge sessions")?;
+        Ok(affected as u64)
+    }
+
+    pub fn purge_characters(&self) -> Result<u64> {
+        let affected = self.conn
+            .execute("DELETE FROM characters", [])
+            .context("failed to purge characters")?;
+        Ok(affected as u64)
+    }
+
+    pub fn purge_personas(&self) -> Result<u64> {
+        let affected = self.conn
+            .execute("DELETE FROM personas", [])
+            .context("failed to purge personas")?;
+        Ok(affected as u64)
+    }
+
+    pub fn purge_worldbooks(&self) -> Result<u64> {
+        let affected = self.conn
+            .execute("DELETE FROM worldbooks", [])
+            .context("failed to purge worldbooks")?;
+        Ok(affected as u64)
+    }
 }
 
 #[cfg(test)]

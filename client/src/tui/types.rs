@@ -49,7 +49,6 @@ pub(super) enum Focus {
     InjectionWarningDialog,
     LoadingDialog,
     TemplatePromptDialog,
-    #[expect(dead_code, reason = "wired in Task T26 (sync ops dispatch)")]
     DangerConfirmDialog,
     #[expect(dead_code, reason = "wired in Task T27 (Destroy All Data)")]
     DangerTypedConfirmDialog,
@@ -158,11 +157,11 @@ pub(super) enum DangerOp {
     DestroyAll,
 }
 
-#[expect(dead_code, reason = "wired in Task T26 and T27 (dispatch reports)")]
 #[derive(Debug, Clone)]
 pub(super) enum DangerSummary {
     RowsAffected(u64),
     PresetsWritten { written: usize, failed: usize },
+    #[expect(dead_code, reason = "constructed in Task T27 (DestroyAll completion path)")]
     SnapshotPath(std::path::PathBuf),
 }
 
@@ -370,8 +369,8 @@ pub(super) struct App<'a> {
     pub(super) pending_template_prompt: Option<TemplatePromptState>,
     pub(super) template_prompt_state: Option<TemplatePromptState>,
     pub(super) danger_selected: usize,
-    #[expect(dead_code, reason = "wired in Task T26 (dispatch state)")]
     pub(super) danger_confirm_op: Option<DangerOp>,
+    pub(super) danger_confirm_selected: Option<usize>,
     #[expect(dead_code, reason = "wired in Task T27 (DestroyAll dialog state)")]
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
 }

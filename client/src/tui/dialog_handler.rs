@@ -136,6 +136,29 @@ pub(super) fn handle_field_dialog_key(
 ) -> Option<Action> {
     if matches!(kind, DialogKind::Config) {
         let dialog = app.config_dialog.as_mut()?;
+        if dialog.current_tab() == crate::tui::dialogs::danger_tab::DANGER_TAB_INDEX {
+            use crate::tui::dialogs::danger_tab::{DangerTabResult, handle_danger_tab_key};
+            let mut sel = app.danger_selected;
+            let result = handle_danger_tab_key(key, &mut sel);
+            app.danger_selected = sel;
+            match result {
+                DangerTabResult::Pending => {}
+                DangerTabResult::OpenConfirm(op) => {
+                    if matches!(op, crate::tui::types::DangerOp::DestroyAll) {
+                        tracing::warn!(
+                            op = "DestroyAll",
+                            reason = "async handler lands in Task 27",
+                            "danger_tab.dispatch.skipped"
+                        );
+                    } else {
+                        app.danger_confirm_op = Some(op);
+                        app.danger_confirm_selected = Some(0);
+                        app.focus = Focus::DangerConfirmDialog;
+                    }
+                }
+            }
+            return None;
+        }
         let action = dialog.handle_key(key);
         if let Some(msg) = dialog.clipboard_warning.take() {
             app.set_status(msg, StatusLevel::Warning);

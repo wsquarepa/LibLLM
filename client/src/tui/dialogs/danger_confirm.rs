@@ -19,7 +19,6 @@ pub enum DangerConfirmResult {
     Confirm,
 }
 
-#[expect(dead_code, reason = "wired in Task T26 (danger dispatch handler)")]
 pub(in crate::tui) fn render_danger_confirm(
     f: &mut Frame,
     area: Rect,
@@ -106,7 +105,6 @@ pub(in crate::tui) fn render_danger_confirm(
     );
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "wired in Task T26 (danger dispatch handler)"))]
 pub(in crate::tui) fn handle_danger_confirm_key(
     key: KeyEvent,
     selected: &mut usize,

@@ -449,6 +449,34 @@ fn handle_key(
     if app.focus == Focus::LoadingDialog {
         return dialogs::api_error::handle_loading_key(key);
     }
+    if app.focus == Focus::DangerConfirmDialog {
+        use crate::tui::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
+        let mut sel = app.danger_confirm_selected.unwrap_or(0);
+        let r = handle_danger_confirm_key(key, &mut sel);
+        app.danger_confirm_selected = Some(sel);
+        match r {
+            DangerConfirmResult::Pending => {}
+            DangerConfirmResult::Cancel => {
+                app.danger_confirm_op = None;
+                app.danger_confirm_selected = None;
+                app.focus = Focus::ConfigDialog;
+            }
+            DangerConfirmResult::Confirm => {
+                if let Some(op) = app.danger_confirm_op.take() {
+                    match commands::danger::dispatch_sync(app, op) {
+                        Ok(summary) => commands::danger::report_summary(app, op, &summary),
+                        Err(err) => {
+                            app.set_status(format!("Op failed: {err}"), StatusLevel::Error)
+                        }
+                    }
+                }
+                app.danger_confirm_selected = None;
+                app.focus = Focus::ConfigDialog;
+            }
+        }
+        return None;
+    }
+
     if app.focus == Focus::TemplatePromptDialog {
         use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
         let Some(state) = app.template_prompt_state.as_mut() else {

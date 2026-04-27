@@ -4,6 +4,7 @@ pub mod macros;
 pub use macros::expand_macro;
 
 pub mod background;
+pub mod danger;
 pub mod export;
 pub mod streaming;
 

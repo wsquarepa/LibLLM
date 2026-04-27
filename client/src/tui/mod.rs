@@ -290,6 +290,7 @@ pub async fn run(
         template_prompt_state: None,
         danger_selected: 0,
         danger_confirm_op: None,
+        danger_confirm_selected: None,
         danger_typed_confirm: None,
     };
 
@@ -878,6 +879,12 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         Focus::TemplatePromptDialog => {
             if let Some(ref state) = app.template_prompt_state {
                 dialogs::template_prompt::render_template_prompt(f, f.area(), state, &app.theme);
+            }
+        }
+        Focus::DangerConfirmDialog => {
+            if let Some(op) = app.danger_confirm_op {
+                let sel = app.danger_confirm_selected.unwrap_or(0);
+                dialogs::danger_confirm::render_danger_confirm(f, f.area(), op, sel, &app.theme);
             }
         }
         _ => {}

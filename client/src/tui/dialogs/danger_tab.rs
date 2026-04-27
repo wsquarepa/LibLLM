@@ -63,14 +63,12 @@ pub(in crate::tui) fn render_danger_tab_body(f: &mut Frame, area: Rect, app: &Ap
     f.render_widget(Paragraph::new(lines), area);
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "wired in Task T26 (dispatch handler)"))]
 #[derive(Debug, Clone, Copy)]
 pub(in crate::tui) enum DangerTabResult {
     Pending,
     OpenConfirm(DangerOp),
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "wired in Task T26 (dispatch handler)"))]
 pub(in crate::tui) fn handle_danger_tab_key(
     key: KeyEvent,
     selected: &mut usize,

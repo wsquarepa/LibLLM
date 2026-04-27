@@ -48,8 +48,11 @@ pub(super) enum Focus {
     FilePickerDialog,
     InjectionWarningDialog,
     LoadingDialog,
+    #[expect(dead_code, reason = "wired in Task T18 (renderer + dialog handler routing)")]
     TemplatePromptDialog,
+    #[expect(dead_code, reason = "wired in Task T26 (sync ops dispatch)")]
     DangerConfirmDialog,
+    #[expect(dead_code, reason = "wired in Task T27 (Destroy All Data)")]
     DangerTypedConfirmDialog,
 }
 
@@ -137,14 +140,18 @@ pub(super) enum BackgroundEvent {
     ServerContextSize(usize),
     TokenizerReloaded(libllm::tokenizer::TokenCounter),
     TokenCountReady(libllm::tokenizer::TokenCountUpdate),
+    #[expect(dead_code, reason = "wired in Task T16 (probe + emit)")]
     TemplateMatch {
         outcome: libllm::preset::matching::MatchOutcome,
         server_template_hash: String,
     },
+    #[expect(dead_code, reason = "wired in Task T19 (config-apply emit)")]
     EndpointChanged,
+    #[expect(dead_code, reason = "wired in Task T27 (DestroyAll completion)")]
     DangerOpComplete(DangerOp, std::result::Result<DangerSummary, String>),
 }
 
+#[expect(dead_code, reason = "wired in Task T26 (dispatch handler)")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DangerOp {
     ClearStores,
@@ -156,6 +163,7 @@ pub(super) enum DangerOp {
     DestroyAll,
 }
 
+#[expect(dead_code, reason = "wired in Task T26 and T27 (dispatch reports)")]
 #[derive(Debug, Clone)]
 pub(super) enum DangerSummary {
     RowsAffected(u64),
@@ -163,6 +171,7 @@ pub(super) enum DangerSummary {
     SnapshotPath(std::path::PathBuf),
 }
 
+#[expect(dead_code, reason = "wired in Task T15 (dialog renderer reads fields)")]
 #[derive(Debug, Clone)]
 pub(super) struct TemplatePromptState {
     pub(super) suggested_preset: libllm::preset::InstructPreset,
@@ -173,6 +182,7 @@ pub(super) struct TemplatePromptState {
     pub(super) expanded: bool,
 }
 
+#[expect(dead_code, reason = "wired in Task T25 (typed-confirm dialog renderer)")]
 #[derive(Debug, Clone)]
 pub(super) struct TypedConfirmState {
     pub(super) challenge: String,
@@ -182,6 +192,7 @@ pub(super) struct TypedConfirmState {
     pub(super) focus_idx: usize,
 }
 
+#[expect(dead_code, reason = "wired in Task T22 (Danger tab variant integration)")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ConfigTab {
     General,
@@ -372,10 +383,15 @@ pub(super) struct App<'a> {
     /// Monotonic counter bumped on each file-summary completion so that the
     /// next render sees `scroll_dirty` and re-snaps to the new bottom.
     pub(super) file_summary_revision: u64,
+    #[expect(dead_code, reason = "wired in Task T17 (event handler defers when dialog open)")]
     pub(super) pending_template_prompt: Option<TemplatePromptState>,
+    #[expect(dead_code, reason = "wired in Task T17 (set by event handler)")]
     pub(super) template_prompt_state: Option<TemplatePromptState>,
+    #[expect(dead_code, reason = "wired in Task T22 (Danger tab list cursor)")]
     pub(super) danger_selected: usize,
+    #[expect(dead_code, reason = "wired in Task T26 (dispatch state)")]
     pub(super) danger_confirm_op: Option<DangerOp>,
+    #[expect(dead_code, reason = "wired in Task T27 (DestroyAll dialog state)")]
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
 }
 

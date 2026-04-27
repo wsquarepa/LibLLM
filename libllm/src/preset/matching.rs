@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use minijinja::{Environment, UndefinedBehavior, Value};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::preset::InstructPreset;
@@ -224,6 +225,15 @@ fn sequence_length_sum(p: &InstructPreset) -> usize {
             crate::preset::StopSequence::Single(s) => s.len(),
             crate::preset::StopSequence::Multiple(v) => v.iter().map(|s| s.len()).sum(),
         }
+}
+
+/// SHA-256 hex of the *normalized* server template. Stable across cosmetic
+/// whitespace differences between two model files that ship the same logical template.
+pub fn template_hash(server_template: &str) -> String {
+    let normalized = normalize(server_template);
+    let mut hasher = Sha256::new();
+    hasher.update(normalized.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]
@@ -449,5 +459,29 @@ mod tests {
             }
             other => panic!("expected match, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn template_hash_is_64_char_hex() {
+        let h = template_hash("hello");
+        assert_eq!(h.len(), 64);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn template_hash_is_stable_across_whitespace_drift() {
+        let a = "hello   world\n\n\n";
+        let b = "  hello world\n\n";
+        assert_eq!(template_hash(a), template_hash(b));
+    }
+
+    #[test]
+    fn template_hash_differs_for_meaningful_changes() {
+        assert_ne!(template_hash("hello world"), template_hash("hello earth"));
+    }
+
+    #[test]
+    fn template_hash_strips_trailing_nul() {
+        assert_eq!(template_hash("hello"), template_hash("hello\0"));
     }
 }

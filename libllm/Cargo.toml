@@ -29,7 +29,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 hex = "0.4"
-minijinja = { version = "2", default-features = false, features = ["builtins"] }
+minijinja = { version = "2", default-features = false, features = ["builtins", "serde"] }
 sha2 = "0.10"
 strsim = "0.11"
 tar = "0.4"

@@ -4,6 +4,7 @@ pub mod api_error;
 pub mod auth;
 pub mod branch;
 pub mod character;
+pub mod danger_confirm;
 pub mod danger_tab;
 pub mod delete_confirm;
 pub mod edit;

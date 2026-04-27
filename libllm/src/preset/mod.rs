@@ -2,6 +2,7 @@
 
 mod context;
 mod instruct;
+pub mod matching;
 mod reasoning;
 
 use std::path::{Path, PathBuf};

@@ -174,7 +174,6 @@ pub(super) struct TemplatePromptState {
     pub(super) suggested_preset: libllm::preset::InstructPreset,
     pub(super) score: f64,
     pub(super) is_best_guess: bool,
-    #[expect(dead_code, reason = "wired in Task T17 (event handler uses hash for deduplication)")]
     pub(super) server_template_hash: String,
     pub(super) button_selected: usize,
     pub(super) expanded: bool,

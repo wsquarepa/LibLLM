@@ -166,7 +166,7 @@ pub(super) fn handle_field_dialog_key(
                     }
                 }
                 app.config_dialog = None;
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
             dialogs::TabbedFieldAction::OpenSelector {
                 section: 0,
@@ -234,7 +234,7 @@ pub(super) fn handle_field_dialog_key(
                     app.invalidate_chat_render_cache();
                 }
                 app.theme_dialog = None;
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
             dialogs::TabbedFieldAction::OpenSelector {
                 section: 0,
@@ -265,7 +265,7 @@ pub(super) fn handle_field_dialog_key(
                 app.theme = crate::tui::theme::resolve_theme(&app.config);
                 app.invalidate_chat_render_cache();
                 app.theme_dialog = None;
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
             dialogs::TabbedFieldAction::InvokeAction { .. } => {}
         }
@@ -352,7 +352,7 @@ pub(super) fn handle_field_dialog_key(
                 let is_cli_locked = app.cli_overrides.persona.is_some();
                 if is_cli_locked {
                     app.persona_editor = None;
-                    app.focus = Focus::Input;
+                    return_to_input(app);
                 } else if !app.persona_editor.as_ref().unwrap().has_changes() {
                     app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                     app.persona_editor = None;
@@ -629,6 +629,15 @@ pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {
     if new_theme != app.theme {
         app.theme = new_theme;
         app.invalidate_chat_render_cache();
+    }
+}
+
+pub(super) fn return_to_input(app: &mut App) {
+    if let Some(pending) = app.pending_template_prompt.take() {
+        app.template_prompt_state = Some(pending);
+        app.focus = Focus::TemplatePromptDialog;
+    } else {
+        app.focus = Focus::Input;
     }
 }
 

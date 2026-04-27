@@ -341,6 +341,10 @@ impl Database {
     pub fn is_template_dismissed(&self, template_hash: &str) -> Result<bool> {
         dismissed_templates::is_dismissed(&self.conn, template_hash)
     }
+
+    pub fn record_template_dismissal(&self, template_hash: &str) -> Result<()> {
+        dismissed_templates::record_dismissal(&self.conn, template_hash)
+    }
 }
 
 #[cfg(test)]

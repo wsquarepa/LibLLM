@@ -11,7 +11,7 @@ use libllm::client::StreamToken;
 
 use super::dialog_handler::{
     DialogKind, cancel_generation, configure_textarea, handle_field_dialog_key,
-    live_apply_theme_dialog,
+    live_apply_theme_dialog, return_to_input,
 };
 use super::types::*;
 use super::{clipboard, commands, dialogs, input, render};
@@ -448,6 +448,53 @@ fn handle_key(
     }
     if app.focus == Focus::LoadingDialog {
         return dialogs::api_error::handle_loading_key(key);
+    }
+    if app.focus == Focus::TemplatePromptDialog {
+        use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
+        let Some(state) = app.template_prompt_state.as_mut() else {
+            return_to_input(app);
+            return None;
+        };
+        match handle_template_prompt_key(key, state) {
+            TemplatePromptResult::Pending => return None,
+            TemplatePromptResult::Switch => {
+                let preset = state.suggested_preset.clone();
+                let preset_name = preset.name.clone();
+                app.instruct_preset = preset;
+                app.stop_tokens = app.instruct_preset.stop_tokens();
+                let mut config = libllm::config::load();
+                config.instruct_preset = Some(preset_name.clone());
+                if let Err(err) = libllm::config::save(&config) {
+                    tracing::error!(error = %err, "template_prompt.config_save_failed");
+                    app.set_status(
+                        "Preset switched for session; couldn't save to config".to_owned(),
+                        StatusLevel::Warning,
+                    );
+                } else {
+                    app.set_status(
+                        format!("Switched to {preset_name}"),
+                        StatusLevel::Info,
+                    );
+                }
+                app.template_prompt_state = None;
+                return_to_input(app);
+                return None;
+            }
+            TemplatePromptResult::Dismiss => {
+                if let Some(state) = app.template_prompt_state.take()
+                    && let Some(db) = app.db.as_ref()
+                    && let Err(err) = db.record_template_dismissal(&state.server_template_hash)
+                {
+                    tracing::error!(error = %err, "template_prompt.dismiss_record_failed");
+                    app.set_status(
+                        "Couldn't remember dismissal".to_owned(),
+                        StatusLevel::Info,
+                    );
+                }
+                return_to_input(app);
+                return None;
+            }
+        }
     }
 
     if app.is_streaming {

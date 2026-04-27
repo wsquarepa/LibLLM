@@ -659,6 +659,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::FilePickerDialog => Some("file_picker"),
         Focus::InjectionWarningDialog => Some("injection_warning"),
         Focus::LoadingDialog => Some("loading"),
+        Focus::TemplatePromptDialog => Some("template_prompt"),
         _ => None,
     };
 
@@ -866,6 +867,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::LoadingDialog => {
             dialogs::api_error::render_loading_dialog(f, f.area());
+        }
+        Focus::TemplatePromptDialog => {
+            if let Some(ref state) = app.template_prompt_state {
+                dialogs::template_prompt::render_template_prompt(f, f.area(), state, &app.theme);
+            }
         }
         _ => {}
     }

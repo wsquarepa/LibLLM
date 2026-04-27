@@ -20,7 +20,6 @@ pub enum TemplatePromptResult {
     Dismiss,
 }
 
-#[expect(dead_code, reason = "wired in Task T18 (renderer + dialog handler routing)")]
 pub(in crate::tui) fn render_template_prompt(
     f: &mut Frame,
     area: Rect,
@@ -155,7 +154,6 @@ fn preset_summary_lines(
     out
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "wired in Task T18 (renderer + dialog handler routing)"))]
 pub(in crate::tui) fn handle_template_prompt_key(
     key: KeyEvent,
     state: &mut TemplatePromptState,

@@ -7,6 +7,7 @@ use ratatui::widgets::ListItem;
 
 use super::{clear_centered, render_hints_below_dialog};
 use crate::tui::business::refresh_sidebar;
+use crate::tui::dialog_handler::return_to_input;
 use crate::tui::{Action, App, DeleteContext, Focus};
 use libllm::session::{self, Message, Role};
 
@@ -59,7 +60,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 create_and_edit_character(app);
             }
             KeyCode::Esc => {
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
             _ => {}
         }
@@ -86,7 +87,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
     let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
     let Some(selected) = super::visible_selection(&visible_indices, app.character_selected) else {
         if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     };
@@ -125,15 +126,15 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         format!("Loaded character: {}", card.name),
                         super::super::StatusLevel::Info,
                     );
-                    app.focus = Focus::Input;
                     refresh_sidebar(app);
+                    return_to_input(app);
                 }
                 None => {
                     app.set_status(
                         "Character not found.".to_owned(),
                         super::super::StatusLevel::Error,
                     );
-                    app.focus = Focus::Input;
+                    return_to_input(app);
                 }
             }
         }
@@ -175,7 +176,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
             create_and_edit_character(app);
         }
         KeyCode::Esc => {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

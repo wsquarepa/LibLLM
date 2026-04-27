@@ -6,6 +6,7 @@ use ratatui::text::Line;
 use ratatui::widgets::ListItem;
 
 use super::{clear_centered, render_hints_below_dialog};
+use crate::tui::dialog_handler::return_to_input;
 use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_persona_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
@@ -66,7 +67,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
                 create_and_edit_persona(app);
             }
             KeyCode::Esc => {
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
             _ => {}
         }
@@ -95,7 +96,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
         if key.code == KeyCode::Char('a') {
             create_and_edit_persona(app);
         } else if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     };
@@ -131,7 +132,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
                     );
                 }
             }
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         KeyCode::Right => {
             let slug = app.persona_slugs[selected].clone();
@@ -149,7 +150,7 @@ pub(in crate::tui) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) ->
             app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

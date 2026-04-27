@@ -6,7 +6,8 @@ use ratatui::text::Line;
 use ratatui::widgets::ListItem;
 
 use super::{clear_centered, render_hints_below_dialog};
-use crate::tui::{Action, App, Focus};
+use crate::tui::dialog_handler::return_to_input;
+use crate::tui::{Action, App};
 
 pub(in crate::tui) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let labels: Vec<String> = app
@@ -63,7 +64,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
 
     if labels.is_empty() && !app.dialog_search.active {
         if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     }
@@ -89,7 +90,7 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
     let Some(selected) = super::visible_selection(&visible_indices, app.branch_dialog_selected)
     else {
         if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     };
@@ -101,15 +102,15 @@ pub(in crate::tui) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> 
             app.invalidate_chat_caches();
             app.nav_cursor = None;
             app.auto_scroll = true;
-            app.focus = Focus::Input;
             app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
             app.set_status(
                 "Switched branch.".to_owned(),
                 super::super::StatusLevel::Info,
             );
+            return_to_input(app);
         }
         KeyCode::Esc => {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

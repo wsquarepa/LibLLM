@@ -15,7 +15,8 @@ use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::text::Span;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
-use crate::tui::{Action, App, Focus};
+use crate::tui::dialog_handler::return_to_input;
+use crate::tui::{Action, App};
 
 pub(in crate::tui) const FILE_PICKER_DIALOG_WIDTH: u16 = 80;
 pub(in crate::tui) const FILE_PICKER_DIALOG_HEIGHT: u16 = 20;
@@ -234,7 +235,7 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &mut App, area: Rect) 
 
 pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let Some(state) = app.file_picker.as_mut() else {
-        app.focus = Focus::Input;
+        return_to_input(app);
         return None;
     };
 
@@ -263,7 +264,7 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
         }
         KeyCode::Char(' ') | KeyCode::Esc => {
             app.file_picker = None;
-            app.focus = Focus::Input;
+            return_to_input(app);
             None
         }
         KeyCode::Backspace => {
@@ -311,7 +312,7 @@ fn accept_current(app: &mut App) {
             crate::tui::StatusLevel::Warning,
         );
         app.file_picker = None;
-        app.focus = Focus::Input;
+        return_to_input(app);
         return;
     };
 
@@ -319,7 +320,7 @@ fn accept_current(app: &mut App) {
     let mut lines: Vec<String> = textarea.lines().to_vec();
     if anchor_line >= lines.len() {
         app.file_picker = None;
-        app.focus = Focus::Input;
+        return_to_input(app);
         return;
     }
     let line = &mut lines[anchor_line];
@@ -337,7 +338,7 @@ fn accept_current(app: &mut App) {
     ));
 
     app.file_picker = None;
-    app.focus = Focus::Input;
+    return_to_input(app);
 }
 
 #[cfg(test)]

@@ -10,7 +10,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
-use crate::tui::{Action, App, Focus};
+use crate::tui::dialog_handler::return_to_input;
+use crate::tui::{Action, App};
 
 pub(in crate::tui) const INJECTION_WARNING_DIALOG_WIDTH: u16 = 72;
 pub(in crate::tui) const INJECTION_WARNING_DIALOG_HEIGHT: u16 = 11;
@@ -86,7 +87,7 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
     match key.code {
         KeyCode::Enter | KeyCode::Esc | KeyCode::Char(' ') => {
             app.injection_warning = None;
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

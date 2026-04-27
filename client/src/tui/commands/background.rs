@@ -6,6 +6,7 @@ use libllm::db::Database;
 use libllm::session::{self, SaveMode};
 
 use crate::tui::business;
+use crate::tui::dialog_handler::return_to_input;
 use crate::tui::types::{BackgroundEvent, Focus, StatusLevel, TemplatePromptState};
 
 use super::App;
@@ -23,13 +24,13 @@ fn prepare_backup_rekey(
     }
 }
 
-fn post_passkey_focus(app: &App) -> Focus {
+fn post_passkey_focus(app: &mut App) {
     if app.model_name.is_none() {
-        Focus::LoadingDialog
+        app.focus = Focus::LoadingDialog;
     } else if !app.api_available {
-        Focus::ApiErrorDialog
+        app.focus = Focus::ApiErrorDialog;
     } else {
-        Focus::Input
+        return_to_input(app);
     }
 }
 
@@ -84,7 +85,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         }
                     }
                     app.passkey_deriving = false;
-                    app.focus = post_passkey_focus(app);
+                    post_passkey_focus(app);
                     business::refresh_sidebar(app);
                 }
                 Err(err) => {
@@ -162,7 +163,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                                 );
                             }
                         }
-                        app.focus = post_passkey_focus(app);
+                        post_passkey_focus(app);
                         business::refresh_sidebar(app);
                     }
                     Err(err) => {
@@ -195,7 +196,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                             format!("Failed to rewrap backups: {err}"),
                             StatusLevel::Error,
                         );
-                        app.focus = Focus::Input;
+                        return_to_input(app);
                         return;
                     }
 
@@ -233,7 +234,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         StatusLevel::Error,
                     );
                 }
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
         }
         BackgroundEvent::PasskeySetFailed(err) => {
@@ -251,7 +252,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             tracing::info!(result = "ok", name = %name, "api.model");
             app.model_name = Some(name);
             if app.focus == Focus::LoadingDialog {
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
         }
         BackgroundEvent::ModelFetched(Err(err)) => {

@@ -6,7 +6,8 @@ use ratatui::text::Line;
 use ratatui::widgets::ListItem;
 
 use super::{clear_centered, render_hints_below_dialog};
-use crate::tui::{Action, App, DeleteContext, Focus};
+use crate::tui::dialog_handler::return_to_input;
+use crate::tui::{Action, App, DeleteContext};
 
 pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let visible_indices = super::filter_indices(&app.system_prompt_list, &app.dialog_search);
@@ -57,7 +58,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
 ) -> Option<Action> {
     if app.system_prompt_list.is_empty() && !app.dialog_search.active {
         if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     }
@@ -83,7 +84,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
     let Some(selected) = super::visible_selection(&visible_indices, app.system_prompt_selected)
     else {
         if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     };
@@ -104,7 +105,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
                 format!("System prompt set to '{name}'."),
                 super::super::StatusLevel::Info,
             );
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         KeyCode::Right => {
             let name = app.system_prompt_list[selected].clone();
@@ -152,7 +153,7 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             }
         }
         KeyCode::Esc => {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

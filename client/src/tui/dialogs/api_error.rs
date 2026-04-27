@@ -7,7 +7,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
-use crate::tui::{Action, App, Focus};
+use crate::tui::dialog_handler::return_to_input;
+use crate::tui::{Action, App};
 
 pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let dialog = clear_centered(
@@ -46,7 +47,7 @@ pub(in crate::tui) fn render_api_error_dialog(f: &mut ratatui::Frame, app: &App,
 pub(in crate::tui) fn handle_api_error_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match key.code {
         KeyCode::Enter | KeyCode::Esc => {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

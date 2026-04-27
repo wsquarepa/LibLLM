@@ -666,7 +666,7 @@ pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {
     }
 }
 
-pub(super) fn return_to_input(app: &mut App) {
+pub(in crate::tui) fn return_to_input(app: &mut App) {
     if let Some(pending) = app.pending_template_prompt.take() {
         app.template_prompt_state = Some(pending);
         app.focus = Focus::TemplatePromptDialog;

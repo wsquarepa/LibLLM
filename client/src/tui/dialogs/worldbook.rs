@@ -7,7 +7,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::ListItem;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
-use crate::tui::{Action, App, DeleteContext, Focus};
+use crate::tui::dialog_handler::return_to_input;
+use crate::tui::{Action, App, DeleteContext};
 
 enum WorldbookState {
     Off,
@@ -88,7 +89,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
                 create_and_edit_worldbook(app);
             }
             KeyCode::Esc => {
-                app.focus = Focus::Input;
+                return_to_input(app);
             }
             _ => {}
         }
@@ -117,7 +118,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
         if key.code == KeyCode::Char('a') {
             create_and_edit_worldbook(app);
         } else if key.code == KeyCode::Esc {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         return None;
     };
@@ -188,7 +189,7 @@ pub(in crate::tui) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) 
             app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {
-            app.focus = Focus::Input;
+            return_to_input(app);
         }
         _ => {}
     }

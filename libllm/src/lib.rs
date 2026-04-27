@@ -1,5 +1,6 @@
 //! Shared library for LibLLM: types, database access, API client, and preset management.
 
+pub mod archive;
 pub mod character;
 pub mod client;
 pub mod commands;

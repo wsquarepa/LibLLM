@@ -350,32 +350,39 @@ impl Database {
         dismissed_templates::clear_all(&self.conn)
     }
 
+    fn purge_table_in_txn(&self, table_name: &'static str, sql: &'static str) -> Result<u64> {
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .with_context(|| format!("{table_name}: begin txn"))?;
+        let affected = self.conn.execute(sql, []).with_context(|| format!("failed to purge {table_name}"));
+        match affected {
+            Ok(n) => {
+                self.conn
+                    .execute_batch("COMMIT")
+                    .with_context(|| format!("{table_name}: commit txn"))?;
+                Ok(n as u64)
+            }
+            Err(err) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(err)
+            }
+        }
+    }
+
     pub fn purge_sessions(&self) -> Result<u64> {
-        let affected = self.conn
-            .execute("DELETE FROM sessions", [])
-            .context("failed to purge sessions")?;
-        Ok(affected as u64)
+        self.purge_table_in_txn("sessions", "DELETE FROM sessions")
     }
 
     pub fn purge_characters(&self) -> Result<u64> {
-        let affected = self.conn
-            .execute("DELETE FROM characters", [])
-            .context("failed to purge characters")?;
-        Ok(affected as u64)
+        self.purge_table_in_txn("characters", "DELETE FROM characters")
     }
 
     pub fn purge_personas(&self) -> Result<u64> {
-        let affected = self.conn
-            .execute("DELETE FROM personas", [])
-            .context("failed to purge personas")?;
-        Ok(affected as u64)
+        self.purge_table_in_txn("personas", "DELETE FROM personas")
     }
 
     pub fn purge_worldbooks(&self) -> Result<u64> {
-        let affected = self.conn
-            .execute("DELETE FROM worldbooks", [])
-            .context("failed to purge worldbooks")?;
-        Ok(affected as u64)
+        self.purge_table_in_txn("worldbooks", "DELETE FROM worldbooks")
     }
 }
 

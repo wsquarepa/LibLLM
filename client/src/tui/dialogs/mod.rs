@@ -13,6 +13,7 @@ pub mod persona;
 pub mod preset;
 pub mod set_passkey;
 pub mod system_prompt;
+pub mod template_prompt;
 pub mod worldbook;
 
 mod builders;

@@ -293,6 +293,11 @@ pub struct Args {
     /// Remove LibLLM temporary debug logs and exit
     #[arg(long)]
     pub cleanup: bool,
+
+    /// Internal: trigger Destroy All Data flow non-interactively. Used only by tests.
+    #[cfg(debug_assertions)]
+    #[arg(long, hide = true)]
+    pub debug_trigger_destroy_all: bool,
 }
 
 impl Args {

@@ -87,6 +87,11 @@ async fn main() -> Result<()> {
         }
     }
 
+    #[cfg(debug_assertions)]
+    if args.debug_trigger_destroy_all {
+        return debug_trigger_destroy_all();
+    }
+
     let cli_args_joined = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
     let build = diagnostics::BuildInfo {
         version: env!("CARGO_PKG_VERSION"),
@@ -597,6 +602,24 @@ fn try_backup(
     if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, config) {
         eprintln!("Warning: backup failed: {err}");
     }
+}
+
+#[cfg(debug_assertions)]
+fn debug_trigger_destroy_all() -> Result<()> {
+    use chrono::Utc;
+    let data_dir = config::data_dir();
+    let snapshot_path = std::env::temp_dir().join(format!(
+        "libllm-{}.tar.zst",
+        Utc::now().format("%Y%m%d-%H%M%S-debug")
+    ));
+    libllm::archive::snapshot_data_dir(&data_dir, &snapshot_path, "backups")
+        .map_err(|e| anyhow::anyhow!("snapshot failed: {e}"))?;
+    std::fs::remove_dir_all(&data_dir).map_err(|e| anyhow::anyhow!("delete failed: {e}"))?;
+    eprintln!(
+        "LibLLM data destroyed. Snapshot saved to: {}",
+        snapshot_path.display()
+    );
+    Ok(())
 }
 
 #[cfg(test)]

@@ -140,9 +140,10 @@ pub(super) enum BackgroundEvent {
     ServerContextSize(usize),
     TokenizerReloaded(libllm::tokenizer::TokenCounter),
     TokenCountReady(libllm::tokenizer::TokenCountUpdate),
-    #[expect(dead_code, reason = "wired in Task T16 (probe + emit)")]
     TemplateMatch {
+        #[expect(dead_code, reason = "read in Task T17 (event handler applies matched preset)")]
         outcome: libllm::preset::matching::MatchOutcome,
+        #[expect(dead_code, reason = "read in Task T17 (event handler deduplicates by hash)")]
         server_template_hash: String,
     },
     #[expect(dead_code, reason = "wired in Task T19 (config-apply emit)")]

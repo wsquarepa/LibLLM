@@ -97,7 +97,8 @@ pub async fn run(
         tokenizer_tx.clone(),
     );
 
-    business::spawn_startup_probes(client.clone(), tokenizer_tx.clone(), bg_tx.clone());
+    let cli_template_override = cli_overrides.template.is_some();
+    business::spawn_startup_probes(client.clone(), tokenizer_tx.clone(), bg_tx.clone(), cli_template_override);
 
     let config = libllm::config::load();
 

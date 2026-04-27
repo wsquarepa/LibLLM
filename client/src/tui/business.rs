@@ -591,6 +591,7 @@ async fn emit_startup_probe_events(
     client: ApiClient,
     tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
+    cli_override_template_set: bool,
 ) {
     let result = client.fetch_model_name().await;
     let models_ok = result.is_ok();
@@ -610,15 +611,36 @@ async fn emit_startup_probe_events(
             .send(BackgroundEvent::ServerContextSize(server_ctx))
             .await;
     }
+
+    if !cli_override_template_set {
+        if let Some(server_template) = client.fetch_server_chat_template().await {
+            let presets: Vec<libllm::preset::InstructPreset> =
+                libllm::preset::list_instruct_preset_names()
+                    .into_iter()
+                    .map(|n| libllm::preset::resolve_instruct_preset(&n))
+                    .collect();
+            let outcome =
+                libllm::preset::matching::pick_best_match(&server_template, &presets);
+            let _ = bg_tx
+                .send(BackgroundEvent::TemplateMatch {
+                    outcome,
+                    server_template_hash: libllm::preset::matching::template_hash(
+                        &server_template,
+                    ),
+                })
+                .await;
+        }
+    }
 }
 
 pub(super) fn spawn_startup_probes(
     client: ApiClient,
     tokenizer_tx: mpsc::Sender<TokenCountUpdate>,
     bg_tx: mpsc::Sender<BackgroundEvent>,
+    cli_override_template_set: bool,
 ) {
     tokio::spawn(async move {
-        emit_startup_probe_events(client, tokenizer_tx, bg_tx).await;
+        emit_startup_probe_events(client, tokenizer_tx, bg_tx, cli_override_template_set).await;
     });
 }
 
@@ -723,6 +745,7 @@ pub(super) fn apply_config(app: &mut App) {
             app.client.clone(),
             app.tokenizer_tx.clone(),
             app.bg_tx.clone(),
+            app.cli_overrides.template.is_some(),
         );
     } else {
         spawn_context_probe(app.client.clone(), app.bg_tx.clone());

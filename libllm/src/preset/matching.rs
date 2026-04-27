@@ -128,6 +128,11 @@ pub fn render_preset(preset: &InstructPreset, _ctx: &CanonicalContext) -> String
     preset.render_continuation(&refs, Some(CANONICAL_SYSTEM))
 }
 
+/// 0.0 (totally different) to 1.0 (identical) similarity score using normalized Levenshtein.
+pub fn score(server_normalized: &str, preset_normalized: &str) -> f64 {
+    strsim::normalized_levenshtein(server_normalized, preset_normalized)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +229,27 @@ mod tests {
         assert!(out.contains("<|start_header_id|>"));
         assert!(out.contains("<|end_header_id|>"));
         assert!(out.contains("<|eot_id|>"));
+    }
+
+    #[test]
+    fn score_identical_strings_is_one() {
+        assert_eq!(score("hello world", "hello world"), 1.0);
+    }
+
+    #[test]
+    fn score_disjoint_strings_is_low() {
+        let s = score("AAAAAAAA", "ZZZZZZZZ");
+        assert!(s < 0.1, "expected near-zero, got {s}");
+    }
+
+    #[test]
+    fn score_similar_strings_is_high() {
+        let s = score("hello world", "hello worle");
+        assert!(s > 0.9, "expected near-1.0, got {s}");
+    }
+
+    #[test]
+    fn score_empty_pair_is_one() {
+        assert_eq!(score("", ""), 1.0);
     }
 }

@@ -5,6 +5,7 @@
 //! ready-event payload, lookup traits consumed by `Summarizer::format_prompt`,
 //! and `FileSummarizer` which drives background LLM summarisation.
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -138,6 +139,8 @@ pub struct FileSummarizer {
     pub(crate) poll_interval: Duration,
     pub(crate) per_file_timeout: Duration,
     pub(crate) ready_tx: mpsc::UnboundedSender<ReadyEvent>,
+    pub(crate) shutting_down: Arc<AtomicBool>,
+    pub(crate) in_flight: Arc<AtomicUsize>,
 }
 
 impl FileSummarizer {
@@ -154,12 +157,24 @@ impl FileSummarizer {
             poll_interval: DEFAULT_POLL_INTERVAL,
             per_file_timeout: DEFAULT_PER_FILE_TIMEOUT,
             ready_tx,
+            shutting_down: Arc::new(AtomicBool::new(false)),
+            in_flight: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     /// Schedules summarisation for one file. Idempotent: if a row already
-    /// exists for `(session_id, content_hash)`, no task is spawned.
+    /// exists for `(session_id, content_hash)`, no task is spawned. Silently
+    /// skips scheduling when `shutdown()` has been called.
     pub fn schedule(&self, session_id: &str, file: &FileToSummarize) {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            tracing::debug!(
+                session_id = %session_id,
+                content_hash = %file.content_hash,
+                "files.summary.schedule.skipped_shutdown"
+            );
+            return;
+        }
+
         let inserted = {
             let guard = match self.conn.lock() {
                 Ok(g) => g,
@@ -218,6 +233,8 @@ impl FileSummarizer {
         let content_hash = file.content_hash.clone();
         let body = file.body.clone();
         let per_file_timeout = self.per_file_timeout;
+        let in_flight = Arc::clone(&self.in_flight);
+        in_flight.fetch_add(1, Ordering::SeqCst);
         tokio::spawn(async move {
             tracing::debug!(
                 session_id = %session_id,
@@ -277,7 +294,29 @@ impl FileSummarizer {
                 content_hash,
                 status,
             });
+            in_flight.fetch_sub(1, Ordering::SeqCst);
         });
+    }
+
+    /// Signals shutdown and waits up to 2 seconds for in-flight tasks to complete.
+    ///
+    /// After this returns, `schedule` will silently drop any new requests. Callers
+    /// that need to delete the data directory (e.g., Destroy All Data) should await
+    /// this before proceeding so open file descriptors are less likely to block
+    /// directory removal on Windows.
+    pub async fn shutdown(&self) {
+        self.shutting_down.store(true, Ordering::SeqCst);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while self.in_flight.load(Ordering::SeqCst) > 0 {
+            if std::time::Instant::now() >= deadline {
+                tracing::warn!(
+                    in_flight = self.in_flight.load(Ordering::SeqCst),
+                    "files.summary.shutdown.timeout"
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
     }
 
     /// Resolves once every file in `files` is `done` or `failed`.

@@ -9,8 +9,12 @@ pub(in crate::tui) fn spawn_destroy_all(
     bg_tx: tokio::sync::mpsc::Sender<crate::tui::types::BackgroundEvent>,
     data_dir: std::path::PathBuf,
     snapshot_path: std::path::PathBuf,
+    summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>>,
 ) {
     tokio::spawn(async move {
+        if let Some(s) = &summarizer {
+            s.shutdown().await;
+        }
         let snapshot_path_for_task = snapshot_path.clone();
         let result = tokio::task::spawn_blocking(move || {
             libllm::archive::snapshot_data_dir(&data_dir, &snapshot_path_for_task, "backups")

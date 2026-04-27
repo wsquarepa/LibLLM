@@ -495,6 +495,7 @@ fn handle_key(
                         app.bg_tx.clone(),
                         libllm::config::data_dir(),
                         state.snapshot_path,
+                        app.file_summarizer.clone(),
                     );
                     app.set_status("Creating snapshot\u{2026}".to_owned(), StatusLevel::Info);
                 }

@@ -7,7 +7,7 @@ use ratatui::widgets::ListItem;
 
 use super::{clear_centered, render_hints_below_dialog};
 use crate::tui::dialog_handler::return_to_input;
-use crate::tui::{Action, App, DeleteContext};
+use crate::tui::{Action, App, DeleteContext, Focus};
 
 pub(in crate::tui) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let visible_indices = super::filter_indices(&app.system_prompt_list, &app.dialog_search);

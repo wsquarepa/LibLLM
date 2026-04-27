@@ -425,6 +425,93 @@ impl ApiClient {
         n_ctx
     }
 
+    /// Queries the server for its chat template (`chat_template` field of `/props`).
+    /// Returns `None` if the field is missing/empty or the request fails.
+    /// Strips trailing NUL bytes (a known llama.cpp quirk).
+    pub async fn fetch_server_chat_template(&self) -> Option<String> {
+        let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
+        let start = Instant::now();
+        let builder = match self.auth.apply(self.client.get(&url)) {
+            Ok(b) => b,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.props.chat_template"
+                );
+                return None;
+            }
+        };
+        let resp = match builder.send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.props.chat_template"
+                );
+                return None;
+            }
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                status = status.as_u16(),
+                "client.props.chat_template"
+            );
+            return None;
+        }
+        let json: serde_json::Value = match resp.json().await {
+            Ok(json) => json,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.props.chat_template"
+                );
+                return None;
+            }
+        };
+        let template = json["chat_template"]
+            .as_str()
+            .map(|s| s.trim_end_matches('\0').to_owned());
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        match &template {
+            Some(t) if !t.is_empty() => {
+                tracing::info!(
+                    phase = "request",
+                    result = "ok",
+                    elapsed_ms = elapsed_ms,
+                    template_bytes = t.len(),
+                    "client.props.chat_template"
+                );
+                Some(t.clone())
+            }
+            _ => {
+                tracing::info!(
+                    phase = "request",
+                    result = "missing",
+                    elapsed_ms = elapsed_ms,
+                    "client.props.chat_template"
+                );
+                None
+            }
+        }
+    }
+
     /// Calls `POST {server}/tokenize` with the given text and returns the token count.
     /// When `add_special` is true, BOS/EOS tokens are included in the count.
     pub async fn tokenize(&self, text: &str, add_special: bool) -> anyhow::Result<usize> {
@@ -772,5 +859,62 @@ mod tests {
         let client = ApiClient::new(&base, false, crate::config::Auth::None);
 
         assert!(client.tokenize_kobold("hello").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetch_server_chat_template_returns_template_field() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/props"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "chat_template": "{% for m in messages %}{{ m.role }}{% endfor %}",
+                "default_generation_settings": { "n_ctx": 8192 }
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        let template = client.fetch_server_chat_template().await;
+        assert!(template.is_some());
+        assert!(template.unwrap().contains("messages"));
+    }
+
+    #[tokio::test]
+    async fn fetch_server_chat_template_returns_none_when_missing() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/props"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "default_generation_settings": { "n_ctx": 8192 }
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        assert!(client.fetch_server_chat_template().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_server_chat_template_strips_trailing_nul() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/props"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "chat_template": "hello\u{0000}\u{0000}"
+            })))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+
+        assert_eq!(
+            client.fetch_server_chat_template().await.as_deref(),
+            Some("hello")
+        );
     }
 }

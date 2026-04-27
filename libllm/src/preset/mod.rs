@@ -92,19 +92,13 @@ pub fn regenerate_builtins(dir: &std::path::Path) -> RegenerateSummary {
     let mut written = 0;
     let mut failed = Vec::new();
     for (name, json) in BUILTIN_INSTRUCT {
-        let filename = builtin_filename_for(name);
-        let path = dir.join(filename);
+        let path = dir.join(format!("{name}.json"));
         match std::fs::write(&path, json) {
             Ok(()) => written += 1,
             Err(err) => failed.push(((*name).to_owned(), err.to_string())),
         }
     }
     RegenerateSummary { written, failed }
-}
-
-fn builtin_filename_for(name: &str) -> String {
-    let slug = name.to_lowercase().replace([' ', '-'], "_");
-    format!("{slug}.json")
 }
 
 pub(crate) fn backward_compat_alias(name: &str) -> Option<&'static str> {
@@ -171,7 +165,7 @@ mod regen_tests {
         assert_eq!(summary.written, BUILTIN_INSTRUCT.len());
         assert!(summary.failed.is_empty());
         for (name, _) in BUILTIN_INSTRUCT {
-            let path = dir.path().join(builtin_filename_for(name));
+            let path = dir.path().join(format!("{name}.json"));
             assert!(path.exists(), "missing file for built-in {name}");
         }
     }
@@ -179,7 +173,7 @@ mod regen_tests {
     #[test]
     fn regenerate_overwrites_existing_files() {
         let dir = TempDir::new().unwrap();
-        let target = dir.path().join(builtin_filename_for("ChatML"));
+        let target = dir.path().join("ChatML.json");
         std::fs::write(&target, b"corrupted contents").unwrap();
         let summary = regenerate_builtins(dir.path());
         assert_eq!(summary.failed, Vec::<(String, String)>::new());

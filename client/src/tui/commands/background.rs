@@ -355,6 +355,6 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 app.pending_template_prompt = Some(state);
             }
         }
-        BackgroundEvent::EndpointChanged | BackgroundEvent::DangerOpComplete(_, _) => {}
+        BackgroundEvent::DangerOpComplete(_, _) => {}
     }
 }

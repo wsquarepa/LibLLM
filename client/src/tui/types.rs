@@ -143,8 +143,6 @@ pub(super) enum BackgroundEvent {
         outcome: libllm::preset::matching::MatchOutcome,
         server_template_hash: String,
     },
-    #[expect(dead_code, reason = "wired in Task T19 (config-apply emit)")]
-    EndpointChanged,
     #[expect(dead_code, reason = "wired in Task T27 (DestroyAll completion)")]
     DangerOpComplete(DangerOp, std::result::Result<DangerSummary, String>),
 }

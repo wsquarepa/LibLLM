@@ -50,7 +50,6 @@ pub(super) enum Focus {
     LoadingDialog,
     TemplatePromptDialog,
     DangerConfirmDialog,
-    #[expect(dead_code, reason = "wired in Task T27 (Destroy All Data)")]
     DangerTypedConfirmDialog,
 }
 
@@ -142,7 +141,6 @@ pub(super) enum BackgroundEvent {
         outcome: libllm::preset::matching::MatchOutcome,
         server_template_hash: String,
     },
-    #[expect(dead_code, reason = "wired in Task T27 (DestroyAll completion)")]
     DangerOpComplete(DangerOp, std::result::Result<DangerSummary, String>),
 }
 
@@ -161,7 +159,6 @@ pub(super) enum DangerOp {
 pub(super) enum DangerSummary {
     RowsAffected(u64),
     PresetsWritten { written: usize, failed: usize },
-    #[expect(dead_code, reason = "constructed in Task T27 (DestroyAll completion path)")]
     SnapshotPath(std::path::PathBuf),
 }
 
@@ -179,7 +176,7 @@ pub(super) struct TemplatePromptState {
 pub(super) struct TypedConfirmState {
     pub(super) challenge: String,
     pub(super) input: String,
-    #[expect(dead_code, reason = "read by render_danger_typed_confirm, wired in Task T27")]
+    #[expect(dead_code, reason = "identifies the operation for future multi-op typed-confirm flows; used in test fixtures")]
     pub(super) op: DangerOp,
     pub(super) snapshot_path: std::path::PathBuf,
     pub(super) focus_idx: usize,
@@ -371,7 +368,6 @@ pub(super) struct App<'a> {
     pub(super) danger_selected: usize,
     pub(super) danger_confirm_op: Option<DangerOp>,
     pub(super) danger_confirm_selected: Option<usize>,
-    #[expect(dead_code, reason = "wired in Task T27 (DestroyAll dialog state)")]
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
 }
 

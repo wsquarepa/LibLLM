@@ -4,6 +4,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::style::Style;
 use tui_textarea::TextArea;
 
+use chrono::Utc;
+
 use libllm::session::{Message, Role};
 
 use super::types::*;
@@ -145,11 +147,20 @@ pub(super) fn handle_field_dialog_key(
                 DangerTabResult::Pending => {}
                 DangerTabResult::OpenConfirm(op) => {
                     if matches!(op, crate::tui::types::DangerOp::DestroyAll) {
-                        tracing::warn!(
-                            op = "DestroyAll",
-                            reason = "async handler lands in Task 27",
-                            "danger_tab.dispatch.skipped"
-                        );
+                        let challenge =
+                            crate::tui::dialogs::danger_typed_confirm::generate_challenge();
+                        let snapshot_path = std::env::temp_dir().join(format!(
+                            "libllm-{}.tar.zst",
+                            Utc::now().format("%Y%m%d-%H%M%S")
+                        ));
+                        app.danger_typed_confirm = Some(TypedConfirmState {
+                            challenge,
+                            input: String::new(),
+                            op,
+                            snapshot_path,
+                            focus_idx: 1,
+                        });
+                        app.focus = Focus::DangerTypedConfirmDialog;
                     } else {
                         app.danger_confirm_op = Some(op);
                         app.danger_confirm_selected = Some(0);

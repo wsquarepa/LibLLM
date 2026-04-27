@@ -661,6 +661,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::InjectionWarningDialog => Some("injection_warning"),
         Focus::LoadingDialog => Some("loading"),
         Focus::TemplatePromptDialog => Some("template_prompt"),
+        Focus::DangerTypedConfirmDialog => Some("danger_typed_confirm"),
         _ => None,
     };
 
@@ -885,6 +886,16 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             if let Some(op) = app.danger_confirm_op {
                 let sel = app.danger_confirm_selected.unwrap_or(0);
                 dialogs::danger_confirm::render_danger_confirm(f, f.area(), op, sel, &app.theme);
+            }
+        }
+        Focus::DangerTypedConfirmDialog => {
+            if let Some(ref state) = app.danger_typed_confirm {
+                dialogs::danger_typed_confirm::render_danger_typed_confirm(
+                    f,
+                    f.area(),
+                    state,
+                    &app.theme,
+                );
             }
         }
         _ => {}

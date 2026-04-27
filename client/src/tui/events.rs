@@ -477,6 +477,32 @@ fn handle_key(
         return None;
     }
 
+    if app.focus == Focus::DangerTypedConfirmDialog {
+        use crate::tui::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
+        let Some(state) = app.danger_typed_confirm.as_mut() else {
+            app.focus = Focus::ConfigDialog;
+            return None;
+        };
+        match handle_danger_typed_key(key, state) {
+            DangerTypedResult::Pending => {}
+            DangerTypedResult::Cancel => {
+                app.danger_typed_confirm = None;
+                app.focus = Focus::ConfigDialog;
+            }
+            DangerTypedResult::Destroy => {
+                if let Some(state) = app.danger_typed_confirm.take() {
+                    crate::tui::commands::danger::spawn_destroy_all(
+                        app.bg_tx.clone(),
+                        libllm::config::data_dir(),
+                        state.snapshot_path,
+                    );
+                    app.set_status("Creating snapshot\u{2026}".to_owned(), StatusLevel::Info);
+                }
+            }
+        }
+        return None;
+    }
+
     if app.focus == Focus::TemplatePromptDialog {
         use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
         let Some(state) = app.template_prompt_state.as_mut() else {

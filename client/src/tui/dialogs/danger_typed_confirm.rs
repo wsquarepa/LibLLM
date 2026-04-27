@@ -31,7 +31,6 @@ pub enum DangerTypedResult {
     Destroy,
 }
 
-#[expect(dead_code, reason = "wired in Task T27 (Destroy All Data)")]
 pub(in crate::tui) fn render_danger_typed_confirm(
     f: &mut Frame,
     area: Rect,
@@ -90,7 +89,6 @@ pub(in crate::tui) fn render_danger_typed_confirm(
     f.render_widget(Paragraph::new(lines).alignment(Alignment::Left), inner);
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "wired in Task T27 (Destroy All Data)"))]
 pub(in crate::tui) fn handle_danger_typed_key(
     key: KeyEvent,
     state: &mut TypedConfirmState,

@@ -106,7 +106,7 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
     env.add_template("chat", template)
         .context("failed to parse server chat_template")?;
     let tmpl = env.get_template("chat").expect("just added");
-    let value = Value::from_serialize(&serde_json::json!({
+    let value = Value::from_serialize(serde_json::json!({
         "messages": ctx.messages,
         "bos_token": ctx.bos_token,
         "eos_token": ctx.eos_token,
@@ -120,7 +120,7 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
 /// reusing the existing production renderer (`InstructPreset::render_continuation`) so
 /// matching reflects what we actually send to the API.
 pub fn render_preset(preset: &InstructPreset, _ctx: &CanonicalContext) -> String {
-    let messages = vec![
+    let messages = [
         Message::new(Role::User, CANONICAL_USER.to_owned()),
         Message::new(Role::Assistant, CANONICAL_ASSISTANT.to_owned()),
     ];
@@ -128,9 +128,119 @@ pub fn render_preset(preset: &InstructPreset, _ctx: &CanonicalContext) -> String
     preset.render_continuation(&refs, Some(CANONICAL_SYSTEM))
 }
 
+/// Scoring context for `pick_best_match`: a single user turn with no system message
+/// and `add_generation_prompt: true`. Both the Jinja side (via the flag) and the preset
+/// side (because the last message is a user turn) append the assistant prompt, keeping
+/// both sides structurally aligned. Omitting system avoids false mismatches on templates
+/// that silently drop system messages (e.g., Mistral V3).
+fn scoring_context() -> CanonicalContext {
+    CanonicalContext {
+        messages: vec![CanonicalMessage { role: "user", content: CANONICAL_USER }],
+        bos_token: "",
+        eos_token: "",
+        add_generation_prompt: true,
+    }
+}
+
+/// Render a preset over the scoring conversation (single user turn, no system).
+///
+/// Because the last message is a user turn, `render_continuation` appends the output
+/// sequence, mirroring what the Jinja side produces via `add_generation_prompt: true`.
+fn render_preset_for_scoring(preset: &InstructPreset) -> String {
+    let messages = [Message::new(Role::User, CANONICAL_USER.to_owned())];
+    let refs: Vec<&Message> = messages.iter().collect();
+    preset.render_continuation(&refs, None)
+}
+
 /// 0.0 (totally different) to 1.0 (identical) similarity score using normalized Levenshtein.
 pub fn score(server_normalized: &str, preset_normalized: &str) -> f64 {
     strsim::normalized_levenshtein(server_normalized, preset_normalized)
+}
+
+pub const CONFIDENT_THRESHOLD: f64 = 0.98;
+pub const BEST_GUESS_THRESHOLD: f64 = 0.85;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchOutcome {
+    Confident { preset: String, score: f64 },
+    BestGuess { preset: String, score: f64 },
+    NoMatch { best_score: f64 },
+}
+
+/// Render `server_template` and each preset against the canonical context, normalize,
+/// score, and return the best outcome. Skips presets that fail to render. Returns
+/// `NoMatch { best_score: 0.0 }` if every preset fails or `presets` is empty.
+///
+/// Tiebreak (when multiple presets share the top score):
+/// 1. preset with the smallest sum of byte lengths across distinctive sequence fields
+/// 2. alphabetical by `name` (deterministic fallback)
+pub fn pick_best_match(server_template: &str, presets: &[InstructPreset]) -> MatchOutcome {
+    let ctx = scoring_context();
+    let server_rendered = match render_jinja(server_template, &ctx) {
+        Ok(s) => s,
+        Err(err) => {
+            tracing::warn!(error = %err, "preset.matching.jinja_render_failed");
+            return MatchOutcome::NoMatch { best_score: 0.0 };
+        }
+    };
+    let server_norm = normalize(&server_rendered);
+
+    let scored: Vec<(f64, &InstructPreset)> = presets
+        .iter()
+        .map(|p| {
+            let rendered = render_preset_for_scoring(p);
+            let norm = normalize(&rendered);
+            (score(&server_norm, &norm), p)
+        })
+        .collect();
+
+    if scored.is_empty() {
+        return MatchOutcome::NoMatch { best_score: 0.0 };
+    }
+
+    let top_score = scored
+        .iter()
+        .map(|(s, _)| *s)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    let mut top: Vec<&InstructPreset> = scored
+        .iter()
+        .filter(|(s, _)| (*s - top_score).abs() < f64::EPSILON)
+        .map(|(_, p)| *p)
+        .collect();
+
+    top.sort_by(|a, b| {
+        sequence_length_sum(a)
+            .cmp(&sequence_length_sum(b))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let winner = top[0];
+
+    if top_score >= CONFIDENT_THRESHOLD {
+        MatchOutcome::Confident { preset: winner.name.clone(), score: top_score }
+    } else if top_score >= BEST_GUESS_THRESHOLD {
+        MatchOutcome::BestGuess { preset: winner.name.clone(), score: top_score }
+    } else {
+        MatchOutcome::NoMatch { best_score: top_score }
+    }
+}
+
+/// Sum of byte lengths of the distinctive sequence fields that differentiate presets.
+///
+/// Extracted because the `StopSequence` match adds enough branching to make the sort
+/// closure unreadable if inlined.
+fn sequence_length_sum(p: &InstructPreset) -> usize {
+    p.input_sequence.len()
+        + p.output_sequence.len()
+        + p.system_sequence.len()
+        + p.input_suffix.len()
+        + p.output_suffix.len()
+        + p.system_suffix.len()
+        + match &p.stop_sequence {
+            crate::preset::StopSequence::Single(s) => s.len(),
+            crate::preset::StopSequence::Multiple(v) => v.iter().map(|s| s.len()).sum(),
+        }
 }
 
 #[cfg(test)]
@@ -251,5 +361,112 @@ mod tests {
     #[test]
     fn score_empty_pair_is_one() {
         assert_eq!(score("", ""), 1.0);
+    }
+
+    const LLAMA3_JINJA: &str = include_str!("matching_fixtures/llama3.jinja");
+    const CHATML_JINJA: &str = include_str!("matching_fixtures/chatml.jinja");
+    const MISTRAL_V3_JINJA: &str = include_str!("matching_fixtures/mistral_v3.jinja");
+    const NONSENSE_JINJA: &str = include_str!("matching_fixtures/nonsense.jinja");
+
+
+    fn all_builtin_presets() -> Vec<InstructPreset> {
+        crate::preset::BUILTIN_INSTRUCT
+            .iter()
+            .filter_map(|(_, json)| serde_json::from_str(json).ok())
+            .collect()
+    }
+
+
+    #[test]
+    fn pick_best_match_llama3_template_picks_llama3_preset() {
+        let presets = all_builtin_presets();
+        let outcome = pick_best_match(LLAMA3_JINJA, &presets);
+        match outcome {
+            MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
+                assert_eq!(preset, "Llama 3 Instruct");
+            }
+            MatchOutcome::NoMatch { best_score } => {
+                panic!("expected match for Llama-3 template, got NoMatch (best_score={best_score})");
+            }
+        }
+    }
+
+    #[test]
+    fn pick_best_match_chatml_template_picks_chatml_preset() {
+        let presets = all_builtin_presets();
+        let outcome = pick_best_match(CHATML_JINJA, &presets);
+        match outcome {
+            MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
+                assert_eq!(preset, "ChatML");
+            }
+            MatchOutcome::NoMatch { best_score } => {
+                panic!("expected match for ChatML template, got NoMatch (best_score={best_score})");
+            }
+        }
+    }
+
+    #[test]
+    fn pick_best_match_mistral_template_picks_mistral_preset() {
+        let presets = all_builtin_presets();
+        let outcome = pick_best_match(MISTRAL_V3_JINJA, &presets);
+        match outcome {
+            MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
+                assert_eq!(preset, "Mistral V3-Tekken");
+            }
+            MatchOutcome::NoMatch { best_score } => {
+                panic!("expected match for Mistral V3 template, got NoMatch (best_score={best_score})");
+            }
+        }
+    }
+
+    #[test]
+    fn pick_best_match_nonsense_template_returns_no_match() {
+        let presets = all_builtin_presets();
+        let outcome = pick_best_match(NONSENSE_JINJA, &presets);
+        match outcome {
+            MatchOutcome::NoMatch { best_score } => {
+                assert!(best_score < BEST_GUESS_THRESHOLD, "score={best_score}");
+            }
+            other => panic!("expected NoMatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pick_best_match_empty_preset_list_returns_no_match() {
+        let outcome = pick_best_match(LLAMA3_JINJA, &[]);
+        assert_eq!(outcome, MatchOutcome::NoMatch { best_score: 0.0 });
+    }
+
+    #[test]
+    fn pick_best_match_invalid_jinja_returns_no_match() {
+        let presets = all_builtin_presets();
+        let outcome = pick_best_match("{% for m in messages %}{{ m.role }}", &presets);
+        assert_eq!(outcome, MatchOutcome::NoMatch { best_score: 0.0 });
+    }
+
+    #[test]
+    fn pick_best_match_tiebreak_prefers_shorter_sequence_sum() {
+        // Two synthetic presets with identical rendering but different total sequence lengths.
+        // stop_sequence is included in sequence_length_sum but never appears in the rendered
+        // prompt, so padding it creates a length difference without changing rendered output.
+        let short_preset: InstructPreset = crate::preset::BUILTIN_INSTRUCT
+            .iter()
+            .find(|(name, _)| *name == "ChatML")
+            .and_then(|(_, json)| serde_json::from_str(json).ok())
+            .expect("ChatML builtin must exist");
+        let mut long_preset = short_preset.clone();
+        long_preset.name = "ChatML-padded".to_owned();
+        long_preset.stop_sequence = crate::preset::StopSequence::Multiple(vec![
+            "<|im_end|>".to_owned(),
+            "[unused-padding-string-that-does-not-render]".to_owned(),
+        ]);
+        let presets = vec![long_preset, short_preset];
+        let outcome = pick_best_match(CHATML_JINJA, &presets);
+        match outcome {
+            MatchOutcome::Confident { preset, .. } | MatchOutcome::BestGuess { preset, .. } => {
+                assert_eq!(preset, "ChatML", "expected shorter preset to win tiebreak");
+            }
+            other => panic!("expected match, got {other:?}"),
+        }
     }
 }

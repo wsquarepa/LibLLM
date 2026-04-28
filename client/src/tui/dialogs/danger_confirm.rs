@@ -2,12 +2,11 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::tui::theme::Theme;
 use crate::tui::types::DangerOp;
 
 use super::{clear_centered, dialog_block};
@@ -24,7 +23,6 @@ pub(in crate::tui) fn render_danger_confirm(
     area: Rect,
     op: DangerOp,
     selected: usize,
-    theme: &Theme,
 ) {
     let (title, body, confirm_label) = match op {
         DangerOp::ClearStores => (
@@ -60,42 +58,45 @@ pub(in crate::tui) fn render_danger_confirm(
         DangerOp::DestroyAll => unreachable!("DestroyAll uses typed-confirm dialog"),
     };
 
-    let width = area.width.min(64);
-    let height = 8;
+    let width = area.width.min(68);
+    let height = 9;
     let popup = clear_centered(f, width, height, area);
 
     let title_span = Span::styled(
         format!("Confirm: {title}"),
-        Style::default()
-            .fg(theme.status_error_fg)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     );
-    let block = dialog_block(title_span, theme.status_error_fg);
+    let block = dialog_block(title_span, Color::Red);
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
+    let body_style = Style::default().fg(Color::Red);
     let cancel_style = if selected == 0 {
-        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
     let confirm_style = if selected == 1 {
         Style::default()
-            .fg(theme.status_error_fg)
-            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            .fg(Color::Black)
+            .bg(Color::Red)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme.status_error_fg)
+        Style::default().fg(Color::Red)
     };
 
     let lines = vec![
         Line::from(""),
-        Line::from(body.to_owned()),
-        Line::from("This action cannot be undone."),
+        Line::styled(format!("  {body}"), body_style),
+        Line::styled("  This action cannot be undone.", body_style),
         Line::from(""),
         Line::from(vec![
-            Span::raw("                          "),
+            Span::raw("    "),
             Span::styled(" Cancel ", cancel_style),
-            Span::raw("  "),
+            Span::raw("   "),
             Span::styled(format!(" {confirm_label} "), confirm_style),
         ]),
     ];

@@ -198,7 +198,9 @@ pub fn open_config_editor(
             (2, FieldValidation::Int { min: 0, max: 134217728 }),
         ]);
 
-    let danger = TabSection::new("Danger", &[], vec![]).with_danger_style();
+    let danger = TabSection::new("Danger", &[], vec![])
+        .with_danger_style()
+        .with_body_lines(9);
 
     TabbedFieldDialog::new(
         " Configuration ",

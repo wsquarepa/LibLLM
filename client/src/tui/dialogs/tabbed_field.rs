@@ -30,6 +30,9 @@ pub struct TabSection {
     pub color_preview_fields: &'static [usize],
     /// When true, the tab label renders in the error/danger color instead of the default.
     pub danger_style: bool,
+    /// Override for the body-line count used when sizing the dialog. Defaults to `labels.len()`.
+    /// Used by tabs whose body is rendered outside the standard field grid (e.g. Danger).
+    pub body_lines_override: Option<u16>,
     selected: usize,
 }
 
@@ -52,6 +55,7 @@ impl TabSection {
             validated_fields: Vec::new(),
             color_preview_fields: &[],
             danger_style: false,
+            body_lines_override: None,
             selected: 0,
         }
     }
@@ -59,6 +63,15 @@ impl TabSection {
     pub fn with_danger_style(mut self) -> Self {
         self.danger_style = true;
         self
+    }
+
+    pub fn with_body_lines(mut self, lines: u16) -> Self {
+        self.body_lines_override = Some(lines);
+        self
+    }
+
+    pub fn body_lines(&self) -> u16 {
+        self.body_lines_override.unwrap_or(self.labels.len() as u16)
     }
 
     pub fn with_boolean_fields(mut self, fields: &'static [usize]) -> Self {
@@ -447,7 +460,7 @@ impl<'a> TabbedFieldDialog<'a> {
     }
 
     const LABEL_PREFIX_WIDTH: usize = 24;
-    const DIALOG_WIDTH: u16 = 78;
+    const DIALOG_WIDTH: u16 = 90;
     const SWATCH_WIDTH: usize = 4;
     const MULTILINE_WIDTH_PERCENT: u16 = 70;
     const MULTILINE_HEIGHT_PERCENT: u16 = 60;
@@ -461,7 +474,7 @@ impl<'a> TabbedFieldDialog<'a> {
         let tallest = self
             .sections
             .iter()
-            .map(|s| s.labels.len() as u16)
+            .map(|s| s.body_lines())
             .max()
             .unwrap_or(0);
         let height = tallest + 6;

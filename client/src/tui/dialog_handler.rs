@@ -144,7 +144,7 @@ pub(super) fn handle_field_dialog_key(
             let result = handle_danger_tab_key(key, &mut sel);
             app.danger_selected = sel;
             match result {
-                DangerTabResult::Pending => {}
+                DangerTabResult::Pending => return None,
                 DangerTabResult::OpenConfirm(op) => {
                     if matches!(op, crate::tui::types::DangerOp::DestroyAll) {
                         let challenge =
@@ -156,9 +156,10 @@ pub(super) fn handle_field_dialog_key(
                         app.danger_typed_confirm = Some(TypedConfirmState {
                             challenge,
                             input: String::new(),
+                            cursor_pos: 0,
                             op,
                             snapshot_path,
-                            focus_idx: 1,
+                            focus_idx: 0,
                         });
                         app.focus = Focus::DangerTypedConfirmDialog;
                     } else {
@@ -166,9 +167,10 @@ pub(super) fn handle_field_dialog_key(
                         app.danger_confirm_selected = Some(0);
                         app.focus = Focus::DangerConfirmDialog;
                     }
+                    return None;
                 }
+                DangerTabResult::Passthrough => {}
             }
-            return None;
         }
         let action = dialog.handle_key(key);
         if let Some(msg) = dialog.clipboard_warning.take() {
@@ -668,8 +670,17 @@ pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {
 
 pub(in crate::tui) fn return_to_input(app: &mut App) {
     if let Some(pending) = app.pending_template_prompt.take() {
-        app.template_prompt_state = Some(pending);
-        app.focus = Focus::TemplatePromptDialog;
+        let dismissed = app
+            .db
+            .as_ref()
+            .and_then(|db| db.is_template_dismissed(&pending.server_template_hash).ok())
+            .unwrap_or(false);
+        if dismissed {
+            app.focus = Focus::Input;
+        } else {
+            app.template_prompt_state = Some(pending);
+            app.focus = Focus::TemplatePromptDialog;
+        }
     } else {
         app.focus = Focus::Input;
     }

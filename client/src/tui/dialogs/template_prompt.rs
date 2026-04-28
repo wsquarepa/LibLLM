@@ -58,15 +58,15 @@ pub(in crate::tui) fn render_template_prompt(
 
     let suggestion = if state.is_best_guess {
         format!(
-            "  {}  (best guess — {:.0}% match)",
+            "    {}  (best guess — {:.0}% match)",
             state.suggested_preset.name,
             state.score * 100.0
         )
     } else {
-        format!("  {}", state.suggested_preset.name)
+        format!("    {}", state.suggested_preset.name)
     };
     let header_lines = vec![
-        Line::from("Server uses a template that matches:"),
+        Line::from("  Server uses a template that matches:"),
         Line::from(Span::styled(
             suggestion,
             Style::default().add_modifier(Modifier::BOLD),
@@ -82,7 +82,7 @@ pub(in crate::tui) fn render_template_prompt(
     );
 
     let q = Line::from(format!(
-        "Switch to \"{}\"?",
+        "  Switch to \"{}\"?",
         state.suggested_preset.name
     ));
     let yes_style = if state.button_selected == 0 {
@@ -102,9 +102,9 @@ pub(in crate::tui) fn render_template_prompt(
         Style::default()
     };
     let buttons = Line::from(vec![
-        Span::raw("                                  "),
+        Span::raw("    "),
         Span::styled(" Yes ", yes_style),
-        Span::raw("  "),
+        Span::raw("   "),
         Span::styled(" No ", no_style),
     ]);
     f.render_widget(
@@ -133,7 +133,7 @@ fn preset_summary_lines(
         ("system_suffix", preset.system_suffix.clone()),
     ];
 
-    let mut out: Vec<Line<'static>> = vec![Line::from("Suggested preset:")];
+    let mut out: Vec<Line<'static>> = vec![Line::from("  Suggested preset:")];
     for (label, value) in candidates {
         if value.is_empty() {
             continue;
@@ -149,7 +149,7 @@ fn preset_summary_lines(
         } else {
             value
         };
-        out.push(Line::from(format!("    {label}: {displayed}")));
+        out.push(Line::from(format!("      {label}: {displayed}")));
     }
     out
 }

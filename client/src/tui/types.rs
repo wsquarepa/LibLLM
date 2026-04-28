@@ -176,6 +176,7 @@ pub(super) struct TemplatePromptState {
 pub(super) struct TypedConfirmState {
     pub(super) challenge: String,
     pub(super) input: String,
+    pub(super) cursor_pos: usize,
     #[expect(dead_code, reason = "identifies the operation for future multi-op typed-confirm flows; used in test fixtures")]
     pub(super) op: DangerOp,
     pub(super) snapshot_path: std::path::PathBuf,

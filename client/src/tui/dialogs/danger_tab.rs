@@ -31,15 +31,14 @@ const ITEMS: &[(DangerOp, &str)] = &[
 /// its destructive nature regardless of selection state.
 pub(in crate::tui) fn render_danger_tab_body(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let mut lines: Vec<Line<'static>> = vec![
-        Line::from(""),
-        Line::from("Destructive actions. Each requires confirmation."),
+        Line::from("  Destructive actions. Each requires confirmation."),
         Line::from(""),
     ];
     for (idx, (op, label)) in ITEMS.iter().enumerate() {
         let prefix = if idx == app.danger_selected {
-            "  > "
+            "    > "
         } else {
-            "    "
+            "      "
         };
         let is_destroy_all = matches!(op, DangerOp::DestroyAll);
         let style = if idx == app.danger_selected {
@@ -67,6 +66,7 @@ pub(in crate::tui) fn render_danger_tab_body(f: &mut Frame, area: Rect, app: &Ap
 pub(in crate::tui) enum DangerTabResult {
     Pending,
     OpenConfirm(DangerOp),
+    Passthrough,
 }
 
 pub(in crate::tui) fn handle_danger_tab_key(
@@ -90,7 +90,7 @@ pub(in crate::tui) fn handle_danger_tab_key(
             let op = ITEMS[*selected].0;
             DangerTabResult::OpenConfirm(op)
         }
-        _ => DangerTabResult::Pending,
+        _ => DangerTabResult::Passthrough,
     }
 }
 

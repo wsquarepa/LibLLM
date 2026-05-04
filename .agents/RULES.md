@@ -84,7 +84,7 @@ Keep commits to a single subject line: `type(scope): summary`. No body, no bulle
 Stable releases are tag-driven, not push-driven. A push to master runs tests and clippy only -- it does **not** produce a release. To cut a stable release:
 
 1. Bump `workspace.package.version` in `Cargo.toml` and merge the bump into `master` (a `chore(release): bump workspace version to X.Y.Z` commit).
-2. After the bump lands, push a matching annotated tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The `v` prefix is required.
+2. After the bump lands, push a matching tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The `v` prefix is required.
 
 CI rejects mismatches between the tag (`vX.Y.Z`) and the Cargo workspace version (`X.Y.Z`). When the user asks to "bump version" or "cut a release", both steps are needed -- bumping the version alone produces no release.
 

@@ -21,7 +21,10 @@ use client::validation;
 use std::io::{self, IsTerminal, Read, Write};
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::Parser;
+use crossterm::execute;
+use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
 
 use cli::Args;
 use session::{Message, Role, SaveMode};
@@ -48,11 +51,6 @@ async fn main() -> Result<()> {
     {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
         if CHANNEL == "unknown" && args.data.is_none() {
-            use crossterm::execute;
-            use crossterm::style::{
-                Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor,
-            };
-
             let default_data_dir = config::data_dir();
             let _ = execute!(
                 io::stderr(),
@@ -161,7 +159,6 @@ async fn main() -> Result<()> {
         cfg.tls_skip_verify
     };
     if tls_skip_verify {
-        use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
         let _ = crossterm::execute!(
             io::stderr(),
             SetForegroundColor(Color::Yellow),
@@ -606,7 +603,6 @@ fn try_backup(
 
 #[cfg(debug_assertions)]
 fn debug_trigger_destroy_all() -> Result<()> {
-    use chrono::Utc;
     let data_dir = config::data_dir();
     let snapshot_path = std::env::temp_dir().join(format!(
         "libllm-{}.tar.zst",

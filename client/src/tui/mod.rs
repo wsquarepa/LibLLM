@@ -27,6 +27,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use tokio::sync::mpsc;
+use tracing::Instrument;
 use tui_textarea::TextArea;
 
 use std::collections::HashSet;
@@ -338,7 +339,6 @@ pub async fn run(
                 }
             }
             Some(stream_token) = token_rx.recv() => {
-                use tracing::Instrument;
                 commands::handle_stream_token(stream_token, &mut app, token_tx.clone())
                     .instrument(tracing::trace_span!("stream", phase = "token"))
                     .await?;

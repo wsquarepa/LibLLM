@@ -1,5 +1,7 @@
 //! Dispatcher for Danger tab destructive operations.
 
+use std::process;
+
 use anyhow::{Context, Result};
 
 use crate::tui::App;
@@ -55,7 +57,6 @@ pub(in crate::tui) fn handle_op_complete(
 }
 
 fn destroy_all_finalize(app: &mut App, snapshot_path: std::path::PathBuf) {
-    use std::process;
     let data_dir = libllm::config::data_dir();
 
     // Drop owned references before deletion — FileSummarizer holds a second DB connection.

@@ -44,9 +44,10 @@ select_branch() {
         wget -q ${AUTH:+--header="$AUTH"} -O "$RELEASES_JSON" "$API_URL"
     fi
 
-    BRANCHES=$(grep -o '"tag_name": *"[^"]*"' "$RELEASES_JSON" \
-        | sed 's/"tag_name": *"//;s/"//' \
-        | grep -v '^stable$')
+    BRANCHES=$(awk '
+        /"tag_name":/ { gsub(/.*"tag_name": *"|".*/, "", $0); tag = $0 }
+        /"prerelease":/ { gsub(/.*"prerelease": *|,.*/, "", $0); if ($0 == "true") print tag }
+    ' "$RELEASES_JSON")
     rm -f "$RELEASES_JSON"
 
     if [ -z "$BRANCHES" ]; then
@@ -132,13 +133,47 @@ detect_fetcher() {
 }
 
 download_binary() {
+    AUTH=$(auth_header)
+
     if [ "$CHANNEL" = "stable" ]; then
-        API_URL="https://api.github.com/repos/${REPO}/releases/tags/stable"
+        RELEASES_JSON=$(mktemp)
+        trap 'rm -f "$RELEASES_JSON"' EXIT
+
+        RELEASES_URL="https://api.github.com/repos/${REPO}/releases?per_page=100"
+        if [ "$FETCHER" = "curl" ]; then
+            HTTP_CODE=$(curl -sL -w "%{http_code}" -o "$RELEASES_JSON" ${AUTH:+-H "$AUTH"} "$RELEASES_URL")
+        else
+            HTTP_CODE=$(wget -q --server-response -O "$RELEASES_JSON" ${AUTH:+--header="$AUTH"} "$RELEASES_URL" 2>&1 | awk '/HTTP\//{print $2}' | tail -1)
+        fi
+
+        if [ "$HTTP_CODE" != "200" ]; then
+            if [ -z "${GITHUB_TOKEN:-$GH_TOKEN}" ]; then
+                echo "Error: GitHub API returned $HTTP_CODE." >&2
+                echo "If the repository is private, set GITHUB_TOKEN or GH_TOKEN." >&2
+            else
+                echo "Error: GitHub API returned $HTTP_CODE. Check that your token has repository access." >&2
+            fi
+            rm -f "$RELEASES_JSON"
+            exit 1
+        fi
+
+        STABLE_TAG=$(awk '
+            /"tag_name":/ { gsub(/.*"tag_name": *"|".*/, "", $0); tag = $0 }
+            /"prerelease":/ { gsub(/.*"prerelease": *|,.*/, "", $0); if ($0 == "false") print tag }
+        ' "$RELEASES_JSON" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+        rm -f "$RELEASES_JSON"
+
+        if [ -z "$STABLE_TAG" ]; then
+            echo "Error: no stable release found." >&2
+            echo "Available platforms can be checked at: https://github.com/${REPO}/releases" >&2
+            exit 1
+        fi
+        API_URL="https://api.github.com/repos/${REPO}/releases/tags/${STABLE_TAG}"
+        DISPLAY_CHANNEL="$STABLE_TAG"
     else
         API_URL="https://api.github.com/repos/${REPO}/releases/tags/${CHANNEL}"
+        DISPLAY_CHANNEL="$CHANNEL"
     fi
-
-    AUTH=$(auth_header)
 
     RELEASE_JSON=$(mktemp)
     trap 'rm -f "$RELEASE_JSON"' EXIT
@@ -175,7 +210,7 @@ download_binary() {
     TMPFILE=$(mktemp)
     trap 'rm -f "$TMPFILE"' EXIT
 
-    echo "Downloading ${ASSET_NAME} (${CHANNEL})..."
+    echo "Downloading ${ASSET_NAME} (${DISPLAY_CHANNEL})..."
 
     if [ "$FETCHER" = "curl" ]; then
         curl -fSL -H "Accept: application/octet-stream" ${AUTH:+-H "$AUTH"} -o "$TMPFILE" "$ASSET_API_URL"
@@ -191,7 +226,7 @@ install_binary() {
 }
 
 print_success() {
-    echo "Installed libllm (${CHANNEL}) to ${BIN_DIR}/${BINARY_NAME}"
+    echo "Installed libllm (${DISPLAY_CHANNEL}) to ${BIN_DIR}/${BINARY_NAME}"
 
     case ":$PATH:" in
         *":${BIN_DIR}:"*) ;;

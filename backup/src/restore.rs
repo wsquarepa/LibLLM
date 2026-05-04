@@ -71,6 +71,10 @@ pub(crate) fn replay_chain(
 /// result against the stored plaintext hash, creates a pre-restore safety backup, then writes
 /// the restored database to `data_dir/data.db`.
 ///
+/// The pre-restore safety backup is written atomically (copy to `.tmp`, then rename) to
+/// `data_dir/pre_restore/pre-restore-<timestamp>.db`. It lives outside `data_dir/backups/`
+/// so that `parse_backup_filename` and retention logic never attempt to index or prune it.
+///
 /// When `passkey` is provided, backup files are decrypted before use and the restored database
 /// is written as an encrypted SQLCipher database using the DB key derived from that passkey.
 /// When `passkey` is None, backup files are read as plaintext and the restored database is
@@ -138,14 +142,18 @@ pub fn restore_to_point(
 
     let db_path = data_dir.join("data.db");
     if db_path.exists() {
+        let pre_restore_dir = data_dir.join("pre_restore");
+        std::fs::create_dir_all(&pre_restore_dir)
+            .context("failed to create pre_restore directory")?;
         let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
-        let safety_path = backups_dir.join(format!("pre-restore-{timestamp}.db"));
-        std::fs::copy(&db_path, &safety_path).with_context(|| {
-            format!(
-                "failed to create pre-restore safety backup: {}",
-                safety_path.display()
-            )
-        })?;
+        let safety_path = pre_restore_dir.join(format!("pre-restore-{timestamp}.db"));
+        let tmp_path = {
+            let mut s = safety_path.as_os_str().to_owned();
+            s.push(".tmp");
+            std::path::PathBuf::from(s)
+        };
+        std::fs::copy(&db_path, &tmp_path).context("stage pre-restore safety backup")?;
+        std::fs::rename(&tmp_path, &safety_path).context("commit pre-restore safety backup")?;
     }
 
     match passkey {
@@ -307,15 +315,16 @@ mod tests {
 
         restore_to_point(dir.path(), &target_id, None, None).unwrap();
 
-        let backups_dir = dir.path().join("backups");
-        let pre_restore_exists = std::fs::read_dir(&backups_dir)
+        // The safety backup now lives in data_dir/pre_restore/, not in backups/.
+        let pre_restore_dir = dir.path().join("pre_restore");
+        let pre_restore_exists = std::fs::read_dir(&pre_restore_dir)
             .unwrap()
             .filter_map(|e| e.ok())
             .any(|e| e.file_name().to_string_lossy().starts_with("pre-restore-"));
 
         assert!(
             pre_restore_exists,
-            "expected a pre-restore-* file in backups dir"
+            "expected a pre-restore-* file in pre_restore dir"
         );
     }
 }

@@ -110,7 +110,7 @@ pub fn create_snapshot(
     };
 
     index.entries.push(entry);
-    crate::retention::run_retention(&mut index, config, &backups_dir);
+    crate::retention::run_retention(&mut index, config, &backups_dir)?;
     save_index(&index_path, &index)?;
 
     Ok(())
@@ -243,7 +243,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
 
     let mut index = BackupIndex::new();
 
-    for (_mtime, filename, id, entry_type) in file_entries {
+    for (mtime, filename, id, entry_type) in file_entries {
         let file_path = backups_dir.join(&filename);
         let file_bytes = match std::fs::read(&file_path) {
             Ok(b) => b,
@@ -256,7 +256,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
         let file_hash = crate::hash::hash_bytes(&file_bytes);
         let stored_size = file_bytes.len() as u64;
 
-        let created_at = Utc::now();
+        let created_at = chrono::DateTime::<Utc>::from(mtime);
 
         match entry_type {
             BackupType::Base => {

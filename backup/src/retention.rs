@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, IsoWeek, Utc};
 
 use crate::BackupConfig;
@@ -115,33 +116,56 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
 
 /// Removes entries from the index and deletes their backing files from disk.
 ///
-/// Files that do not exist on disk are silently skipped — the entry is still removed
-/// from the index so state remains consistent.
-pub fn apply_prune(index: &mut BackupIndex, prunable_ids: &[String], backups_dir: &Path) {
+/// For each prunable entry, the disk file is deleted first. Only after the delete succeeds
+/// is the entry removed from the in-memory index, keeping the on-disk and in-memory views
+/// aligned. Missing files (NotFound) are treated as already deleted and the entry is still
+/// removed from the index.
+///
+/// On `Err`, the in-memory index may contain entries whose disk files were already deleted
+/// before the error — callers must discard the in-memory index on error to avoid divergence.
+pub fn apply_prune(
+    index: &mut BackupIndex,
+    prunable_ids: &[String],
+    backups_dir: &Path,
+) -> Result<()> {
     let id_set: HashSet<&str> = prunable_ids.iter().map(String::as_str).collect();
 
-    for entry in index
+    let prunable_entries: Vec<(usize, String)> = index
         .entries
         .iter()
-        .filter(|e| id_set.contains(e.id.as_str()))
-    {
-        let file_path = backups_dir.join(&entry.filename);
+        .enumerate()
+        .filter(|(_, e)| id_set.contains(e.id.as_str()))
+        .map(|(i, e)| (i, e.filename.clone()))
+        .collect();
+
+    let mut removed_indices: HashSet<usize> = HashSet::new();
+    for (idx, filename) in prunable_entries {
+        let file_path = backups_dir.join(&filename);
         match std::fs::remove_file(&file_path) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => {
-                tracing::warn!(result = "error", filename = %entry.filename, error = %err, "backup.retention.delete_failed");
+                return Err(err)
+                    .with_context(|| format!("delete pruned backup {}", file_path.display()));
             }
         }
+        removed_indices.insert(idx);
     }
 
-    index.entries.retain(|e| !id_set.contains(e.id.as_str()));
+    let mut i = 0;
+    index.entries.retain(|_| {
+        let keep = !removed_indices.contains(&i);
+        i += 1;
+        keep
+    });
+
+    Ok(())
 }
 
 /// Computes prunable entries and removes them from the index and disk in one step.
-pub fn run_retention(index: &mut BackupIndex, config: &BackupConfig, backups_dir: &Path) {
+pub fn run_retention(index: &mut BackupIndex, config: &BackupConfig, backups_dir: &Path) -> Result<()> {
     let prunable = compute_prunable_entries(index, config);
-    apply_prune(index, &prunable, backups_dir);
+    apply_prune(index, &prunable, backups_dir)
 }
 
 #[cfg(test)]
@@ -407,7 +431,7 @@ mod tests {
             "new_base should survive (keep-all tier)"
         );
 
-        apply_prune(&mut index, &prunable, backups_dir);
+        apply_prune(&mut index, &prunable, backups_dir).unwrap();
 
         assert!(
             !backups_dir.join("old_base-base.bak").exists(),

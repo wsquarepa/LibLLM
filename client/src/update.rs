@@ -54,6 +54,19 @@ fn is_stable_target(s: &str) -> bool {
     s == "stable" || parse_version_tag(s).is_some()
 }
 
+fn should_warn_downgrade(channel: &str, target: &str, current_version: &str) -> bool {
+    if channel != "stable" {
+        return false;
+    }
+    let Some(target_ver) = parse_version_tag(target) else {
+        return false;
+    };
+    let Ok(current_ver) = semver::Version::parse(current_version) else {
+        return false;
+    };
+    target_ver.cmp_precedence(&current_ver) == std::cmp::Ordering::Less
+}
+
 #[derive(Deserialize)]
 pub struct Release {
     pub tag_name: String,
@@ -324,8 +337,19 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
 }
 
 async fn update_stable(client: &reqwest::Client) -> Result<()> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/stable");
-    let release = fetch_release(client, &url).await?;
+    let releases = fetch_releases(client).await?;
+    let mut stable: Vec<(semver::Version, Release)> = releases
+        .into_iter()
+        .filter(|r| !r.prerelease)
+        .filter_map(|r| parse_version_tag(&r.tag_name).map(|v| (v, r)))
+        .collect();
+    stable.sort_by(|a, b| b.0.cmp_precedence(&a.0));
+
+    let (_, release) = stable
+        .into_iter()
+        .next()
+        .context("no stable releases published")?;
+
     let asset = find_asset(&release)?;
 
     if let Some(body) = &release.body
@@ -335,11 +359,12 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
         if current_hash != "unknown" && current_hash == remote_hash {
             tracing::info!(
                 channel = "stable",
+                tag = release.tag_name.as_str(),
                 result = "skipped",
                 reason = "up_to_date",
                 "update.check"
             );
-            println!("Already up to date (commit {current_hash}).");
+            println!("Already up to date ({} commit {current_hash}).", release.tag_name);
             return Ok(());
         }
     }
@@ -353,28 +378,36 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
         .as_deref()
         .and_then(parse_release_hash)
         .unwrap_or("unknown");
-    println!("Updated to stable (commit {hash_display}).");
+    println!("Updated to {} (commit {hash_display}).", release.tag_name);
     Ok(())
 }
 
-async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{branch}");
+async fn update_to_tag(client: &reqwest::Client, tag: &str) -> Result<()> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{tag}");
     let release = fetch_release(client, &url).await?;
     let asset = find_asset(&release)?;
 
-    if CHANNEL == branch
+    let installed_tag = if parse_version_tag(tag).is_some() {
+        Some(format!("v{}", env!("CARGO_PKG_VERSION")))
+    } else if CHANNEL == tag {
+        Some(CHANNEL.to_string())
+    } else {
+        None
+    };
+
+    if installed_tag.as_deref() == Some(tag)
         && let Some(body) = &release.body
         && let Some(remote_hash) = parse_release_hash(body)
     {
         let current_hash = env!("LIBLLM_COMMIT", "unknown");
         if current_hash != "unknown" && current_hash == remote_hash {
             tracing::info!(
-                channel = branch,
+                tag = tag,
                 result = "skipped",
                 reason = "up_to_date",
                 "update.check"
             );
-            println!("Already up to date on '{branch}' (commit {current_hash}).");
+            println!("Already up to date on '{tag}' (commit {current_hash}).");
             return Ok(());
         }
     }
@@ -388,7 +421,11 @@ async fn update_branch(client: &reqwest::Client, branch: &str) -> Result<()> {
         .as_deref()
         .and_then(parse_release_hash)
         .unwrap_or("unknown");
-    println!("Switched to branch '{branch}' (commit {hash_display}).");
+    if parse_version_tag(tag).is_some() {
+        println!("Switched to {tag} (commit {hash_display}).");
+    } else {
+        println!("Switched to branch '{tag}' (commit {hash_display}).");
+    }
     Ok(())
 }
 
@@ -436,6 +473,50 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
         to = target,
         result = if confirmed { "confirmed" } else { "declined" },
         "update.channel_switch"
+    );
+    Ok(confirmed)
+}
+
+fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
+    if yes {
+        tracing::info!(
+            target = target,
+            result = "confirmed",
+            reason = "yes_flag",
+            "update.downgrade"
+        );
+        return Ok(true);
+    }
+
+    let stdin = io::stdin();
+    if !stdin.is_terminal() {
+        tracing::warn!(
+            target = target,
+            result = "error",
+            reason = "non_interactive",
+            "update.downgrade"
+        );
+        anyhow::bail!(
+            "Downgrading to '{target}' in a non-interactive terminal requires --yes."
+        );
+    }
+
+    eprintln!(
+        "WARNING: Downgrading from v{} to {target}.\n\
+         Older builds may not understand data written by newer ones; \
+         your data directory could become unreadable.",
+        env!("CARGO_PKG_VERSION")
+    );
+    eprint!("\nContinue? [y/N] ");
+    io::stderr().flush()?;
+
+    let mut answer = String::new();
+    stdin.read_line(&mut answer)?;
+    let confirmed = answer.trim().eq_ignore_ascii_case("y");
+    tracing::info!(
+        target = target,
+        result = if confirmed { "confirmed" } else { "declined" },
+        "update.downgrade"
     );
     Ok(confirmed)
 }
@@ -511,12 +592,10 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
         anyhow::bail!("This build was not installed from a release. Use install.sh to install.");
     }
 
-    let normalized_branch = branch.as_deref().map(normalize_tag);
     tracing::info!(
         phase = "start",
         channel = CHANNEL,
-        target = normalized_branch.as_deref().unwrap_or("stable"),
-        stable_target = is_stable_target(normalized_branch.as_deref().unwrap_or("stable")),
+        target = branch.as_deref().unwrap_or("stable"),
         interactive = crate::interactive::is_interactive(),
         "update.run"
     );
@@ -524,7 +603,7 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
     let client = build_client()?;
 
     let resolved = match branch {
-        Some(name) => Some(normalize_tag(&name)),
+        Some(name) => Some(name),
         None if crate::interactive::is_interactive() => match pick_branch(&client).await? {
             Some(name) => Some(name),
             None => return Ok(()),
@@ -532,8 +611,15 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
         None => None,
     };
 
-    let target = resolved.as_deref().unwrap_or("stable");
-    if CHANNEL != target && !confirm_channel_switch(target, yes)? {
+    let target_raw = resolved.as_deref().unwrap_or("stable");
+    let target = normalize_tag(target_raw);
+
+    let target_is_stable = is_stable_target(&target);
+    let source_is_stable = CHANNEL == "stable";
+    let switching_channels = source_is_stable != target_is_stable
+        || (!source_is_stable && !target_is_stable && CHANNEL != target);
+
+    if switching_channels && !confirm_channel_switch(&target, yes)? {
         tracing::info!(
             phase = "cancel",
             reason = "channel_switch_declined",
@@ -543,9 +629,22 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    match resolved.as_deref() {
-        Some("stable") | None => update_stable(&client).await,
-        Some(name) => update_branch(&client, name).await,
+    if should_warn_downgrade(CHANNEL, &target, env!("CARGO_PKG_VERSION"))
+        && !confirm_downgrade(&target, yes)?
+    {
+        tracing::info!(
+            phase = "cancel",
+            reason = "downgrade_declined",
+            "update.run"
+        );
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    if target == "stable" {
+        update_stable(&client).await
+    } else {
+        update_to_tag(&client, &target).await
     }
 }
 
@@ -748,5 +847,35 @@ mod tests {
         assert!(!is_stable_target("master"));
         assert!(!is_stable_target("v2.6"));
         assert!(!is_stable_target("2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_fires_when_target_older() {
+        assert!(should_warn_downgrade("stable", "v2.4.0", "2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_silent_when_target_same() {
+        assert!(!should_warn_downgrade("stable", "v2.6.0", "2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_silent_when_target_newer() {
+        assert!(!should_warn_downgrade("stable", "v2.7.0", "2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_silent_when_source_is_branch() {
+        assert!(!should_warn_downgrade("feat/foo", "v2.4.0", "2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_silent_when_target_is_branch() {
+        assert!(!should_warn_downgrade("stable", "feat/foo", "2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_silent_when_target_is_literal_stable() {
+        assert!(!should_warn_downgrade("stable", "stable", "2.6.0"));
     }
 }

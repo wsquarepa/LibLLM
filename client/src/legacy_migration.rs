@@ -86,13 +86,15 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
     };
 
     let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_owned()));
+        .context("read current executable path")?
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("current executable has no parent directory"))?
+        .to_owned();
 
-    let migrate_path = exe_dir
-        .as_ref()
-        .map(|d| d.join(migrate_name))
-        .filter(|p| p.exists());
+    let migrate_path = {
+        let candidate = exe_dir.join(migrate_name);
+        candidate.exists().then_some(candidate)
+    };
 
     tracing::debug!(
         phase = "locate_utility",
@@ -139,10 +141,7 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
             anyhow::bail!("Migration required. Cannot continue without migrating data.");
         }
 
-        let dest = exe_dir
-            .as_ref()
-            .map(|d| d.join(migrate_name))
-            .unwrap_or_else(|| std::path::PathBuf::from(migrate_name));
+        let dest = exe_dir.join(migrate_name);
 
         download_migrate_binary(&dest).await?;
         (dest, true)

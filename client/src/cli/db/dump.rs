@@ -8,6 +8,7 @@ use libllm::db::Database;
 
 use super::exit;
 use super::{DbContext, confirm_yes, wal_liveness_check};
+use crate::paths::append_suffix;
 
 pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
     if path.exists() && !yes {
@@ -22,11 +23,7 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
         std::process::exit(exit::WAL_LIVENESS);
     }
 
-    let tmp_path = {
-        let mut s = path.as_os_str().to_owned();
-        s.push(".tmp");
-        std::path::PathBuf::from(s)
-    };
+    let tmp_path = append_suffix(path, ".tmp");
     if tmp_path.exists() {
         std::fs::remove_file(&tmp_path)
             .with_context(|| format!("failed to remove stale tmp file: {}", tmp_path.display()))?;

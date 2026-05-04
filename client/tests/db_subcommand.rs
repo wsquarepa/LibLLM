@@ -190,7 +190,7 @@ fn import_failure_leaves_original_intact() {
 
     let original_bytes = std::fs::read(&db_path).expect("read pre-import data.db");
 
-    let blocker = data_dir.join("data.import.tmp");
+    let blocker = data_dir.join("data.db.import.tmp");
     std::fs::create_dir(&blocker).expect("create blocker dir");
 
     let output = Command::new(client_bin())

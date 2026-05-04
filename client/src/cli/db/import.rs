@@ -9,6 +9,7 @@ use libllm::config::BackupConfig;
 
 use super::exit;
 use super::{DbContext, confirm_yes, wal_liveness_check};
+use crate::paths::append_suffix;
 
 pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
     if !path.exists() {
@@ -44,13 +45,17 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
     if ctx.db_path.exists() {
         let backup_config = BackupConfig {
             enabled: true,
-            ..BackupConfig::default()
+            keep_all_days: 7,
+            keep_daily_days: 30,
+            keep_weekly_days: 90,
+            rebase_threshold_percent: 50,
+            rebase_hard_ceiling: 10,
         };
         backup::snapshot::create_snapshot(&ctx.data_dir, ctx.passkey.as_deref(), &backup_config)
             .context("mandatory pre-import backup failed; refusing to proceed")?;
     }
 
-    let tmp_path = ctx.db_path.with_extension("import.tmp");
+    let tmp_path = append_suffix(&ctx.db_path, ".import.tmp");
     if tmp_path.exists() {
         std::fs::remove_file(&tmp_path)
             .with_context(|| format!("failed to remove stale tmp file: {}", tmp_path.display()))?;
@@ -70,8 +75,8 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
         )
     })?;
 
-    let wal = ctx.db_path.with_extension("db-wal");
-    let shm = ctx.db_path.with_extension("db-shm");
+    let wal = append_suffix(&ctx.db_path, "-wal");
+    let shm = append_suffix(&ctx.db_path, "-shm");
     for sidecar in [&wal, &shm] {
         if sidecar.exists()
             && let Err(err) = std::fs::remove_file(sidecar)

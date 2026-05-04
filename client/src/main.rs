@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
         if CHANNEL == "unknown" && args.data.is_none() {
             let default_data_dir = config::data_dir();
-            let _ = execute!(
+            execute!(
                 io::stderr(),
                 SetAttribute(Attribute::Bold),
                 SetForegroundColor(Color::Red),
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
                     default_data_dir.display()
                 )),
                 ResetColor,
-            );
+            )?;
             std::process::exit(1);
         }
     }
@@ -159,12 +159,12 @@ async fn main() -> Result<()> {
         cfg.tls_skip_verify
     };
     if tls_skip_verify {
-        let _ = crossterm::execute!(
+        crossterm::execute!(
             io::stderr(),
             SetForegroundColor(Color::Yellow),
             Print("Warning: TLS certificate verification is disabled.\n"),
             ResetColor,
-        );
+        )?;
     }
     let cli_overrides = args.cli_overrides();
     let auth = libllm::config::resolve_auth(&cfg, &cli_overrides.auth_overrides());
@@ -270,7 +270,7 @@ async fn main() -> Result<()> {
             (message.clone(), None)
         };
 
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let cwd = std::env::current_dir().context("read current working directory")?;
         let prepended = stdin_attachment.into_iter().collect::<Vec<_>>();
         let resolved_files = match libllm::files::resolve_with_prepended_resolved(
             prepended,
@@ -560,18 +560,12 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
         return Database::open(&db_path, None);
     }
 
-    let passkey = match args.passkey.clone() {
-        Some(passkey) => Some(passkey),
+    let passkey: String = match args.passkey.clone() {
+        Some(passkey) => passkey,
         None => {
             eprint!("Passkey: ");
-            Some(rpassword::read_password().context("failed to read interactive passkey")?)
+            rpassword::read_password().context("failed to read interactive passkey")?
         }
-    };
-
-    let Some(passkey) = passkey else {
-        anyhow::bail!(
-            "No passkey provided. Use --passkey, LIBLLM_PASSKEY, or enter interactively."
-        );
     };
 
     let salt = crypto::load_or_create_salt(&config::salt_path())?;

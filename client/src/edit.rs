@@ -86,7 +86,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
                 .map_err(|e| anyhow::anyhow!("Invalid character JSON: {e}"))?;
             let new_slug = character::slugify(&card.name);
             if new_slug != slug {
-                let _ = db.delete_character(&slug);
+                db.delete_character(&slug)?;
             }
             let operation = if db.load_character(&new_slug).is_ok() {
                 db.update_character(&new_slug, &card)?;
@@ -112,7 +112,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
                 .map_err(|e| anyhow::anyhow!("Invalid worldbook JSON: {e}"))?;
             let new_slug = character::slugify(&wb.name);
             if new_slug != slug {
-                let _ = db.delete_worldbook(&slug);
+                db.delete_worldbook(&slug)?;
             }
             let operation = if db.load_worldbook(&new_slug).is_ok() {
                 db.update_worldbook(&new_slug, &wb)?;

@@ -2,13 +2,8 @@ name: Build
 
 on:
   push:
-    paths:
-      - 'libllm/**'
-      - 'client/**'
-      - 'backup/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
+    branches: ['**']
+    tags: ['v*.*.*']
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,6 +33,7 @@ jobs:
 
   build:
     needs: [test, clippy]
+    if: github.ref != 'refs/heads/master'
     strategy:
       fail-fast: false
       matrix:
@@ -80,11 +76,27 @@ jobs:
       - name: Set channel
         shell: bash
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             echo "LIBLLM_CHANNEL=stable" >> "$GITHUB_ENV"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
+            if [[ "$BRANCH" == "stable" || "$BRANCH" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Branch name '$BRANCH' is reserved for the stable release channel"
+              exit 1
+            fi
             echo "LIBLLM_CHANNEL=${BRANCH}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify Cargo version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          EXPECTED="${TAG#v}"
+          ACTUAL=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::Tag $TAG does not match Cargo.toml workspace version $ACTUAL"
+            exit 1
           fi
 
       - name: Build
@@ -114,6 +126,7 @@ jobs:
 
   release:
     needs: build
+    if: github.ref != 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -136,33 +149,49 @@ jobs:
         run: |
           REPO_URL="${{ github.server_url }}/${{ github.repository }}"
 
-          {
-            echo "Changes this release:"
-            echo ""
-            if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] \
-              || ! git rev-parse --verify --quiet "${BEFORE_SHA}^{commit}" >/dev/null; then
-              git log -1 --format="- [%h](${REPO_URL}/commit/%H) %s" HEAD
-            else
-              git log --format="- [%h](${REPO_URL}/commit/%H) %s" "${BEFORE_SHA}..HEAD"
-            fi
-          } > notes.md
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)
+            {
+              echo "Changes this release:"
+              echo ""
+              if [[ -n "$PREV_TAG" ]]; then
+                git log --format="- [%h](${REPO_URL}/commit/%H) %s" "${PREV_TAG}..${TAG}"
+              else
+                git log -1 --format="- [%h](${REPO_URL}/commit/%H) %s" "${TAG}"
+              fi
+            } > notes.md
 
-          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            echo "tag=stable" >> "$GITHUB_OUTPUT"
-            echo "title=Stable" >> "$GITHUB_OUTPUT"
+            HIGHEST=$(git tag -l 'v*' | sort -V | tail -1)
+            if [[ "$HIGHEST" == "$TAG" ]]; then
+              echo "make_latest=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "make_latest=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "title=${TAG}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
-            if [[ "$BRANCH" == "stable" ]]; then
-              echo "::error::Branch name 'stable' is reserved for the master release channel"
-              exit 1
-            fi
+            {
+              echo "Changes this release:"
+              echo ""
+              if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] \
+                || ! git rev-parse --verify --quiet "${BEFORE_SHA}^{commit}" >/dev/null; then
+                git log -1 --format="- [%h](${REPO_URL}/commit/%H) %s" HEAD
+              else
+                git log --format="- [%h](${REPO_URL}/commit/%H) %s" "${BEFORE_SHA}..HEAD"
+              fi
+            } > notes.md
+
             echo "tag=${BRANCH}" >> "$GITHUB_OUTPUT"
             echo "title=${BRANCH}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Delete existing release
+      - name: Delete existing prerelease
+        if: steps.params.outputs.prerelease == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -177,13 +206,13 @@ jobs:
         run: |
           TAG="${{ steps.params.outputs.tag }}"
           PRERELEASE="${{ steps.params.outputs.prerelease }}"
+          MAKE_LATEST="${{ steps.params.outputs.make_latest }}"
           TITLE="${{ steps.params.outputs.title }}"
 
           FLAGS=(--target "$GITHUB_SHA" --title "$TITLE" --notes-file notes.md)
           if [[ "$PRERELEASE" == "true" ]]; then
             FLAGS+=(--prerelease)
-          else
-            FLAGS+=(--latest)
           fi
+          FLAGS+=(--latest="$MAKE_LATEST")
 
           gh release create "$TAG" artifacts/* "${FLAGS[@]}"

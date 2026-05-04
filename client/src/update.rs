@@ -478,9 +478,11 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
 }
 
 fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
+    let from = concat!("v", env!("CARGO_PKG_VERSION"));
     if yes {
         tracing::info!(
-            target = target,
+            from = from,
+            to = target,
             result = "confirmed",
             reason = "yes_flag",
             "update.downgrade"
@@ -491,7 +493,8 @@ fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
     let stdin = io::stdin();
     if !stdin.is_terminal() {
         tracing::warn!(
-            target = target,
+            from = from,
+            to = target,
             result = "error",
             reason = "non_interactive",
             "update.downgrade"
@@ -502,10 +505,9 @@ fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
     }
 
     eprintln!(
-        "WARNING: Downgrading from v{} to {target}.\n\
+        "WARNING: Downgrading from {from} to {target}.\n\
          Older builds may not understand data written by newer ones; \
-         your data directory could become unreadable.",
-        env!("CARGO_PKG_VERSION")
+         your data directory could become unreadable."
     );
     eprint!("\nContinue? [y/N] ");
     io::stderr().flush()?;
@@ -514,7 +516,8 @@ fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
     stdin.read_line(&mut answer)?;
     let confirmed = answer.trim().eq_ignore_ascii_case("y");
     tracing::info!(
-        target = target,
+        from = from,
+        to = target,
         result = if confirmed { "confirmed" } else { "declined" },
         "update.downgrade"
     );
@@ -555,6 +558,10 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
     tracing::debug!(phase = "start", "update.interactive");
     let releases = fetch_releases(client).await?;
     let entries = build_branch_list(&releases, CHANNEL, env!("CARGO_PKG_VERSION"));
+
+    if entries.is_empty() {
+        anyhow::bail!("No releases available to install.");
+    }
 
     let rows: Vec<String> = entries
         .iter()
@@ -778,6 +785,12 @@ mod tests {
     }
 
     #[test]
+    fn build_list_returns_empty_when_no_releases() {
+        let list = build_branch_list(&[], "stable", "2.6.0");
+        assert!(list.is_empty());
+    }
+
+    #[test]
     fn parse_release_hash_reads_first_bulleted_link() {
         let body = "Changes this release:\n\n\
                     - [f7be246](https://github.com/x/y/commit/f7be2465) feat: thing\n\
@@ -877,5 +890,10 @@ mod tests {
     #[test]
     fn warn_downgrade_silent_when_target_is_literal_stable() {
         assert!(!should_warn_downgrade("stable", "stable", "2.6.0"));
+    }
+
+    #[test]
+    fn warn_downgrade_silent_when_current_version_is_unparseable() {
+        assert!(!should_warn_downgrade("stable", "v2.4.0", "unknown"));
     }
 }

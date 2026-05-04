@@ -111,6 +111,19 @@ jobs:
             exit 1
           fi
 
+      - name: Exclude target dir from Windows Defender
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exclusion = "${{ github.workspace }}\target"
+          Add-MpPreference -ExclusionPath $exclusion -ErrorAction SilentlyContinue
+          $current = (Get-MpPreference).ExclusionPath
+          if ($current -contains $exclusion) {
+            Write-Host "Defender exclusion applied: $exclusion"
+          } else {
+            Write-Warning "Defender exclusion did not apply (Tamper Protection may be blocking)"
+          }
+
       - name: Build
         run: cargo build --release --workspace --target ${{ matrix.target }}
 

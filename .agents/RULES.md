@@ -79,6 +79,19 @@ Empty output means clean. Again, do not re-run clippy just to re-read its output
 
 Keep commits to a single subject line: `type(scope): summary`. No body, no bullet points, no multi-paragraph prose. Context that doesn't fit in the subject belongs in the diff, the PR description, or the issue tracker -- not in the commit message. If a change genuinely cannot be summarized in one line, split it into multiple commits.
 
+## Release process
+
+Stable releases are tag-driven, not push-driven. A push to master runs tests and clippy only -- it does **not** produce a release. To cut a stable release:
+
+1. Bump `workspace.package.version` in `Cargo.toml` and merge the bump into `master` (a `chore(release): bump workspace version to X.Y.Z` commit).
+2. After the bump lands, push a matching annotated tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The `v` prefix is required.
+
+CI rejects mismatches between the tag (`vX.Y.Z`) and the Cargo workspace version (`X.Y.Z`). When the user asks to "bump version" or "cut a release", both steps are needed -- bumping the version alone produces no release.
+
+Backports are handled automatically: if `vX.Y.Z` is older than the highest existing v-tag at push time, CI marks the new release `--latest=false` so the newer release stays current. Branch builds (nightly prereleases on every non-`master` branch push) are unaffected by this scheme.
+
+The workflow refuses to build a branch named `stable` or one matching `vX.Y.Z`; those names are reserved for stable-channel releases.
+
 ## Architecture Gotchas
 
 These are non-obvious patterns that cannot be inferred from a quick code read.

@@ -521,7 +521,7 @@ fn handle_key(
                 let mut config = libllm::config::load();
                 config.instruct_preset = Some(preset_name.clone());
                 if let Err(err) = libllm::config::save(&config) {
-                    tracing::error!(error = %err, "template_prompt.config_save_failed");
+                    tracing::warn!(result = "error", error = %err, "template_prompt.config_save_failed");
                     app.set_status(
                         "Preset switched for session; couldn't save to config".to_owned(),
                         StatusLevel::Warning,
@@ -541,7 +541,7 @@ fn handle_key(
                     && let Some(db) = app.db.as_ref()
                     && let Err(err) = db.record_template_dismissal(&state.server_template_hash)
                 {
-                    tracing::error!(error = %err, "template_prompt.dismiss_record_failed");
+                    tracing::warn!(result = "error", error = %err, "template_prompt.dismiss_record_failed");
                     app.set_status(
                         "Couldn't remember dismissal".to_owned(),
                         StatusLevel::Info,

@@ -376,7 +376,7 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let list_area = sidebar_block.inner(area);
     f.render_widget(sidebar_block, area);
 
-    let list = List::new(app.sidebar_cache.as_ref().unwrap().items.clone())
+    let list = List::new(app.sidebar_cache.as_ref().expect("sidebar_cache populated above").items.clone())
         .highlight_style(highlight_style)
         .highlight_symbol("> ");
 
@@ -467,13 +467,12 @@ pub fn render_chat(
         let entries: Vec<CachedMessageLines> = branch_ids
             .iter()
             .enumerate()
-            .map(|(idx, &node_id)| {
-                let msg = &app
-                    .session
-                    .tree
-                    .node(node_id)
-                    .expect("branch id should resolve to a message node")
-                    .message;
+            .filter_map(|(idx, &node_id)| {
+                let Some(node) = app.session.tree.node(node_id) else {
+                    tracing::debug!(node_id = ?node_id, "tui.render.missing_node");
+                    return None;
+                };
+                let msg = &node.message;
                 let side = if msg.role == Role::User && app.session.character.is_some() {
                     libllm::side_character::parse_side_character_block(&msg.content)
                 } else {
@@ -599,13 +598,13 @@ pub fn render_chat(
                     .sum::<u16>()
                     + 2;
 
-                CachedMessageLines {
+                Some(CachedMessageLines {
                     role_label,
                     base_role_style,
                     branch_indicator,
                     content_lines,
                     total_height,
-                }
+                })
             })
             .collect();
 

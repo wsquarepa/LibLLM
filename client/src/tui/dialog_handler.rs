@@ -18,8 +18,11 @@ pub(super) fn cancel_generation(app: &mut App) {
 
     if app.is_continuation {
         if !app.streaming_buffer.is_empty() {
-            let head = app.session.tree.head().unwrap();
-            let existing = app.session.tree.node(head).unwrap().message.content.clone();
+            let Some(head) = app.session.tree.head() else {
+                tracing::debug!("tui.cancel_generation.no_head");
+                return;
+            };
+            let existing = app.session.tree.node(head).expect("head id resolves to message node").message.content.clone();
             let combined = format!("{}{}", existing, app.streaming_buffer);
             app.session.tree.set_message_content(head, combined);
             let current_seconds = app
@@ -32,7 +35,7 @@ pub(super) fn cancel_generation(app: &mut App) {
                 app.stream_first_think_closed_at,
             );
             let final_seconds = libllm::thought::resolve_thought_seconds(
-                &app.session.tree.node(head).unwrap().message.content,
+                &app.session.tree.node(head).expect("head id resolves to message node").message.content,
                 current_seconds,
                 measured_seconds,
                 app.reasoning_preset.as_ref(),
@@ -42,7 +45,10 @@ pub(super) fn cancel_generation(app: &mut App) {
         app.is_continuation = false;
     } else if !app.streaming_buffer.is_empty() {
         let raw = std::mem::take(&mut app.streaming_buffer);
-        let head = app.session.tree.head().unwrap();
+        let Some(head) = app.session.tree.head() else {
+            tracing::debug!("tui.cancel_generation.no_head");
+            return;
+        };
         let stored_content =
             libllm::thought::normalize_assistant_content(&raw, app.reasoning_preset.as_ref())
                 .into_owned();

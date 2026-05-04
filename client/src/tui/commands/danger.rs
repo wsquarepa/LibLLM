@@ -118,7 +118,7 @@ pub(in crate::tui) fn dispatch_sync(app: &mut App, op: DangerOp) -> Result<Dange
             Ok(DangerSummary::RowsAffected(n))
         }
         DangerOp::DestroyAll => {
-            anyhow::bail!("DestroyAll uses async handler (Task 27)");
+            anyhow::bail!("DestroyAll uses spawn_destroy_all, not dispatch_sync");
         }
     }
 }

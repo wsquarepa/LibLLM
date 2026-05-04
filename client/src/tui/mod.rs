@@ -674,7 +674,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
     tracing::trace!(
         phase = "frame",
-        elapsed_ms = format!("{frame_ms:.3}"),
+        elapsed_ms = frame_ms,
         "frame"
     );
 }
@@ -699,11 +699,19 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
             continue;
         }
         let expanded = expand_at_path(raw_path, &cwd);
-        let Ok(canonical) = std::fs::canonicalize(&expanded) else {
-            continue;
+        let canonical = match std::fs::canonicalize(&expanded) {
+            Ok(p) => p,
+            Err(err) => {
+                tracing::debug!(path = %expanded.display(), error = %err, "tui.input_cache.canonicalize_failed");
+                continue;
+            }
         };
-        let Ok(metadata) = std::fs::metadata(&canonical) else {
-            continue;
+        let metadata = match std::fs::metadata(&canonical) {
+            Ok(m) => m,
+            Err(err) => {
+                tracing::debug!(path = %canonical.display(), error = %err, "tui.input_cache.metadata_failed");
+                continue;
+            }
         };
         if !metadata.is_file() {
             continue;
@@ -713,12 +721,19 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
             continue;
         }
         if app.input_file_cache.lookup(&canonical).is_none() {
-            let Ok(bytes) = std::fs::read(&canonical) else {
-                continue;
+            let bytes = match std::fs::read(&canonical) {
+                Ok(b) => b,
+                Err(err) => {
+                    tracing::debug!(path = %canonical.display(), error = %err, "tui.input_cache.read_failed");
+                    continue;
+                }
             };
             let classified = match libllm::files::classify(&canonical, &bytes) {
                 Ok(c) => c,
-                Err(_) => continue,
+                Err(err) => {
+                    tracing::debug!(path = %canonical.display(), error = %err, "tui.input_cache.classify_failed");
+                    continue;
+                }
             };
             let text = classified.text().to_owned();
             let estimated = app.token_counter.heuristic_count(&text, 1);

@@ -29,7 +29,7 @@ chrono = { version = "0.4", features = ["serde"] }
 zeroize = "1.8.2"
 rand = "0.9"
 semver = "1"
-regex = { workspace = true }
+regex-lite = { workspace = true }
 
 [dev-dependencies]
 libllm = { path = "../libllm", features = ["test-support"] }

@@ -10,4 +10,4 @@ edition = "2024"
 allow_attributes = "deny"
 
 [workspace.dependencies]
-regex = "1"
+regex-lite = "0.1"

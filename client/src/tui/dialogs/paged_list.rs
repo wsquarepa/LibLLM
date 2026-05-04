@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     List, ListItem, ListState, Padding, Scrollbar, ScrollbarOrientation, ScrollbarState,
 };
-use regex::{Regex, RegexBuilder};
+use regex_lite::{Regex, RegexBuilder};
 
 use crate::tui::render::dialog_block;
 use crate::tui::theme::Theme;
@@ -21,7 +21,7 @@ use crate::tui::theme::Theme;
 pub(in crate::tui) struct SearchState {
     pub query: String,
     pub active: bool,
-    compiled: Option<Result<Regex, regex::Error>>,
+    compiled: Option<Result<Regex, regex_lite::Error>>,
     pre_search_selected: Option<usize>,
 }
 

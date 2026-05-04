@@ -613,6 +613,62 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_index_uses_file_mtime_for_created_at() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = setup_test_db(dir.path());
+        let config = BackupConfig::default();
+
+        create_snapshot(dir.path(), None, &config).unwrap();
+        modify_test_db(&db_path);
+        create_snapshot(dir.path(), None, &config).unwrap();
+
+        let backups_dir = dir.path().join("backups");
+        let idx = load_test_index(dir.path());
+
+        // Backdate every backup file's mtime by exactly one hour so that the
+        // rebuilt `created_at` values are definitively distant from `Utc::now()`.
+        let past = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(3600))
+            .unwrap();
+        for entry in &idx.entries {
+            let path = backups_dir.join(&entry.filename);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(past)
+                .unwrap();
+        }
+
+        let rebuilt = rebuild_index(&backups_dir, None).unwrap();
+
+        let now = Utc::now();
+        let expected_mtime: chrono::DateTime<Utc> = past.into();
+
+        for entry in &rebuilt.entries {
+            let delta_from_mtime = (entry.created_at - expected_mtime)
+                .abs()
+                .num_seconds();
+            let delta_from_now = (entry.created_at - now).abs().num_seconds();
+
+            assert!(
+                delta_from_mtime < 2,
+                "entry {} created_at should be within 2s of file mtime ({}), got {} (delta from now: {}s)",
+                entry.id,
+                expected_mtime,
+                entry.created_at,
+                delta_from_now,
+            );
+            assert!(
+                delta_from_now > 3500,
+                "entry {} created_at must not be close to Utc::now(); expected ~3600s gap, got {}s",
+                entry.id,
+                delta_from_now,
+            );
+        }
+    }
+
+    #[test]
     fn rapid_snapshots_produce_unique_ids() {
         let dir = tempfile::TempDir::new().unwrap();
         let db_path = setup_test_db(dir.path());

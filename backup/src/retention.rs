@@ -456,4 +456,80 @@ mod tests {
             "new_base must remain in index"
         );
     }
+
+    #[test]
+    fn apply_prune_tolerates_missing_files() {
+        let dir = TempDir::new().unwrap();
+        let backups_dir = dir.path();
+        let config = default_config();
+        let now = Utc::now();
+
+        // Same time-placement strategy as apply_prune_removes_files_and_entries:
+        // anchor to day 15 so the +1d neighbor never crosses a month boundary.
+        let old_base_time = (now - Duration::days(200))
+            .date_naive()
+            .with_day(15)
+            .unwrap()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc();
+        let old_base_newer_time = old_base_time + Duration::days(1);
+        let new_time = now - Duration::days(1);
+
+        let mut index = BackupIndex::new();
+        index.entries.push(make_entry(
+            "old_base",
+            BackupType::Base,
+            None,
+            old_base_time,
+        ));
+        index.entries.push(make_entry(
+            "old_base_newer",
+            BackupType::Base,
+            None,
+            old_base_newer_time,
+        ));
+        index
+            .entries
+            .push(make_entry("new_base", BackupType::Base, None, new_time));
+
+        // Write both non-prunable files to disk; intentionally omit old_base's file.
+        std::fs::write(backups_dir.join("old_base_newer-base.bak"), b"data").unwrap();
+        std::fs::write(backups_dir.join("new_base-base.bak"), b"data").unwrap();
+
+        let prunable = compute_prunable_entries(&index, &config);
+        assert!(
+            prunable.contains(&"old_base".to_string()),
+            "old_base must be in prunable set for this test to be meaningful"
+        );
+
+        // apply_prune must succeed even though old_base's backing file does not exist.
+        apply_prune(&mut index, &prunable, backups_dir).unwrap();
+
+        // The surviving file remains intact.
+        assert!(
+            backups_dir.join("old_base_newer-base.bak").exists(),
+            "monthly winner file should remain"
+        );
+        assert!(
+            backups_dir.join("new_base-base.bak").exists(),
+            "new file should remain"
+        );
+
+        // Both prunable entries are removed from the index even though one had no file.
+        assert_eq!(index.entries.len(), 2);
+        let remaining_ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+        assert!(
+            !remaining_ids.contains(&"old_base"),
+            "old_base must be removed from index"
+        );
+        assert!(
+            remaining_ids.contains(&"old_base_newer"),
+            "old_base_newer must remain in index"
+        );
+        assert!(
+            remaining_ids.contains(&"new_base"),
+            "new_base must remain in index"
+        );
+    }
 }

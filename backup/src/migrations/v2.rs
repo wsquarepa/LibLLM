@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use rand::TryRngCore;
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{compute_kek_fingerprint, decrypt_payload, encrypt_payload, wrap_dek};
@@ -42,7 +41,7 @@ fn migrate_encrypted(
         }
 
         let chain_ids = collect_chain_ids(index, &root_id);
-        let dek = generate_dek()?;
+        let dek = crate::crypto::generate_dek()?;
         let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
 
         for entry_id in &chain_ids {
@@ -119,14 +118,6 @@ fn collect_chain_ids(index: &BackupIndex, root_id: &str) -> Vec<String> {
         }
     }
     ids
-}
-
-fn generate_dek() -> Result<[u8; 32]> {
-    let mut bytes = [0u8; 32];
-    rand::rng()
-        .try_fill_bytes(&mut bytes)
-        .context("RNG fill_bytes failed for DEK")?;
-    Ok(bytes)
 }
 
 #[cfg(test)]

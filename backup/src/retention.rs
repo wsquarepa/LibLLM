@@ -130,10 +130,7 @@ pub fn apply_prune(index: &mut BackupIndex, prunable_ids: &[String], backups_dir
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => {
-                eprintln!(
-                    "Warning: failed to remove pruned backup {}: {err}",
-                    entry.filename
-                );
+                tracing::warn!(result = "error", filename = %entry.filename, error = %err, "backup.retention.delete_failed");
             }
         }
     }

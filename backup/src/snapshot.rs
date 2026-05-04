@@ -5,7 +5,6 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::RngCore;
-use rand::TryRngCore;
 
 use crate::BackupConfig;
 use crate::index::{
@@ -58,7 +57,7 @@ pub fn create_snapshot(
         Option<FingerprintField>,
     ) = match (&backup_key, &backup_type) {
         (Some(kek), BackupType::Base) => {
-            let dek = generate_dek()?;
+            let dek = crate::crypto::generate_dek()?;
             let wrapped = crate::crypto::wrap_dek(&dek, kek)?;
             let fp = kek_fingerprint
                 .clone()
@@ -249,7 +248,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
         let file_bytes = match std::fs::read(&file_path) {
             Ok(b) => b,
             Err(e) => {
-                eprintln!("Warning: skipping {filename}: failed to read: {e}");
+                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.read_failed");
                 continue;
             }
         };
@@ -271,7 +270,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let plaintext = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Warning: skipping {filename}: decompression failed: {e}");
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
                             continue;
                         }
                     };
@@ -302,9 +301,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                 let base_entry = match index.latest_base() {
                     Some(e) => e.clone(),
                     None => {
-                        eprintln!(
-                            "Warning: skipping {filename}: no base entry found before this diff"
-                        );
+                        tracing::warn!(result = "error", filename = %filename, "backup.rebuild_index.missing_base");
                         continue;
                     }
                 };
@@ -317,9 +314,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let chain = match index.chain_to(&base_id) {
                         Ok(c) => c.into_iter().cloned().collect::<Vec<_>>(),
                         Err(e) => {
-                            eprintln!(
-                                "Warning: skipping {filename}: failed to build base chain: {e}"
-                            );
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_build_failed");
                             continue;
                         }
                     };
@@ -329,9 +324,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                         match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
                             Ok(p) => p,
                             Err(e) => {
-                                eprintln!(
-                                "Warning: skipping {filename}: failed to replay base chain: {e}"
-                            );
+                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_replay_failed");
                                 continue;
                             }
                         };
@@ -339,9 +332,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let patch = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!(
-                                "Warning: skipping {filename}: failed to decompress diff: {e}"
-                            );
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.diff_decompress_failed");
                             continue;
                         }
                     };
@@ -349,7 +340,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let plaintext = match crate::diff::apply_patch(&base_plaintext, &patch) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Warning: skipping {filename}: failed to apply patch: {e}");
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.patch_apply_failed");
                             continue;
                         }
                     };
@@ -379,14 +370,6 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
     }
 
     Ok(index)
-}
-
-fn generate_dek() -> Result<[u8; 32]> {
-    let mut dek = [0u8; 32];
-    rand::rng()
-        .try_fill_bytes(&mut dek)
-        .context("RNG fill_bytes failed for DEK")?;
-    Ok(dek)
 }
 
 fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {

@@ -10,7 +10,7 @@ use libllm::migration;
 
 fn setup_data_dir() -> tempfile::TempDir {
     let dir = common::temp_dir();
-    config::set_data_dir(dir.path().to_path_buf()).unwrap();
+    config::set_data_dir(dir.path().to_path_buf()).ok();
     config::ensure_dirs().unwrap();
     dir
 }
@@ -94,7 +94,7 @@ fn config_missing_file_returns_default() {
     assert!(!bogus.exists());
 
     let cfg = config::load();
-    assert!(cfg.api_url.is_none() || cfg.api_url.is_some());
+    assert!(cfg.api_url.is_none(), "missing config file should yield default (None) api_url, got {:?}", cfg.api_url);
 }
 
 #[test]
@@ -210,8 +210,7 @@ fn migrate_config_path_is_callable() {
 fn config_survives_migration() {
     let dir = setup_data_dir();
     let root = dir.path();
-    let key = common::test_key(root);
-    let _ = key;
+    let _key = common::test_key(root);
 
     let cfg = Config {
         api_url: Some("http://survive.test/v1".to_owned()),

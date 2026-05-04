@@ -31,7 +31,7 @@ const ITEMS: &[(DangerOp, &str)] = &[
 /// its destructive nature regardless of selection state.
 pub(in crate::tui) fn render_danger_tab_body(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let mut lines: Vec<Line<'static>> = vec![
-        Line::from("  Destructive actions. Each requires confirmation."),
+        Line::from("  Caution! These are permanent destructive actions."),
         Line::from(""),
     ];
     for (idx, (op, label)) in ITEMS.iter().enumerate() {

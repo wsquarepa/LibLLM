@@ -124,10 +124,12 @@ pub fn compute_kek_fingerprint(kek: &[u8; 32]) -> String {
 }
 
 /// Generates a random 32-byte data encryption key via the OS CSPRNG.
-pub(crate) fn generate_dek() -> Result<[u8; 32]> {
+///
+/// Panics if the OS CSPRNG is unavailable (this is the contract of `fill_bytes`).
+pub(crate) fn generate_dek() -> [u8; 32] {
     let mut dek = [0u8; 32];
     rand::rng().fill_bytes(&mut dek);
-    Ok(dek)
+    dek
 }
 
 /// Encrypts a DEK under a KEK using the existing AEAD.

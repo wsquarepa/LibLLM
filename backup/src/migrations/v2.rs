@@ -41,7 +41,7 @@ fn migrate_encrypted(
         }
 
         let chain_ids = collect_chain_ids(index, &root_id);
-        let dek = crate::crypto::generate_dek()?;
+        let dek = crate::crypto::generate_dek();
         let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
 
         for entry_id in &chain_ids {

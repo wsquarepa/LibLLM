@@ -57,7 +57,7 @@ pub fn create_snapshot(
         Option<FingerprintField>,
     ) = match (&backup_key, &backup_type) {
         (Some(kek), BackupType::Base) => {
-            let dek = crate::crypto::generate_dek()?;
+            let dek = crate::crypto::generate_dek();
             let wrapped = crate::crypto::wrap_dek(&dek, kek)?;
             let fp = kek_fingerprint
                 .clone()

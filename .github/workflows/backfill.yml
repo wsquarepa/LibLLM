@@ -148,12 +148,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ inputs.tag }}"
-          SHA=$(git rev-parse "${TAG}^{commit}")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes
           fi
           gh release create "$TAG" artifacts/* \
-            --target "$SHA" \
             --title "$TAG" \
             --notes-file notes.md \
             --latest=false

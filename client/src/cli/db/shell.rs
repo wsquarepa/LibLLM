@@ -64,8 +64,9 @@ pub fn run(ctx: &DbContext, write: bool, private: bool) -> Result<()> {
     let mut editor = DefaultEditor::new().context("failed to create line editor")?;
     if let Some(path) = state.history_path.as_ref()
         && path.exists()
+        && let Err(err) = editor.load_history(path)
     {
-        let _ = editor.load_history(path);
+        tracing::debug!(error = %err, path = %path.display(), "shell.history.load_failed");
     }
 
     let mut buffer = String::new();
@@ -98,8 +99,10 @@ pub fn run(ctx: &DbContext, write: bool, private: bool) -> Result<()> {
                 buffer.push_str(&line);
                 if is_statement_complete(&buffer) {
                     let stmt = std::mem::take(&mut buffer);
-                    if !buffer_first_line_starts_with_space {
-                        let _ = editor.add_history_entry(stmt.trim_end());
+                    if !buffer_first_line_starts_with_space
+                        && let Err(err) = editor.add_history_entry(stmt.trim_end())
+                    {
+                        tracing::debug!(error = %err, "shell.history.add_failed");
                     }
                     if let Err(err) = run_statement(&state, &stmt) {
                         eprintln!("{err:#}");
@@ -119,8 +122,10 @@ pub fn run(ctx: &DbContext, write: bool, private: bool) -> Result<()> {
         }
     }
 
-    if let Some(path) = state.history_path.as_ref() {
-        let _ = editor.save_history(path);
+    if let Some(path) = state.history_path.as_ref()
+        && let Err(err) = editor.save_history(path)
+    {
+        eprintln!("warning: failed to save shell history: {err}");
     }
     Ok(())
 }
@@ -140,7 +145,7 @@ fn handle_dot_command(state: &mut ShellState, line: &str) -> Result<DotCommandOu
             let rows = state
                 .db
                 .execute_query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")?;
-            print_rows(state, &rows);
+            print_rows(state, &rows)?;
             Ok(DotCommandOutcome::Continue)
         }
         ".schema" => {
@@ -156,7 +161,7 @@ fn handle_dot_command(state: &mut ShellState, line: &str) -> Result<DotCommandOu
                     "SELECT sql FROM sqlite_master WHERE type IN ('table','index')",
                 )?,
             };
-            print_rows(state, &rows);
+            print_rows(state, &rows)?;
             Ok(DotCommandOutcome::Continue)
         }
         ".read" => {
@@ -252,7 +257,7 @@ fn run_statement(state: &ShellState, sql: &str) -> Result<()> {
         let affected = state.db.changes();
         eprintln!("{affected} row(s) affected");
     } else {
-        print_rows(state, &rows);
+        print_rows(state, &rows)?;
     }
     if state.timer {
         let elapsed = started.elapsed();
@@ -261,8 +266,8 @@ fn run_statement(state: &ShellState, sql: &str) -> Result<()> {
     Ok(())
 }
 
-fn print_rows(state: &ShellState, rows: &QueryRows) {
+fn print_rows(state: &ShellState, rows: &QueryRows) -> Result<()> {
     let formatter = state.formatter();
     let output = formatter.format(&rows.headers, &rows.rows, state.show_headers);
-    let _ = io::stdout().write_all(output.as_bytes());
+    io::stdout().write_all(output.as_bytes()).context("failed to write query output")
 }

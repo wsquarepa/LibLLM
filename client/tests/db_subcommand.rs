@@ -32,7 +32,7 @@ fn dump_round_trip_unencrypted() {
 
     let dump_path = dir.path().join("dump.db");
 
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -41,9 +41,14 @@ fn dump_round_trip_unencrypted() {
             "dump",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn client");
-    assert!(status.success(), "dump exit status: {status:?}");
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let dumped = Database::open(&dump_path, None).expect("open dump");
     let personas = dumped.list_personas().expect("list");
@@ -101,7 +106,7 @@ fn import_round_trip_unencrypted() {
     seed_plain_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -110,9 +115,14 @@ fn import_round_trip_unencrypted() {
             "dump",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn dump");
-    assert!(status.success());
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     {
         let plain = Database::open(&dump_path, None).expect("open dump");
@@ -128,7 +138,7 @@ fn import_round_trip_unencrypted() {
             .expect("insert carol in dump");
     }
 
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -138,9 +148,14 @@ fn import_round_trip_unencrypted() {
             "--yes",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn import");
-    assert!(status.success(), "import exit status: {status:?}");
+    assert!(
+        output.status.success(),
+        "import failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let after = Database::open(&db_path, None).expect("reopen data.db");
     let personas = after.list_personas().expect("list");
@@ -155,7 +170,7 @@ fn import_failure_leaves_original_intact() {
     seed_plain_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -164,13 +179,18 @@ fn import_failure_leaves_original_intact() {
             "dump",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn dump");
-    assert!(status.success());
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let original_bytes = std::fs::read(&db_path).expect("read pre-import data.db");
 
-    let blocker = data_dir.join("data.import.tmp");
+    let blocker = data_dir.join("data.db.import.tmp");
     std::fs::create_dir(&blocker).expect("create blocker dir");
 
     let output = Command::new(client_bin())
@@ -213,7 +233,7 @@ fn import_creates_backup_first_encrypted() {
     }
 
     let dump_path = dir.path().join("dump.db");
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .env("LIBLLM_PASSKEY", "test-passkey")
         .args([
             "-d",
@@ -222,15 +242,20 @@ fn import_creates_backup_first_encrypted() {
             "dump",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn dump");
-    assert!(status.success());
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let backups_before: Vec<_> = std::fs::read_dir(data_dir.join("backups"))
         .map(|rd| rd.flatten().collect())
         .unwrap_or_default();
 
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .env("LIBLLM_PASSKEY", "test-passkey")
         .args([
             "-d",
@@ -240,9 +265,14 @@ fn import_creates_backup_first_encrypted() {
             "--yes",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn import");
-    assert!(status.success(), "import exit status: {status:?}");
+    assert!(
+        output.status.success(),
+        "import failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let backups_after: Vec<_> = std::fs::read_dir(data_dir.join("backups"))
         .expect("backups dir exists after import")
@@ -262,7 +292,7 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
     seed_plain_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -271,9 +301,14 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
             "dump",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn initial dump");
-    assert!(status.success());
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     // Hold an exclusive write transaction on the encrypted db so the liveness
     // probe sees SQLITE_BUSY.
@@ -450,7 +485,7 @@ fn dump_round_trip_encrypted() {
 
     let dump_path = dir.path().join("dump.db");
 
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .env("LIBLLM_PASSKEY", "test-passkey")
         .args([
             "-d",
@@ -459,9 +494,14 @@ fn dump_round_trip_encrypted() {
             "dump",
             dump_path.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn client");
-    assert!(status.success(), "dump exit status: {status:?}");
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let dumped = Database::open(&dump_path, None).expect("open dump as plain");
     let personas = dumped.list_personas().expect("list");
@@ -479,7 +519,7 @@ fn dump_handles_output_path_with_tmp_extension() {
     // tmp-file name if the dump computed it via `with_extension`.
     let out = dir.path().join("backup.tmp");
 
-    let status = Command::new(client_bin())
+    let output = Command::new(client_bin())
         .args([
             "-d",
             data_dir.to_str().unwrap(),
@@ -488,9 +528,14 @@ fn dump_handles_output_path_with_tmp_extension() {
             "dump",
             out.to_str().unwrap(),
         ])
-        .status()
+        .output()
         .expect("spawn client");
-    assert!(status.success(), "dump exit status: {status:?}");
+    assert!(
+        output.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let dumped = libllm::db::Database::open(&out, None).expect("open dump");
     let personas = dumped.list_personas().expect("list");
@@ -561,7 +606,13 @@ fn shell_history_respects_ignorespace() {
         writeln!(stdin, " SELECT 2;").unwrap();
         writeln!(stdin, ".quit").unwrap();
     }
-    let _ = child.wait_with_output().expect("wait");
+    let output = child.wait_with_output().expect("wait");
+    assert!(
+        output.status.success(),
+        "shell process failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let history = std::fs::read_to_string(data_dir.join(".db_shell_history"))
         .expect("history file should exist");
@@ -597,7 +648,13 @@ fn shell_private_mode_writes_no_history() {
         writeln!(stdin, "SELECT 1;").unwrap();
         writeln!(stdin, ".quit").unwrap();
     }
-    let _ = child.wait_with_output().expect("wait");
+    let output = child.wait_with_output().expect("wait");
+    assert!(
+        output.status.success(),
+        "shell process failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     let history_path = data_dir.join(".db_shell_history");
     assert!(

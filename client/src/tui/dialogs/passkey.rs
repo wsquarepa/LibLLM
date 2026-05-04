@@ -137,7 +137,9 @@ pub(in crate::tui) fn handle_passkey_key(
                         "key derivation task failed: {err}"
                     )),
                 };
-                let _ = bg_tx.send(event).await;
+                if let Err(err) = bg_tx.send(event).await {
+                    tracing::error!(result = "error", error = %err, "tui.passkey.send_failed");
+                }
             });
             None
         }

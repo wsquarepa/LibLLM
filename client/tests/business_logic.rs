@@ -7,7 +7,9 @@ mod common;
 use client::cli::CliOverrides;
 use client::tui::business;
 use libllm::config::Config;
+use libllm::context::ContextManager;
 use libllm::session::{Message, MessageTree, Role, Session};
+use libllm::summarize::Summarizer;
 
 // ---------------------------------------------------------------------------
 // Summarizer and summary-aware context integration tests
@@ -15,8 +17,6 @@ use libllm::session::{Message, MessageTree, Role, Session};
 
 #[test]
 fn summarizer_includes_prior_summary_as_context() {
-    use libllm::summarize::Summarizer;
-
     let msgs = [
         Message::new(Role::Summary, "Prior summary content".to_owned()),
         Message::new(Role::User, "New message".to_owned()),
@@ -29,8 +29,6 @@ fn summarizer_includes_prior_summary_as_context() {
 
 #[test]
 fn summary_aware_path_with_context_manager() {
-    use libllm::context::ContextManager;
-
     let ctx = ContextManager::new(8192);
     let msgs = [
         Message::new(Role::User, "old msg 1".to_owned()),
@@ -285,8 +283,6 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
 
 #[test]
 fn side_character_split_chains_three_user_nodes() {
-    use libllm::session::{Message, MessageTree, Role};
-
     let raw = "User voice.\n\n[Alice]: hi.\n\n[Bob]: hello.";
     let segments = libllm::side_character::split_user_input(raw);
     assert_eq!(segments.len(), 3);
@@ -320,8 +316,6 @@ fn side_character_split_chains_three_user_nodes() {
 
 #[test]
 fn remove_middle_message_preserves_descendants() {
-    use libllm::session::{Message, MessageTree, Role};
-
     let mut tree = MessageTree::new();
     let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
     let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
@@ -344,8 +338,6 @@ fn remove_middle_message_preserves_descendants() {
 
 #[test]
 fn remove_head_moves_head_to_parent() {
-    use libllm::session::{Message, MessageTree, Role};
-
     let mut tree = MessageTree::new();
     let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
     let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));

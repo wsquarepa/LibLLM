@@ -182,8 +182,6 @@ impl App<'_> {
         let result = self.session.maybe_save(&self.save_mode, self.db.as_mut());
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-        let elapsed_ms_str = format!("{elapsed_ms:.3}");
-        let dirty_elapsed_ms_str = dirty_elapsed_ms.map(|ms| format!("{ms:.3}"));
         match result {
             Ok(()) => {
                 self.autosave_debug.save_count += 1;
@@ -191,9 +189,9 @@ impl App<'_> {
                     phase = "flush",
                     trigger = trigger.as_str(),
                     result = "ok",
-                    elapsed_ms = elapsed_ms_str,
+                    elapsed_ms = elapsed_ms,
                     session_id = session_id.as_deref(),
-                    dirty_elapsed_ms = dirty_elapsed_ms_str.as_deref(),
+                    dirty_elapsed_ms = ?dirty_elapsed_ms,
                     save_count = self.autosave_debug.save_count,
                     "autosave",
                 );
@@ -208,11 +206,11 @@ impl App<'_> {
                     phase = "flush",
                     trigger = trigger.as_str(),
                     result = "error",
-                    elapsed_ms = elapsed_ms_str,
+                    elapsed_ms = elapsed_ms,
                     retry_delay_ms = AUTOSAVE_RETRY_DELAY.as_millis(),
                     error = %err,
                     session_id = session_id.as_deref(),
-                    dirty_elapsed_ms = dirty_elapsed_ms_str.as_deref(),
+                    dirty_elapsed_ms = ?dirty_elapsed_ms,
                     retry_count = self.autosave_debug.retry_count,
                     "autosave",
                 );

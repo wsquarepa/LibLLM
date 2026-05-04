@@ -5,6 +5,7 @@ pub mod edit;
 pub mod import;
 pub mod interactive;
 pub mod legacy_migration;
+pub mod paths;
 pub mod recover;
 pub mod time;
 pub mod tui;

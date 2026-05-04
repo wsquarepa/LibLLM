@@ -6,6 +6,8 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::paths::append_suffix;
+
 pub const REPO: &str = "wsquarepa/LibLLM";
 pub const CHANNEL: &str = env!("LIBLLM_CHANNEL");
 
@@ -306,8 +308,8 @@ async fn download_and_replace(client: &reqwest::Client, asset: &Asset) -> Result
 
     let install_start = Instant::now();
     let exe_path = current_exe_path()?;
-    let tmp_path = exe_path.with_extension("tmp");
-    let old_path = exe_path.with_extension("old");
+    let tmp_path = append_suffix(&exe_path, ".tmp");
+    let old_path = append_suffix(&exe_path, ".old");
 
     std::fs::write(&tmp_path, &bytes).context("failed to write temporary file")?;
 

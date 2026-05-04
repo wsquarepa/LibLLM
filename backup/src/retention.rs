@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, IsoWeek, Utc};
 
 use crate::BackupConfig;
@@ -115,36 +116,56 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
 
 /// Removes entries from the index and deletes their backing files from disk.
 ///
-/// Files that do not exist on disk are silently skipped — the entry is still removed
-/// from the index so state remains consistent.
-pub fn apply_prune(index: &mut BackupIndex, prunable_ids: &[String], backups_dir: &Path) {
+/// For each prunable entry, the disk file is deleted first. Only after the delete succeeds
+/// is the entry removed from the in-memory index, keeping the on-disk and in-memory views
+/// aligned. Missing files (NotFound) are treated as already deleted and the entry is still
+/// removed from the index.
+///
+/// On `Err`, the in-memory index may contain entries whose disk files were already deleted
+/// before the error — callers must discard the in-memory index on error to avoid divergence.
+pub fn apply_prune(
+    index: &mut BackupIndex,
+    prunable_ids: &[String],
+    backups_dir: &Path,
+) -> Result<()> {
     let id_set: HashSet<&str> = prunable_ids.iter().map(String::as_str).collect();
 
-    for entry in index
+    let prunable_entries: Vec<(usize, String)> = index
         .entries
         .iter()
-        .filter(|e| id_set.contains(e.id.as_str()))
-    {
-        let file_path = backups_dir.join(&entry.filename);
+        .enumerate()
+        .filter(|(_, e)| id_set.contains(e.id.as_str()))
+        .map(|(i, e)| (i, e.filename.clone()))
+        .collect();
+
+    let mut removed_indices: HashSet<usize> = HashSet::new();
+    for (idx, filename) in prunable_entries {
+        let file_path = backups_dir.join(&filename);
         match std::fs::remove_file(&file_path) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(err) => {
-                eprintln!(
-                    "Warning: failed to remove pruned backup {}: {err}",
-                    entry.filename
-                );
+                return Err(err)
+                    .with_context(|| format!("delete pruned backup {}", file_path.display()));
             }
         }
+        removed_indices.insert(idx);
     }
 
-    index.entries.retain(|e| !id_set.contains(e.id.as_str()));
+    let mut i = 0;
+    index.entries.retain(|_| {
+        let keep = !removed_indices.contains(&i);
+        i += 1;
+        keep
+    });
+
+    Ok(())
 }
 
 /// Computes prunable entries and removes them from the index and disk in one step.
-pub fn run_retention(index: &mut BackupIndex, config: &BackupConfig, backups_dir: &Path) {
+pub fn run_retention(index: &mut BackupIndex, config: &BackupConfig, backups_dir: &Path) -> Result<()> {
     let prunable = compute_prunable_entries(index, config);
-    apply_prune(index, &prunable, backups_dir);
+    apply_prune(index, &prunable, backups_dir)
 }
 
 #[cfg(test)]
@@ -410,7 +431,7 @@ mod tests {
             "new_base should survive (keep-all tier)"
         );
 
-        apply_prune(&mut index, &prunable, backups_dir);
+        apply_prune(&mut index, &prunable, backups_dir).unwrap();
 
         assert!(
             !backups_dir.join("old_base-base.bak").exists(),
@@ -426,6 +447,82 @@ mod tests {
         );
         assert_eq!(index.entries.len(), 2);
         let remaining_ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+        assert!(
+            remaining_ids.contains(&"old_base_newer"),
+            "old_base_newer must remain in index"
+        );
+        assert!(
+            remaining_ids.contains(&"new_base"),
+            "new_base must remain in index"
+        );
+    }
+
+    #[test]
+    fn apply_prune_tolerates_missing_files() {
+        let dir = TempDir::new().unwrap();
+        let backups_dir = dir.path();
+        let config = default_config();
+        let now = Utc::now();
+
+        // Same time-placement strategy as apply_prune_removes_files_and_entries:
+        // anchor to day 15 so the +1d neighbor never crosses a month boundary.
+        let old_base_time = (now - Duration::days(200))
+            .date_naive()
+            .with_day(15)
+            .unwrap()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc();
+        let old_base_newer_time = old_base_time + Duration::days(1);
+        let new_time = now - Duration::days(1);
+
+        let mut index = BackupIndex::new();
+        index.entries.push(make_entry(
+            "old_base",
+            BackupType::Base,
+            None,
+            old_base_time,
+        ));
+        index.entries.push(make_entry(
+            "old_base_newer",
+            BackupType::Base,
+            None,
+            old_base_newer_time,
+        ));
+        index
+            .entries
+            .push(make_entry("new_base", BackupType::Base, None, new_time));
+
+        // Write both non-prunable files to disk; intentionally omit old_base's file.
+        std::fs::write(backups_dir.join("old_base_newer-base.bak"), b"data").unwrap();
+        std::fs::write(backups_dir.join("new_base-base.bak"), b"data").unwrap();
+
+        let prunable = compute_prunable_entries(&index, &config);
+        assert!(
+            prunable.contains(&"old_base".to_string()),
+            "old_base must be in prunable set for this test to be meaningful"
+        );
+
+        // apply_prune must succeed even though old_base's backing file does not exist.
+        apply_prune(&mut index, &prunable, backups_dir).unwrap();
+
+        // The surviving file remains intact.
+        assert!(
+            backups_dir.join("old_base_newer-base.bak").exists(),
+            "monthly winner file should remain"
+        );
+        assert!(
+            backups_dir.join("new_base-base.bak").exists(),
+            "new file should remain"
+        );
+
+        // Both prunable entries are removed from the index even though one had no file.
+        assert_eq!(index.entries.len(), 2);
+        let remaining_ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+        assert!(
+            !remaining_ids.contains(&"old_base"),
+            "old_base must be removed from index"
+        );
         assert!(
             remaining_ids.contains(&"old_base_newer"),
             "old_base_newer must remain in index"

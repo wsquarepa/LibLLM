@@ -9,6 +9,10 @@ use tui_textarea::{CursorMove, TextArea};
 
 use libllm::client::StreamToken;
 
+use crate::tui::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
+use crate::tui::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
+use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
+
 use super::dialog_handler::{
     DialogKind, cancel_generation, configure_textarea, handle_field_dialog_key,
     live_apply_theme_dialog, return_to_input,
@@ -450,7 +454,6 @@ fn handle_key(
         return dialogs::api_error::handle_loading_key(key);
     }
     if app.focus == Focus::DangerConfirmDialog {
-        use crate::tui::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
         let mut sel = app.danger_confirm_selected.unwrap_or(0);
         let r = handle_danger_confirm_key(key, &mut sel);
         app.danger_confirm_selected = Some(sel);
@@ -478,7 +481,6 @@ fn handle_key(
     }
 
     if app.focus == Focus::DangerTypedConfirmDialog {
-        use crate::tui::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
         let Some(state) = app.danger_typed_confirm.as_mut() else {
             app.focus = Focus::ConfigDialog;
             return None;
@@ -505,7 +507,6 @@ fn handle_key(
     }
 
     if app.focus == Focus::TemplatePromptDialog {
-        use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
         let Some(state) = app.template_prompt_state.as_mut() else {
             return_to_input(app);
             return None;
@@ -520,7 +521,7 @@ fn handle_key(
                 let mut config = libllm::config::load();
                 config.instruct_preset = Some(preset_name.clone());
                 if let Err(err) = libllm::config::save(&config) {
-                    tracing::error!(error = %err, "template_prompt.config_save_failed");
+                    tracing::warn!(result = "error", error = %err, "template_prompt.config_save_failed");
                     app.set_status(
                         "Preset switched for session; couldn't save to config".to_owned(),
                         StatusLevel::Warning,
@@ -540,7 +541,7 @@ fn handle_key(
                     && let Some(db) = app.db.as_ref()
                     && let Err(err) = db.record_template_dismissal(&state.server_template_hash)
                 {
-                    tracing::error!(error = %err, "template_prompt.dismiss_record_failed");
+                    tracing::warn!(result = "error", error = %err, "template_prompt.dismiss_record_failed");
                     app.set_status(
                         "Couldn't remember dismissal".to_owned(),
                         StatusLevel::Info,

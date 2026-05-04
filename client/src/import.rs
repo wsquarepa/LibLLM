@@ -94,7 +94,13 @@ pub fn import_single_file(
         ImportType::Persona => "persona",
         ImportType::SystemPrompt => "prompt",
     };
-    let file_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let file_bytes = match std::fs::metadata(path) {
+        Ok(m) => m.len(),
+        Err(err) => {
+            tracing::warn!(result = "error", path = %path.display(), error = %err, "import.metadata_failed");
+            0
+        }
+    };
     let path_str = path.display().to_string();
     libllm::timed_result!(
         tracing::Level::INFO,

@@ -5,7 +5,6 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::RngCore;
-use rand::TryRngCore;
 
 use crate::BackupConfig;
 use crate::index::{
@@ -58,7 +57,7 @@ pub fn create_snapshot(
         Option<FingerprintField>,
     ) = match (&backup_key, &backup_type) {
         (Some(kek), BackupType::Base) => {
-            let dek = generate_dek()?;
+            let dek = crate::crypto::generate_dek();
             let wrapped = crate::crypto::wrap_dek(&dek, kek)?;
             let fp = kek_fingerprint
                 .clone()
@@ -111,7 +110,7 @@ pub fn create_snapshot(
     };
 
     index.entries.push(entry);
-    crate::retention::run_retention(&mut index, config, &backups_dir);
+    crate::retention::run_retention(&mut index, config, &backups_dir)?;
     save_index(&index_path, &index)?;
 
     Ok(())
@@ -244,12 +243,12 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
 
     let mut index = BackupIndex::new();
 
-    for (_mtime, filename, id, entry_type) in file_entries {
+    for (mtime, filename, id, entry_type) in file_entries {
         let file_path = backups_dir.join(&filename);
         let file_bytes = match std::fs::read(&file_path) {
             Ok(b) => b,
             Err(e) => {
-                eprintln!("Warning: skipping {filename}: failed to read: {e}");
+                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.read_failed");
                 continue;
             }
         };
@@ -257,7 +256,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
         let file_hash = crate::hash::hash_bytes(&file_bytes);
         let stored_size = file_bytes.len() as u64;
 
-        let created_at = Utc::now();
+        let created_at = chrono::DateTime::<Utc>::from(mtime);
 
         match entry_type {
             BackupType::Base => {
@@ -271,7 +270,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let plaintext = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Warning: skipping {filename}: decompression failed: {e}");
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
                             continue;
                         }
                     };
@@ -302,9 +301,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                 let base_entry = match index.latest_base() {
                     Some(e) => e.clone(),
                     None => {
-                        eprintln!(
-                            "Warning: skipping {filename}: no base entry found before this diff"
-                        );
+                        tracing::warn!(result = "error", filename = %filename, "backup.rebuild_index.missing_base");
                         continue;
                     }
                 };
@@ -317,9 +314,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let chain = match index.chain_to(&base_id) {
                         Ok(c) => c.into_iter().cloned().collect::<Vec<_>>(),
                         Err(e) => {
-                            eprintln!(
-                                "Warning: skipping {filename}: failed to build base chain: {e}"
-                            );
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_build_failed");
                             continue;
                         }
                     };
@@ -329,9 +324,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                         match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
                             Ok(p) => p,
                             Err(e) => {
-                                eprintln!(
-                                "Warning: skipping {filename}: failed to replay base chain: {e}"
-                            );
+                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_replay_failed");
                                 continue;
                             }
                         };
@@ -339,9 +332,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let patch = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!(
-                                "Warning: skipping {filename}: failed to decompress diff: {e}"
-                            );
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.diff_decompress_failed");
                             continue;
                         }
                     };
@@ -349,7 +340,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let plaintext = match crate::diff::apply_patch(&base_plaintext, &patch) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Warning: skipping {filename}: failed to apply patch: {e}");
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.patch_apply_failed");
                             continue;
                         }
                     };
@@ -379,14 +370,6 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
     }
 
     Ok(index)
-}
-
-fn generate_dek() -> Result<[u8; 32]> {
-    let mut dek = [0u8; 32];
-    rand::rng()
-        .try_fill_bytes(&mut dek)
-        .context("RNG fill_bytes failed for DEK")?;
-    Ok(dek)
 }
 
 fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {
@@ -627,6 +610,62 @@ mod tests {
             base.kek_fingerprint
         );
         assert!(base.wrapped_dek.is_none());
+    }
+
+    #[test]
+    fn rebuild_index_uses_file_mtime_for_created_at() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = setup_test_db(dir.path());
+        let config = BackupConfig::default();
+
+        create_snapshot(dir.path(), None, &config).unwrap();
+        modify_test_db(&db_path);
+        create_snapshot(dir.path(), None, &config).unwrap();
+
+        let backups_dir = dir.path().join("backups");
+        let idx = load_test_index(dir.path());
+
+        // Backdate every backup file's mtime by exactly one hour so that the
+        // rebuilt `created_at` values are definitively distant from `Utc::now()`.
+        let past = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(3600))
+            .unwrap();
+        for entry in &idx.entries {
+            let path = backups_dir.join(&entry.filename);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(past)
+                .unwrap();
+        }
+
+        let rebuilt = rebuild_index(&backups_dir, None).unwrap();
+
+        let now = Utc::now();
+        let expected_mtime: chrono::DateTime<Utc> = past.into();
+
+        for entry in &rebuilt.entries {
+            let delta_from_mtime = (entry.created_at - expected_mtime)
+                .abs()
+                .num_seconds();
+            let delta_from_now = (entry.created_at - now).abs().num_seconds();
+
+            assert!(
+                delta_from_mtime < 2,
+                "entry {} created_at should be within 2s of file mtime ({}), got {} (delta from now: {}s)",
+                entry.id,
+                expected_mtime,
+                entry.created_at,
+                delta_from_now,
+            );
+            assert!(
+                delta_from_now > 3500,
+                "entry {} created_at must not be close to Utc::now(); expected ~3600s gap, got {}s",
+                entry.id,
+                delta_from_now,
+            );
+        }
     }
 
     #[test]

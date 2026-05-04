@@ -363,7 +363,14 @@ impl Database {
                 Ok(n as u64)
             }
             Err(err) => {
-                let _ = self.conn.execute_batch("ROLLBACK");
+                if let Err(rollback_err) = self.conn.execute_batch("ROLLBACK") {
+                    tracing::warn!(
+                        result = "error",
+                        table = table_name,
+                        error = %rollback_err,
+                        "db.purge.rollback_failed"
+                    );
+                }
                 Err(err)
             }
         }

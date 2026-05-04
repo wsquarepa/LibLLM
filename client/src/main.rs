@@ -21,7 +21,10 @@ use client::validation;
 use std::io::{self, IsTerminal, Read, Write};
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::Parser;
+use crossterm::execute;
+use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
 
 use cli::Args;
 use session::{Message, Role, SaveMode};
@@ -48,13 +51,8 @@ async fn main() -> Result<()> {
     {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
         if CHANNEL == "unknown" && args.data.is_none() {
-            use crossterm::execute;
-            use crossterm::style::{
-                Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor,
-            };
-
             let default_data_dir = config::data_dir();
-            let _ = execute!(
+            execute!(
                 io::stderr(),
                 SetAttribute(Attribute::Bold),
                 SetForegroundColor(Color::Red),
@@ -67,7 +65,7 @@ async fn main() -> Result<()> {
                     default_data_dir.display()
                 )),
                 ResetColor,
-            );
+            )?;
             std::process::exit(1);
         }
     }
@@ -161,13 +159,12 @@ async fn main() -> Result<()> {
         cfg.tls_skip_verify
     };
     if tls_skip_verify {
-        use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
-        let _ = crossterm::execute!(
+        crossterm::execute!(
             io::stderr(),
             SetForegroundColor(Color::Yellow),
             Print("Warning: TLS certificate verification is disabled.\n"),
             ResetColor,
-        );
+        )?;
     }
     let cli_overrides = args.cli_overrides();
     let auth = libllm::config::resolve_auth(&cfg, &cli_overrides.auth_overrides());
@@ -273,7 +270,7 @@ async fn main() -> Result<()> {
             (message.clone(), None)
         };
 
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let cwd = std::env::current_dir().context("read current working directory")?;
         let prepended = stdin_attachment.into_iter().collect::<Vec<_>>();
         let resolved_files = match libllm::files::resolve_with_prepended_resolved(
             prepended,
@@ -563,18 +560,12 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
         return Database::open(&db_path, None);
     }
 
-    let passkey = match args.passkey.clone() {
-        Some(passkey) => Some(passkey),
+    let passkey: String = match args.passkey.clone() {
+        Some(passkey) => passkey,
         None => {
             eprint!("Passkey: ");
-            Some(rpassword::read_password().context("failed to read interactive passkey")?)
+            rpassword::read_password().context("failed to read interactive passkey")?
         }
-    };
-
-    let Some(passkey) = passkey else {
-        anyhow::bail!(
-            "No passkey provided. Use --passkey, LIBLLM_PASSKEY, or enter interactively."
-        );
     };
 
     let salt = crypto::load_or_create_salt(&config::salt_path())?;
@@ -606,7 +597,6 @@ fn try_backup(
 
 #[cfg(debug_assertions)]
 fn debug_trigger_destroy_all() -> Result<()> {
-    use chrono::Utc;
     let data_dir = config::data_dir();
     let snapshot_path = std::env::temp_dir().join(format!(
         "libllm-{}.tar.zst",

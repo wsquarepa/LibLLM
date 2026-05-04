@@ -159,6 +159,10 @@ async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>
                     error = %err,
                     "continue.truncate"
                 );
+                app.set_status(
+                    format!("Token count failed; continuing without truncation: {err}"),
+                    StatusLevel::Warning,
+                );
                 0
             }
         };
@@ -442,7 +446,7 @@ fn cmd_report(app: &mut App) {
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
         Err(err) => {
-            tracing::error!(result = "error", reason = "cwd_error", error = %err, "tui.command.report");
+            tracing::warn!(result = "error", reason = "cwd_error", error = %err, "tui.command.report");
             app.set_status(
                 format!("Cannot resolve current directory: {err}"),
                 StatusLevel::Error,
@@ -453,7 +457,7 @@ fn cmd_report(app: &mut App) {
     let output_path = current_dir.join("debug.log");
     if output_path.exists() {
         let output_path_str = output_path.display().to_string();
-        tracing::error!(
+        tracing::warn!(
             result = "error",
             reason = "collision",
             output_path = output_path_str.as_str(),
@@ -481,7 +485,7 @@ fn cmd_report(app: &mut App) {
         }
         Err(err) => {
             let output_path_str = output_path.display().to_string();
-            tracing::error!(result = "error", reason = "copy_error", output_path = output_path_str.as_str(), error = %err, "tui.command.report");
+            tracing::warn!(result = "error", reason = "copy_error", output_path = output_path_str.as_str(), error = %err, "tui.command.report");
             app.set_status(
                 format!("Failed to write debug report: {err}"),
                 StatusLevel::Error,

@@ -69,39 +69,61 @@ pub struct Asset {
     pub url: String,
 }
 
-/// One row in the interactive branch picker.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BranchEntry {
-    pub name: String,
+    pub tag: String,
+    pub display: String,
     pub current: bool,
 }
 
-/// Build the branch picker list from prerelease tag names.
-///
-/// Rules:
-/// - `stable` is always the first entry.
-/// - Prereleases are included in input order, except tags equal to
-///   `"stable"` or `"master"`. Per release CI, `stable` is built from
-///   every push to `master`, so a `master` prerelease tag would be a
-///   duplicate of `stable`; the `stable` exclusion guards against a
-///   stable tag being incorrectly marked prerelease.
-/// - The `current` flag is set on whichever entry matches `channel`;
-///   when `channel == "master"`, it is set on the `stable` entry.
-pub fn build_branch_list(prerelease_tags: &[String], channel: &str) -> Vec<BranchEntry> {
-    let current_is_stable = channel == "stable" || channel == "master";
-    let mut out = vec![BranchEntry {
-        name: "stable".to_string(),
-        current: current_is_stable,
-    }];
-    for tag in prerelease_tags {
-        if tag == "stable" || tag == "master" {
+pub fn build_branch_list(
+    releases: &[Release],
+    channel: &str,
+    current_version: &str,
+) -> Vec<BranchEntry> {
+    let mut stable: Vec<(semver::Version, &Release)> = releases
+        .iter()
+        .filter(|r| !r.prerelease)
+        .filter_map(|r| parse_version_tag(&r.tag_name).map(|v| (v, r)))
+        .collect();
+    stable.sort_by(|a, b| b.0.cmp_precedence(&a.0));
+    stable.truncate(5);
+
+    let running: Option<semver::Version> = if channel == "stable" {
+        semver::Version::parse(current_version).ok()
+    } else {
+        None
+    };
+
+    let mut out: Vec<BranchEntry> = Vec::new();
+    for (idx, (version, release)) in stable.iter().enumerate() {
+        let is_current = running.as_ref().is_some_and(|r| r == version);
+        let display = if idx == 0 {
+            format!("stable ({})", release.tag_name)
+        } else {
+            release.tag_name.clone()
+        };
+        out.push(BranchEntry {
+            tag: release.tag_name.clone(),
+            display,
+            current: is_current,
+        });
+    }
+
+    for release in releases.iter() {
+        if !release.prerelease {
+            continue;
+        }
+        if release.tag_name == "stable" || parse_version_tag(&release.tag_name).is_some() {
             continue;
         }
         out.push(BranchEntry {
-            name: tag.clone(),
-            current: tag == channel,
+            tag: release.tag_name.clone(),
+            display: release.tag_name.clone(),
+            current: release.tag_name == channel,
         });
     }
+
     out
 }
 
@@ -451,20 +473,15 @@ async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<Release>> {
 async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
     tracing::debug!(phase = "start", "update.interactive");
     let releases = fetch_releases(client).await?;
-    let prerelease_tags: Vec<String> = releases
-        .iter()
-        .filter(|r| r.prerelease)
-        .map(|r| r.tag_name.clone())
-        .collect();
-    let entries = build_branch_list(&prerelease_tags, CHANNEL);
+    let entries = build_branch_list(&releases, CHANNEL, env!("CARGO_PKG_VERSION"));
 
     let rows: Vec<String> = entries
         .iter()
         .map(|entry| {
             if entry.current {
-                format!("{} (current)", entry.name)
+                format!("{} (current)", entry.display)
             } else {
-                entry.name.clone()
+                entry.display.clone()
             }
         })
         .collect();
@@ -474,7 +491,7 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
         return Ok(None);
     };
 
-    let selected = entries[index].name.clone();
+    let selected = entries[index].tag.clone();
     tracing::debug!(
         phase = "branch_selected",
         branch = selected.as_str(),
@@ -536,63 +553,129 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn filter_prepends_stable_and_marks_it_current_for_stable_channel() {
-        let tags = vec!["feat/foo".to_string(), "bugfix/bar".to_string()];
-        let result = build_branch_list(&tags, "stable");
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0].name, "stable");
-        assert!(result[0].current);
-        assert_eq!(result[1].name, "feat/foo");
-        assert!(!result[1].current);
-        assert_eq!(result[2].name, "bugfix/bar");
-        assert!(!result[2].current);
+    fn rel(tag: &str, prerelease: bool) -> Release {
+        Release {
+            tag_name: tag.to_string(),
+            body: None,
+            assets: Vec::new(),
+            prerelease,
+        }
     }
 
     #[test]
-    fn filter_excludes_stable_tag_from_prereleases() {
-        let tags = vec!["stable".to_string(), "feat/foo".to_string()];
-        let result = build_branch_list(&tags, "stable");
-        assert_eq!(result.iter().filter(|b| b.name == "stable").count(), 1);
+    fn build_list_puts_highest_semver_first_labeled_stable() {
+        let releases = vec![
+            rel("v2.4.0", false),
+            rel("v2.6.0", false),
+            rel("v2.5.0", false),
+            rel("feat/foo", true),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        assert_eq!(list[0].tag, "v2.6.0");
+        assert_eq!(list[0].display, "stable (v2.6.0)");
+        assert!(list[0].current);
     }
 
     #[test]
-    fn filter_excludes_master_tag_from_prereleases() {
-        let tags = vec!["master".to_string(), "feat/foo".to_string()];
-        let result = build_branch_list(&tags, "stable");
-        assert_eq!(result.iter().filter(|b| b.name == "master").count(), 0);
-        assert_eq!(result.len(), 2);
+    fn build_list_truncates_historical_to_four() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("v2.5.0", false),
+            rel("v2.4.0", false),
+            rel("v2.3.0", false),
+            rel("v2.2.0", false),
+            rel("v2.1.0", false),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        let stable_rows: Vec<&BranchEntry> = list
+            .iter()
+            .filter(|e| e.tag.starts_with('v'))
+            .collect();
+        assert_eq!(stable_rows.len(), 5);
+        assert_eq!(stable_rows[4].tag, "v2.2.0");
+        assert!(!list.iter().any(|e| e.tag == "v2.1.0"));
     }
 
     #[test]
-    fn filter_marks_master_channel_as_stable_current() {
-        let tags = vec!["feat/foo".to_string()];
-        let result = build_branch_list(&tags, "master");
-        assert_eq!(result[0].name, "stable");
-        assert!(
-            result[0].current,
-            "stable should be marked current when CHANNEL=master"
-        );
-        assert!(!result[1].current);
+    fn build_list_marks_current_on_running_version_not_latest() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("v2.5.0", false),
+            rel("v2.4.0", false),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.4.0");
+        let v260 = list.iter().find(|e| e.tag == "v2.6.0").unwrap();
+        let v240 = list.iter().find(|e| e.tag == "v2.4.0").unwrap();
+        assert!(!v260.current);
+        assert!(v240.current);
     }
 
     #[test]
-    fn filter_marks_selected_branch_current() {
-        let tags = vec!["feat/foo".to_string(), "bugfix/bar".to_string()];
-        let result = build_branch_list(&tags, "feat/foo");
-        assert!(!result[0].current);
-        assert_eq!(result[1].name, "feat/foo");
-        assert!(result[1].current);
-        assert!(!result[2].current);
+    fn build_list_marks_no_row_current_when_running_older_than_top_5() {
+        let releases = vec![
+            rel("v2.10.0", false),
+            rel("v2.9.0", false),
+            rel("v2.8.0", false),
+            rel("v2.7.0", false),
+            rel("v2.6.0", false),
+            rel("v2.5.0", false),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.5.0");
+        let stable_rows: Vec<&BranchEntry> = list
+            .iter()
+            .filter(|e| e.tag.starts_with('v'))
+            .collect();
+        assert!(stable_rows.iter().all(|e| !e.current));
     }
 
     #[test]
-    fn filter_preserves_api_order_of_prereleases() {
-        let tags = vec!["c".to_string(), "a".to_string(), "b".to_string()];
-        let result = build_branch_list(&tags, "stable");
-        assert_eq!(result[1].name, "c");
-        assert_eq!(result[2].name, "a");
-        assert_eq!(result[3].name, "b");
+    fn build_list_appends_prereleases_after_semver_in_api_order() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("feat/foo", true),
+            rel("bugfix/bar", true),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        let names: Vec<&str> = list.iter().map(|e| e.tag.as_str()).collect();
+        assert_eq!(names, vec!["v2.6.0", "feat/foo", "bugfix/bar"]);
+    }
+
+    #[test]
+    fn build_list_excludes_v_tags_from_prerelease_section() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("v2.0.0-beta", true),
+            rel("feat/foo", true),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        assert!(!list.iter().any(|e| e.tag == "v2.0.0-beta"));
+        assert!(list.iter().any(|e| e.tag == "feat/foo"));
+    }
+
+    #[test]
+    fn build_list_marks_branch_channel_current_on_matching_prerelease() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("feat/foo", true),
+            rel("feat/bar", true),
+        ];
+        let list = build_branch_list(&releases, "feat/foo", "2.6.0");
+        let foo = list.iter().find(|e| e.tag == "feat/foo").unwrap();
+        let bar = list.iter().find(|e| e.tag == "feat/bar").unwrap();
+        assert!(foo.current);
+        assert!(!bar.current);
+    }
+
+    #[test]
+    fn build_list_excludes_literal_stable_tag_from_prereleases() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("stable", true),
+            rel("feat/foo", true),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        assert!(!list.iter().any(|e| e.tag == "stable"));
+        assert!(list.iter().any(|e| e.tag == "feat/foo"));
     }
 
     #[test]

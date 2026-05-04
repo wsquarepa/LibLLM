@@ -23,8 +23,8 @@ pub fn record_dismissal(conn: &Connection, template_hash: &str) -> Result<()> {
     timed_result!(tracing::Level::INFO, "db.dismissed_template.record", hash = template_hash ; {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .context("system time before Unix epoch")?
+            .as_secs() as i64;
         conn.execute(
             "INSERT INTO dismissed_template_prompts (template_hash, dismissed_at) \
              VALUES (?1, ?2) \

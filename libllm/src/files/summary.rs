@@ -184,7 +184,7 @@ impl FileSummarizer {
                         session_id = %session_id,
                         content_hash = %file.content_hash,
                         error = %err,
-                        "files.summary.schedule_lock"
+                        "files.summary.schedule.lock_poisoned"
                     );
                     return;
                 }
@@ -410,7 +410,19 @@ impl FileSummarizer {
 
     /// Synchronous DB lookup through the dedicated connection.
     pub fn lookup(&self, session_id: &str, content_hash: &str) -> Option<FileSummary> {
-        let guard = self.conn.lock().ok()?;
+        let guard = match self.conn.lock() {
+            Ok(g) => g,
+            Err(err) => {
+                tracing::error!(
+                    result = "error",
+                    session_id = %session_id,
+                    content_hash = %content_hash,
+                    error = %err,
+                    "files.summary.lookup.lock_poisoned"
+                );
+                return None;
+            }
+        };
         match file_summaries::lookup(&guard, session_id, content_hash) {
             Ok(Some(row)) => {
                 tracing::debug!(

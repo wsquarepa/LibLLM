@@ -62,7 +62,8 @@ pub fn ensure_default_presets() {
 
 pub(crate) fn write_defaults_if_dir_missing(dir: &Path, builtins: &[(&str, &str)]) {
     let already_existed = dir.exists();
-    if std::fs::create_dir_all(dir).is_err() {
+    if let Err(err) = std::fs::create_dir_all(dir) {
+        tracing::warn!(result = "error", dir = %dir.display(), error = %err, "preset.write_defaults.mkdir_failed");
         return;
     }
     if already_existed {
@@ -70,7 +71,9 @@ pub(crate) fn write_defaults_if_dir_missing(dir: &Path, builtins: &[(&str, &str)
     }
     for (name, json) in builtins {
         let path = dir.join(format!("{name}.json"));
-        let _ = std::fs::write(&path, json);
+        if let Err(err) = std::fs::write(&path, json) {
+            tracing::warn!(result = "error", path = %path.display(), error = %err, "preset.write_defaults.write_failed");
+        }
     }
 }
 

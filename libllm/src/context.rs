@@ -37,7 +37,7 @@ impl ContextManager {
             Some(idx) => messages[idx..].to_vec(),
             None => messages.to_vec(),
         };
-        tracing::info!(
+        tracing::debug!(
             summary_found = last_summary_idx.is_some(),
             input_message_count = messages.len(),
             kept_after_boundary = result.len(),

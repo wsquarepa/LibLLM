@@ -867,7 +867,7 @@ pub fn load() -> Config {
                 }
                 Err(e) => {
                     let parse_elapsed_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-                    tracing::error!(phase = "parse", result = "error", path = %path.display(), elapsed_ms = parse_elapsed_ms, error = %e, "config.load");
+                    tracing::warn!(phase = "parse", result = "error", path = %path.display(), elapsed_ms = parse_elapsed_ms, error = %e, "config.load");
                     eprintln!("Warning: failed to parse {}: {e}", path.display());
                     Config::default()
                 }

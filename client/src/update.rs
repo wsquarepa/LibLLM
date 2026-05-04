@@ -36,6 +36,24 @@ pub const TARGET: &str = const {
     }
 };
 
+fn parse_version_tag(s: &str) -> Option<semver::Version> {
+    s.strip_prefix('v').and_then(|rest| semver::Version::parse(rest).ok())
+}
+
+fn normalize_tag(s: &str) -> String {
+    if s.starts_with('v') {
+        return s.to_string();
+    }
+    if semver::Version::parse(s).is_ok() {
+        return format!("v{s}");
+    }
+    s.to_string()
+}
+
+fn is_stable_target(s: &str) -> bool {
+    s == "stable" || parse_version_tag(s).is_some()
+}
+
 #[derive(Deserialize)]
 pub struct Release {
     pub tag_name: String,
@@ -478,10 +496,12 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
         anyhow::bail!("This build was not installed from a release. Use install.sh to install.");
     }
 
+    let normalized_branch = branch.as_deref().map(normalize_tag);
     tracing::info!(
         phase = "start",
         channel = CHANNEL,
-        target = branch.as_deref().unwrap_or("stable"),
+        target = normalized_branch.as_deref().unwrap_or("stable"),
+        stable_target = is_stable_target(normalized_branch.as_deref().unwrap_or("stable")),
         interactive = crate::interactive::is_interactive(),
         "update.run"
     );
@@ -489,7 +509,7 @@ pub async fn run(branch: Option<String>, yes: bool) -> Result<()> {
     let client = build_client()?;
 
     let resolved = match branch {
-        Some(name) => Some(name),
+        Some(name) => Some(normalize_tag(&name)),
         None if crate::interactive::is_interactive() => match pick_branch(&client).await? {
             Some(name) => Some(name),
             None => return Ok(()),
@@ -600,5 +620,52 @@ mod tests {
     #[test]
     fn parse_release_hash_returns_none_for_empty_body() {
         assert_eq!(parse_release_hash(""), None);
+    }
+
+    #[test]
+    fn parse_version_tag_strips_v_prefix() {
+        let v = parse_version_tag("v2.6.0").unwrap();
+        assert_eq!(v.major, 2);
+        assert_eq!(v.minor, 6);
+        assert_eq!(v.patch, 0);
+    }
+
+    #[test]
+    fn parse_version_tag_rejects_branch_names() {
+        assert!(parse_version_tag("feat/foo").is_none());
+        assert!(parse_version_tag("vfoo").is_none());
+        assert!(parse_version_tag("2.6.0").is_none());
+        assert!(parse_version_tag("stable").is_none());
+    }
+
+    #[test]
+    fn normalize_tag_adds_v_to_bare_semver() {
+        assert_eq!(normalize_tag("2.4.0"), "v2.4.0");
+    }
+
+    #[test]
+    fn normalize_tag_preserves_v_prefixed_semver() {
+        assert_eq!(normalize_tag("v2.4.0"), "v2.4.0");
+    }
+
+    #[test]
+    fn normalize_tag_passes_through_non_semver() {
+        assert_eq!(normalize_tag("feat/foo"), "feat/foo");
+        assert_eq!(normalize_tag("stable"), "stable");
+    }
+
+    #[test]
+    fn is_stable_target_recognizes_stable_and_v_tags() {
+        assert!(is_stable_target("stable"));
+        assert!(is_stable_target("v2.6.0"));
+        assert!(is_stable_target("v0.0.1"));
+    }
+
+    #[test]
+    fn is_stable_target_rejects_branches() {
+        assert!(!is_stable_target("feat/foo"));
+        assert!(!is_stable_target("master"));
+        assert!(!is_stable_target("v2.6"));
+        assert!(!is_stable_target("2.6.0"));
     }
 }

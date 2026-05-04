@@ -1,15 +1,10 @@
 name: Check
 
 on:
+  push:
+    branches: ['**']
   pull_request:
     branches: [master]
-    paths:
-      - 'libllm/**'
-      - 'client/**'
-      - 'migrate/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
 
 env:
   CARGO_TERM_COLOR: always

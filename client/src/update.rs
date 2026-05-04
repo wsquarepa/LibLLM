@@ -418,7 +418,7 @@ fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
     Ok(confirmed)
 }
 
-async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> {
+async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<Release>> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=100");
     let resp = client
         .get(&url)
@@ -433,32 +433,30 @@ async fn fetch_prerelease_tags(client: &reqwest::Client) -> Result<Vec<String>> 
             result = "error",
             status = status.as_u16(),
             body_bytes = body.len(),
-            "update.fetch_prereleases"
+            "update.fetch_releases"
         );
         anyhow::bail!("GitHub API returned {status}: {body}");
     }
 
     let releases: Vec<Release> = resp.json().await.context("failed to parse releases")?;
-
-    let tags: Vec<String> = releases
-        .into_iter()
-        .filter(|r| r.prerelease)
-        .map(|r| r.tag_name)
-        .collect();
-
     tracing::info!(
-        tag_count = tags.len(),
+        release_count = releases.len(),
         result = "ok",
-        "update.fetch_prereleases"
+        "update.fetch_releases"
     );
 
-    Ok(tags)
+    Ok(releases)
 }
 
 async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
     tracing::debug!(phase = "start", "update.interactive");
-    let tags = fetch_prerelease_tags(client).await?;
-    let entries = build_branch_list(&tags, CHANNEL);
+    let releases = fetch_releases(client).await?;
+    let prerelease_tags: Vec<String> = releases
+        .iter()
+        .filter(|r| r.prerelease)
+        .map(|r| r.tag_name.clone())
+        .collect();
+    let entries = build_branch_list(&prerelease_tags, CHANNEL);
 
     let rows: Vec<String> = entries
         .iter()

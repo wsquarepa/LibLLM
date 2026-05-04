@@ -1,8 +1,8 @@
-name: Build
+name: Release
 
 on:
   push:
-    branches: ['**']
+    branches-ignore: [master]
     tags: ['v*.*.*']
 
 env:
@@ -33,7 +33,6 @@ jobs:
 
   build:
     needs: [test, clippy]
-    if: github.ref != 'refs/heads/master'
     strategy:
       fail-fast: false
       matrix:
@@ -136,7 +135,6 @@ jobs:
 
   release:
     needs: build
-    if: github.ref != 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write

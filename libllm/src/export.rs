@@ -1,9 +1,22 @@
-//! Session and character export to Markdown and JSON formats.
+//! Session and character export to Markdown, HTML, and JSONL formats.
 
 use crate::preset::ReasoningPreset;
 use crate::session::{self, Message, Role};
 use crate::template;
 use crate::thought;
+
+/// Conversation-wide metadata threaded through Markdown and HTML exports.
+///
+/// Holds borrowed names so callers retain ownership of their session strings.
+/// Optional fields are omitted from the rendered output when `None` or empty.
+pub struct ExportMeta<'a> {
+    pub char_name: &'a str,
+    pub user_name: &'a str,
+    pub model: Option<&'a str>,
+    pub template: Option<&'a str>,
+    pub worldbooks: &'a [String],
+    pub exported_at: &'a str,
+}
 
 fn thought_label(seconds: Option<u32>) -> String {
     match seconds {
@@ -11,6 +24,20 @@ fn thought_label(seconds: Option<u32>) -> String {
         Some(n) => format!("Thought for {n} seconds"),
         None => "Thought for a moment".to_owned(),
     }
+}
+
+fn role_label<'a>(role: &Role, char_name: &'a str, user_name: &'a str) -> &'a str {
+    match role {
+        Role::User => user_name,
+        Role::Assistant => char_name,
+        Role::System | Role::Summary => "System",
+    }
+}
+
+fn period_range(messages: &[&Message]) -> Option<(String, String)> {
+    let first = messages.first()?.timestamp.clone();
+    let last = messages.last()?.timestamp.clone();
+    Some((first, last))
 }
 
 fn markdown_format_assistant_body(
@@ -36,27 +63,55 @@ fn markdown_format_assistant_body(
     }
 }
 
+fn markdown_metadata_block(meta: &ExportMeta, messages: &[&Message]) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("- **Exported:** {}", meta.exported_at));
+    if let Some(model) = meta.model {
+        lines.push(format!("- **Model:** {model}"));
+    }
+    if let Some(template) = meta.template {
+        lines.push(format!("- **Template:** {template}"));
+    }
+    lines.push(format!("- **Character:** {}", meta.char_name));
+    lines.push(format!("- **Persona:** {}", meta.user_name));
+    if !meta.worldbooks.is_empty() {
+        lines.push(format!("- **Worldbooks:** {}", meta.worldbooks.join(", ")));
+    }
+    lines.push(format!("- **Messages:** {}", messages.len()));
+    if let Some((first, last)) = period_range(messages) {
+        if first == last {
+            lines.push(format!("- **Recorded:** {first}"));
+        } else {
+            lines.push(format!("- **Period:** {first} – {last}"));
+        }
+    }
+    lines.join("\n")
+}
+
 pub fn render_markdown(
     messages: &[&Message],
-    char_name: &str,
-    user_name: &str,
+    meta: &ExportMeta,
     reasoning_preset: Option<&ReasoningPreset>,
 ) -> String {
     let _span = tracing::info_span!("export.markdown", message_count = messages.len()).entered();
     let mut out = String::new();
+
+    out.push_str(&format!("# {} & {}\n\n", meta.user_name, meta.char_name));
+    out.push_str(&markdown_metadata_block(meta, messages));
+    out.push_str("\n\n---\n\n");
+
     for msg in messages {
-        let role_label = match msg.role {
-            Role::User => user_name,
-            Role::Assistant => char_name,
-            Role::System | Role::Summary => "System",
-        };
-        let content = template::apply_template_vars(&msg.content, char_name, user_name);
+        let role = role_label(&msg.role, meta.char_name, meta.user_name);
+        let content = template::apply_template_vars(&msg.content, meta.char_name, meta.user_name);
         let body = if msg.role == Role::Assistant {
             markdown_format_assistant_body(&content, msg, reasoning_preset)
         } else {
             content
         };
-        out.push_str(&format!("## {role_label}\n\n{body}\n\n---\n\n"));
+        out.push_str(&format!(
+            "## {role} · {}\n\n{body}\n\n---\n\n",
+            msg.timestamp
+        ));
     }
     tracing::info!(phase = "done", output_bytes = out.len(), "export.markdown");
     out
@@ -64,217 +119,395 @@ pub fn render_markdown(
 
 pub fn render_html(
     messages: &[&Message],
-    char_name: &str,
-    user_name: &str,
+    meta: &ExportMeta,
     reasoning_preset: Option<&ReasoningPreset>,
 ) -> String {
     let _span = tracing::info_span!("export.html", message_count = messages.len()).entered();
-    {
-        let mut body = String::new();
-        for msg in messages {
-            let role_label = match msg.role {
-                Role::User => user_name,
-                Role::Assistant => char_name,
-                Role::System | Role::Summary => "System",
-            };
-            let content = template::apply_template_vars(&msg.content, char_name, user_name);
-            let formatted = if msg.role == Role::Assistant {
-                html_format_assistant_body(&content, msg, reasoning_preset)
-            } else {
-                html_format_content(&content)
-            };
-            let class = match msg.role {
-                Role::User => "user",
-                Role::Assistant => "assistant",
-                Role::System | Role::Summary => "system",
-            };
-            let tag = match msg.role {
-                Role::System | Role::Summary => "em",
-                _ => "span",
-            };
-            body.push_str(&format!(
-                "    <article class=\"message {class}\">\n\
-                     \x20     <div class=\"role\">{}</div>\n\
-                     \x20     <div class=\"content\"><{tag}>{formatted}</{tag}></div>\n\
-                     \x20     <time>{}</time>\n\
-                     \x20   </article>\n",
-                html_escape(role_label),
-                html_escape(&msg.timestamp),
-            ));
-        }
+    let mut turns = String::new();
+    for (idx, msg) in messages.iter().enumerate() {
+        let role = role_label(&msg.role, meta.char_name, meta.user_name);
+        let content = template::apply_template_vars(&msg.content, meta.char_name, meta.user_name);
+        let formatted = if msg.role == Role::Assistant {
+            html_format_assistant_body(&content, msg, reasoning_preset)
+        } else {
+            html_format_content(&content)
+        };
+        let class = match msg.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::System | Role::Summary => "system",
+        };
+        turns.push_str(&format!(
+            "      <li class=\"turn {class}\" style=\"--i: {idx};\">\n\
+             \x20       <div class=\"speaker\">{}</div>\n\
+             \x20       <div class=\"utterance\">\n\
+             \x20         <div class=\"body\">{formatted}</div>\n\
+             \x20         <time>{}</time>\n\
+             \x20       </div>\n\
+             \x20     </li>\n",
+            html_escape(role),
+            html_escape(&msg.timestamp),
+        ));
+    }
 
-        let char_escaped = html_escape(char_name);
-        let user_escaped = html_escape(user_name);
+    let dossier = render_dossier(meta, messages);
+    let dateline = render_dateline(messages);
+    let char_escaped = html_escape(meta.char_name);
+    let user_escaped = html_escape(meta.user_name);
 
-        let out = format!(
-            r#"<!DOCTYPE html>
+    let out = format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chat: {user_escaped} &amp; {char_escaped}</title>
+  <title>{user_escaped} × {char_escaped} — Transcript</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,30..100;1,9..144,300..700,30..100&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=JetBrains+Mono:wght@400;600&display=swap">
   <style>
     :root {{
-      --bg: #1a1a2e;
-      --surface: #16213e;
-      --surface-alt: #0f3460;
-      --text: #e0e0e0;
-      --text-dim: #8a8a9a;
-      --accent-user: #4fc3f7;
-      --accent-assistant: #ce93d8;
-      --accent-system: #ffb74d;
-      --user-bg: rgba(79, 195, 247, 0.08);
-      --user-border: rgba(79, 195, 247, 0.3);
-      --assistant-bg: rgba(206, 147, 216, 0.08);
-      --assistant-border: rgba(206, 147, 216, 0.3);
-      --system-bg: rgba(255, 183, 77, 0.06);
-      --system-border: rgba(255, 183, 77, 0.25);
+      --paper: #f3ead4;
+      --paper-shadow: #ebe0c2;
+      --ink: #1a1410;
+      --ink-soft: #574c41;
+      --ink-faint: #968a78;
+      --rule: #d6c9a4;
+      --accent: #a23a2a;
+      --user-tone: #2c5044;
+      --char-tone: #6b3a5a;
     }}
 
-    @media (prefers-color-scheme: light) {{
+    @media (prefers-color-scheme: dark) {{
       :root {{
-        --bg: #f5f5f5;
-        --surface: #ffffff;
-        --surface-alt: #e8eaf6;
-        --text: #212121;
-        --text-dim: #757575;
-        --accent-user: #1565c0;
-        --accent-assistant: #7b1fa2;
-        --accent-system: #e65100;
-        --user-bg: rgba(21, 101, 192, 0.06);
-        --user-border: rgba(21, 101, 192, 0.25);
-        --assistant-bg: rgba(123, 31, 162, 0.06);
-        --assistant-border: rgba(123, 31, 162, 0.25);
-        --system-bg: rgba(230, 81, 0, 0.05);
-        --system-border: rgba(230, 81, 0, 0.2);
+        --paper: #15171c;
+        --paper-shadow: #1d1f25;
+        --ink: #ece4cf;
+        --ink-soft: #b6ad96;
+        --ink-faint: #74705e;
+        --rule: #2f3138;
+        --accent: #d76a55;
+        --user-tone: #a8c4b0;
+        --char-tone: #d09bb6;
       }}
     }}
 
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
+    html {{ background: var(--paper); }}
+
     body {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      padding: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: 'Newsreader', Iowan Old Style, Georgia, 'Times New Roman', serif;
+      font-size: 1.0625rem;
+      line-height: 1.65;
+      font-feature-settings: 'kern', 'liga', 'onum';
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }}
 
-    header {{
-      background: var(--surface);
-      border-bottom: 1px solid var(--user-border);
-      padding: 1.5rem 2rem;
-      text-align: center;
-    }}
-
-    header h1 {{
-      font-size: 1.25rem;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-    }}
-
-    header p {{
-      color: var(--text-dim);
-      font-size: 0.85rem;
-      margin-top: 0.25rem;
-    }}
-
-    main {{
-      max-width: 52rem;
+    .transcript {{
+      max-width: 60rem;
       margin: 0 auto;
-      padding: 1.5rem 1rem;
+      padding: 5rem 2.5rem 6rem;
+    }}
+
+    .masthead {{
+      text-align: center;
+      padding-bottom: 2.5rem;
+      border-bottom: 1px solid var(--rule);
+    }}
+
+    .overline {{
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.45em;
+      font-size: 0.68rem;
+      color: var(--ink-faint);
+      padding-left: 0.45em;
+      margin-bottom: 1.5rem;
+    }}
+
+    .masthead h1 {{
+      font-family: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+      font-weight: 380;
+      font-size: clamp(2.4rem, 7.5vw, 4.75rem);
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+      font-variation-settings: 'opsz' 144, 'SOFT' 50;
+    }}
+
+    .masthead h1 .ampersand {{
+      display: inline-block;
+      margin: 0 0.18em;
+      font-weight: 300;
+      font-style: italic;
+      color: var(--accent);
+      font-variation-settings: 'opsz' 144, 'SOFT' 100;
+      transform: translateY(-0.04em);
+    }}
+
+    .dateline {{
+      margin-top: 1.5rem;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }}
+
+    .dossier {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+      gap: 1.5rem 2.5rem;
+      padding: 2rem 0 2.5rem;
+      margin-bottom: 3.5rem;
+      border-bottom: 1px solid var(--rule);
+    }}
+
+    .dossier .field {{ display: flex; flex-direction: column; gap: 0.35rem; }}
+
+    .dossier dt {{
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.62rem;
+      color: var(--ink-faint);
+    }}
+
+    .dossier dd {{
+      font-family: 'Newsreader', serif;
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--ink);
+      word-break: break-word;
+    }}
+
+    .dialogue {{
+      list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 2.75rem;
     }}
 
-    .message {{
-      padding: 1rem 1.25rem;
-      border-radius: 12px;
-      border-left: 3px solid transparent;
+    .turn {{
+      display: grid;
+      grid-template-columns: 9rem 1fr;
+      gap: 2.25rem;
+      opacity: 0;
+      transform: translateY(10px);
+      animation: settle 700ms cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+      animation-delay: calc(var(--i, 0) * 55ms);
     }}
 
-    .message.user {{
-      background: var(--user-bg);
-      border-left-color: var(--accent-user);
+    @keyframes settle {{
+      to {{ opacity: 1; transform: none; }}
     }}
 
-    .message.assistant {{
-      background: var(--assistant-bg);
-      border-left-color: var(--accent-assistant);
+    @media (prefers-reduced-motion: reduce) {{
+      .turn {{ animation: none; opacity: 1; transform: none; }}
     }}
 
-    .message.system {{
-      background: var(--system-bg);
-      border-left-color: var(--accent-system);
-      font-size: 0.9rem;
-    }}
-
-    .role {{
+    .speaker {{
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.72rem;
       font-weight: 600;
-      font-size: 0.8rem;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.4rem;
+      letter-spacing: 0.2em;
+      padding-top: 0.35rem;
+      text-align: right;
+      align-self: start;
+      position: sticky;
+      top: 1.25rem;
+      word-break: break-word;
     }}
 
-    .user .role {{ color: var(--accent-user); }}
-    .assistant .role {{ color: var(--accent-assistant); }}
-    .system .role {{ color: var(--accent-system); }}
+    .turn.user .speaker {{ color: var(--user-tone); }}
+    .turn.assistant .speaker {{ color: var(--char-tone); }}
+    .turn.system .speaker {{ color: var(--accent); }}
 
-    .content {{
+    .utterance {{
+      border-left: 1px solid var(--rule);
+      padding-left: 2rem;
+    }}
+
+    .turn.user .utterance {{ border-left-color: var(--user-tone); }}
+    .turn.assistant .utterance {{ border-left-color: var(--char-tone); }}
+    .turn.system .utterance {{ border-left-color: var(--accent); }}
+
+    .body {{
       white-space: pre-wrap;
       word-wrap: break-word;
-      font-size: 0.95rem;
+      hyphens: auto;
     }}
 
-    .system .content em {{
+    .turn.system .body {{
+      font-style: italic;
+      color: var(--ink-soft);
+      font-size: 0.97rem;
+    }}
+
+    .body q {{
+      quotes: '\201C' '\201D' '\2018' '\2019';
+      color: var(--accent);
       font-style: italic;
     }}
 
-    .content q {{
-      quotes: none;
-      color: var(--accent-assistant);
-    }}
-
-    .content details.thought {{
-      margin-bottom: 0.5rem;
-      color: var(--text-dim);
-      font-size: 0.9rem;
-    }}
-
-    .content details.thought summary {{
-      cursor: pointer;
-      font-style: italic;
-    }}
+    .body strong {{ font-weight: 600; }}
+    .body em {{ font-style: italic; color: var(--ink-soft); }}
 
     time {{
       display: block;
-      color: var(--text-dim);
-      font-size: 0.75rem;
-      margin-top: 0.5rem;
-      text-align: right;
+      margin-top: 1rem;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      color: var(--ink-faint);
     }}
 
-    @media (max-width: 600px) {{
-      main {{ padding: 1rem 0.5rem; }}
-      .message {{ padding: 0.75rem 1rem; }}
+    details.thought {{
+      margin-bottom: 1.25rem;
+      padding: 0.85rem 1.1rem 1rem;
+      background: var(--paper-shadow);
+      border-left: 2px solid var(--ink-faint);
+      font-size: 0.95rem;
+      color: var(--ink-soft);
+    }}
+
+    details.thought summary {{
+      cursor: pointer;
+      list-style: none;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-faint);
+    }}
+
+    details.thought summary::-webkit-details-marker {{ display: none; }}
+
+    details.thought summary::before {{
+      content: '+';
+      display: inline-block;
+      width: 1em;
+      margin-right: 0.4em;
+      transition: transform 200ms ease;
+    }}
+
+    details.thought[open] summary::before {{
+      content: '−';
+    }}
+
+    details.thought > *:not(summary) {{
+      margin-top: 0.7rem;
+      font-style: italic;
+      white-space: pre-wrap;
+    }}
+
+    .colophon {{
+      margin-top: 5rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--rule);
+      text-align: center;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+    }}
+
+    .colophon .mark {{
+      display: block;
+      font-family: 'Fraunces', serif;
+      font-style: italic;
+      font-size: 1.5rem;
+      letter-spacing: 0;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      font-variation-settings: 'opsz' 144, 'SOFT' 100;
+    }}
+
+    @media (max-width: 760px) {{
+      .transcript {{ padding: 2.5rem 1.25rem 4rem; }}
+      .turn {{
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+      }}
+      .speaker {{
+        text-align: left;
+        position: static;
+        padding-top: 0;
+      }}
+      .utterance {{ padding-left: 1.1rem; }}
+      .dossier {{ gap: 1.25rem 1.5rem; padding: 1.5rem 0 2rem; margin-bottom: 2.5rem; }}
     }}
   </style>
 </head>
 <body>
-  <header>
-    <h1>{user_escaped} &amp; {char_escaped}</h1>
-    <p>Exported from LibLLM</p>
-  </header>
-  <main>
-{body}  </main>
+  <article class="transcript">
+    <header class="masthead">
+      <p class="overline">A Transcript</p>
+      <h1>
+        <span class="user">{user_escaped}</span><span class="ampersand">&amp;</span><span class="character">{char_escaped}</span>
+      </h1>
+      <p class="dateline">{dateline}</p>
+    </header>
+    <dl class="dossier">
+{dossier}    </dl>
+    <ol class="dialogue">
+{turns}    </ol>
+    <footer class="colophon">
+      <span class="mark">§</span>
+      Exported from LibLLM
+    </footer>
+  </article>
 </body>
 </html>
 "#
-        );
-        tracing::info!(phase = "done", output_bytes = out.len(), "export.html");
-        out
+    );
+    tracing::info!(phase = "done", output_bytes = out.len(), "export.html");
+    out
+}
+
+fn render_dossier(meta: &ExportMeta, messages: &[&Message]) -> String {
+    let mut fields: Vec<(&str, String)> = Vec::new();
+    fields.push(("Exported", meta.exported_at.to_owned()));
+    if let Some(model) = meta.model {
+        fields.push(("Model", model.to_owned()));
+    }
+    if let Some(template) = meta.template {
+        fields.push(("Template", template.to_owned()));
+    }
+    fields.push(("Character", meta.char_name.to_owned()));
+    fields.push(("Persona", meta.user_name.to_owned()));
+    if !meta.worldbooks.is_empty() {
+        fields.push(("Worldbooks", meta.worldbooks.join(", ")));
+    }
+    fields.push(("Messages", messages.len().to_string()));
+
+    let mut out = String::new();
+    for (label, value) in fields {
+        out.push_str(&format!(
+            "      <div class=\"field\"><dt>{}</dt><dd>{}</dd></div>\n",
+            html_escape(label),
+            html_escape(&value),
+        ));
+    }
+    out
+}
+
+fn render_dateline(messages: &[&Message]) -> String {
+    let count = messages.len();
+    let exchange_word = if count == 1 { "exchange" } else { "exchanges" };
+    match period_range(messages) {
+        Some((first, last)) if first == last => {
+            html_escape(&format!("{first} · {count} {exchange_word}"))
+        }
+        Some((first, last)) => html_escape(&format!("{first} → {last} · {count} {exchange_word}")),
+        None => html_escape(&format!("{count} {exchange_word}")),
     }
 }
 
@@ -367,7 +600,9 @@ fn html_format_assistant_body(
     let label = html_escape(&thought_label(msg.thought_seconds));
     let thought_formatted = html_format_content(thought);
     if split.after.is_empty() {
-        format!("<details class=\"thought\"><summary>{label}</summary>\n{thought_formatted}\n</details>")
+        format!(
+            "<details class=\"thought\"><summary>{label}</summary>\n{thought_formatted}\n</details>"
+        )
     } else {
         let after_formatted = html_format_content(split.after);
         format!(
@@ -453,35 +688,108 @@ mod tests {
         ]
     }
 
+    fn meta_with(char_name: &'static str, user_name: &'static str) -> ExportMeta<'static> {
+        ExportMeta {
+            char_name,
+            user_name,
+            model: None,
+            template: None,
+            worldbooks: &[],
+            exported_at: "2026-05-05T12:00:00Z",
+        }
+    }
+
     #[test]
-    fn markdown_basic() {
+    fn markdown_emits_title_and_metadata() {
         let msgs = test_messages();
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Alice", "Bob", None);
-        assert!(result.contains("## Bob\n\nHello Alice"));
-        assert!(result.contains("## Alice\n\nHi Bob!"));
+        let meta = meta_with("Alice", "Bob");
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.starts_with("# Bob & Alice\n\n"));
+        assert!(result.contains("- **Exported:** 2026-05-05T12:00:00Z"));
+        assert!(result.contains("- **Character:** Alice"));
+        assert!(result.contains("- **Persona:** Bob"));
+        assert!(result.contains("- **Messages:** 2"));
+        assert!(result.contains("- **Period:** 2026-01-15T10:00:00Z – 2026-01-15T10:00:05Z"));
+    }
+
+    #[test]
+    fn markdown_messages_use_role_and_timestamp_heading() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Alice", "Bob");
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.contains("## Bob · 2026-01-15T10:00:00Z\n\nHello Alice"));
+        assert!(result.contains("## Alice · 2026-01-15T10:00:05Z\n\nHi Bob!"));
+    }
+
+    #[test]
+    fn markdown_includes_optional_metadata_when_present() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let worldbooks = vec!["Lore".to_owned(), "Settings".to_owned()];
+        let meta = ExportMeta {
+            char_name: "Alice",
+            user_name: "Bob",
+            model: Some("gpt-test"),
+            template: Some("chatml"),
+            worldbooks: &worldbooks,
+            exported_at: "2026-05-05T12:00:00Z",
+        };
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.contains("- **Model:** gpt-test"));
+        assert!(result.contains("- **Template:** chatml"));
+        assert!(result.contains("- **Worldbooks:** Lore, Settings"));
+    }
+
+    #[test]
+    fn markdown_omits_optional_metadata_when_absent() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Alice", "Bob");
+        let result = render_markdown(&refs, &meta, None);
+        assert!(!result.contains("- **Model:**"));
+        assert!(!result.contains("- **Template:**"));
+        assert!(!result.contains("- **Worldbooks:**"));
     }
 
     #[test]
     fn markdown_system_message() {
         let msgs = [system_msg("You are helpful.")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User", None);
-        assert!(result.contains("## System\n\nYou are helpful."));
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.contains("## System · "));
+        assert!(result.contains("You are helpful."));
     }
 
     #[test]
-    fn markdown_empty() {
+    fn markdown_empty_still_renders_header() {
         let refs: Vec<&Message> = vec![];
-        let result = render_markdown(&refs, "Char", "User", None);
-        assert!(result.is_empty());
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.starts_with("# User & Char\n\n"));
+        assert!(result.contains("- **Messages:** 0"));
+        assert!(!result.contains("- **Period:**"));
+        assert!(!result.contains("- **Recorded:**"));
+    }
+
+    #[test]
+    fn markdown_recorded_when_single_message() {
+        let msgs = [user_msg("Hello")];
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.contains("- **Recorded:** "));
+        assert!(!result.contains("- **Period:**"));
     }
 
     #[test]
     fn html_escapes_content() {
         let msgs = [user_msg("<script>alert('xss')</script>")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User", None);
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, None);
         assert!(result.contains("&lt;script&gt;"));
         assert!(!result.contains("<script>alert"));
     }
@@ -490,17 +798,77 @@ mod tests {
     fn html_has_structure() {
         let msgs = test_messages();
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Alice", "Bob", None);
+        let meta = meta_with("Alice", "Bob");
+        let result = render_html(&refs, &meta, None);
         assert!(result.starts_with("<!DOCTYPE html>"));
-        assert!(result.contains("class=\"message user\""));
-        assert!(result.contains("class=\"message assistant\""));
+        assert!(result.contains("class=\"transcript\""));
+        assert!(result.contains("class=\"masthead\""));
+        assert!(result.contains("class=\"dossier\""));
+        assert!(result.contains("class=\"dialogue\""));
+        assert!(result.contains("class=\"turn user\""));
+        assert!(result.contains("class=\"turn assistant\""));
+        assert!(result.contains("class=\"colophon\""));
+    }
+
+    #[test]
+    fn html_dossier_includes_optional_metadata() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let worldbooks = vec!["Lore".to_owned()];
+        let meta = ExportMeta {
+            char_name: "Alice",
+            user_name: "Bob",
+            model: Some("gpt-test"),
+            template: Some("chatml"),
+            worldbooks: &worldbooks,
+            exported_at: "2026-05-05T12:00:00Z",
+        };
+        let result = render_html(&refs, &meta, None);
+        assert!(result.contains("<dt>Model</dt><dd>gpt-test</dd>"));
+        assert!(result.contains("<dt>Template</dt><dd>chatml</dd>"));
+        assert!(result.contains("<dt>Worldbooks</dt><dd>Lore</dd>"));
+        assert!(result.contains("<dt>Messages</dt><dd>2</dd>"));
+        assert!(result.contains("<dt>Exported</dt><dd>2026-05-05T12:00:00Z</dd>"));
+    }
+
+    #[test]
+    fn html_dossier_omits_absent_optional_metadata() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Alice", "Bob");
+        let result = render_html(&refs, &meta, None);
+        assert!(!result.contains("<dt>Model</dt>"));
+        assert!(!result.contains("<dt>Template</dt>"));
+        assert!(!result.contains("<dt>Worldbooks</dt>"));
+    }
+
+    #[test]
+    fn html_dateline_includes_period_and_count() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Alice", "Bob");
+        let result = render_html(&refs, &meta, None);
+        assert!(result.contains("2026-01-15T10:00:00Z"));
+        assert!(result.contains("2026-01-15T10:00:05Z"));
+        assert!(result.contains("2 exchanges"));
+    }
+
+    #[test]
+    fn html_uses_stagger_index_per_turn() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Alice", "Bob");
+        let result = render_html(&refs, &meta, None);
+        assert!(result.contains("style=\"--i: 0;\""));
+        assert!(result.contains("style=\"--i: 1;\""));
     }
 
     #[test]
     fn html_applies_template_vars() {
         let msgs = test_messages();
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Alice", "Bob", None);
+        let meta = meta_with("Alice", "Bob");
+        let result = render_html(&refs, &meta, None);
         assert!(result.contains("Hello Alice"));
         assert!(result.contains("Hi Bob!"));
     }
@@ -509,7 +877,8 @@ mod tests {
     fn html_formats_bold() {
         let msgs = [user_msg("This is **bold** text")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User", None);
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, None);
         assert!(result.contains("<strong>bold</strong>"));
         assert!(!result.contains("**bold**"));
     }
@@ -518,7 +887,8 @@ mod tests {
     fn html_formats_italic() {
         let msgs = [user_msg("This is *italic* text")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User", None);
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, None);
         assert!(result.contains("<em>italic</em>"));
         assert!(!result.contains("*italic*"));
     }
@@ -527,7 +897,8 @@ mod tests {
     fn html_formats_dialogue() {
         let msgs = [assistant_msg("She said \"hello there\" softly")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User", None);
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, None);
         assert!(result.contains("<q>hello there</q>"));
     }
 
@@ -535,7 +906,8 @@ mod tests {
     fn html_formats_mixed_markdown() {
         let msgs = [user_msg("**bold** and *italic* and \"dialogue\"")];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_html(&refs, "Char", "User", None);
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, None);
         assert!(result.contains("<strong>bold</strong>"));
         assert!(result.contains("<em>italic</em>"));
         assert!(result.contains("<q>dialogue</q>"));
@@ -612,7 +984,8 @@ mod tests {
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_markdown(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, Some(&preset));
         assert!(result.contains("<details>\n<summary>Thought for 12 seconds</summary>"));
         assert!(result.contains("\n\nplanning\n\n"));
         assert!(result.contains("</details>\n\nAnswer"));
@@ -624,7 +997,8 @@ mod tests {
         let msgs = [assistant_thought_msg("<think>musing</think>Answer", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_markdown(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, Some(&preset));
         assert!(result.contains("<summary>Thought for a moment</summary>"));
         assert!(result.contains("</details>\n\nAnswer"));
     }
@@ -634,7 +1008,8 @@ mod tests {
         let msgs = [assistant_thought_msg("musing</think>Answer", Some(5))];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_markdown(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, Some(&preset));
         assert!(!result.contains("<details>"));
         assert!(result.contains("musing</think>Answer"));
     }
@@ -644,7 +1019,8 @@ mod tests {
         let msgs = [assistant_thought_msg("<think>still thinking", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_markdown(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, Some(&preset));
         assert!(!result.contains("<think>"));
         assert!(!result.contains("<details>"));
         assert!(result.contains("still thinking"));
@@ -658,7 +1034,8 @@ mod tests {
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_markdown(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, Some(&preset));
         assert!(result.contains("</details>\n\ncode: <think>b</think>"));
     }
 
@@ -669,7 +1046,8 @@ mod tests {
             Some(12),
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_markdown(&refs, "Char", "User", None);
+        let meta = meta_with("Char", "User");
+        let result = render_markdown(&refs, &meta, None);
         assert!(!result.contains("<details>"));
         assert!(result.contains("<think>planning</think>Answer"));
     }
@@ -682,7 +1060,8 @@ mod tests {
         )];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_html(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, Some(&preset));
         assert!(
             result.contains("<details class=\"thought\"><summary>Thought for 7 seconds</summary>")
         );
@@ -695,7 +1074,8 @@ mod tests {
         let msgs = [assistant_thought_msg("Just an answer", None)];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
-        let result = render_html(&refs, "Char", "User", Some(&preset));
+        let meta = meta_with("Char", "User");
+        let result = render_html(&refs, &meta, Some(&preset));
         assert!(!result.contains("<details"));
         assert!(result.contains("Just an answer"));
     }

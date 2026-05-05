@@ -66,13 +66,34 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
 
     let char_name = app.session.character.as_deref().unwrap_or("Assistant");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
+    let model = app
+        .model_name
+        .as_deref()
+        .or(app.session.model.as_deref())
+        .filter(|s| !s.is_empty());
+    let template = app
+        .session
+        .template
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            let name = app.instruct_preset.name.as_str();
+            (!name.is_empty()).then_some(name)
+        });
+    let exported_at = session::now_iso8601();
+    let meta = libllm::export::ExportMeta {
+        char_name,
+        user_name,
+        model,
+        template,
+        worldbooks: &app.session.worldbooks,
+        exported_at: &exported_at,
+    };
 
     let preset = app.reasoning_preset.as_ref();
     let content = match format {
-        ExportFormat::Markdown => {
-            libllm::export::render_markdown(&messages, char_name, user_name, preset)
-        }
-        ExportFormat::Html => libllm::export::render_html(&messages, char_name, user_name, preset),
+        ExportFormat::Markdown => libllm::export::render_markdown(&messages, &meta, preset),
+        ExportFormat::Html => libllm::export::render_html(&messages, &meta, preset),
         ExportFormat::Jsonl => libllm::export::render_jsonl(&messages, char_name, user_name),
     };
 

@@ -102,7 +102,6 @@ pub fn build_branch_list(
         .filter_map(|r| parse_version_tag(&r.tag_name).map(|v| (v, r)))
         .collect();
     stable.sort_by(|a, b| b.0.cmp_precedence(&a.0));
-    stable.truncate(5);
 
     let running: Option<semver::Version> = if channel == "stable" {
         semver::Version::parse(current_version).ok()
@@ -576,7 +575,9 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
         })
         .collect();
 
-    let Some(index) = crate::interactive::select("Select a release channel:", &rows)? else {
+    let default = entries.iter().position(|e| e.current).unwrap_or(0);
+    let Some(index) = crate::interactive::circular_select("Select a release channel:", &rows, default)?
+    else {
         tracing::debug!(phase = "cancelled", "update.interactive");
         return Ok(None);
     };
@@ -685,23 +686,25 @@ mod tests {
     }
 
     #[test]
-    fn build_list_truncates_historical_to_four() {
+    fn build_list_keeps_all_stable_versions_sorted_desc() {
         let releases = vec![
-            rel("v2.6.0", false),
-            rel("v2.5.0", false),
             rel("v2.4.0", false),
-            rel("v2.3.0", false),
-            rel("v2.2.0", false),
+            rel("v2.6.0", false),
             rel("v2.1.0", false),
+            rel("v2.5.0", false),
+            rel("v2.2.0", false),
+            rel("v2.3.0", false),
         ];
         let list = build_branch_list(&releases, "stable", "2.6.0");
-        let stable_rows: Vec<&BranchEntry> = list
+        let stable_rows: Vec<&str> = list
             .iter()
             .filter(|e| e.tag.starts_with('v'))
+            .map(|e| e.tag.as_str())
             .collect();
-        assert_eq!(stable_rows.len(), 5);
-        assert_eq!(stable_rows[4].tag, "v2.2.0");
-        assert!(!list.iter().any(|e| e.tag == "v2.1.0"));
+        assert_eq!(
+            stable_rows,
+            vec!["v2.6.0", "v2.5.0", "v2.4.0", "v2.3.0", "v2.2.0", "v2.1.0"]
+        );
     }
 
     #[test]
@@ -719,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn build_list_marks_no_row_current_when_running_older_than_top_5() {
+    fn build_list_marks_running_version_current_even_when_far_below_latest() {
         let releases = vec![
             rel("v2.10.0", false),
             rel("v2.9.0", false),
@@ -729,11 +732,9 @@ mod tests {
             rel("v2.5.0", false),
         ];
         let list = build_branch_list(&releases, "stable", "2.5.0");
-        let stable_rows: Vec<&BranchEntry> = list
-            .iter()
-            .filter(|e| e.tag.starts_with('v'))
-            .collect();
-        assert!(stable_rows.iter().all(|e| !e.current));
+        let v250 = list.iter().find(|e| e.tag == "v2.5.0").unwrap();
+        assert!(v250.current);
+        assert_eq!(list.iter().filter(|e| e.current).count(), 1);
     }
 
     #[test]

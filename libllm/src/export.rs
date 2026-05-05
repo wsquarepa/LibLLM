@@ -8,14 +8,35 @@ use crate::thought;
 /// Conversation-wide metadata threaded through Markdown and HTML exports.
 ///
 /// Holds borrowed names so callers retain ownership of their session strings.
-/// Optional fields are omitted from the rendered output when `None` or empty.
+/// `character` and `persona` are `None` when the conversation is a plain
+/// assistant chat with no roleplay identities configured; the renderer omits
+/// those fields from the metadata block and substitutes neutral defaults
+/// ("Assistant" / "User") only where a label is structurally required
+/// (per-message speaker, `{{char}}` / `{{user}}` template vars).
 pub struct ExportMeta<'a> {
-    pub char_name: &'a str,
-    pub user_name: &'a str,
+    pub character: Option<&'a str>,
+    pub persona: Option<&'a str>,
     pub model: Option<&'a str>,
     pub template: Option<&'a str>,
     pub worldbooks: &'a [String],
     pub exported_at: &'a str,
+}
+
+impl<'a> ExportMeta<'a> {
+    fn character_label(&self) -> &str {
+        self.character.unwrap_or("Assistant")
+    }
+
+    fn persona_label(&self) -> &str {
+        self.persona.unwrap_or("User")
+    }
+
+    fn title(&self) -> String {
+        match (self.persona, self.character) {
+            (None, None) => "Conversation".to_owned(),
+            _ => format!("{} & {}", self.persona_label(), self.character_label()),
+        }
+    }
 }
 
 fn thought_label(seconds: Option<u32>) -> String {
@@ -72,8 +93,12 @@ fn markdown_metadata_block(meta: &ExportMeta, messages: &[&Message]) -> String {
     if let Some(template) = meta.template {
         lines.push(format!("- **Template:** {template}"));
     }
-    lines.push(format!("- **Character:** {}", meta.char_name));
-    lines.push(format!("- **Persona:** {}", meta.user_name));
+    if let Some(character) = meta.character {
+        lines.push(format!("- **Character:** {character}"));
+    }
+    if let Some(persona) = meta.persona {
+        lines.push(format!("- **Persona:** {persona}"));
+    }
     if !meta.worldbooks.is_empty() {
         lines.push(format!("- **Worldbooks:** {}", meta.worldbooks.join(", ")));
     }
@@ -96,13 +121,16 @@ pub fn render_markdown(
     let _span = tracing::info_span!("export.markdown", message_count = messages.len()).entered();
     let mut out = String::new();
 
-    out.push_str(&format!("# {} & {}\n\n", meta.user_name, meta.char_name));
+    let character_label = meta.character_label();
+    let persona_label = meta.persona_label();
+
+    out.push_str(&format!("# {}\n\n", meta.title()));
     out.push_str(&markdown_metadata_block(meta, messages));
     out.push_str("\n\n---\n\n");
 
     for msg in messages {
-        let role = role_label(&msg.role, meta.char_name, meta.user_name);
-        let content = template::apply_template_vars(&msg.content, meta.char_name, meta.user_name);
+        let role = role_label(&msg.role, character_label, persona_label);
+        let content = template::apply_template_vars(&msg.content, character_label, persona_label);
         let body = if msg.role == Role::Assistant {
             markdown_format_assistant_body(&content, msg, reasoning_preset)
         } else {
@@ -123,10 +151,14 @@ pub fn render_html(
     reasoning_preset: Option<&ReasoningPreset>,
 ) -> String {
     let _span = tracing::info_span!("export.html", message_count = messages.len()).entered();
+
+    let character_label = meta.character_label();
+    let persona_label = meta.persona_label();
+
     let mut turns = String::new();
     for (idx, msg) in messages.iter().enumerate() {
-        let role = role_label(&msg.role, meta.char_name, meta.user_name);
-        let content = template::apply_template_vars(&msg.content, meta.char_name, meta.user_name);
+        let role = role_label(&msg.role, character_label, persona_label);
+        let content = template::apply_template_vars(&msg.content, character_label, persona_label);
         let formatted = if msg.role == Role::Assistant {
             html_format_assistant_body(&content, msg, reasoning_preset)
         } else {
@@ -152,8 +184,9 @@ pub fn render_html(
 
     let dossier = render_dossier(meta, messages);
     let dateline = render_dateline(messages);
-    let char_escaped = html_escape(meta.char_name);
-    let user_escaped = html_escape(meta.user_name);
+    let title_text = meta.title();
+    let title_escaped = html_escape(&title_text);
+    let masthead = render_masthead(meta, &title_escaped);
 
     let out = format!(
         r#"<!DOCTYPE html>
@@ -161,7 +194,7 @@ pub fn render_html(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{user_escaped} × {char_escaped} — Transcript</title>
+  <title>{title_escaped} — Transcript</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,30..100;1,9..144,300..700,30..100&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -450,10 +483,7 @@ pub fn render_html(
   <article class="transcript">
     <header class="masthead">
       <p class="overline">A Transcript</p>
-      <h1>
-        <span class="user">{user_escaped}</span><span class="ampersand">&amp;</span><span class="character">{char_escaped}</span>
-      </h1>
-      <p class="dateline">{dateline}</p>
+{masthead}      <p class="dateline">{dateline}</p>
     </header>
     <dl class="dossier">
 {dossier}    </dl>
@@ -472,6 +502,21 @@ pub fn render_html(
     out
 }
 
+fn render_masthead(meta: &ExportMeta, title_escaped: &str) -> String {
+    match (meta.persona, meta.character) {
+        (None, None) => format!("      <h1>{title_escaped}</h1>\n"),
+        _ => {
+            let persona = html_escape(meta.persona_label());
+            let character = html_escape(meta.character_label());
+            format!(
+                "      <h1>\n\
+                 \x20       <span class=\"user\">{persona}</span><span class=\"ampersand\">&amp;</span><span class=\"character\">{character}</span>\n\
+                 \x20     </h1>\n"
+            )
+        }
+    }
+}
+
 fn render_dossier(meta: &ExportMeta, messages: &[&Message]) -> String {
     let mut fields: Vec<(&str, String)> = Vec::new();
     fields.push(("Exported", meta.exported_at.to_owned()));
@@ -481,8 +526,12 @@ fn render_dossier(meta: &ExportMeta, messages: &[&Message]) -> String {
     if let Some(template) = meta.template {
         fields.push(("Template", template.to_owned()));
     }
-    fields.push(("Character", meta.char_name.to_owned()));
-    fields.push(("Persona", meta.user_name.to_owned()));
+    if let Some(character) = meta.character {
+        fields.push(("Character", character.to_owned()));
+    }
+    if let Some(persona) = meta.persona {
+        fields.push(("Persona", persona.to_owned()));
+    }
     if !meta.worldbooks.is_empty() {
         fields.push(("Worldbooks", meta.worldbooks.join(", ")));
     }
@@ -688,10 +737,21 @@ mod tests {
         ]
     }
 
-    fn meta_with(char_name: &'static str, user_name: &'static str) -> ExportMeta<'static> {
+    fn meta_with(character: &'static str, persona: &'static str) -> ExportMeta<'static> {
         ExportMeta {
-            char_name,
-            user_name,
+            character: Some(character),
+            persona: Some(persona),
+            model: None,
+            template: None,
+            worldbooks: &[],
+            exported_at: "2026-05-05T12:00:00Z",
+        }
+    }
+
+    fn meta_blank() -> ExportMeta<'static> {
+        ExportMeta {
+            character: None,
+            persona: None,
             model: None,
             template: None,
             worldbooks: &[],
@@ -729,8 +789,8 @@ mod tests {
         let refs: Vec<&Message> = msgs.iter().collect();
         let worldbooks = vec!["Lore".to_owned(), "Settings".to_owned()];
         let meta = ExportMeta {
-            char_name: "Alice",
-            user_name: "Bob",
+            character: Some("Alice"),
+            persona: Some("Bob"),
             model: Some("gpt-test"),
             template: Some("chatml"),
             worldbooks: &worldbooks,
@@ -754,6 +814,37 @@ mod tests {
     }
 
     #[test]
+    fn markdown_omits_character_and_persona_when_unset() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_blank();
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.starts_with("# Conversation\n\n"));
+        assert!(!result.contains("- **Character:**"));
+        assert!(!result.contains("- **Persona:**"));
+        assert!(result.contains("## User · 2026-01-15T10:00:00Z\n\nHello Assistant"));
+        assert!(result.contains("## Assistant · 2026-01-15T10:00:05Z\n\nHi User!"));
+    }
+
+    #[test]
+    fn markdown_includes_character_only_when_persona_unset() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = ExportMeta {
+            character: Some("Alice"),
+            persona: None,
+            model: None,
+            template: None,
+            worldbooks: &[],
+            exported_at: "2026-05-05T12:00:00Z",
+        };
+        let result = render_markdown(&refs, &meta, None);
+        assert!(result.starts_with("# User & Alice\n\n"));
+        assert!(result.contains("- **Character:** Alice"));
+        assert!(!result.contains("- **Persona:**"));
+    }
+
+    #[test]
     fn markdown_system_message() {
         let msgs = [system_msg("You are helpful.")];
         let refs: Vec<&Message> = msgs.iter().collect();
@@ -769,6 +860,8 @@ mod tests {
         let meta = meta_with("Char", "User");
         let result = render_markdown(&refs, &meta, None);
         assert!(result.starts_with("# User & Char\n\n"));
+        assert!(result.contains("- **Character:** Char"));
+        assert!(result.contains("- **Persona:** User"));
         assert!(result.contains("- **Messages:** 0"));
         assert!(!result.contains("- **Period:**"));
         assert!(!result.contains("- **Recorded:**"));
@@ -816,8 +909,8 @@ mod tests {
         let refs: Vec<&Message> = msgs.iter().collect();
         let worldbooks = vec!["Lore".to_owned()];
         let meta = ExportMeta {
-            char_name: "Alice",
-            user_name: "Bob",
+            character: Some("Alice"),
+            persona: Some("Bob"),
             model: Some("gpt-test"),
             template: Some("chatml"),
             worldbooks: &worldbooks,
@@ -827,6 +920,8 @@ mod tests {
         assert!(result.contains("<dt>Model</dt><dd>gpt-test</dd>"));
         assert!(result.contains("<dt>Template</dt><dd>chatml</dd>"));
         assert!(result.contains("<dt>Worldbooks</dt><dd>Lore</dd>"));
+        assert!(result.contains("<dt>Character</dt><dd>Alice</dd>"));
+        assert!(result.contains("<dt>Persona</dt><dd>Bob</dd>"));
         assert!(result.contains("<dt>Messages</dt><dd>2</dd>"));
         assert!(result.contains("<dt>Exported</dt><dd>2026-05-05T12:00:00Z</dd>"));
     }
@@ -840,6 +935,21 @@ mod tests {
         assert!(!result.contains("<dt>Model</dt>"));
         assert!(!result.contains("<dt>Template</dt>"));
         assert!(!result.contains("<dt>Worldbooks</dt>"));
+    }
+
+    #[test]
+    fn html_omits_character_and_persona_when_unset() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_blank();
+        let result = render_html(&refs, &meta, None);
+        assert!(result.contains("<title>Conversation — Transcript</title>"));
+        assert!(result.contains("<h1>Conversation</h1>"));
+        assert!(!result.contains("<dt>Character</dt>"));
+        assert!(!result.contains("<dt>Persona</dt>"));
+        assert!(!result.contains("class=\"ampersand\""));
+        assert!(result.contains("<div class=\"speaker\">User</div>"));
+        assert!(result.contains("<div class=\"speaker\">Assistant</div>"));
     }
 
     #[test]

@@ -64,8 +64,15 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
         }
     };
 
-    let char_name = app.session.character.as_deref().unwrap_or("Assistant");
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
+    let character = app
+        .session
+        .character
+        .as_deref()
+        .filter(|s| !s.is_empty());
+    let persona = app
+        .active_persona_name
+        .as_deref()
+        .filter(|s| !s.is_empty());
     let model = app
         .model_name
         .as_deref()
@@ -82,8 +89,8 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
         });
     let exported_at = session::now_iso8601();
     let meta = libllm::export::ExportMeta {
-        char_name,
-        user_name,
+        character,
+        persona,
         model,
         template,
         worldbooks: &app.session.worldbooks,
@@ -94,7 +101,11 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
     let content = match format {
         ExportFormat::Markdown => libllm::export::render_markdown(&messages, &meta, preset),
         ExportFormat::Html => libllm::export::render_html(&messages, &meta, preset),
-        ExportFormat::Jsonl => libllm::export::render_jsonl(&messages, char_name, user_name),
+        ExportFormat::Jsonl => libllm::export::render_jsonl(
+            &messages,
+            character.unwrap_or("Assistant"),
+            persona.unwrap_or("User"),
+        ),
     };
 
     let timestamp = session::now_compact();

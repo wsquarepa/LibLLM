@@ -132,6 +132,7 @@ pub(super) enum DialogKind {
     Theme,
     PresetEditor,
     PersonaEditor,
+    AuthorNoteEditor,
     CharacterEditor,
     SystemPromptEditor,
     WorldbookEntryEditor,
@@ -319,6 +320,7 @@ pub(super) fn handle_field_dialog_key(
         DialogKind::Theme => unreachable!(),
         DialogKind::PresetEditor => app.preset_editor.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
+        DialogKind::AuthorNoteEditor => app.author_note_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
         DialogKind::SystemPromptEditor => app.system_prompt_editor.as_mut(),
         DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
@@ -459,6 +461,23 @@ pub(super) fn handle_field_dialog_key(
                     maintenance::reload_persona_picker(app);
                     app.focus = Focus::PersonaDialog;
                 }
+                None
+            }
+            DialogKind::AuthorNoteEditor => {
+                let dialog = app.author_note_editor.take()?;
+                let values = &dialog.values;
+                let text = values.first().cloned().unwrap_or_default();
+                let depth_str = values.get(1).cloned().unwrap_or_else(|| "4".to_owned());
+                let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
+
+                let depth = depth_str.trim().parse::<u32>().unwrap_or(4);
+                let at_top = matches!(at_top_str.as_str(), "true" | "1");
+
+                app.session.author_note =
+                    libllm::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);
+                app.mark_session_dirty(SaveTrigger::Debounced, false);
+                app.invalidate_chat_caches();
+                return_to_input(app);
                 None
             }
             DialogKind::SystemPromptEditor => {

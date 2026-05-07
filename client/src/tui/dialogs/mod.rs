@@ -31,9 +31,9 @@ pub(in crate::tui) use builders::{
     LIST_DIALOG_WIDTH, THEME_COLOR_TAB_LAYOUT,
 };
 pub use builders::{
-    open_character_editor, open_config_editor, open_entry_editor, open_entry_editor_non_selective,
-    open_instruct_editor, open_persona_editor, open_reasoning_editor, open_system_prompt_editor,
-    open_template_editor, open_theme_editor,
+    open_author_note_editor, open_character_editor, open_config_editor, open_entry_editor,
+    open_entry_editor_non_selective, open_instruct_editor, open_persona_editor,
+    open_reasoning_editor, open_system_prompt_editor, open_template_editor, open_theme_editor,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;

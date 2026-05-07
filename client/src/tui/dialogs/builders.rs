@@ -88,6 +88,10 @@ const REASONING_EDITOR_FIELDS: &[&str] = &["Name", "Prefix", "Suffix", "Separato
 const PERSONA_FIELDS: &[&str] = &["Name", "Persona"];
 const PERSONA_MULTILINE: &[usize] = &[1];
 
+const AUTHOR_NOTE_FIELDS: &[&str] = &["Note", "Depth", "Pin to top"];
+const AUTHOR_NOTE_MULTILINE: &[usize] = &[0];
+const AUTHOR_NOTE_BOOLEAN: &[usize] = &[2];
+
 const CHARACTER_EDITOR_FIELDS: &[&str] = &[
     "Name",
     "Description",
@@ -211,6 +215,17 @@ pub fn open_config_editor(
 pub fn open_persona_editor(values: Vec<String>) -> FieldDialog<'static> {
     FieldDialog::new(" Edit Persona ", PERSONA_FIELDS, values, PERSONA_MULTILINE)
         .with_validated_fields(vec![(0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH))])
+}
+
+pub fn open_author_note_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit Author's Note ",
+        AUTHOR_NOTE_FIELDS,
+        values,
+        AUTHOR_NOTE_MULTILINE,
+    )
+    .with_boolean_fields(AUTHOR_NOTE_BOOLEAN)
+    .with_validated_fields(vec![(1, FieldValidation::Int { min: 0, max: 999 })])
 }
 
 pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {

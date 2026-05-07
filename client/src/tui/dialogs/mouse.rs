@@ -297,6 +297,13 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 app.focus = crate::tui::Focus::PersonaDialog;
             }
         }
+        crate::tui::Focus::AuthorNoteEditorDialog => {
+            if let Some(ref mut d) = app.author_note_editor
+                && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
+            {
+                app.focus = crate::tui::Focus::Input;
+            }
+        }
         crate::tui::Focus::CharacterEditorDialog => {
             if let Some(ref mut d) = app.character_editor
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)

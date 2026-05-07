@@ -214,6 +214,7 @@ pub async fn run(
         base_theme_picker_names: Vec::new(),
         base_theme_picker_selected: 0,
         persona_editor: None,
+        author_note_editor: None,
         system_prompt_editor: None,
         system_editor_prompt_name: String::new(),
         system_editor_return_focus: Focus::Input,
@@ -644,6 +645,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::PresetEditorDialog => Some("preset_editor"),
         Focus::PersonaDialog => Some("persona"),
         Focus::PersonaEditorDialog => Some("persona_editor"),
+        Focus::AuthorNoteEditorDialog => Some("author_note_editor"),
         Focus::CharacterDialog => Some("character"),
         Focus::CharacterEditorDialog => Some("character_editor"),
         Focus::WorldbookDialog => Some("worldbook"),
@@ -835,6 +837,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::PersonaEditorDialog => {
             if let Some(ref dialog) = app.persona_editor {
+                dialog.render(f, f.area());
+            }
+        }
+        Focus::AuthorNoteEditorDialog => {
+            if let Some(ref dialog) = app.author_note_editor {
                 dialog.render(f, f.area());
             }
         }

@@ -175,10 +175,10 @@ jobs:
       - name: Determine release params
         id: params
         shell: bash
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
         run: |
           REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          LOG_FORMAT="- [%h](${REPO_URL}/commit/%H) %s"
+          BUMP_PATTERN='^chore(release):'
 
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
@@ -187,9 +187,9 @@ jobs:
               echo "Changes this release:"
               echo ""
               if [[ -n "$PREV_TAG" ]]; then
-                git log --format="- [%h](${REPO_URL}/commit/%H) %s" "${PREV_TAG}..${TAG}"
+                git log --format="$LOG_FORMAT" --invert-grep --grep="$BUMP_PATTERN" "${PREV_TAG}..${TAG}"
               else
-                git log -1 --format="- [%h](${REPO_URL}/commit/%H) %s" "${TAG}"
+                git log -1 --format="$LOG_FORMAT" "${TAG}"
               fi
             } > notes.md
 
@@ -211,14 +211,14 @@ jobs:
               CHANNEL_TAG="$BRANCH"
               CHANNEL_TITLE="$BRANCH"
             fi
+            PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
             {
               echo "Changes this release:"
               echo ""
-              if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] \
-                || ! git rev-parse --verify --quiet "${BEFORE_SHA}^{commit}" >/dev/null; then
-                git log -1 --format="- [%h](${REPO_URL}/commit/%H) %s" HEAD
+              if [[ -n "$PREV_TAG" ]]; then
+                git log --format="$LOG_FORMAT" --invert-grep --grep="$BUMP_PATTERN" "${PREV_TAG}..HEAD"
               else
-                git log --format="- [%h](${REPO_URL}/commit/%H) %s" "${BEFORE_SHA}..HEAD"
+                git log --format="$LOG_FORMAT" --invert-grep --grep="$BUMP_PATTERN" HEAD
               fi
             } > notes.md
 

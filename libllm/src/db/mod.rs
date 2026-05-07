@@ -332,6 +332,13 @@ impl Database {
         self.conn.changes()
     }
 
+    pub fn with_connection<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Connection) -> R,
+    {
+        f(&self.conn)
+    }
+
     /// Run one or more SQL statements, discarding any returned rows.
     /// Use for pragma-like operations and SQLCipher control statements
     /// (ATTACH ... KEY, SELECT sqlcipher_export, DETACH) where the result

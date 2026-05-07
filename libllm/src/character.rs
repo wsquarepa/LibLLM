@@ -48,6 +48,20 @@ struct RawCardData {
     system_prompt: Option<String>,
     post_history_instructions: Option<String>,
     alternate_greetings: Option<Vec<String>>,
+    extensions: Option<RawCardExtensions>,
+}
+
+#[derive(Deserialize)]
+struct RawCardExtensions {
+    depth_prompt: Option<RawDepthPrompt>,
+}
+
+#[derive(Deserialize)]
+struct RawDepthPrompt {
+    prompt: Option<String>,
+    depth: Option<u32>,
+    #[serde(rename = "role")]
+    _role: Option<String>,
 }
 
 /// Parses a character card from JSON, accepting both V1 (top-level fields) and V2 (`data` object) formats.
@@ -105,7 +119,13 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
         alternate_greetings: data
             .and_then(|d| d.alternate_greetings.clone())
             .unwrap_or_default(),
-        author_note: None,
+        author_note: data
+            .and_then(|d| d.extensions.as_ref())
+            .and_then(|e| e.depth_prompt.as_ref())
+            .and_then(|dp| {
+                let text = dp.prompt.clone()?;
+                crate::author_note::AuthorNote::from_row_parts(Some(text), dp.depth.unwrap_or(4), false)
+            }),
     })
 }
 
@@ -410,5 +430,95 @@ mod tests {
         let card = parse_card_json(json).unwrap();
         assert_eq!(card.name, "DataLevel");
         assert_eq!(card.description, "data desc");
+    }
+
+    #[test]
+    fn parses_depth_prompt_extension() {
+        let json = r#"{
+            "data": {
+                "name": "Aria",
+                "description": "x",
+                "extensions": {
+                    "depth_prompt": {
+                        "prompt": "Stay in scene.",
+                        "depth": 6,
+                        "role": "system"
+                    }
+                }
+            }
+        }"#;
+        let card = parse_card_json(json).unwrap();
+        let note = card.author_note.expect("author_note should be Some");
+        assert_eq!(note.text, "Stay in scene.");
+        assert_eq!(note.depth, 6);
+        assert!(!note.at_top);
+    }
+
+    #[test]
+    fn empty_depth_prompt_yields_none() {
+        let json = r#"{
+            "data": {
+                "name": "Aria",
+                "description": "x",
+                "extensions": {
+                    "depth_prompt": { "prompt": "", "depth": 4 }
+                }
+            }
+        }"#;
+        let card = parse_card_json(json).unwrap();
+        assert!(card.author_note.is_none());
+    }
+
+    #[test]
+    fn depth_prompt_missing_depth_defaults_to_four() {
+        let json = r#"{
+            "data": {
+                "name": "Aria",
+                "description": "x",
+                "extensions": {
+                    "depth_prompt": { "prompt": "steer" }
+                }
+            }
+        }"#;
+        let card = parse_card_json(json).unwrap();
+        let note = card.author_note.expect("author_note should be Some");
+        assert_eq!(note.depth, 4);
+    }
+
+    #[test]
+    fn no_extensions_block_yields_none() {
+        let json = r#"{
+            "data": { "name": "Aria", "description": "x" }
+        }"#;
+        let card = parse_card_json(json).unwrap();
+        assert!(card.author_note.is_none());
+    }
+
+    #[test]
+    fn v1_format_has_no_author_note() {
+        let json = r#"{ "name": "Aria", "description": "x" }"#;
+        let card = parse_card_json(json).unwrap();
+        assert!(card.author_note.is_none());
+    }
+
+    #[test]
+    fn unknown_role_value_is_accepted_and_ignored() {
+        let json = r#"{
+            "data": {
+                "name": "Aria",
+                "description": "x",
+                "extensions": {
+                    "depth_prompt": {
+                        "prompt": "p",
+                        "depth": 2,
+                        "role": "user"
+                    }
+                }
+            }
+        }"#;
+        let card = parse_card_json(json).unwrap();
+        let note = card.author_note.expect("author_note should be Some");
+        assert_eq!(note.text, "p");
+        assert_eq!(note.depth, 2);
     }
 }

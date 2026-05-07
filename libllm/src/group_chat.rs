@@ -77,7 +77,228 @@ impl CardAssembly {
 
 use std::collections::HashMap;
 
+use anyhow::Result;
 use rand::{Rng, RngExt};
+
+use crate::character::CharacterCard;
+use crate::persona::PersonaFile;
+use crate::preset::ContextPreset;
+use crate::session::Session;
+
+#[derive(Debug)]
+pub struct TurnPrompt {
+    pub system: String,
+    pub prefill: String,
+    pub stop_sequences: Vec<String>,
+}
+
+pub fn build_turn_prompt(
+    session: &Session,
+    cards: &HashMap<String, CharacterCard>,
+    persona: Option<&PersonaFile>,
+    template: Option<&ContextPreset>,
+    speaker_slug: &str,
+) -> Result<TurnPrompt> {
+    use anyhow::{anyhow, ensure};
+
+    ensure!(
+        session.characters.iter().any(|a| a.slug == speaker_slug),
+        "speaker {speaker_slug} is not attached to this session",
+    );
+    let active_card = cards
+        .get(speaker_slug)
+        .ok_or_else(|| anyhow!("missing card for speaker {speaker_slug}"))?;
+
+    let live: Vec<(&str, &CharacterCard)> = session
+        .characters
+        .iter()
+        .filter_map(|a| cards.get(&a.slug).map(|c| (a.slug.as_str(), c)))
+        .collect();
+
+    let user_name = persona.map(|p| p.name.as_str()).unwrap_or("User");
+    let user_text = persona.map(|p| p.persona.as_str()).unwrap_or("");
+
+    let other_names: Vec<&str> = live
+        .iter()
+        .filter(|(slug, _)| *slug != speaker_slug)
+        .map(|(_, c)| c.name.as_str())
+        .collect();
+
+    let characters_block = render_characters_block(&live, speaker_slug, session.card_assembly);
+    let roster_block = render_roster_block(&live, speaker_slug, session.card_assembly);
+    let scene_block = render_scene_block(&live, active_card);
+    let user_block = render_user_block(user_text);
+    let examples_block = render_examples_block(&live, speaker_slug, session.card_assembly);
+
+    let opening = "You are running a group roleplay scene with multiple characters. On this turn you will reply as exactly one character, named below. Stay strictly in that character. Do not narrate, quote, or speak as any other character or as the user. Reply with one message in the named character's voice and stop.";
+    let others_clause = if other_names.is_empty() {
+        "any other character".to_owned()
+    } else {
+        other_names.join(", ")
+    };
+    let closing = format!(
+        "You are now {active}. Reply as {active} in one message. Do not write as {others_clause} or {user_name}. Do not narrate other characters' actions or dialogue. End the message naturally; do not write another character's name on a new line.",
+        active = active_card.name,
+    );
+
+    let system = if let Some(tpl) = template {
+        let vars = crate::preset::ContextVars {
+            system: opening.to_owned(),
+            description: String::new(),
+            personality: String::new(),
+            scenario: scene_block.clone(),
+            persona: user_block.clone(),
+            wi_before: String::new(),
+            wi_after: String::new(),
+            mes_examples: examples_block.clone(),
+            characters_block: characters_block.clone(),
+            roster_block: roster_block.clone(),
+            active_speaker: active_card.name.clone(),
+            other_speakers: other_names.join(", "),
+        };
+        let body = tpl.render_story_string(&vars);
+        format!(
+            "{body}\n\n<active_speaker>{}</active_speaker>\n\n{closing}",
+            active_card.name
+        )
+    } else {
+        let mut parts = vec![opening.to_owned()];
+        if !scene_block.is_empty() {
+            parts.push(format!("<scene>\n{scene_block}\n</scene>"));
+        }
+        parts.push(characters_block.clone());
+        if !roster_block.is_empty() {
+            parts.push(roster_block.clone());
+        }
+        if !user_block.is_empty() {
+            parts.push(format!("<user name=\"{user_name}\">\n{user_block}\n</user>"));
+        }
+        if !examples_block.is_empty() {
+            parts.push(format!("<examples>\n{examples_block}\n</examples>"));
+        }
+        parts.push(format!("<active_speaker>{}</active_speaker>", active_card.name));
+        parts.push(closing);
+        parts.join("\n\n")
+    };
+
+    let prefill = format!("{}: ", active_card.name);
+
+    let mut stop_sequences: Vec<String> = Vec::new();
+    for (_, card) in &live {
+        if card.name == active_card.name {
+            continue;
+        }
+        stop_sequences.push(format!("\n{}:", card.name));
+        stop_sequences.push(format!("\n[{}]:", card.name));
+    }
+    stop_sequences.push(format!("\n{user_name}:"));
+    stop_sequences.push(format!("\n[{user_name}]:"));
+    stop_sequences.push("\n</".to_owned());
+
+    Ok(TurnPrompt { system, prefill, stop_sequences })
+}
+
+fn render_characters_block(
+    live: &[(&str, &CharacterCard)],
+    speaker_slug: &str,
+    mode: CardAssembly,
+) -> String {
+    let included: Vec<&(&str, &CharacterCard)> = match mode {
+        CardAssembly::JoinCards => live.iter().collect(),
+        CardAssembly::SwapCards => live.iter().filter(|(slug, _)| *slug == speaker_slug).collect(),
+    };
+    let mut out = String::from("<characters>\n");
+    for (_slug, card) in included {
+        out.push_str(&format!("  <character name=\"{}\">\n", card.name));
+        if !card.description.is_empty() {
+            out.push_str(&format!("    <description>{}</description>\n", card.description));
+        }
+        if !card.personality.is_empty() {
+            out.push_str(&format!("    <personality>{}</personality>\n", card.personality));
+        }
+        out.push_str("  </character>\n");
+    }
+    out.push_str("</characters>");
+    out
+}
+
+fn render_roster_block(
+    live: &[(&str, &CharacterCard)],
+    speaker_slug: &str,
+    mode: CardAssembly,
+) -> String {
+    if !matches!(mode, CardAssembly::SwapCards) {
+        return String::new();
+    }
+    let others: Vec<&str> = live
+        .iter()
+        .filter(|(slug, _)| *slug != speaker_slug)
+        .map(|(_, c)| c.name.as_str())
+        .collect();
+    if others.is_empty() {
+        return String::new();
+    }
+    let mut out =
+        String::from("<roster>\nOther characters in this scene (do not speak as them):\n");
+    for name in others {
+        out.push_str(&format!("- {name}\n"));
+    }
+    out.push_str("</roster>");
+    out
+}
+
+fn render_scene_block(live: &[(&str, &CharacterCard)], active: &CharacterCard) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut parts = Vec::new();
+    for (_, c) in live {
+        if !c.scenario.is_empty() && seen.insert(c.scenario.as_str()) {
+            parts.push(c.scenario.clone());
+        }
+    }
+    if parts.is_empty() && !active.scenario.is_empty() {
+        parts.push(active.scenario.clone());
+    }
+    parts.join("\n\n")
+}
+
+fn render_user_block(persona_text: &str) -> String {
+    if persona_text.is_empty() {
+        String::new()
+    } else {
+        persona_text.to_owned()
+    }
+}
+
+fn render_examples_block(
+    live: &[(&str, &CharacterCard)],
+    speaker_slug: &str,
+    mode: CardAssembly,
+) -> String {
+    let included: Vec<&(&str, &CharacterCard)> = match mode {
+        CardAssembly::JoinCards => live.iter().collect(),
+        CardAssembly::SwapCards => live.iter().filter(|(slug, _)| *slug == speaker_slug).collect(),
+    };
+    let mut parts = Vec::new();
+    for (_, card) in included {
+        if card.mes_example.is_empty() {
+            continue;
+        }
+        let prefixed: String = card
+            .mes_example
+            .lines()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}: {}", card.name, l)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        parts.push(prefixed);
+    }
+    parts.join("\n\n")
+}
 
 #[derive(Debug)]
 pub struct TurnDecision {
@@ -162,6 +383,101 @@ mod tests {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+
+    fn card(
+        name: &str,
+        desc: &str,
+        personality: &str,
+        scenario: &str,
+        examples: &str,
+    ) -> CharacterCard {
+        CharacterCard {
+            name: name.to_owned(),
+            description: desc.to_owned(),
+            personality: personality.to_owned(),
+            scenario: scenario.to_owned(),
+            first_mes: String::new(),
+            mes_example: examples.to_owned(),
+            system_prompt: String::new(),
+            post_history_instructions: String::new(),
+            alternate_greetings: vec![],
+        }
+    }
+
+    fn cards_map(items: &[(&str, CharacterCard)]) -> HashMap<String, CharacterCard> {
+        items.iter().map(|(s, c)| ((*s).to_owned(), c.clone())).collect()
+    }
+
+    fn fixture_session(slugs: &[&str], assembly: CardAssembly) -> crate::session::Session {
+        crate::session::Session {
+            characters: slugs.iter().map(|s| CharacterAttachment::new(*s)).collect(),
+            card_assembly: assembly,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn build_turn_prompt_join_two_matches_fixture() {
+        let cards = cards_map(&[
+            (
+                "alice",
+                card("Alice", "A wandering bard.", "Cheerful.", "A tavern.", "Hi!\nGood evening."),
+            ),
+            ("bob", card("Bob", "A grumpy dwarf.", "Stoic.", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let p = build_turn_prompt(&session, &cards, None, None, "alice").unwrap();
+        let expected = include_str!("group_chat_fixtures/join_two.txt");
+        assert_eq!(p.system.trim(), expected.trim(), "system prompt mismatch");
+        assert_eq!(p.prefill, "Alice: ");
+        assert!(p.stop_sequences.contains(&"\nBob:".to_owned()));
+        assert!(p.stop_sequences.contains(&"\n[Bob]:".to_owned()));
+        assert!(p.stop_sequences.contains(&"\nUser:".to_owned()));
+        assert!(p.stop_sequences.contains(&"\n</".to_owned()));
+        assert!(!p.stop_sequences.iter().any(|s| s == "\nAlice:"));
+    }
+
+    #[test]
+    fn build_turn_prompt_join_three_with_persona_matches_fixture() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
+            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
+            ("charlie", card("Charlie", "Wizard.", "Curious.", "A tavern.", "")),
+        ]);
+        let mut session = fixture_session(&["alice", "bob", "charlie"], CardAssembly::JoinCards);
+        session.persona = Some("me".to_owned());
+        let persona = crate::persona::PersonaFile {
+            name: "Trav".to_owned(),
+            persona: "A traveler from the north.".to_owned(),
+        };
+        let p = build_turn_prompt(&session, &cards, Some(&persona), None, "bob").unwrap();
+        let expected = include_str!("group_chat_fixtures/join_three.txt");
+        assert_eq!(
+            p.system.trim(),
+            expected.trim(),
+            "system prompt mismatch:\n--- got ---\n{}\n--- want ---\n{}",
+            p.system,
+            expected
+        );
+        assert_eq!(p.prefill, "Bob: ");
+        assert!(p.stop_sequences.contains(&"\nTrav:".to_owned()));
+    }
+
+    #[test]
+    fn build_turn_prompt_speaker_not_attached_errors() {
+        let cards = cards_map(&[("alice", card("Alice", "", "", "", ""))]);
+        let session = fixture_session(&["alice"], CardAssembly::JoinCards);
+        let err = build_turn_prompt(&session, &cards, None, None, "ghost").unwrap_err();
+        assert!(err.to_string().contains("ghost"));
+    }
+
+    #[test]
+    fn build_turn_prompt_missing_card_errors() {
+        let cards = cards_map(&[]);
+        let session = fixture_session(&["alice"], CardAssembly::JoinCards);
+        let err = build_turn_prompt(&session, &cards, None, None, "alice").unwrap_err();
+        assert!(err.to_string().contains("missing card"));
+    }
 
     fn att(slug: &str, talk: f32, ap: f32) -> CharacterAttachment {
         CharacterAttachment { slug: slug.to_owned(), talkativeness: talk, action_points: ap }

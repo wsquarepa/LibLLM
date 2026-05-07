@@ -455,6 +455,13 @@ pub(in crate::tui) async fn handle_stream_token(
             if app.is_continuation {
                 let existing = app.session.tree.node(head).unwrap().message.content.clone();
                 let combined = format!("{}{}", existing, full_response);
+                let combined = libllm::regex_rules::apply(
+                    &app.compiled_regex,
+                    libllm::regex_rules::Scope::PromptRecv,
+                    Role::Assistant,
+                    &combined,
+                )
+                .into_owned();
                 app.session.tree.set_message_content(head, combined);
                 let current_seconds = app
                     .session
@@ -473,6 +480,13 @@ pub(in crate::tui) async fn handle_stream_token(
                 let stored_content = libllm::thought::normalize_assistant_content(
                     &full_response,
                     app.reasoning_preset.as_ref(),
+                )
+                .into_owned();
+                let stored_content = libllm::regex_rules::apply(
+                    &app.compiled_regex,
+                    libllm::regex_rules::Scope::PromptRecv,
+                    Role::Assistant,
+                    &stored_content,
                 )
                 .into_owned();
                 let final_seconds = libllm::thought::resolve_thought_seconds(

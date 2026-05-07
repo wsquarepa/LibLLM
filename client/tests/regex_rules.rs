@@ -36,3 +36,28 @@ fn prompt_send_rule_rewrites_outgoing_text_without_mutating_tree() {
     assert_eq!(transformed, "He said \"hi\"");
     assert_eq!(stored.content, original, "tree-stored content must not change");
 }
+
+#[test]
+fn prompt_recv_rule_mutates_stored_assistant_content() {
+    let rule = RegexRule {
+        name: "verbal-tic".to_owned(),
+        pattern: "y'know".to_owned(),
+        replacement: "you know".to_owned(),
+        scope: vec![Scope::PromptRecv],
+        target: vec![Target::Assistant],
+        enabled: true,
+        compile_error: None,
+    };
+    let compiled = libllm::regex_rules::compile_rules(&[rule]);
+
+    let raw_response = "Well, y'know, that's how it is.";
+    let stored = libllm::regex_rules::apply(
+        &compiled,
+        Scope::PromptRecv,
+        Role::Assistant,
+        raw_response,
+    )
+    .into_owned();
+
+    assert_eq!(stored, "Well, you know, that's how it is.");
+}

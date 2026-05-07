@@ -705,6 +705,8 @@ pub struct Session {
     pub worldbooks: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub persona: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub author_note: Option<crate::author_note::AuthorNote>,
 }
 
 impl Session {

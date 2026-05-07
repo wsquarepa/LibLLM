@@ -71,6 +71,7 @@ pub fn linear_session(messages: Vec<Message>) -> Session {
         character: None,
         worldbooks: Vec::new(),
         persona: None,
+        author_note: None,
     }
 }
 

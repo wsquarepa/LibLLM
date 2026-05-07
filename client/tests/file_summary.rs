@@ -286,6 +286,7 @@ async fn fresh_encrypted_session_schedules_after_unlock_save() {
             character: None,
             worldbooks: Vec::new(),
             persona: None,
+            author_note: None,
         };
         db.save_session(session_id, &empty_session).unwrap();
     }

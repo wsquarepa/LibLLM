@@ -75,6 +75,7 @@ fn empty_session() -> Session {
         character: None,
         worldbooks: vec![],
         persona: None,
+        author_note: None,
     }
 }
 

@@ -129,6 +129,7 @@ fn session_metadata_fields_survive_round_trip() {
         character: Some("TestChar".to_string()),
         worldbooks: vec!["lore-a".to_string(), "lore-b".to_string()],
         persona: Some("Alice".to_string()),
+        author_note: None,
     };
     db.insert_session("meta-1", &session).expect("insert meta");
     let loaded = db.load_session("meta-1").expect("load meta");

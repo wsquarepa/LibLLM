@@ -132,15 +132,6 @@ pub fn build_branch_list(
         });
     }
 
-    for (version, release) in stable_iter {
-        let is_current = running.as_ref().is_some_and(|r| r == version);
-        out.push(BranchEntry {
-            tag: release.tag_name.clone(),
-            display: release.tag_name.clone(),
-            current: is_current,
-        });
-    }
-
     for release in releases.iter() {
         if !release.prerelease {
             continue;
@@ -155,6 +146,15 @@ pub fn build_branch_list(
             tag: release.tag_name.clone(),
             display: release.tag_name.clone(),
             current: release.tag_name == channel,
+        });
+    }
+
+    for (version, release) in stable_iter {
+        let is_current = running.as_ref().is_some_and(|r| r == version);
+        out.push(BranchEntry {
+            tag: release.tag_name.clone(),
+            display: release.tag_name.clone(),
+            current: is_current,
         });
     }
 
@@ -706,7 +706,7 @@ mod tests {
     }
 
     #[test]
-    fn build_list_pins_preview_as_second_row_above_older_stables() {
+    fn build_list_orders_highest_then_preview_then_branches_then_older_stables() {
         let releases = vec![
             rel("v2.4.0", false),
             rel("v2.6.0", false),
@@ -719,7 +719,7 @@ mod tests {
         let names: Vec<&str> = list.iter().map(|e| e.tag.as_str()).collect();
         assert_eq!(
             names,
-            vec!["v2.6.0", "preview", "v2.5.0", "v2.4.0", "feat/foo", "feat/bar"]
+            vec!["v2.6.0", "preview", "feat/foo", "feat/bar", "v2.5.0", "v2.4.0"]
         );
     }
 

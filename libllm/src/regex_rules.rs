@@ -152,4 +152,170 @@ mod tests {
         let cfg: Config = toml::from_str(toml_str).unwrap();
         assert!(cfg.regex.is_empty());
     }
+
+    fn rule(
+        pattern: &str,
+        replacement: &str,
+        scopes: &[Scope],
+        targets: &[Target],
+    ) -> RegexRule {
+        RegexRule {
+            name: "test".to_owned(),
+            pattern: pattern.to_owned(),
+            replacement: replacement.to_owned(),
+            scope: scopes.to_vec(),
+            target: targets.to_vec(),
+            enabled: true,
+            compile_error: None,
+        }
+    }
+
+    #[test]
+    fn apply_returns_borrowed_on_empty_rules() {
+        let rules: Vec<CompiledRule> = Vec::new();
+        let out = apply(&rules, Scope::Display, Role::Assistant, "hello");
+        assert!(matches!(out, Cow::Borrowed("hello")));
+    }
+
+    #[test]
+    fn apply_returns_borrowed_on_no_match() {
+        let rules = compile_rules(&[rule(
+            "zzz",
+            "yyy",
+            &[Scope::Display],
+            &[Target::Assistant],
+        )]);
+        let out = apply(&rules, Scope::Display, Role::Assistant, "hello");
+        assert!(matches!(out, Cow::Borrowed("hello")));
+    }
+
+    #[test]
+    fn apply_runs_top_to_bottom() {
+        let rules = compile_rules(&[
+            rule("a", "b", &[Scope::Display], &[Target::Assistant]),
+            rule("b", "c", &[Scope::Display], &[Target::Assistant]),
+        ]);
+        let out = apply(&rules, Scope::Display, Role::Assistant, "a");
+        assert_eq!(out, "c");
+    }
+
+    #[test]
+    fn apply_skips_non_matching_scope() {
+        let rules = compile_rules(&[rule(
+            "a",
+            "b",
+            &[Scope::PromptSend],
+            &[Target::Assistant],
+        )]);
+        let out = apply(&rules, Scope::Display, Role::Assistant, "a");
+        assert_eq!(out, "a");
+    }
+
+    #[test]
+    fn apply_skips_non_matching_target() {
+        let rules = compile_rules(&[rule(
+            "a",
+            "b",
+            &[Scope::Display],
+            &[Target::User],
+        )]);
+        let out = apply(&rules, Scope::Display, Role::Assistant, "a");
+        assert_eq!(out, "a");
+    }
+
+    #[test]
+    fn apply_skips_disabled_rules() {
+        let mut r = rule("a", "b", &[Scope::Display], &[Target::Assistant]);
+        r.enabled = false;
+        let rules = compile_rules(&[r]);
+        let out = apply(&rules, Scope::Display, Role::Assistant, "a");
+        assert_eq!(out, "a");
+    }
+
+    #[test]
+    fn apply_skips_rules_with_compile_error() {
+        let mut r = rule("a", "b", &[Scope::Display], &[Target::Assistant]);
+        r.compile_error = Some("any error".to_owned());
+        let rules = compile_rules(&[r]);
+        let out = apply(&rules, Scope::Display, Role::Assistant, "a");
+        assert_eq!(out, "a");
+    }
+
+    #[test]
+    fn apply_resolves_numbered_capture_group() {
+        let rules = compile_rules(&[rule(
+            r"\[OOC: (.*?)\]",
+            "«$1»",
+            &[Scope::Display],
+            &[Target::User],
+        )]);
+        let out = apply(&rules, Scope::Display, Role::User, "hey [OOC: brb 5min]");
+        assert_eq!(out, "hey «brb 5min»");
+    }
+
+    #[test]
+    fn apply_resolves_named_capture_group() {
+        let rules = compile_rules(&[rule(
+            r"\[OOC: (?P<note>.*?)\]",
+            "<<${note}>>",
+            &[Scope::Display],
+            &[Target::User],
+        )]);
+        let out = apply(&rules, Scope::Display, Role::User, "[OOC: hi]");
+        assert_eq!(out, "<<hi>>");
+    }
+
+    #[test]
+    fn apply_handles_multibyte_input() {
+        let rules = compile_rules(&[rule(
+            "[\u{201c}\u{201d}]",
+            "\"",
+            &[Scope::PromptSend],
+            &[Target::User],
+        )]);
+        let out = apply(
+            &rules,
+            Scope::PromptSend,
+            Role::User,
+            "He said \u{201c}hi\u{201d}",
+        );
+        assert_eq!(out, "He said \"hi\"");
+    }
+
+    #[test]
+    fn apply_strips_think_blocks_dotall() {
+        let rules = compile_rules(&[rule(
+            r"(?s)<think>.*?</think>\s*",
+            "",
+            &[Scope::Display],
+            &[Target::Assistant],
+        )]);
+        let out = apply(
+            &rules,
+            Scope::Display,
+            Role::Assistant,
+            "<think>line1\nline2</think>\n\nactual answer",
+        );
+        assert_eq!(out, "actual answer");
+    }
+
+    #[test]
+    fn apply_one_rule_multiple_scopes() {
+        let rules = compile_rules(&[rule(
+            "a",
+            "b",
+            &[Scope::Display, Scope::Export],
+            &[Target::Assistant],
+        )]);
+        assert_eq!(apply(&rules, Scope::Display, Role::Assistant, "a"), "b");
+        assert_eq!(apply(&rules, Scope::Export, Role::Assistant, "a"), "b");
+        assert_eq!(apply(&rules, Scope::PromptSend, Role::Assistant, "a"), "a");
+    }
+
+    #[test]
+    fn compile_rules_skips_invalid_pattern() {
+        let bad = rule("(unclosed", "x", &[Scope::Display], &[Target::Assistant]);
+        let rules = compile_rules(&[bad]);
+        assert!(rules.is_empty());
+    }
 }

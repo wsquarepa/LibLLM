@@ -143,6 +143,10 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                     delete_chat_message(app, node_id);
                     app.focus = Focus::Chat;
                 }
+                DeleteContext::Regex => {
+                    super::regex::perform_delete_selected(app);
+                    app.focus = Focus::RegexDialog;
+                }
             }
         }
         ConfirmResult::Cancelled => {
@@ -156,6 +160,7 @@ pub(in crate::tui) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) ->
                 DeleteContext::Preset { .. } => Focus::PresetPickerDialog,
                 DeleteContext::ThemeResetColors => Focus::ThemeDialog,
                 DeleteContext::ChatMessage { .. } => Focus::Chat,
+                DeleteContext::Regex => Focus::RegexDialog,
             };
         }
         ConfirmResult::Pending => {}

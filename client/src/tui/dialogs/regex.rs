@@ -276,13 +276,10 @@ fn handle_list_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Char('d') if len > 0 => {
             let i = app.regex_list_selected;
-            app.config.regex.remove(i);
-            if app.regex_list_selected >= app.config.regex.len()
-                && app.regex_list_selected > 0
-            {
-                app.regex_list_selected -= 1;
-            }
-            save_and_recompile(app);
+            app.delete_context = crate::tui::types::DeleteContext::Regex;
+            app.delete_confirm_selected = 0;
+            app.delete_confirm_filename = app.config.regex[i].name.clone();
+            app.focus = crate::tui::Focus::DeleteConfirmDialog;
         }
         _ => {}
     }
@@ -431,6 +428,18 @@ fn open_editor_for_new(app: &mut App) {
         field: EditorField::Name,
         error: None,
     });
+}
+
+pub(in crate::tui) fn perform_delete_selected(app: &mut App) {
+    let i = app.regex_list_selected;
+    if i >= app.config.regex.len() {
+        return;
+    }
+    app.config.regex.remove(i);
+    if app.regex_list_selected >= app.config.regex.len() && app.regex_list_selected > 0 {
+        app.regex_list_selected -= 1;
+    }
+    save_and_recompile(app);
 }
 
 pub(in crate::tui) fn save_and_recompile(app: &mut App) {

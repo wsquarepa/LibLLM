@@ -73,6 +73,7 @@ pub(super) enum DeleteContext {
     Preset { kind: dialogs::preset::PresetKind },
     ThemeResetColors,
     ChatMessage { node_id: NodeId },
+    Regex,
 }
 
 #[derive(Clone, Copy)]

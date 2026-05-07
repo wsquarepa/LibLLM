@@ -605,6 +605,8 @@ pub struct ThemeColorOverrides {
     pub group_character_bg_7: Option<String>,
     pub group_character_bg_8: Option<String>,
     pub missing_character_badge_fg: Option<String>,
+    pub search_highlight_fg: Option<String>,
+    pub search_highlight_bg: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -659,10 +661,12 @@ pub enum ColorLabel {
     GroupCharacterBg7,
     GroupCharacterBg8,
     MissingCharacterBadgeFg,
+    SearchHighlightFg,
+    SearchHighlightBg,
 }
 
 impl ColorLabel {
-    pub const ALL: [ColorLabel; 50] = [
+    pub const ALL: [ColorLabel; 52] = [
         Self::UserCharacterFg,
         Self::UserCharacterBg,
         Self::SideCharacterFg,
@@ -713,6 +717,8 @@ impl ColorLabel {
         Self::GroupCharacterBg7,
         Self::GroupCharacterBg8,
         Self::MissingCharacterBadgeFg,
+        Self::SearchHighlightFg,
+        Self::SearchHighlightBg,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -767,6 +773,8 @@ impl ColorLabel {
             Self::GroupCharacterBg7 => "group_character_bg_7",
             Self::GroupCharacterBg8 => "group_character_bg_8",
             Self::MissingCharacterBadgeFg => "missing_character_badge_fg",
+            Self::SearchHighlightFg => "search_highlight_fg",
+            Self::SearchHighlightBg => "search_highlight_bg",
         }
     }
 
@@ -828,6 +836,8 @@ impl ThemeColorOverrides {
             ColorLabel::GroupCharacterBg7 => &self.group_character_bg_7,
             ColorLabel::GroupCharacterBg8 => &self.group_character_bg_8,
             ColorLabel::MissingCharacterBadgeFg => &self.missing_character_badge_fg,
+            ColorLabel::SearchHighlightFg => &self.search_highlight_fg,
+            ColorLabel::SearchHighlightBg => &self.search_highlight_bg,
         };
         slot.as_deref()
     }
@@ -884,6 +894,8 @@ impl ThemeColorOverrides {
             ColorLabel::GroupCharacterBg7 => &mut self.group_character_bg_7,
             ColorLabel::GroupCharacterBg8 => &mut self.group_character_bg_8,
             ColorLabel::MissingCharacterBadgeFg => &mut self.missing_character_badge_fg,
+            ColorLabel::SearchHighlightFg => &mut self.search_highlight_fg,
+            ColorLabel::SearchHighlightBg => &mut self.search_highlight_bg,
         };
         *slot = value;
     }

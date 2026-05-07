@@ -374,6 +374,7 @@ fn handle_key(
             | Focus::BranchDialog
             | Focus::SearchDialog
             | Focus::RegexDialog
+            | Focus::RegexEditorDialog
             | Focus::DeleteConfirmDialog
             | Focus::ApiErrorDialog
             | Focus::LoadingDialog
@@ -469,6 +470,9 @@ fn handle_key(
     }
     if app.focus == Focus::RegexDialog {
         return dialogs::regex::handle_regex_dialog_key(key, app);
+    }
+    if app.focus == Focus::RegexEditorDialog {
+        return dialogs::regex::handle_regex_editor_key(key, app);
     }
     if app.focus == Focus::DeleteConfirmDialog {
         return dialogs::delete_confirm::handle_delete_confirm_key(key, app);

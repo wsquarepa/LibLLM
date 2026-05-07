@@ -118,12 +118,6 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Copy current debug log to ./debug.log",
     },
     CommandInfo {
-        name: "/search",
-        aliases: &["/find"],
-        args: "[query]",
-        description: "Open full-text search dialog",
-    },
-    CommandInfo {
         name: "/quit",
         aliases: &["/exit"],
         args: "",

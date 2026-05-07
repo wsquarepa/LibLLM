@@ -33,7 +33,7 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
         bg_style
     };
 
-    let hints_text = "Tab: switch focus | Ctrl+C: quit ";
+    let hints_text = "Tab: switch focus | Ctrl+F: search | Ctrl+C: quit ";
 
     let total_width = area.width as usize;
     if total_width < 20 {

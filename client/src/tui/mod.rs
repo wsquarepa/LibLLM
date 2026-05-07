@@ -698,6 +698,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::BranchDialog => Some("branch"),
         Focus::SearchDialog => Some("search"),
         Focus::RegexDialog => Some("regex"),
+        Focus::RegexEditorDialog => Some("regex_editor"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
         Focus::FilePickerDialog => Some("file_picker"),
@@ -898,6 +899,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         Focus::RegexDialog => {
             dialogs::regex::render_regex_dialog(f, app, f.area());
         }
+        Focus::RegexEditorDialog => {
+            dialogs::regex::render_regex_editor_dialog(f, app, f.area());
+        }
         Focus::WorldbookDialog => {
             dialogs::worldbook::render_worldbook_dialog(f, app, f.area());
         }
@@ -932,7 +936,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::SearchDialog => {
             if let Some(state) = app.search_dialog.as_ref() {
-                dialogs::search::render(state, f.area(), f.buffer_mut(), &app.theme);
+                dialogs::search::render_dialog(state, f, f.area(), &app.theme);
             }
         }
         Focus::DeleteConfirmDialog => {

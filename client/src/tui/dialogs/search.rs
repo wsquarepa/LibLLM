@@ -11,8 +11,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use time::format_description::well_known::Rfc3339;
 
+use super::super::render::{clear_centered, render_hints_below_dialog};
 use super::super::theme::Theme;
 use super::super::types::Focus;
+
+const SEARCH_DIALOG_WIDTH_PERCENT: f32 = 0.8;
+const SEARCH_DIALOG_HEIGHT_PERCENT: f32 = 0.8;
 
 pub(crate) const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 pub(crate) const MIN_QUERY_CHARS: usize = 3;
@@ -39,16 +43,6 @@ impl SearchDialogState {
             selected: 0,
             error: None,
         }
-    }
-
-    pub fn with_prefilled(query: &str) -> Self {
-        let mut s = Self::new();
-        s.input = query.to_owned();
-        s.cursor = query.chars().count();
-        if query.trim().chars().count() >= MIN_QUERY_CHARS {
-            s.last_keystroke = Some(Instant::now());
-        }
-        s
     }
 
     pub fn ready_for_query(&self, now: Instant) -> bool {
@@ -172,9 +166,29 @@ pub(crate) fn handle_key(state: &mut SearchDialogState, key: KeyEvent) -> Search
     }
 }
 
+pub(crate) fn render_dialog(
+    state: &SearchDialogState,
+    f: &mut ratatui::Frame,
+    area: Rect,
+    theme: &Theme,
+) {
+    let w = (area.width as f32 * SEARCH_DIALOG_WIDTH_PERCENT) as u16;
+    let h = (area.height as f32 * SEARCH_DIALOG_HEIGHT_PERCENT) as u16;
+    let dialog = clear_centered(f, w, h, area);
+    render(state, dialog, f.buffer_mut(), theme);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[Line::from(
+            "Up/Down: select  Enter: jump  Ctrl+R: raw FTS5  Esc: close",
+        )],
+    );
+}
+
 pub(crate) fn render(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &Theme) {
     let block = Block::default()
-        .title("Search")
+        .title(" Search ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.border_focused));
     let inner = block.inner(area);
@@ -352,7 +366,8 @@ fn highlight_spans(input: &str, theme: &Theme) -> Vec<Span<'static>> {
                     spans.push(Span::styled(
                         std::mem::take(&mut buffer),
                         Style::default()
-                            .fg(theme.status_warning_fg)
+                            .fg(theme.search_highlight_fg)
+                            .bg(theme.search_highlight_bg)
                             .add_modifier(Modifier::BOLD),
                     ));
                 }
@@ -364,7 +379,8 @@ fn highlight_spans(input: &str, theme: &Theme) -> Vec<Span<'static>> {
     if !buffer.is_empty() {
         let style = if highlighted {
             Style::default()
-                .fg(theme.status_warning_fg)
+                .fg(theme.search_highlight_fg)
+                .bg(theme.search_highlight_bg)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()

@@ -382,6 +382,8 @@ const UI_LABEL_IDS: &[libllm::config::ColorLabel] = &[
     libllm::config::ColorLabel::Dimmed,
     libllm::config::ColorLabel::CommandPickerFg,
     libllm::config::ColorLabel::CommandPickerBg,
+    libllm::config::ColorLabel::SearchHighlightFg,
+    libllm::config::ColorLabel::SearchHighlightBg,
 ];
 const UI_LABELS: &[&str] = &[
     libllm::config::ColorLabel::NavCursorFg.name(),
@@ -392,8 +394,10 @@ const UI_LABELS: &[&str] = &[
     libllm::config::ColorLabel::Dimmed.name(),
     libllm::config::ColorLabel::CommandPickerFg.name(),
     libllm::config::ColorLabel::CommandPickerBg.name(),
+    libllm::config::ColorLabel::SearchHighlightFg.name(),
+    libllm::config::ColorLabel::SearchHighlightBg.name(),
 ];
-const UI_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7];
+const UI_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 const INDICATORS_LABEL_IDS: &[libllm::config::ColorLabel] = &[
     libllm::config::ColorLabel::StreamingIndicator,

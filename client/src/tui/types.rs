@@ -55,6 +55,7 @@ pub(super) enum Focus {
     DangerTypedConfirmDialog,
     GroupChatSettingsDialog,
     RegexDialog,
+    RegexEditorDialog,
 }
 
 pub(super) enum Action {

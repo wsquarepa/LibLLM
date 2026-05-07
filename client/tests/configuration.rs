@@ -395,8 +395,8 @@ fn theme_editor_covers_all_color_override_fields() {
         .map(|s| s.labels.len())
         .sum();
     assert_eq!(
-        color_field_count, 29,
-        "tabs 2-5 must cover all 29 ThemeColorOverrides fields"
+        color_field_count, 31,
+        "tabs 2-5 must cover all 31 editable ThemeColorOverrides fields"
     );
 }
 
@@ -424,7 +424,7 @@ fn theme_overrides_apply_round_trip() {
             "".to_owned(),
         ],
         vec!["".to_owned(); 10],
-        vec!["".to_owned(); 8],
+        vec!["".to_owned(); 10],
         vec!["".to_owned(); 3],
     ];
 
@@ -460,7 +460,7 @@ fn empty_theme_override_drops_to_none() {
         ],
         vec!["".to_owned(); 8],
         vec!["".to_owned(); 10],
-        vec!["".to_owned(); 8],
+        vec!["".to_owned(); 10],
         vec!["".to_owned(); 3],
     ];
 

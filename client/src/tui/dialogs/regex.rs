@@ -1,21 +1,44 @@
-//! Manage regex find/replace rules: list view, edit form, save flow.
+//! Manage regex find/replace rules: list view and a centered editor modal.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::text::Line;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::ListItem;
 
 use libllm::regex_rules::{RegexRule, Scope, Target};
 
-use super::{clear_centered, render_hints_below_dialog};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::dialog_handler::return_to_input;
-use crate::tui::{Action, App};
+use crate::tui::{Action, App, Focus};
+
+const REGEX_EDITOR_DIALOG_WIDTH: u16 = 72;
+const REGEX_EDITOR_DIALOG_HEIGHT: u16 = 18;
+
+const SCOPE_ORDER: [Scope; 4] = [
+    Scope::Display,
+    Scope::PromptSend,
+    Scope::PromptRecv,
+    Scope::Export,
+];
+const SCOPE_LABELS: [&str; 4] = ["display", "send", "recv", "export"];
+
+const TARGET_ORDER: [Target; 4] = [
+    Target::User,
+    Target::Assistant,
+    Target::System,
+    Target::Summary,
+];
+const TARGET_LABELS: [&str; 4] = ["user", "asst", "sys", "sum"];
 
 pub struct RegexEditorState {
     pub original_index: Option<usize>,
     pub draft: RegexRule,
     pub sample_input: String,
     pub field: EditorField,
+    pub scope_cursor: usize,
+    pub target_cursor: usize,
+    pub editing: bool,
     pub error: Option<String>,
 }
 
@@ -42,6 +65,25 @@ impl EditorField {
             Self::SampleInput => Self::Name,
         }
     }
+
+    fn prev(self) -> Self {
+        match self {
+            Self::Name => Self::SampleInput,
+            Self::Pattern => Self::Name,
+            Self::Replacement => Self::Pattern,
+            Self::ScopeToggles => Self::Replacement,
+            Self::TargetToggles => Self::ScopeToggles,
+            Self::Enabled => Self::TargetToggles,
+            Self::SampleInput => Self::Enabled,
+        }
+    }
+
+    fn is_text(self) -> bool {
+        matches!(
+            self,
+            Self::Name | Self::Pattern | Self::Replacement | Self::SampleInput
+        )
+    }
 }
 
 pub(in crate::tui) fn open(app: &mut App) {
@@ -49,7 +91,7 @@ pub(in crate::tui) fn open(app: &mut App) {
         .regex_list_selected
         .min(app.config.regex.len().saturating_sub(1));
     app.regex_editor = None;
-    app.focus = crate::tui::Focus::RegexDialog;
+    app.focus = Focus::RegexDialog;
 }
 
 pub(in crate::tui) fn render_regex_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
@@ -60,27 +102,13 @@ pub(in crate::tui) fn render_regex_dialog(f: &mut ratatui::Frame, app: &App, are
         .map(format_rule_summary)
         .collect();
     let count = labels.len();
-    let editor_height: u16 = if app.regex_editor.is_some() { 14 } else { 0 };
-    let list_height = super::paged_list_height(
-        count,
-        area.height.saturating_sub(editor_height),
-        super::FIELD_DIALOG_PADDING_ROWS,
-    );
-    let total_height = list_height + editor_height;
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, total_height, area);
-
-    let split = ratatui::layout::Layout::default()
-        .direction(ratatui::layout::Direction::Vertical)
-        .constraints([
-            ratatui::layout::Constraint::Length(list_height),
-            ratatui::layout::Constraint::Length(editor_height),
-        ])
-        .split(dialog);
+    let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS);
+    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let items: Vec<ListItem<'_>> = labels.iter().cloned().map(ListItem::new).collect();
     super::render_paged_list(
         f,
-        split[0],
+        dialog,
         &app.theme,
         super::PagedListContent {
             selected: app.regex_list_selected,
@@ -91,99 +119,238 @@ pub(in crate::tui) fn render_regex_dialog(f: &mut ratatui::Frame, app: &App, are
         },
     );
 
-    if let Some(ed) = app.regex_editor.as_ref() {
-        render_editor_pane(f, split[1], ed);
+    let hints = vec![
+        Line::from("Up/Down: navigate  Space: toggle  Enter: edit  n: new  d: delete"),
+        Line::from("Shift+Up/Down: reorder  Esc: close"),
+    ];
+    render_hints_below_dialog(f, dialog, area, &hints);
+}
+
+pub(in crate::tui) fn render_regex_editor_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let Some(ed) = app.regex_editor.as_ref() else {
+        return;
+    };
+    let dialog = clear_centered(
+        f,
+        REGEX_EDITOR_DIALOG_WIDTH,
+        REGEX_EDITOR_DIALOG_HEIGHT,
+        area,
+    );
+    let title = if ed.original_index.is_some() {
+        " Edit regex rule "
+    } else {
+        " New regex rule "
+    };
+    f.render_widget(dialog_block(title, app.theme.border_focused), dialog);
+
+    let fields_area = Rect {
+        x: dialog.x + 2,
+        y: dialog.y + 1,
+        width: dialog.width.saturating_sub(4),
+        height: 8,
+    };
+    f.render_widget(
+        ratatui::widgets::Paragraph::new(build_editor_lines(ed, app)),
+        fields_area,
+    );
+
+    let preview_area = Rect {
+        x: dialog.x + 2,
+        y: dialog.y + dialog.height.saturating_sub(6),
+        width: dialog.width.saturating_sub(4),
+        height: 4,
+    };
+    render_preview_box(f, preview_area, ed, app);
+
+    if let Some(err) = ed.error.as_ref() {
+        let err_area = Rect {
+            x: dialog.x + 2,
+            y: dialog.y + dialog.height.saturating_sub(2),
+            width: dialog.width.saturating_sub(4),
+            height: 1,
+        };
+        f.render_widget(
+            ratatui::widgets::Paragraph::new(Line::from(Span::styled(
+                err.clone(),
+                Style::default().fg(app.theme.status_error_fg),
+            ))),
+            err_area,
+        );
     }
 
-    let hints = if app.regex_editor.is_some() {
+    let hints = if ed.editing {
+        vec![Line::from("Type to edit  Enter/Esc: stop editing")]
+    } else if matches!(ed.field, EditorField::ScopeToggles | EditorField::TargetToggles) {
         vec![Line::from(
-            "Tab: next field  Space: toggle  Enter: edit text  Ctrl+S: save  Esc: cancel",
+            "Left/Right: option  Space/Enter: toggle  Up/Down/Tab: field  Esc: save & close",
         )]
     } else {
-        vec![
-            Line::from("Up/Down: navigate  Space: toggle  Enter: edit  n: new  d: delete"),
-            Line::from("Shift+Up/Down: reorder  Esc: close"),
-        ]
+        vec![Line::from(
+            "Up/Down: field  Enter: edit/toggle  Space: toggle  Esc: save & close",
+        )]
     };
     render_hints_below_dialog(f, dialog, area, &hints);
 }
 
-fn render_editor_pane(f: &mut ratatui::Frame, area: Rect, ed: &RegexEditorState) {
-    let cursor = |field: EditorField| -> &'static str {
-        if ed.field == field { ">" } else { " " }
-    };
-    let scope_marks = |s: Scope| -> &'static str {
-        if ed.draft.scope.contains(&s) { "[x]" } else { "[ ]" }
-    };
-    let target_marks = |t: Target| -> &'static str {
-        if ed.draft.target.contains(&t) { "[x]" } else { "[ ]" }
-    };
-    let preview = libllm::regex_rules::compile_rules(std::slice::from_ref(&ed.draft));
-    let preview_out = if preview.is_empty() {
-        "(invalid pattern)".to_owned()
-    } else {
-        let scope = ed.draft.scope.first().copied().unwrap_or(Scope::Display);
-        let role = match ed.draft.target.first().copied().unwrap_or(Target::User) {
-            Target::User => libllm::session::Role::User,
-            Target::Assistant => libllm::session::Role::Assistant,
-            Target::System => libllm::session::Role::System,
-            Target::Summary => libllm::session::Role::Summary,
-        };
-        libllm::regex_rules::apply(&preview, scope, role, &ed.sample_input).into_owned()
-    };
-
-    let lines: Vec<Line<'_>> = vec![
-        Line::from(format!(
-            "{} name:        {}",
-            cursor(EditorField::Name),
-            ed.draft.name
-        )),
-        Line::from(format!(
-            "{} pattern:     {}",
-            cursor(EditorField::Pattern),
-            ed.draft.pattern
-        )),
-        Line::from(format!(
-            "{} replacement: {}",
-            cursor(EditorField::Replacement),
-            ed.draft.replacement
-        )),
-        Line::from(format!(
-            "{} scope:       {}display {}send {}recv {}export",
-            cursor(EditorField::ScopeToggles),
-            scope_marks(Scope::Display),
-            scope_marks(Scope::PromptSend),
-            scope_marks(Scope::PromptRecv),
-            scope_marks(Scope::Export),
-        )),
-        Line::from(format!(
-            "{} target:      {}user {}asst {}sys {}sum",
-            cursor(EditorField::TargetToggles),
-            target_marks(Target::User),
-            target_marks(Target::Assistant),
-            target_marks(Target::System),
-            target_marks(Target::Summary),
-        )),
-        Line::from(format!(
-            "{} enabled:     {}",
-            cursor(EditorField::Enabled),
-            if ed.draft.enabled { "[x]" } else { "[ ]" }
-        )),
-        Line::from(format!(
-            "{} sample:      {}",
-            cursor(EditorField::SampleInput),
-            ed.sample_input
-        )),
-        Line::from(format!("  preview:     {preview_out}")),
-        Line::from(ed.error.clone().unwrap_or_default()),
-    ];
-
-    let block = ratatui::widgets::Paragraph::new(lines).block(
-        ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
-            .title(" Edit "),
-    );
+fn render_preview_box(f: &mut ratatui::Frame, area: Rect, ed: &RegexEditorState, app: &App) {
+    let block = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .title(" preview ")
+        .border_style(Style::default().fg(app.theme.border_unfocused));
+    let inner = block.inner(area);
     f.render_widget(block, area);
+
+    let preview_out = compute_preview(&ed.draft, &ed.sample_input);
+    f.render_widget(
+        ratatui::widgets::Paragraph::new(preview_out)
+            .style(Style::default().fg(app.theme.dimmed))
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
+}
+
+fn build_editor_lines(ed: &RegexEditorState, _app: &App) -> Vec<Line<'static>> {
+    vec![
+        text_row(ed, EditorField::Name, "name:", &ed.draft.name),
+        text_row(ed, EditorField::Pattern, "pattern:", &ed.draft.pattern),
+        text_row(
+            ed,
+            EditorField::Replacement,
+            "replacement:",
+            &ed.draft.replacement,
+        ),
+        toggle_row(
+            ed,
+            EditorField::ScopeToggles,
+            "scope:",
+            &SCOPE_LABELS,
+            ed.scope_cursor,
+            |i| ed.draft.scope.contains(&SCOPE_ORDER[i]),
+        ),
+        toggle_row(
+            ed,
+            EditorField::TargetToggles,
+            "target:",
+            &TARGET_LABELS,
+            ed.target_cursor,
+            |i| ed.draft.target.contains(&TARGET_ORDER[i]),
+        ),
+        bool_row(ed, EditorField::Enabled, "enabled:", ed.draft.enabled),
+        text_row(
+            ed,
+            EditorField::SampleInput,
+            "sample:",
+            &ed.sample_input,
+        ),
+    ]
+}
+
+fn cursor_marker(ed: &RegexEditorState, field: EditorField) -> &'static str {
+    if ed.field == field { "> " } else { "  " }
+}
+
+fn label_style(ed: &RegexEditorState, field: EditorField) -> Style {
+    if ed.field == field {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
+}
+
+fn value_style(ed: &RegexEditorState, field: EditorField) -> Style {
+    if ed.field == field {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    }
+}
+
+fn text_row(
+    ed: &RegexEditorState,
+    field: EditorField,
+    label: &str,
+    value: &str,
+) -> Line<'static> {
+    let display = if ed.field == field && ed.editing && field.is_text() {
+        format!("{value}_")
+    } else {
+        value.to_owned()
+    };
+    Line::from(vec![
+        Span::styled(
+            format!("{}{:<13}", cursor_marker(ed, field), label),
+            label_style(ed, field),
+        ),
+        Span::styled(display, value_style(ed, field)),
+    ])
+}
+
+fn bool_row(
+    ed: &RegexEditorState,
+    field: EditorField,
+    label: &str,
+    val: bool,
+) -> Line<'static> {
+    let mark = if val { "[x]" } else { "[ ]" };
+    Line::from(vec![
+        Span::styled(
+            format!("{}{:<13}", cursor_marker(ed, field), label),
+            label_style(ed, field),
+        ),
+        Span::styled(mark.to_owned(), value_style(ed, field)),
+    ])
+}
+
+fn toggle_row(
+    ed: &RegexEditorState,
+    field: EditorField,
+    label: &str,
+    options: &[&str],
+    sub_cursor: usize,
+    is_set: impl Fn(usize) -> bool,
+) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = vec![Span::styled(
+        format!("{}{:<13}", cursor_marker(ed, field), label),
+        label_style(ed, field),
+    )];
+
+    let on_field = ed.field == field;
+    for (i, name) in options.iter().enumerate() {
+        let mark = if is_set(i) { "[x] " } else { "[ ] " };
+        let token = format!("{mark}{name}");
+        let style = if on_field && i == sub_cursor {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else if on_field {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        spans.push(Span::styled(token, style));
+        if i + 1 < options.len() {
+            spans.push(Span::raw(" "));
+        }
+    }
+    Line::from(spans)
+}
+
+fn compute_preview(draft: &RegexRule, sample: &str) -> String {
+    let preview = libllm::regex_rules::compile_rules(std::slice::from_ref(draft));
+    if preview.is_empty() {
+        return "(invalid pattern)".to_owned();
+    }
+    let scope = draft.scope.first().copied().unwrap_or(Scope::Display);
+    let role = match draft.target.first().copied().unwrap_or(Target::User) {
+        Target::User => libllm::session::Role::User,
+        Target::Assistant => libllm::session::Role::Assistant,
+        Target::System => libllm::session::Role::System,
+        Target::Summary => libllm::session::Role::Summary,
+    };
+    libllm::regex_rules::apply(&preview, scope, role, sample).into_owned()
 }
 
 fn format_rule_summary(rule: &RegexRule) -> String {
@@ -221,13 +388,6 @@ fn format_rule_summary(rule: &RegexRule) -> String {
 }
 
 pub(in crate::tui) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.regex_editor.is_some() {
-        return handle_editor_key(key, app);
-    }
-    handle_list_key(key, app)
-}
-
-fn handle_list_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let len = app.config.regex.len();
     match key.code {
         KeyCode::Esc => {
@@ -279,34 +439,102 @@ fn handle_list_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             app.delete_context = crate::tui::types::DeleteContext::Regex;
             app.delete_confirm_selected = 0;
             app.delete_confirm_filename = app.config.regex[i].name.clone();
-            app.focus = crate::tui::Focus::DeleteConfirmDialog;
+            app.focus = Focus::DeleteConfirmDialog;
         }
         _ => {}
     }
     None
 }
 
-fn handle_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    let ed = app.regex_editor.as_mut()?;
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    match (key.code, ctrl) {
-        (KeyCode::Esc, _) => {
-            app.regex_editor = None;
+pub(in crate::tui) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    let Some(ed) = app.regex_editor.as_mut() else {
+        app.focus = Focus::RegexDialog;
+        return None;
+    };
+
+    if ed.editing {
+        match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                ed.editing = false;
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                append_char(ed, c);
+            }
+            KeyCode::Backspace => backspace(ed),
+            _ => {}
         }
-        (KeyCode::Char('s'), true) => {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Esc => {
             commit_editor(app);
+            app.focus = Focus::RegexDialog;
         }
-        (KeyCode::Tab, _) => {
-            ed.field = ed.field.next();
+        KeyCode::Up => {
+            if let Some(ed) = app.regex_editor.as_mut() {
+                ed.field = ed.field.prev();
+            }
         }
-        (KeyCode::Char(' '), false) => match ed.field {
-            EditorField::ScopeToggles => cycle_scope(ed),
-            EditorField::TargetToggles => cycle_target(ed),
-            EditorField::Enabled => ed.draft.enabled = !ed.draft.enabled,
-            _ => append_char(ed, ' '),
-        },
-        (KeyCode::Char(c), false) => append_char(ed, c),
-        (KeyCode::Backspace, _) => backspace(ed),
+        KeyCode::Down | KeyCode::Tab => {
+            if let Some(ed) = app.regex_editor.as_mut() {
+                ed.field = ed.field.next();
+            }
+        }
+        KeyCode::Left => {
+            if let Some(ed) = app.regex_editor.as_mut() {
+                match ed.field {
+                    EditorField::ScopeToggles => {
+                        ed.scope_cursor = ed.scope_cursor.saturating_sub(1);
+                    }
+                    EditorField::TargetToggles => {
+                        ed.target_cursor = ed.target_cursor.saturating_sub(1);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        KeyCode::Right => {
+            if let Some(ed) = app.regex_editor.as_mut() {
+                match ed.field {
+                    EditorField::ScopeToggles
+                        if ed.scope_cursor + 1 < SCOPE_ORDER.len() =>
+                    {
+                        ed.scope_cursor += 1;
+                    }
+                    EditorField::TargetToggles
+                        if ed.target_cursor + 1 < TARGET_ORDER.len() =>
+                    {
+                        ed.target_cursor += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        KeyCode::Char(' ') | KeyCode::Enter
+            if matches!(
+                app.regex_editor.as_ref().map(|e| e.field),
+                Some(EditorField::ScopeToggles)
+                    | Some(EditorField::TargetToggles)
+                    | Some(EditorField::Enabled)
+            ) =>
+        {
+            if let Some(ed) = app.regex_editor.as_mut() {
+                match ed.field {
+                    EditorField::ScopeToggles => toggle_scope_at_cursor(ed),
+                    EditorField::TargetToggles => toggle_target_at_cursor(ed),
+                    EditorField::Enabled => ed.draft.enabled = !ed.draft.enabled,
+                    _ => {}
+                }
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(ed) = app.regex_editor.as_mut()
+                && ed.field.is_text()
+            {
+                ed.editing = true;
+            }
+        }
         _ => {}
     }
     None
@@ -318,7 +546,7 @@ fn append_char(ed: &mut RegexEditorState, c: char) {
         EditorField::Pattern => ed.draft.pattern.push(c),
         EditorField::Replacement => ed.draft.replacement.push(c),
         EditorField::SampleInput => ed.sample_input.push(c),
-        EditorField::ScopeToggles | EditorField::TargetToggles | EditorField::Enabled => {}
+        _ => {}
     }
 }
 
@@ -335,41 +563,21 @@ fn backspace(ed: &mut RegexEditorState) {
     }
 }
 
-fn cycle_scope(ed: &mut RegexEditorState) {
-    let order = [
-        Scope::Display,
-        Scope::PromptSend,
-        Scope::PromptRecv,
-        Scope::Export,
-    ];
-    let idx = order
-        .iter()
-        .position(|s| !ed.draft.scope.contains(s))
-        .unwrap_or(0);
-    let next = order[idx];
-    if let Some(pos) = ed.draft.scope.iter().position(|s| *s == next) {
+fn toggle_scope_at_cursor(ed: &mut RegexEditorState) {
+    let scope = SCOPE_ORDER[ed.scope_cursor];
+    if let Some(pos) = ed.draft.scope.iter().position(|s| *s == scope) {
         ed.draft.scope.remove(pos);
     } else {
-        ed.draft.scope.push(next);
+        ed.draft.scope.push(scope);
     }
 }
 
-fn cycle_target(ed: &mut RegexEditorState) {
-    let order = [
-        Target::User,
-        Target::Assistant,
-        Target::System,
-        Target::Summary,
-    ];
-    let idx = order
-        .iter()
-        .position(|t| !ed.draft.target.contains(t))
-        .unwrap_or(0);
-    let next = order[idx];
-    if let Some(pos) = ed.draft.target.iter().position(|t| *t == next) {
+fn toggle_target_at_cursor(ed: &mut RegexEditorState) {
+    let target = TARGET_ORDER[ed.target_cursor];
+    if let Some(pos) = ed.draft.target.iter().position(|t| *t == target) {
         ed.draft.target.remove(pos);
     } else {
-        ed.draft.target.push(next);
+        ed.draft.target.push(target);
     }
 }
 
@@ -408,8 +616,12 @@ fn open_editor_for_existing(app: &mut App, index: usize) {
         draft,
         sample_input: String::new(),
         field: EditorField::Name,
+        scope_cursor: 0,
+        target_cursor: 0,
+        editing: false,
         error: None,
     });
+    app.focus = Focus::RegexEditorDialog;
 }
 
 fn open_editor_for_new(app: &mut App) {
@@ -426,8 +638,12 @@ fn open_editor_for_new(app: &mut App) {
         },
         sample_input: String::new(),
         field: EditorField::Name,
+        scope_cursor: 0,
+        target_cursor: 0,
+        editing: false,
         error: None,
     });
+    app.focus = Focus::RegexEditorDialog;
 }
 
 pub(in crate::tui) fn perform_delete_selected(app: &mut App) {
@@ -493,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn cycle_scope_toggles_each_scope_once() {
+    fn toggle_scope_at_cursor_only_toggles_pointed_item() {
         let mut state = RegexEditorState {
             original_index: None,
             draft: RegexRule {
@@ -507,12 +723,38 @@ mod tests {
             },
             sample_input: String::new(),
             field: EditorField::ScopeToggles,
+            scope_cursor: 2,
+            target_cursor: 0,
+            editing: false,
             error: None,
         };
-        cycle_scope(&mut state);
-        cycle_scope(&mut state);
-        cycle_scope(&mut state);
-        cycle_scope(&mut state);
-        assert_eq!(state.draft.scope.len(), 4);
+        toggle_scope_at_cursor(&mut state);
+        assert_eq!(state.draft.scope, vec![Scope::PromptRecv]);
+        toggle_scope_at_cursor(&mut state);
+        assert!(state.draft.scope.is_empty());
+    }
+
+    #[test]
+    fn toggle_target_at_cursor_only_toggles_pointed_item() {
+        let mut state = RegexEditorState {
+            original_index: None,
+            draft: RegexRule {
+                name: "x".to_owned(),
+                pattern: "x".to_owned(),
+                replacement: "y".to_owned(),
+                scope: vec![Scope::Display],
+                target: Vec::new(),
+                enabled: true,
+                compile_error: None,
+            },
+            sample_input: String::new(),
+            field: EditorField::TargetToggles,
+            scope_cursor: 0,
+            target_cursor: 1,
+            editing: false,
+            error: None,
+        };
+        toggle_target_at_cursor(&mut state);
+        assert_eq!(state.draft.target, vec![Target::Assistant]);
     }
 }

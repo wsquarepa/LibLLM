@@ -13,7 +13,7 @@ fn author_note_columns(card: &CharacterCard) -> (Option<&str>, i64, i64) {
             note.depth as i64,
             note.at_top as i64,
         ),
-        None => (None, 4, 0),
+        None => (None, crate::author_note::DEFAULT_DEPTH as i64, 0),
     }
 }
 
@@ -117,9 +117,10 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                     tracing::warn!(
                         slug = slug,
                         raw = author_note_depth,
-                        "db.character.load: author_note_depth out of range, defaulting to 4"
+                        "db.character.load: author_note_depth out of range, defaulting to {}",
+                        crate::author_note::DEFAULT_DEPTH
                     );
-                    4
+                    crate::author_note::DEFAULT_DEPTH
                 });
                 let author_note = crate::author_note::AuthorNote::from_row_parts(
                     author_note_text,

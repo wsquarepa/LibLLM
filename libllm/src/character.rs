@@ -126,7 +126,7 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
             .and_then(|dp| {
                 crate::author_note::AuthorNote::from_row_parts(
                     dp.prompt,
-                    dp.depth.unwrap_or(4),
+                    dp.depth.unwrap_or(crate::author_note::DEFAULT_DEPTH),
                     false,
                 )
             }),

@@ -245,7 +245,7 @@ Set `INSTALL_DIR` to override the install location. For private repositories, se
 
 ### From release
 
-Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are available as [releases](../../releases). The [stable release](../../releases/tag/stable) is updated on every push to `master`. Branch builds are published as pre-releases when changes are pushed to any other branch.
+Pre-built binaries for Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64, aarch64) are available as [releases](../../releases). Stable releases are cut by tagging `vX.Y.Z`. The [`preview`](../../releases/tag/preview) prerelease is overwritten on every push to `master` and tracks the bleeding edge. Branch builds are published as prereleases when changes are pushed to any other branch.
 
 ### From source
 
@@ -265,6 +265,7 @@ cargo build --release --workspace
 ```sh
 libllm update                    # interactive picker (TTY) or update stable (non-TTY)
 libllm update stable             # update stable explicitly
+libllm update preview            # switch to the bleeding-edge build from master
 libllm update feature/branch     # switch to a branch build
 libllm update -y feature/branch  # skip the channel-switch confirmation
 ```
@@ -324,8 +325,9 @@ The bare `libllm recover` opens an action menu on a TTY. In non-interactive shel
 # Update to the latest stable build (interactive picker on TTY, stable on non-TTY)
 libllm update
 
-# Update stable explicitly or switch to a branch build
+# Update stable explicitly, track preview, or switch to a branch build
 libllm update stable
+libllm update preview
 libllm update feature/branch
 
 # Edit a character card or worldbook in $EDITOR

@@ -262,6 +262,7 @@ mod tests {
             card.post_history_instructions
         );
         assert_eq!(loaded.alternate_greetings, card.alternate_greetings);
+        assert_eq!(loaded.author_note, card.author_note);
     }
 
     #[test]

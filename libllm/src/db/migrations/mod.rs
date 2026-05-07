@@ -353,8 +353,8 @@ mod tests {
         let mut stmt = conn.prepare("PRAGMA table_info(messages)").unwrap();
         let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
             .collect::<Result<Vec<_>, _>>().unwrap();
-        assert!(cols.iter().any(|c| c == "speaker_slug"));
-        assert!(cols.iter().any(|c| c == "pre_turn_action_points"));
+        assert!(cols.iter().any(|c| c == "speaker_slug"), "missing column 'speaker_slug' in {cols:?}");
+        assert!(cols.iter().any(|c| c == "pre_turn_action_points"), "missing column 'pre_turn_action_points' in {cols:?}");
     }
 
     #[test]
@@ -403,5 +403,29 @@ mod tests {
             [], |row| row.get(0),
         ).unwrap();
         assert_eq!(bare_attachments, 0);
+    }
+
+    #[test]
+    fn cascade_deletes_session_characters_when_session_deleted() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points)
+             VALUES ('s1', 'alice', 0, 1.0, 0.0)",
+            [],
+        ).unwrap();
+
+        conn.execute("DELETE FROM sessions WHERE id='s1'", []).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM session_characters", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 }

@@ -102,6 +102,23 @@ where
 
     let injected: Vec<libllm::session::Message> = injected
         .into_iter()
+        .map(|m| {
+            let new_content = libllm::regex_rules::apply(
+                &app.compiled_regex,
+                libllm::regex_rules::Scope::PromptSend,
+                m.role,
+                &m.content,
+            )
+            .into_owned();
+            libllm::session::Message {
+                role: m.role,
+                content: new_content,
+                timestamp: m.timestamp,
+                thought_seconds: m.thought_seconds,
+                speaker: m.speaker,
+                pre_turn_action_points: m.pre_turn_action_points,
+            }
+        })
         .map(|m| match m.role {
             libllm::session::Role::User => libllm::session::Message {
                 role: m.role,
@@ -660,6 +677,13 @@ pub(in crate::tui) async fn handle_stream_token(
             if app.is_continuation {
                 let existing = app.session.tree.node(head).unwrap().message.content.clone();
                 let combined = format!("{}{}", existing, full_response);
+                let combined = libllm::regex_rules::apply(
+                    &app.compiled_regex,
+                    libllm::regex_rules::Scope::PromptRecv,
+                    Role::Assistant,
+                    &combined,
+                )
+                .into_owned();
                 app.session.tree.set_message_content(head, combined);
                 let current_seconds = app
                     .session
@@ -678,6 +702,13 @@ pub(in crate::tui) async fn handle_stream_token(
                 let stored_content = libllm::thought::normalize_assistant_content(
                     &full_response,
                     app.reasoning_preset.as_ref(),
+                )
+                .into_owned();
+                let stored_content = libllm::regex_rules::apply(
+                    &app.compiled_regex,
+                    libllm::regex_rules::Scope::PromptRecv,
+                    Role::Assistant,
+                    &stored_content,
                 )
                 .into_owned();
                 let final_seconds = libllm::thought::resolve_thought_seconds(

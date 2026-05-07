@@ -54,6 +54,7 @@ pub(super) enum Focus {
     DangerConfirmDialog,
     DangerTypedConfirmDialog,
     GroupChatSettingsDialog,
+    RegexDialog,
 }
 
 pub(super) enum Action {
@@ -78,6 +79,7 @@ pub(super) enum DeleteContext {
     Preset { kind: dialogs::preset::PresetKind },
     ThemeResetColors,
     ChatMessage { node_id: NodeId },
+    Regex,
 }
 
 #[derive(Clone, Copy)]
@@ -310,6 +312,10 @@ pub(super) struct App<'a> {
     pub(super) worldbook_list: Vec<String>,
     pub(super) worldbook_selected: usize,
 
+    pub(super) regex_list_selected: usize,
+    pub(super) regex_editor: Option<dialogs::regex::RegexEditorState>,
+    pub(super) skipped_regex_rules_pending_status: usize,
+
     pub(super) character_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) character_editor_slug: String,
     pub(super) worldbook_editor_entries: Vec<libllm::worldinfo::Entry>,
@@ -322,6 +328,8 @@ pub(super) struct App<'a> {
     pub(super) worldbook_entry_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) worldbook_entry_editor_index: usize,
 
+    pub(super) compiled_regex: Vec<libllm::regex_rules::CompiledRule>,
+    pub(super) display_regex_cache: std::collections::HashMap<libllm::session::NodeId, String>,
     pub(super) chat_content_cache: Option<render::ChatContentCache>,
     pub(super) cached_token_count: Option<libllm::tokenizer::CountState>,
     pub(super) token_counter: libllm::tokenizer::TokenCounter,

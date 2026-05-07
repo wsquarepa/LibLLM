@@ -132,6 +132,14 @@ pub async fn run(
     let salt_exists = libllm::config::salt_path().exists();
     let initial_passkey_setup = save_mode.needs_passkey() && !salt_exists;
 
+    let enabled_rule_count = config
+        .regex
+        .iter()
+        .filter(|r| r.enabled && r.compile_error.is_none())
+        .count();
+    let compiled_regex = libllm::regex_rules::compile_rules(&config.regex);
+    let skipped_regex_rules = enabled_rule_count.saturating_sub(compiled_regex.len());
+
     let mut app = App {
         client,
         session,
@@ -234,6 +242,10 @@ pub async fn run(
         character_picks: Vec::new(),
         worldbook_list: Vec::new(),
         worldbook_selected: 0,
+
+        regex_list_selected: 0,
+        regex_editor: None,
+        skipped_regex_rules_pending_status: skipped_regex_rules,
         character_editor: None,
         character_editor_slug: String::new(),
         worldbook_editor_entries: Vec::new(),
@@ -245,6 +257,8 @@ pub async fn run(
         worldbook_editor_selected: 0,
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
+        compiled_regex,
+        display_regex_cache: std::collections::HashMap::new(),
         chat_content_cache: None,
         cached_token_count: None,
         token_counter,
@@ -327,6 +341,14 @@ pub async fn run(
     libllm::timed_result!(tracing::Level::INFO, "startup.phase", phase = "first_draw" ; {
         terminal.draw(|f| render_frame(f, &mut app))
     })?;
+    if app.skipped_regex_rules_pending_status > 0 {
+        let count = app.skipped_regex_rules_pending_status;
+        app.set_status(
+            format!("{count} regex rule(s) skipped — see /regex"),
+            StatusLevel::Warning,
+        );
+        app.skipped_regex_rules_pending_status = 0;
+    }
     {
         let _span = tracing::info_span!("startup.phase", phase = "maintenance_schedule").entered();
         maintenance::spawn_startup_maintenance(&app.save_mode, &app)
@@ -589,6 +611,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
 
+    app.prefill_display_regex_cache();
     let max_scroll;
     let mut cache = app.chat_content_cache.take();
     {
@@ -674,6 +697,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditConfirmDialog => Some("edit_confirm"),
         Focus::BranchDialog => Some("branch"),
         Focus::SearchDialog => Some("search"),
+        Focus::RegexDialog => Some("regex"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
         Focus::FilePickerDialog => Some("file_picker"),
@@ -870,6 +894,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             if let Some(ref dialog) = app.character_editor {
                 dialog.render(f, f.area());
             }
+        }
+        Focus::RegexDialog => {
+            dialogs::regex::render_regex_dialog(f, app, f.area());
         }
         Focus::WorldbookDialog => {
             dialogs::worldbook::render_worldbook_dialog(f, app, f.area());

@@ -1874,6 +1874,7 @@ dependencies = [
  "minijinja",
  "pdf-extract",
  "rand 0.10.1",
+ "regex",
  "reqwest",
  "rusqlite",
  "rustls",

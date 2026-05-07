@@ -109,6 +109,42 @@ impl App<'_> {
     pub(super) fn invalidate_chat_caches(&mut self) {
         self.invalidate_chat_render_cache();
         self.invalidate_prompt_cache();
+        self.display_regex_cache.clear();
+    }
+
+    pub(super) fn prefill_display_regex_cache(&mut self) {
+        if self.compiled_regex.is_empty() {
+            return;
+        }
+        let ids: Vec<libllm::session::NodeId> =
+            self.session.tree.current_branch_ids().to_vec();
+        for id in ids {
+            if self.display_regex_cache.contains_key(&id) {
+                continue;
+            }
+            let Some(node) = self.session.tree.node(id) else {
+                continue;
+            };
+            let role = node.message.role;
+            let transformed = libllm::regex_rules::apply(
+                &self.compiled_regex,
+                libllm::regex_rules::Scope::Display,
+                role,
+                &node.message.content,
+            )
+            .into_owned();
+            self.display_regex_cache.insert(id, transformed);
+        }
+    }
+
+    pub(super) fn display_content_for(
+        &self,
+        node_id: libllm::session::NodeId,
+    ) -> Option<&str> {
+        if self.compiled_regex.is_empty() {
+            return None;
+        }
+        self.display_regex_cache.get(&node_id).map(String::as_str)
     }
 
     /// Clear the textarea only when it still holds `submitted_content` (trimmed).

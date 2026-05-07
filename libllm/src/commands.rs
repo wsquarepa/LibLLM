@@ -106,6 +106,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Force the next assistant turn (optional speaker)",
     },
     CommandInfo {
+        name: "/regex",
+        aliases: &[],
+        args: "",
+        description: "Manage regex find/replace rules",
+    },
+    CommandInfo {
         name: "/report",
         aliases: &[],
         args: "",

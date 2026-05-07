@@ -38,6 +38,7 @@ pub(super) async fn handle_slash_command(
         "/persona" => cmd_persona(app),
         "/note" => cmd_note(app),
         "/worldbook" => cmd_worldbook(app),
+        "/regex" => cmd_regex(app),
         "/character" => cmd_character(app),
         "/chat" => cmd_chat(app),
         "/passkey" => cmd_passkey(app),
@@ -390,6 +391,10 @@ fn cmd_worldbook(app: &mut App) {
     app.worldbook_list = books.into_iter().map(|(_, name)| name).collect();
     app.worldbook_selected = 0;
     app.open_paged_dialog(Focus::WorldbookDialog);
+}
+
+fn cmd_regex(app: &mut App) {
+    super::dialogs::regex::open(app);
 }
 
 fn cmd_character(app: &mut App) {

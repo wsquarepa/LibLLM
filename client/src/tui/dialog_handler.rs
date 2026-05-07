@@ -24,6 +24,13 @@ pub(super) fn cancel_generation(app: &mut App) {
             };
             let existing = app.session.tree.node(head).expect("head id resolves to message node").message.content.clone();
             let combined = format!("{}{}", existing, app.streaming_buffer);
+            let combined = libllm::regex_rules::apply(
+                &app.compiled_regex,
+                libllm::regex_rules::Scope::PromptRecv,
+                Role::Assistant,
+                &combined,
+            )
+            .into_owned();
             app.session.tree.set_message_content(head, combined);
             let current_seconds = app
                 .session
@@ -52,6 +59,13 @@ pub(super) fn cancel_generation(app: &mut App) {
         let stored_content =
             libllm::thought::normalize_assistant_content(&raw, app.reasoning_preset.as_ref())
                 .into_owned();
+        let stored_content = libllm::regex_rules::apply(
+            &app.compiled_regex,
+            libllm::regex_rules::Scope::PromptRecv,
+            Role::Assistant,
+            &stored_content,
+        )
+        .into_owned();
         let measured_seconds = libllm::thought::measured_thought_seconds(
             app.stream_started_at,
             app.stream_first_think_closed_at,

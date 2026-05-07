@@ -596,11 +596,15 @@ pub fn render_chat(
                         })
                         .collect()
                 } else {
-                    let raw_content = match &side {
-                        Some((_, body)) => body.as_str(),
-                        None => msg.content.as_str(),
+                    let content: String = match &side {
+                        Some((_, body)) => replace_vars(body.as_str()),
+                        None => {
+                            let raw = app
+                                .display_content_for(node_id)
+                                .unwrap_or(&msg.content);
+                            replace_vars(raw)
+                        }
                     };
-                    let content = replace_vars(raw_content);
                     if msg.role == Role::Assistant {
                         let displayed = if let Some(slug) = group_speaker {
                             let display_name = app
@@ -731,7 +735,13 @@ pub fn render_chat(
                     .add_modifier(Modifier::BOLD),
             )]));
         }
-        let raw_buffer = replace_vars(&app.streaming_buffer);
+        let buffer_after_regex = libllm::regex_rules::apply(
+            &app.compiled_regex,
+            libllm::regex_rules::Scope::Display,
+            libllm::session::Role::Assistant,
+            &app.streaming_buffer,
+        );
+        let raw_buffer = replace_vars(&buffer_after_regex);
         let buffer = if app.is_continuation {
             raw_buffer
         } else {

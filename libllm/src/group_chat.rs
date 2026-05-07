@@ -652,4 +652,38 @@ mod tests {
         let quiet = order.iter().filter(|s| *s == "quiet").count();
         assert!(loud > quiet * 2, "loud={loud}, quiet={quiet}");
     }
+
+    #[test]
+    fn build_turn_prompt_swap_three_includes_only_active_card_and_roster() {
+        let cards = cards_map(&[
+            ("alice",   card("Alice",   "Bard.",   "Cheerful.", "A tavern.", "")),
+            ("bob",     card("Bob",     "Dwarf.",  "Stoic.",    "",          "")),
+            ("charlie", card("Charlie", "Wizard.", "Curious.",  "",          "")),
+        ]);
+        let session = fixture_session(&["alice", "bob", "charlie"], CardAssembly::SwapCards);
+        let p = build_turn_prompt(&session, &cards, None, None, "alice").unwrap();
+        let expected = include_str!("group_chat_fixtures/swap_three.txt");
+        assert_eq!(p.system.trim(), expected.trim(),
+            "swap-three mismatch:\n--- got ---\n{}\n--- want ---\n{}", p.system, expected);
+
+        assert!(p.system.contains("<character name=\"Alice\">"));
+        assert!(!p.system.contains("<character name=\"Bob\">"));
+        assert!(!p.system.contains("<character name=\"Charlie\">"));
+        assert!(p.system.contains("<roster>"));
+        assert!(p.system.contains("- Bob"));
+        assert!(p.system.contains("- Charlie"));
+    }
+
+    #[test]
+    fn build_turn_prompt_excludes_attachments_with_missing_cards() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
+            ("bob",   card("Bob",   "Dwarf.", "Stoic.", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob", "ghost"], CardAssembly::JoinCards);
+        let p = build_turn_prompt(&session, &cards, None, None, "alice").unwrap();
+        assert!(!p.system.contains("ghost"));
+        assert!(!p.stop_sequences.iter().any(|s| s.contains("ghost")));
+        assert!(!p.stop_sequences.iter().any(|s| s.contains("Ghost")));
+    }
 }

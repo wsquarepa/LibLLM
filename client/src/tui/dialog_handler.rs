@@ -464,6 +464,13 @@ pub(super) fn handle_field_dialog_key(
                 None
             }
             DialogKind::AuthorNoteEditor => {
+                if !app.author_note_editor.as_ref().unwrap().has_changes() {
+                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                    app.author_note_editor = None;
+                    return_to_input(app);
+                    return None;
+                }
+
                 let dialog = app.author_note_editor.take()?;
                 let values = &dialog.values;
                 let text = values.first().cloned().unwrap_or_default();
@@ -471,7 +478,7 @@ pub(super) fn handle_field_dialog_key(
                 let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
 
                 let depth = depth_str.trim().parse::<u32>().unwrap_or(4);
-                let at_top = matches!(at_top_str.as_str(), "true" | "1");
+                let at_top = at_top_str == "true";
 
                 app.session.author_note =
                     libllm::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);

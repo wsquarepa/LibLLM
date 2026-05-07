@@ -77,7 +77,7 @@ impl CardAssembly {
 
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{anyhow, ensure, Result};
 use rand::{Rng, RngExt};
 
 use crate::character::CharacterCard;
@@ -99,8 +99,6 @@ pub fn build_turn_prompt(
     template: Option<&ContextPreset>,
     speaker_slug: &str,
 ) -> Result<TurnPrompt> {
-    use anyhow::{anyhow, ensure};
-
     ensure!(
         session.characters.iter().any(|a| a.slug == speaker_slug),
         "speaker {speaker_slug} is not attached to this session",
@@ -126,8 +124,8 @@ pub fn build_turn_prompt(
 
     let characters_block = render_characters_block(&live, speaker_slug, session.card_assembly);
     let roster_block = render_roster_block(&live, speaker_slug, session.card_assembly);
-    let scene_block = render_scene_block(&live, active_card);
-    let user_block = render_user_block(user_text);
+    let scene_block = render_scene_block(&live);
+    let user_block = user_text.to_owned();
     let examples_block = render_examples_block(&live, speaker_slug, session.card_assembly);
 
     let opening = "You are running a group roleplay scene with multiple characters. On this turn you will reply as exactly one character, named below. Stay strictly in that character. Do not narrate, quote, or speak as any other character or as the user. Reply with one message in the named character's voice and stop.";
@@ -184,8 +182,8 @@ pub fn build_turn_prompt(
     let prefill = format!("{}: ", active_card.name);
 
     let mut stop_sequences: Vec<String> = Vec::new();
-    for (_, card) in &live {
-        if card.name == active_card.name {
+    for (slug, card) in &live {
+        if *slug == speaker_slug {
             continue;
         }
         stop_sequences.push(format!("\n{}:", card.name));
@@ -247,7 +245,7 @@ fn render_roster_block(
     out
 }
 
-fn render_scene_block(live: &[(&str, &CharacterCard)], active: &CharacterCard) -> String {
+fn render_scene_block(live: &[(&str, &CharacterCard)]) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut parts = Vec::new();
     for (_, c) in live {
@@ -255,18 +253,7 @@ fn render_scene_block(live: &[(&str, &CharacterCard)], active: &CharacterCard) -
             parts.push(c.scenario.clone());
         }
     }
-    if parts.is_empty() && !active.scenario.is_empty() {
-        parts.push(active.scenario.clone());
-    }
     parts.join("\n\n")
-}
-
-fn render_user_block(persona_text: &str) -> String {
-    if persona_text.is_empty() {
-        String::new()
-    } else {
-        persona_text.to_owned()
-    }
 }
 
 fn render_examples_block(

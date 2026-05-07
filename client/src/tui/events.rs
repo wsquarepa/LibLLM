@@ -184,6 +184,15 @@ pub(super) async fn process_action(
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
+        Action::JumpToSearchHit(hit) => {
+            if let Err(err) = super::business::jump_to_search_hit(app, &hit).await {
+                tracing::warn!(error = %err, "search.jump");
+                app.set_status(
+                    format!("Search jump failed: {err}"),
+                    StatusLevel::Error,
+                );
+            }
+        }
     }
 }
 
@@ -462,7 +471,13 @@ fn handle_key(
                     dialogs::search::close(&mut app.focus, &mut app.search_dialog);
                 }
                 dialogs::search::SearchDialogOutcome::Submit => {
-                    // Wired in Task 16.
+                    if let Some(hit) = app
+                        .search_dialog
+                        .as_ref()
+                        .and_then(|s| s.hits.get(s.selected).cloned())
+                    {
+                        return Some(Action::JumpToSearchHit(hit));
+                    }
                 }
                 dialogs::search::SearchDialogOutcome::Consumed => {}
             }

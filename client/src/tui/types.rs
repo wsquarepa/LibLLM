@@ -61,6 +61,7 @@ pub(super) enum Action {
         content: String,
     },
     SlashCommand(String, String),
+    JumpToSearchHit(libllm::search::SearchHit),
     Quit,
 }
 

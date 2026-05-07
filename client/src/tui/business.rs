@@ -962,7 +962,6 @@ impl std::error::Error for JumpError {
     }
 }
 
-#[expect(dead_code, reason = "called from input.rs in Task 16")]
 pub(super) async fn jump_to_search_hit(
     app: &mut App<'_>,
     hit: &SearchHit,

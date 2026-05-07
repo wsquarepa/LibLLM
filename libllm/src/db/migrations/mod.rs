@@ -10,12 +10,12 @@ mod v1;
 mod v2;
 mod v3;
 mod v4;
-mod v5;
+mod v6;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 5;
+pub const CURRENT_VERSION: i64 = 6;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -55,9 +55,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             stamp_version(conn, 4)?;
             applied += 1;
         }
-        if version < 5 {
-            v5::migrate(conn)?;
-            stamp_version(conn, 5)?;
+        if version < 6 {
+            v6::migrate(conn)?;
+            stamp_version(conn, 6)?;
             applied += 1;
         }
 
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_adds_author_note_columns_to_sessions() {
+    fn v6_adds_author_note_columns_to_sessions() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
 
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_adds_author_note_columns_to_characters() {
+    fn v6_adds_author_note_columns_to_characters() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
 
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_default_depth_is_four() {
+    fn v6_default_depth_is_four() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         conn.execute(
@@ -361,7 +361,7 @@ mod tests {
         super::v4::migrate(&conn).unwrap();
         conn.execute(
             "INSERT INTO sessions (id, character, created_at, updated_at)
-             VALUES ('s-pre-v5', 'Aria', 'now', 'now')",
+             VALUES ('s-pre-v6', 'Aria', 'now', 'now')",
             [],
         )
         .unwrap();
@@ -370,21 +370,21 @@ mod tests {
 
         let character: Option<String> = conn
             .query_row(
-                "SELECT character FROM sessions WHERE id = 's-pre-v5'",
+                "SELECT character FROM sessions WHERE id = 's-pre-v6'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         let note: Option<String> = conn
             .query_row(
-                "SELECT author_note FROM sessions WHERE id = 's-pre-v5'",
+                "SELECT author_note FROM sessions WHERE id = 's-pre-v6'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         let depth: i64 = conn
             .query_row(
-                "SELECT author_note_depth FROM sessions WHERE id = 's-pre-v5'",
+                "SELECT author_note_depth FROM sessions WHERE id = 's-pre-v6'",
                 [],
                 |row| row.get(0),
             )

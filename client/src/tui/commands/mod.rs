@@ -9,7 +9,7 @@ pub mod export;
 pub mod streaming;
 
 pub(super) use background::handle_background_event;
-pub(super) use streaming::{handle_stream_token, start_retry_streaming, start_streaming};
+pub(super) use streaming::{handle_stream_token, start_group_chat_loop, start_retry_streaming, start_streaming};
 
 use tokio::sync::mpsc;
 
@@ -41,7 +41,7 @@ pub(super) async fn handle_slash_command(
         "/chat" => cmd_chat(app),
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
-        "/next" => cmd_next(app, arg),
+        "/next" => cmd_next(app, arg, sender).await,
         "/export" => export::cmd_export(app, arg),
         "/macro" => cmd_macro(app, arg, sender).await,
         "/report" => cmd_report(app),
@@ -467,7 +467,7 @@ async fn cmd_macro(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToke
     }
 }
 
-fn cmd_next(app: &mut App, arg: &str) {
+async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken>) {
     if app.session.characters.len() < 2 {
         app.set_status(
             "/next requires 2 or more attached characters".to_owned(),
@@ -475,22 +475,48 @@ fn cmd_next(app: &mut App, arg: &str) {
         );
         return;
     }
+    if app.model_name.is_none() {
+        app.set_status(
+            "Connecting to API server...".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    if !app.api_available {
+        app.set_status(
+            "Cannot send: API server is not available".to_owned(),
+            StatusLevel::Error,
+        );
+        return;
+    }
+
     let needle = arg.trim();
     if needle.is_empty() {
-        tracing::debug!("ForcedSpeakerTurn: auto-pick via force_step — streaming integration pending (Task 10.1)");
-        app.set_status(
-            "/next: streaming integration pending (Task 10.1)".to_owned(),
-            StatusLevel::Info,
-        );
+        start_group_chat_loop(app, &sender).await;
         return;
     }
     match resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, needle) {
         Some(slug) => {
-            tracing::debug!(speaker = %slug, "ForcedSpeakerTurn: named — streaming integration pending (Task 10.1)");
-            app.set_status(
-                format!("/next {slug}: streaming integration pending (Task 10.1)"),
-                StatusLevel::Info,
-            );
+            let mut rng: rand::rngs::StdRng = rand::make_rng();
+            let Some(decision) = libllm::group_chat::force_step(
+                &app.session.characters,
+                app.session.chat_policy,
+                &mut rng,
+            ) else {
+                app.set_status(
+                    "No characters attached".to_owned(),
+                    StatusLevel::Warning,
+                );
+                return;
+            };
+            for (slug_key, ap) in &decision.updated_action_points {
+                if let Some(c) = app.session.characters.iter_mut().find(|c| &c.slug == slug_key) {
+                    c.action_points = *ap;
+                }
+            }
+            let snapshot_json =
+                serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
+            streaming::run_one_group_turn(app, &slug, &snapshot_json, &sender).await;
         }
         None => {
             app.set_status(

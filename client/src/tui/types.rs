@@ -378,6 +378,11 @@ pub(super) struct App<'a> {
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
     pub(super) group_settings_selected: usize,
     pub(super) character_cards_cache: std::collections::HashMap<String, libllm::character::CharacterCard>,
+    /// Active RNG for the in-progress group-chat action-point loop. `None` when no group-chat
+    /// loop is running. Set before the first turn, cleared after the loop ends.
+    pub(super) group_chat_loop_rng: Option<rand::rngs::StdRng>,
+    pub(super) group_chat_consecutive: u32,
+    pub(super) group_chat_max_consecutive: u32,
 }
 
 impl<'a> App<'a> {

@@ -296,6 +296,9 @@ pub async fn run(
         danger_typed_confirm: None,
         group_settings_selected: 0,
         character_cards_cache: std::collections::HashMap::new(),
+        group_chat_loop_rng: None,
+        group_chat_consecutive: 0,
+        group_chat_max_consecutive: 0,
     };
 
     business::load_active_persona(&mut app);

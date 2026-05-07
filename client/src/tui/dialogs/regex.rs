@@ -392,7 +392,6 @@ fn commit_editor(app: &mut App) {
         return;
     };
     if let Some(msg) = validate_pattern(&mut ed.draft) {
-        ed.error = Some(msg.clone());
         app.set_status(
             format!("Saved with errors: {msg}"),
             crate::tui::types::StatusLevel::Warning,
@@ -403,7 +402,6 @@ fn commit_editor(app: &mut App) {
         None => app.config.regex.push(ed.draft),
     }
     save_and_recompile(app);
-    app.regex_editor = None;
 }
 
 fn open_editor_for_existing(app: &mut App, index: usize) {

@@ -41,6 +41,40 @@ pub enum CardAssembly {
     SwapCards,
 }
 
+impl ChatPolicy {
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            Self::RoundRobin => "round_robin",
+            Self::WeightedRandom => "weighted_random",
+        }
+    }
+
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "round_robin" => Some(Self::RoundRobin),
+            "weighted_random" => Some(Self::WeightedRandom),
+            _ => None,
+        }
+    }
+}
+
+impl CardAssembly {
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            Self::JoinCards => "join_cards",
+            Self::SwapCards => "swap_cards",
+        }
+    }
+
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "join_cards" => Some(Self::JoinCards),
+            "swap_cards" => Some(Self::SwapCards),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +133,21 @@ mod tests {
     fn card_assembly_default_is_join() {
         let a = CardAssembly::default();
         assert!(matches!(a, CardAssembly::JoinCards));
+    }
+
+    #[test]
+    fn chat_policy_db_str_round_trip() {
+        for v in [ChatPolicy::RoundRobin, ChatPolicy::WeightedRandom] {
+            assert_eq!(ChatPolicy::from_db_str(v.as_db_str()), Some(v));
+        }
+        assert_eq!(ChatPolicy::from_db_str("bogus"), None);
+    }
+
+    #[test]
+    fn card_assembly_db_str_round_trip() {
+        for v in [CardAssembly::JoinCards, CardAssembly::SwapCards] {
+            assert_eq!(CardAssembly::from_db_str(v.as_db_str()), Some(v));
+        }
+        assert_eq!(CardAssembly::from_db_str("bogus"), None);
     }
 }

@@ -206,8 +206,10 @@ jobs:
             BRANCH="${GITHUB_REF#refs/heads/}"
             if [[ "$BRANCH" == "master" ]]; then
               CHANNEL_TAG="preview"
+              CHANNEL_TITLE="Preview"
             else
               CHANNEL_TAG="$BRANCH"
+              CHANNEL_TITLE="$BRANCH"
             fi
             {
               echo "Changes this release:"
@@ -221,7 +223,7 @@ jobs:
             } > notes.md
 
             echo "tag=${CHANNEL_TAG}" >> "$GITHUB_OUTPUT"
-            echo "title=${CHANNEL_TAG}" >> "$GITHUB_OUTPUT"
+            echo "title=${CHANNEL_TITLE}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
           fi

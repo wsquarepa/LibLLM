@@ -36,21 +36,12 @@ pub fn inject_author_notes(
 
     if let Some(session) = session_note {
         let pos = session.position(original_len);
-        messages.insert(pos, synthesize(&session.text));
+        messages.insert(pos, Message::new(Role::System, session.text.clone()));
     }
 
     if let Some(card) = card_note {
         let pos = card.position(original_len);
-        messages.insert(pos, synthesize(&card.text));
-    }
-}
-
-fn synthesize(text: &str) -> Message {
-    Message {
-        role: Role::System,
-        content: text.to_owned(),
-        timestamp: String::new(),
-        thought_seconds: None,
+        messages.insert(pos, Message::new(Role::System, card.text.clone()));
     }
 }
 

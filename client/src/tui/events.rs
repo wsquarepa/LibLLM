@@ -197,6 +197,15 @@ pub(super) async fn process_action(
             app.mark_session_dirty(SaveTrigger::Debounced, false);
             return_to_input(app);
         }
+        Action::JumpToSearchHit(hit) => {
+            if let Err(err) = super::business::jump_to_search_hit(app, &hit).await {
+                tracing::warn!(error = %err, "search.jump");
+                app.set_status(
+                    format!("Search jump failed: {err}"),
+                    StatusLevel::Error,
+                );
+            }
+        }
     }
 }
 
@@ -363,6 +372,7 @@ fn handle_key(
             | Focus::WorldbookEntryDeleteDialog
             | Focus::SystemPromptDialog
             | Focus::BranchDialog
+            | Focus::SearchDialog
             | Focus::DeleteConfirmDialog
             | Focus::ApiErrorDialog
             | Focus::LoadingDialog
@@ -470,6 +480,27 @@ fn handle_key(
     }
     if app.focus == Focus::LoadingDialog {
         return dialogs::api_error::handle_loading_key(key);
+    }
+    if app.focus == Focus::SearchDialog {
+        if let Some(state) = app.search_dialog.as_mut() {
+            let outcome = dialogs::search::handle_key(state, key);
+            match outcome {
+                dialogs::search::SearchDialogOutcome::Close => {
+                    dialogs::search::close(&mut app.focus, &mut app.search_dialog);
+                }
+                dialogs::search::SearchDialogOutcome::Submit => {
+                    if let Some(hit) = app
+                        .search_dialog
+                        .as_ref()
+                        .and_then(|s| s.hits.get(s.selected).cloned())
+                    {
+                        return Some(Action::JumpToSearchHit(hit));
+                    }
+                }
+                dialogs::search::SearchDialogOutcome::Consumed => {}
+            }
+        }
+        return None;
     }
     if app.focus == Focus::DangerConfirmDialog {
         let mut sel = app.danger_confirm_selected.unwrap_or(0);
@@ -593,6 +624,15 @@ fn handle_key(
     }
     if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return Some(Action::Quit);
+    }
+
+    if key.code == KeyCode::Char('f')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(app.focus, Focus::Input | Focus::Chat | Focus::Sidebar)
+    {
+        app.search_dialog = Some(dialogs::search::SearchDialogState::new());
+        app.focus = Focus::SearchDialog;
+        return None;
     }
 
     if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {

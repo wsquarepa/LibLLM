@@ -3,6 +3,7 @@
 pub mod api_error;
 pub mod auth;
 pub mod branch;
+pub(crate) mod search;
 pub mod character;
 pub mod group_chat_settings;
 pub mod danger_confirm;

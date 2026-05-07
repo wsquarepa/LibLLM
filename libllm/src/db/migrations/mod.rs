@@ -12,11 +12,12 @@ mod v3;
 mod v4;
 mod v5;
 mod v6;
+mod v7;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 6;
+pub const CURRENT_VERSION: i64 = 7;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -64,6 +65,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 6 {
             v6::migrate(conn)?;
             stamp_version(conn, 6)?;
+            applied += 1;
+        }
+        if version < 7 {
+            v7::migrate(conn)?;
+            stamp_version(conn, 7)?;
             applied += 1;
         }
 
@@ -398,6 +404,130 @@ mod tests {
         assert_eq!(character.as_deref(), Some("Aria"));
         assert_eq!(note, None);
         assert_eq!(depth, 4);
+    }
+
+    #[test]
+    fn fts5_is_available() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE probe USING fts5(content); \
+             INSERT INTO probe(content) VALUES ('hello world'); \
+             SELECT COUNT(*) FROM probe WHERE probe MATCH 'hello';",
+        )
+        .expect("FTS5 not available; check rusqlite build features");
+    }
+
+    #[test]
+    fn v7_creates_messages_fts_and_triggers() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='messages_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(table_exists, "messages_fts virtual table missing");
+
+        for trigger in ["messages_fts_ai", "messages_fts_ad", "messages_fts_au"] {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='trigger' AND name=?1",
+                    rusqlite::params![trigger],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(exists, "trigger '{trigger}' missing");
+        }
+    }
+
+    #[test]
+    fn v7_triggers_keep_fts_in_sync() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+             VALUES (0, 's1', NULL, NULL, 'user', 'hello redact world', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let hits: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'redact'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hits, 1, "INSERT trigger did not populate FTS");
+
+        conn.execute(
+            "UPDATE messages SET content = 'hello world' WHERE session_id = 's1' AND id = 0",
+            [],
+        )
+        .unwrap();
+        let hits_after_update: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'redact'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hits_after_update, 0, "UPDATE trigger did not retokenize");
+
+        conn.execute("DELETE FROM messages WHERE session_id = 's1' AND id = 0", [])
+            .unwrap();
+        let hits_after_delete: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'world'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hits_after_delete, 0, "DELETE trigger did not purge FTS row");
+    }
+
+    #[test]
+    fn v7_backfill_indexes_pre_existing_messages() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (4);",
+        )
+        .unwrap();
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+             VALUES (0, 's1', NULL, NULL, 'user', 'pre-existing redact text', 'now')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let hits: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'redact'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hits, 1, "backfill did not index existing messages");
     }
 
     #[test]

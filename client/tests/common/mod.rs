@@ -248,6 +248,45 @@ pub async fn start_mock_summarize_server(summary_text: &str) -> MockServer {
     server
 }
 
+/// Seed a fresh plain-text database with the given (display_name, role, content) rows.
+///
+/// Opens `Database` first to run migrations, drops it, then inserts rows via a raw
+/// `rusqlite::Connection` (which is callable from outside the `libllm` crate).
+/// Returns the `TempDir` guard; callers must keep it alive for the duration of the test.
+pub fn seed_search_db(rows: &[(&str, &str, &str)]) -> tempfile::TempDir {
+    let dir = temp_dir();
+    let db_path = dir.path().join("data.db");
+    {
+        let _db = libllm::db::Database::open(&db_path, None).expect("open plain db");
+    }
+    let conn = rusqlite::Connection::open(&db_path).expect("open conn");
+    let mut session_ids: std::collections::BTreeMap<String, i64> =
+        std::collections::BTreeMap::new();
+    for (display, role, content) in rows {
+        let session_id = format!("sess-{display}");
+        let display_owned = (*display).to_owned();
+        if !session_ids.contains_key(&display_owned) {
+            conn.execute(
+                "INSERT INTO sessions (id, display_name, created_at, updated_at) \
+                 VALUES (?1, ?2, 'now', 'now')",
+                rusqlite::params![session_id, display],
+            )
+            .expect("insert session");
+            session_ids.insert(display_owned.clone(), 0);
+        }
+        let next_id = session_ids.get_mut(&display_owned).unwrap();
+        conn.execute(
+            "INSERT INTO messages \
+             (id, session_id, parent_id, preferred_child_id, role, content, timestamp) \
+             VALUES (?1, ?2, NULL, NULL, ?3, ?4, '2026-01-01T00:00:00Z')",
+            rusqlite::params![*next_id, session_id, role, content],
+        )
+        .expect("insert message");
+        *next_id += 1;
+    }
+    dir
+}
+
 /// Start a mock LLM server that returns HTTP 500 for every `/completions` request.
 pub async fn start_mock_failing_server() -> MockServer {
     let server = MockServer::start().await;

@@ -293,6 +293,10 @@ impl Database {
         sessions::session_exists(&self.conn, id)
     }
 
+    pub fn session_ids_matching_display_name(&self, substring: &str) -> Result<Vec<String>> {
+        sessions::ids_matching_display_name(&self.conn, substring)
+    }
+
     /// Execute a single SQL statement that returns rows.
     /// Errors propagate the underlying rusqlite error verbatim, including
     /// `attempt to write a readonly database` when called on a connection
@@ -326,6 +330,15 @@ impl Database {
     /// (including SELECT, PRAGMA, schema changes, or no statement at all).
     pub fn changes(&self) -> u64 {
         self.conn.changes()
+    }
+
+    /// Expose the raw connection for crate-internal modules that build
+    /// dynamic SQL outside the typed Database methods (e.g., the search executor).
+    pub(crate) fn with_connection<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Connection) -> R,
+    {
+        f(&self.conn)
     }
 
     /// Run one or more SQL statements, discarding any returned rows.

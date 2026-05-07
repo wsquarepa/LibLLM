@@ -257,6 +257,7 @@ pub async fn run(
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
+        search_dialog: None,
         delete_confirm_selected: 0,
         delete_confirm_filename: String::new(),
         delete_context: DeleteContext::Session,
@@ -423,6 +424,12 @@ pub async fn run(
                     );
                     app.invalidate_chat_render_cache();
                     app.file_summary_revision = app.file_summary_revision.wrapping_add(1);
+                    needs_redraw = true;
+                }
+                if matches!(app.focus, Focus::SearchDialog)
+                    && let (Some(state), Some(db)) = (app.search_dialog.as_mut(), app.db.as_ref())
+                {
+                    dialogs::search::maybe_run_query(state, db, std::time::Instant::now());
                     needs_redraw = true;
                 }
                 if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
@@ -666,6 +673,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditDialog => Some("edit"),
         Focus::EditConfirmDialog => Some("edit_confirm"),
         Focus::BranchDialog => Some("branch"),
+        Focus::SearchDialog => Some("search"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
         Focus::FilePickerDialog => Some("file_picker"),
@@ -894,6 +902,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::BranchDialog => {
             dialogs::branch::render_branch_dialog(f, app, f.area());
+        }
+        Focus::SearchDialog => {
+            if let Some(state) = app.search_dialog.as_ref() {
+                dialogs::search::render(state, f.area(), f.buffer_mut(), &app.theme);
+            }
         }
         Focus::DeleteConfirmDialog => {
             dialogs::delete_confirm::render_delete_confirm_dialog(f, app, f.area());

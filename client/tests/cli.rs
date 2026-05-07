@@ -419,6 +419,123 @@ fn cli_stdin_piped_auto_attaches_as_stdin() {
 }
 
 #[test]
+fn search_text_output_lists_hits() {
+    let dir = common::seed_search_db(&[
+        ("alpha", "user", "remember to redact PII before sending"),
+        ("alpha", "assistant", "redaction working now"),
+        ("beta", "user", "unrelated message"),
+    ]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("redact")
+        .output()
+        .expect("client search did not run");
+
+    assert!(
+        output.status.success(),
+        "exit status: {} stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("[alpha"), "missing hit header: {stdout}");
+    assert!(stdout.contains("redact"));
+    assert!(stdout.contains("2 hits."));
+}
+
+#[test]
+fn search_no_hits_exits_zero() {
+    let dir = common::seed_search_db(&[("alpha", "user", "hello world")]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("zzznothing")
+        .output()
+        .expect("client search did not run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("0 hits."));
+}
+
+#[test]
+fn search_query_parse_error_exits_two() {
+    let dir = common::seed_search_db(&[("alpha", "user", "hello")]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("role:bogus x")
+        .output()
+        .expect("client search did not run");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("role:bogus"), "stderr: {stderr}");
+}
+
+#[test]
+fn search_json_output_is_parseable_array() {
+    let dir = common::seed_search_db(&[
+        ("alpha", "user", "redact this"),
+        ("alpha", "assistant", "redaction done"),
+    ]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("redact")
+        .arg("--json")
+        .output()
+        .expect("client search did not run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output was not valid JSON");
+    let arr = value.as_array().expect("expected JSON array");
+    assert_eq!(arr.len(), 2);
+    assert!(arr[0]["snippet"].is_string());
+    assert!(arr[0]["preview_text"].is_string());
+    assert!(arr[0]["score"].is_number());
+}
+
+#[test]
+fn search_full_prints_highlight_text() {
+    let dir = common::seed_search_db(&[
+        ("alpha", "user", "remember to redact PII before sending"),
+    ]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("redact")
+        .arg("--full")
+        .output()
+        .expect("client search did not run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("**redact**"),
+        "expected ** delimiters around 'redact', got: {stdout}"
+    );
+}
+
+#[test]
 fn cli_dash_m_still_reads_stdin_as_prompt_with_no_attachment() {
     let data_dir = tempfile::tempdir().expect("data-dir");
 

@@ -341,6 +341,12 @@ libllm import --type persona persona.txt       # .txt requires --type
 libllm import --type prompt system.txt
 libllm import card.json lore.json card2.png    # batch import
 
+# Full-text search
+libllm search "redact pii"
+libllm search "role:user redact" --limit 50
+libllm search "\"exact phrase\"" --json
+libllm search "after:2025-12-01 before:2026-01-15" --full
+
 # Direct database access
 libllm db sql "SELECT slug, name FROM personas;"
 libllm db shell
@@ -371,6 +377,7 @@ Flags that overlap with `/config` fields (`--api-url`, `--template`, `--temperat
 | Enter | Chat | Open edit dialog for selected message |
 | Up/Down | Sidebar | Browse sessions |
 | Delete | Sidebar | Delete selected session |
+| Ctrl+F | Chat/Input | Open full-text search dialog |
 | Ctrl+F | Sidebar | Filter sessions by name (regex) |
 | Ctrl+F | Picker dialogs | Filter items in character/persona/worldbook/system prompt/preset/branch pickers (regex) |
 | Ctrl+C | Input/Editor | Copy selection to system clipboard |
@@ -402,9 +409,30 @@ Type `/` in the input to open the command picker.
 | `/config` | | Open configuration dialog (CLI-overridden fields shown in red) |
 | `/theme` | | Switch color theme (`dark`, `light`) |
 | `/export` | | Export current branch to file (`html`, `md`, `jsonl`) |
+| `/search [query]` | `/find` | Full-text search across all sessions (see [Search](#search)) |
 | `/macro` | `/m` | Run a user-defined macro (see [Macros](#macros)) |
 | `/report` | | Copy the active debug log to `./debug.log` |
 | `/quit` | `/exit` | Exit the chat |
+
+### Search
+
+`/search [query]` opens the full-text search dialog. If you supply a query of three or more characters, results appear immediately; otherwise the dialog opens with an empty field. You can also open the dialog from the chat panel, input box, or sidebar with `Ctrl+F` (when the sidebar filter is not active).
+
+Results are debounced at 150 ms and capped at 200 entries. Selecting a result jumps to that message, switching session and branch as needed.
+
+**Query syntax**
+
+| Form | Example | Meaning |
+|---|---|---|
+| Terms | `redact pii` | Prefix-AND — all terms must appear |
+| Phrase | `"redact pii"` | Exact phrase match |
+| Role filter | `role:user redact` | Restrict to a role: `user`, `assistant`, `system`, `summary` |
+| Date before | `before:2026-01-15` | Messages strictly before this date (RFC 3339 date or datetime) |
+| Date after | `after:2025-12-01` | Messages on or after this date (RFC 3339 date or datetime) |
+| Session | `session:feature` | Case-insensitive substring match on session display names |
+| Raw FTS5 | `m:redact OR pii` | Pass-through to the underlying FTS5 engine |
+
+Toggle raw FTS5 mode with `Ctrl+R` inside the dialog.
 
 ## Configuration
 
@@ -545,6 +573,26 @@ All data is stored in a single SQLite database encrypted with **SQLCipher** (AES
 The passkey can be changed at any time via `/passkey`, which uses SQLCipher's `PRAGMA rekey` to re-encrypt the database.
 
 To opt out of encryption, use `--data -d <path> --no-encrypt` for an unencrypted SQLite database. The `--no-encrypt` and `--passkey` flags require `--data/-d` to be specified. When using `--data` with an existing directory, the encryption mode must match: `--passkey` is rejected on unencrypted directories, and `--no-encrypt` is rejected on encrypted ones.
+
+## Full-text search
+
+Use `libllm search <QUERY>` to search all messages across all sessions from the command line.
+
+```sh
+libllm search <QUERY> [--limit N] [--json] [--full]
+```
+
+The command uses the same data-directory and encryption flags as the rest of LibLLM (`-d/--data`, `--passkey`, `--no-encrypt`). It is read-only and shares the same decryption pipeline as `libllm db sql`.
+
+Flags:
+
+- `--limit N` — maximum number of results to return (default 200).
+- `--json` — emit results as a JSON array instead of plain text.
+- `--full` — print the full message content with highlight markers rather than a short snippet.
+
+Query syntax follows the same rules as the TUI `/search` dialog (see [Search](#search)).
+
+Exit codes: `0` on success (including zero hits); `2` on query parse error.
 
 ## Direct database access
 

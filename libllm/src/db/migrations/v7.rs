@@ -1,10 +1,10 @@
-//! v5: Adds messages_fts (FTS5 external-content) and the three sync triggers.
+//! v7: Adds messages_fts (FTS5 external-content) and the three sync triggers.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v5" ; {
+    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v7" ; {
         conn.execute_batch(
             "CREATE VIRTUAL TABLE messages_fts USING fts5(
                  content,
@@ -31,6 +31,6 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
 
              INSERT INTO messages_fts(rowid, content) SELECT rowid, content FROM messages;",
         )
-        .context("failed to run migration v5")
+        .context("failed to run migration v7")
     })
 }

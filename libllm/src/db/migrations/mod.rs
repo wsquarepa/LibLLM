@@ -10,12 +10,12 @@ mod v1;
 mod v2;
 mod v3;
 mod v4;
-mod v5;
+mod v7;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 5;
+pub const CURRENT_VERSION: i64 = 7;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -55,9 +55,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             stamp_version(conn, 4)?;
             applied += 1;
         }
-        if version < 5 {
-            v5::migrate(conn)?;
-            stamp_version(conn, 5)?;
+        if version < 7 {
+            v7::migrate(conn)?;
+            stamp_version(conn, 7)?;
             applied += 1;
         }
 
@@ -299,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_creates_messages_fts_and_triggers() {
+    fn v7_creates_messages_fts_and_triggers() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
 
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_triggers_keep_fts_in_sync() {
+    fn v7_triggers_keep_fts_in_sync() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         conn.execute(
@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_backfill_indexes_pre_existing_messages() {
+    fn v7_backfill_indexes_pre_existing_messages() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE schema_version (version INTEGER NOT NULL);

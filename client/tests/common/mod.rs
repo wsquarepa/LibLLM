@@ -255,3 +255,60 @@ pub async fn start_mock_failing_server() -> MockServer {
         .await;
     server
 }
+
+/// Import a character card (minimal JSON) into `data_dir` using the CLI binary.
+///
+/// Creates a temporary JSON file named `{slug}.json`, spawns the `import` subcommand, and
+/// asserts that it succeeds. The card name field is set to `name` so the slug stored in the
+/// database matches `slugify(name)`. Callers must ensure the file stem is the slugified form
+/// of `name` so that the slug stored in the DB matches what the test expects.
+pub fn import_card(data_dir: &std::path::Path, slug: &str, name: &str) {
+    let tmp = temp_dir();
+    let card_path = tmp.path().join(format!("{slug}.json"));
+    let json = format!(
+        r#"{{"name":"{name}","description":"","personality":"","scenario":"","first_mes":"","mes_example":""}}"#
+    );
+    std::fs::write(&card_path, json).unwrap();
+    let out = std::process::Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "import",
+            card_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to spawn import");
+    assert!(
+        out.status.success(),
+        "import {slug} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Import a persona (plain-text file) into `data_dir` using the CLI binary.
+///
+/// Creates a temporary `.txt` file named `{slug}.txt`, spawns `import --type persona`, and
+/// asserts success. The persona text is minimal; only the name matters for CLI validation tests.
+pub fn import_persona(data_dir: &std::path::Path, slug: &str, name: &str) {
+    let tmp = temp_dir();
+    let persona_path = tmp.path().join(format!("{slug}.txt"));
+    std::fs::write(&persona_path, format!("Name: {name}\nA test persona.\n")).unwrap();
+    let out = std::process::Command::new(client_bin())
+        .args([
+            "-d",
+            data_dir.to_str().unwrap(),
+            "--no-encrypt",
+            "import",
+            "--type",
+            "persona",
+            persona_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to spawn import persona");
+    assert!(
+        out.status.success(),
+        "import persona {slug} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

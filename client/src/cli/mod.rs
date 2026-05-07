@@ -190,6 +190,10 @@ pub struct CliOverrides {
     pub sampling: SamplingOverrides,
     pub system_prompt: Option<String>,
     pub persona: Option<String>,
+    pub characters: Vec<String>,
+    pub chat_policy: Option<libllm::group_chat::ChatPolicy>,
+    pub card_assembly: Option<libllm::group_chat::CardAssembly>,
+    pub talkativeness: std::collections::HashMap<String, f32>,
     pub no_summarize: bool,
     pub auth_type: Option<libllm::config::AuthKind>,
     pub auth_basic_username: Option<String>,
@@ -445,6 +449,22 @@ impl Args {
             sampling: self.sampling_overrides(),
             system_prompt: self.system_prompt.clone(),
             persona: self.persona.as_deref().map(libllm::character::slugify),
+            characters: self.character.clone(),
+            chat_policy: if self.character.len() >= 2 {
+                Some(self.chat_policy.into())
+            } else {
+                None
+            },
+            card_assembly: if self.character.len() >= 2 {
+                Some(self.card_assembly.into())
+            } else {
+                None
+            },
+            talkativeness: self
+                .talkativeness
+                .as_deref()
+                .and_then(|s| parse_talkativeness(s).ok())
+                .unwrap_or_default(),
             no_summarize: self.no_summarize,
             auth_type: self.auth_type.map(Into::into),
             auth_basic_username: self.auth_basic_username.clone(),

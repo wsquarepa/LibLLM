@@ -255,6 +255,7 @@ pub async fn run(
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
+        search_dialog: None,
         delete_confirm_selected: 0,
         delete_confirm_filename: String::new(),
         delete_context: DeleteContext::Session,

@@ -38,6 +38,7 @@ pub(super) async fn handle_slash_command(
         "/persona" => cmd_persona(app),
         "/worldbook" => cmd_worldbook(app),
         "/character" => cmd_character(app),
+        "/chat" => cmd_chat(app),
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
         "/export" => export::cmd_export(app, arg),
@@ -333,6 +334,18 @@ fn cmd_character(app: &mut App) {
         .map(|s| active_slugs.contains(s.as_str()))
         .collect();
     app.open_paged_dialog(Focus::CharacterDialog);
+}
+
+fn cmd_chat(app: &mut App) {
+    if app.session.characters.len() < 2 {
+        app.set_status(
+            "/chat requires 2 or more attached characters".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    app.group_settings_selected = 0;
+    app.focus = Focus::GroupChatSettingsDialog;
 }
 
 fn cmd_passkey(app: &mut App) {

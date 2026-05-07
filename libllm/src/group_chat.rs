@@ -59,8 +59,11 @@ mod tests {
         assert_eq!(s, "\"weighted_random\"");
         let back: ChatPolicy = serde_json::from_str(&s).unwrap();
         assert!(matches!(back, ChatPolicy::WeightedRandom));
+
         let s = serde_json::to_string(&ChatPolicy::RoundRobin).unwrap();
         assert_eq!(s, "\"round_robin\"");
+        let back: ChatPolicy = serde_json::from_str(&s).unwrap();
+        assert!(matches!(back, ChatPolicy::RoundRobin));
     }
 
     #[test]
@@ -69,8 +72,21 @@ mod tests {
         assert_eq!(s, "\"join_cards\"");
         let back: CardAssembly = serde_json::from_str(&s).unwrap();
         assert!(matches!(back, CardAssembly::JoinCards));
+
         let s = serde_json::to_string(&CardAssembly::SwapCards).unwrap();
         assert_eq!(s, "\"swap_cards\"");
+        let back: CardAssembly = serde_json::from_str(&s).unwrap();
+        assert!(matches!(back, CardAssembly::SwapCards));
+    }
+
+    #[test]
+    fn character_attachment_serde_round_trip() {
+        let a = CharacterAttachment { slug: "alice".to_owned(), talkativeness: 0.7, action_points: 0.3 };
+        let s = serde_json::to_string(&a).unwrap();
+        let back: CharacterAttachment = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.slug, "alice");
+        assert!((back.talkativeness - 0.7).abs() < f32::EPSILON);
+        assert!((back.action_points - 0.3).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -1,2 +1,87 @@
 //! Group-chat runtime: per-session character attachments, action-point turn-order engine,
 //! and per-turn prompt assembly. Pure logic, no I/O.
+
+use serde::{Deserialize, Serialize};
+
+pub const MAX_GROUP_SIZE: usize = 8;
+pub const DEFAULT_TALKATIVENESS: f32 = 0.5;
+pub const ACTION_POINT_THRESHOLD: f32 = 1.0;
+pub const ACTION_POINT_COST: f32 = 1.0;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterAttachment {
+    pub slug: String,
+    pub talkativeness: f32,
+    pub action_points: f32,
+}
+
+impl CharacterAttachment {
+    pub fn new(slug: impl Into<String>) -> Self {
+        Self {
+            slug: slug.into(),
+            talkativeness: DEFAULT_TALKATIVENESS,
+            action_points: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatPolicy {
+    #[default]
+    RoundRobin,
+    WeightedRandom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardAssembly {
+    #[default]
+    JoinCards,
+    SwapCards,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn character_attachment_default_talkativeness() {
+        let a = CharacterAttachment::new("alice");
+        assert_eq!(a.slug, "alice");
+        assert!((a.talkativeness - DEFAULT_TALKATIVENESS).abs() < f32::EPSILON);
+        assert_eq!(a.action_points, 0.0);
+    }
+
+    #[test]
+    fn chat_policy_serde_round_trip() {
+        let s = serde_json::to_string(&ChatPolicy::WeightedRandom).unwrap();
+        assert_eq!(s, "\"weighted_random\"");
+        let back: ChatPolicy = serde_json::from_str(&s).unwrap();
+        assert!(matches!(back, ChatPolicy::WeightedRandom));
+        let s = serde_json::to_string(&ChatPolicy::RoundRobin).unwrap();
+        assert_eq!(s, "\"round_robin\"");
+    }
+
+    #[test]
+    fn card_assembly_serde_round_trip() {
+        let s = serde_json::to_string(&CardAssembly::JoinCards).unwrap();
+        assert_eq!(s, "\"join_cards\"");
+        let back: CardAssembly = serde_json::from_str(&s).unwrap();
+        assert!(matches!(back, CardAssembly::JoinCards));
+        let s = serde_json::to_string(&CardAssembly::SwapCards).unwrap();
+        assert_eq!(s, "\"swap_cards\"");
+    }
+
+    #[test]
+    fn chat_policy_default_is_round_robin() {
+        let p = ChatPolicy::default();
+        assert!(matches!(p, ChatPolicy::RoundRobin));
+    }
+
+    #[test]
+    fn card_assembly_default_is_join() {
+        let a = CardAssembly::default();
+        assert!(matches!(a, CardAssembly::JoinCards));
+    }
+}

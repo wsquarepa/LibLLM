@@ -36,6 +36,10 @@ pub struct ContextVars {
     pub wi_before: String,
     pub wi_after: String,
     pub mes_examples: String,
+    pub characters_block: String,
+    pub roster_block: String,
+    pub active_speaker: String,
+    pub other_speakers: String,
 }
 
 impl ContextPreset {
@@ -117,6 +121,10 @@ fn lookup_var(vars: &ContextVars, name: &str) -> String {
         "wiBefore" => vars.wi_before.clone(),
         "wiAfter" => vars.wi_after.clone(),
         "mesExamples" | "mesExamplesRaw" | "dialogueExamples" => vars.mes_examples.clone(),
+        "characters_block" | "charactersBlock" => vars.characters_block.clone(),
+        "roster_block" | "rosterBlock" => vars.roster_block.clone(),
+        "active_speaker" | "activeSpeaker" => vars.active_speaker.clone(),
+        "other_speakers" | "otherSpeakers" => vars.other_speakers.clone(),
         _ => String::new(),
     }
 }
@@ -192,6 +200,10 @@ mod tests {
             wi_before: "WiBeforeText".to_string(),
             wi_after: "WiAfterText".to_string(),
             mes_examples: "ExampleText".to_string(),
+            characters_block: String::new(),
+            roster_block: String::new(),
+            active_speaker: String::new(),
+            other_speakers: String::new(),
         };
         let output = preset.render_story_string(&vars);
 
@@ -225,6 +237,10 @@ mod tests {
             wi_before: String::new(),
             wi_after: String::new(),
             mes_examples: String::new(),
+            characters_block: String::new(),
+            roster_block: String::new(),
+            active_speaker: String::new(),
+            other_speakers: String::new(),
         };
         let output = preset.render_story_string(&vars);
 
@@ -232,5 +248,30 @@ mod tests {
             !output.contains("{{"),
             "leftover template markers in output: {output:?}"
         );
+    }
+
+    #[test]
+    fn render_story_string_resolves_group_chat_vars() {
+        let preset = ContextPreset {
+            name: "test".to_owned(),
+            story_string: "{{characters_block}}|{{roster_block}}|{{active_speaker}}|{{other_speakers}}".to_owned(),
+            ..Default::default()
+        };
+        let vars = ContextVars {
+            system: String::new(),
+            description: String::new(),
+            personality: String::new(),
+            scenario: String::new(),
+            persona: String::new(),
+            wi_before: String::new(),
+            wi_after: String::new(),
+            mes_examples: String::new(),
+            characters_block: "<characters>...</characters>".to_owned(),
+            roster_block: "<roster>...</roster>".to_owned(),
+            active_speaker: "Alice".to_owned(),
+            other_speakers: "Bob, Charlie".to_owned(),
+        };
+        let out = preset.render_story_string(&vars);
+        assert_eq!(out, "<characters>...</characters>|<roster>...</roster>|Alice|Bob, Charlie");
     }
 }

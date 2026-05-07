@@ -293,6 +293,23 @@ impl Database {
         sessions::session_exists(&self.conn, id)
     }
 
+    pub fn session_ids_matching_display_name(&self, substring: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id FROM sessions \
+                 WHERE display_name IS NOT NULL \
+                   AND display_name LIKE '%' || ?1 || '%' COLLATE NOCASE \
+                 ORDER BY id",
+            )
+            .context("failed to prepare session lookup")?;
+        let rows = stmt
+            .query_map(rusqlite::params![substring], |row| row.get::<_, String>(0))
+            .context("failed to execute session lookup")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
     /// Execute a single SQL statement that returns rows.
     /// Errors propagate the underlying rusqlite error verbatim, including
     /// `attempt to write a readonly database` when called on a connection

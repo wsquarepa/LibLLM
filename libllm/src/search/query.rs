@@ -1,6 +1,4 @@
-#[cfg(test)]
 use time::format_description::well_known::Rfc3339;
-#[cfg(test)]
 use time::macros::format_description;
 use time::OffsetDateTime;
 
@@ -36,7 +34,6 @@ impl std::fmt::Display for QueryError {
 
 impl std::error::Error for QueryError {}
 
-#[cfg(test)]
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedQuery {
     pub match_expr: String,
@@ -46,7 +43,6 @@ pub(crate) struct ParsedQuery {
     pub after: Option<OffsetDateTime>,
 }
 
-#[cfg(test)]
 pub(crate) fn parse(raw: &str) -> Result<ParsedQuery, QueryError> {
     let tokens = tokenize(raw);
     if tokens.is_empty() {
@@ -97,7 +93,6 @@ pub(crate) fn parse(raw: &str) -> Result<ParsedQuery, QueryError> {
     })
 }
 
-#[cfg(test)]
 fn split_filter(token: &str) -> Option<(&str, &str)> {
     let (key, value) = token.split_once(':')?;
     if matches!(key, "session" | "role" | "before" | "after") && !value.is_empty() {
@@ -107,7 +102,6 @@ fn split_filter(token: &str) -> Option<(&str, &str)> {
     }
 }
 
-#[cfg(test)]
 fn apply_filter(
     key: &str,
     value: &str,
@@ -137,7 +131,6 @@ fn apply_filter(
     Ok(())
 }
 
-#[cfg(test)]
 fn parse_date(value: &str) -> Result<OffsetDateTime, QueryError> {
     if let Ok(dt) = OffsetDateTime::parse(value, &Rfc3339) {
         return Ok(dt);
@@ -149,14 +142,12 @@ fn parse_date(value: &str) -> Result<OffsetDateTime, QueryError> {
     Err(QueryError::ParseDate(value.to_owned()))
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 enum Token {
     Term(String),
     Phrase(String),
 }
 
-#[cfg(test)]
 fn tokenize(raw: &str) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut chars = raw.chars().peekable();
@@ -194,11 +185,35 @@ fn tokenize(raw: &str) -> Vec<Token> {
     tokens
 }
 
-#[cfg(test)]
 fn sanitize_term(raw: &str) -> String {
     raw.chars()
         .filter(|c| !matches!(*c, '"' | '*' | '(' | ')' | ':' | '^'))
         .collect()
+}
+
+pub fn compile(raw: &str, db: &crate::db::Database) -> Result<CompiledQuery, QueryError> {
+    let parsed = parse(raw)?;
+
+    let session_ids = match parsed.session_substring.as_deref() {
+        None => None,
+        Some(substring) => {
+            let ids = db
+                .session_ids_matching_display_name(substring)
+                .map_err(|e| QueryError::BadFilter(format!("session lookup failed: {e}")))?;
+            if ids.is_empty() {
+                return Err(QueryError::UnknownSession(substring.to_owned()));
+            }
+            Some(ids)
+        }
+    };
+
+    Ok(CompiledQuery {
+        match_expr: parsed.match_expr,
+        session_ids,
+        role: parsed.role,
+        before: parsed.before,
+        after: parsed.after,
+    })
 }
 
 #[cfg(test)]
@@ -324,5 +339,47 @@ mod tests {
         let parsed = parse("\"role:user friendly\"").unwrap();
         assert_eq!(parsed.match_expr, "\"role:user friendly\"");
         assert_eq!(parsed.role, None);
+    }
+
+    fn seed_db_with_sessions(
+        names: &[(&str, &str)],
+    ) -> (crate::db::Database, tempfile::NamedTempFile) {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let db = crate::db::Database::open(file.path(), None).unwrap();
+        for (id, display) in names {
+            db.execute_statement(&format!(
+                "INSERT INTO sessions (id, display_name, created_at, updated_at) \
+                 VALUES ('{id}', '{display}', 'now', 'now')"
+            ))
+            .unwrap();
+        }
+        (db, file)
+    }
+
+    #[test]
+    fn session_substring_resolves_multiple_ids() {
+        let (db, _file) = seed_db_with_sessions(&[
+            ("a", "feature-x"),
+            ("b", "feature-y"),
+            ("c", "log-pipeline"),
+        ]);
+        let compiled = compile("session:feature bug", &db).unwrap();
+        let ids = compiled.session_ids.unwrap();
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(compiled.match_expr, "bug*");
+    }
+
+    #[test]
+    fn session_substring_is_case_insensitive() {
+        let (db, _file) = seed_db_with_sessions(&[("a", "Feature-X")]);
+        let compiled = compile("session:feature bug", &db).unwrap();
+        assert_eq!(compiled.session_ids.unwrap(), vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn session_substring_no_match_errors() {
+        let (db, _file) = seed_db_with_sessions(&[("a", "feature-x")]);
+        let err = compile("session:nonexistent x", &db).unwrap_err();
+        assert_eq!(err, QueryError::UnknownSession("nonexistent".into()));
     }
 }

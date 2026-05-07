@@ -63,6 +63,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                     app.db = Some(db);
                     app.save_mode = SaveMode::Database { id };
                     business::load_active_persona(app);
+                    business::load_active_card_author_note(app);
                     app.invalidate_worldbook_cache();
                     app.invalidate_chat_render_cache();
                     match business::build_file_summarizer(
@@ -138,6 +139,7 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         app.db = Some(db);
                         app.save_mode = SaveMode::Database { id };
                         business::load_active_persona(app);
+                        business::load_active_card_author_note(app);
                         if let Err(e) = libllm::config::save(&app.config) {
                             app.set_status(
                                 format!("Failed to write default config: {e}"),

@@ -192,6 +192,7 @@ fn delete_selected_session(app: &mut App) {
             ..libllm::session::Session::default()
         };
         business::load_active_persona(app);
+        business::load_active_card_author_note(app);
         app.invalidate_chat_caches();
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;

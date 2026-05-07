@@ -628,6 +628,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
             ..Session::default()
         };
         super::business::load_active_persona(app);
+        super::business::load_active_card_author_note(app);
         app.invalidate_chat_caches();
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
@@ -645,6 +646,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
                 app.discard_pending_session_save();
                 *app.session = loaded;
                 super::business::load_active_persona(app);
+                super::business::load_active_card_author_note(app);
                 app.invalidate_chat_caches();
                 app.invalidate_worldbook_cache();
                 app.set_status(format!("Loaded: {session_id}"), super::StatusLevel::Info);

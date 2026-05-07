@@ -196,6 +196,7 @@ fn create_and_edit_character(app: &mut App) {
         system_prompt: String::new(),
         post_history_instructions: String::new(),
         alternate_greetings: Vec::new(),
+        author_note: None,
     };
     let slug = libllm::character::slugify(&new_name);
     if let Err(e) = app

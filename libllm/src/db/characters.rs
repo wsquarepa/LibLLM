@@ -6,6 +6,17 @@ use rusqlite::{Connection, params};
 use crate::character::CharacterCard;
 use crate::session::now_iso8601;
 
+fn author_note_columns(card: &CharacterCard) -> (Option<&str>, i64, i64) {
+    match card.author_note.as_ref() {
+        Some(note) => (
+            Some(note.text.as_str()),
+            note.depth as i64,
+            note.at_top as i64,
+        ),
+        None => (None, 4, 0),
+    }
+}
+
 pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> Result<()> {
     let alternate_greetings_count = card.alternate_greetings.len();
     crate::timed_result!(
@@ -18,9 +29,10 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
             let alternate_greetings =
                 serde_json::to_string(&card.alternate_greetings)
                     .context("failed to serialize alternate_greetings")?;
+            let (note_text, note_depth, note_at_top) = author_note_columns(card);
             conn.execute(
-                "INSERT INTO characters (slug, name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, alternate_greetings, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO characters (slug, name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, alternate_greetings, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     slug,
                     card.name,
@@ -34,6 +46,9 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
                     alternate_greetings,
                     now,
                     now,
+                    note_text,
+                    note_depth,
+                    note_at_top,
                 ],
             )
             .context("failed to insert character")?;
@@ -45,7 +60,9 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
 pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
     crate::timed_result!(tracing::Level::INFO, "db.character.load", slug = slug ; {
         conn.query_row(
-            "SELECT name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, alternate_greetings
+            "SELECT name, description, personality, scenario, first_mes, mes_example,
+                    system_prompt, post_history_instructions, alternate_greetings,
+                    author_note, author_note_depth, author_note_at_top
              FROM characters WHERE slug = ?1",
             params![slug],
             |row| {
@@ -58,6 +75,9 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                 let system_prompt: String = row.get(6)?;
                 let post_history_instructions: String = row.get(7)?;
                 let alternate_greetings_json: String = row.get(8)?;
+                let author_note_text: Option<String> = row.get(9)?;
+                let author_note_depth: i64 = row.get(10)?;
+                let author_note_at_top: i64 = row.get(11)?;
                 Ok((
                     name,
                     description,
@@ -68,6 +88,9 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                     system_prompt,
                     post_history_instructions,
                     alternate_greetings_json,
+                    author_note_text,
+                    author_note_depth,
+                    author_note_at_top,
                 ))
             },
         )
@@ -83,10 +106,26 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                 system_prompt,
                 post_history_instructions,
                 alternate_greetings_json,
+                author_note_text,
+                author_note_depth,
+                author_note_at_top,
             )| {
                 let alternate_greetings: Vec<String> =
                     serde_json::from_str(&alternate_greetings_json)
                         .context("failed to deserialize alternate_greetings")?;
+                let depth = u32::try_from(author_note_depth).unwrap_or_else(|_| {
+                    tracing::warn!(
+                        slug = slug,
+                        raw = author_note_depth,
+                        "db.character.load: author_note_depth out of range, defaulting to 4"
+                    );
+                    4
+                });
+                let author_note = crate::author_note::AuthorNote::from_row_parts(
+                    author_note_text,
+                    depth,
+                    author_note_at_top != 0,
+                );
                 Ok(CharacterCard {
                     name,
                     description,
@@ -97,6 +136,7 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                     system_prompt,
                     post_history_instructions,
                     alternate_greetings,
+                    author_note,
                 })
             },
         )
@@ -127,9 +167,10 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
             let alternate_greetings =
                 serde_json::to_string(&card.alternate_greetings)
                     .context("failed to serialize alternate_greetings")?;
+            let (note_text, note_depth, note_at_top) = author_note_columns(card);
             let affected = conn
                 .execute(
-                    "UPDATE characters SET name = ?1, description = ?2, personality = ?3, scenario = ?4, first_mes = ?5, mes_example = ?6, system_prompt = ?7, post_history_instructions = ?8, alternate_greetings = ?9, updated_at = ?10 WHERE slug = ?11",
+                    "UPDATE characters SET name = ?1, description = ?2, personality = ?3, scenario = ?4, first_mes = ?5, mes_example = ?6, system_prompt = ?7, post_history_instructions = ?8, alternate_greetings = ?9, updated_at = ?10, author_note = ?11, author_note_depth = ?12, author_note_at_top = ?13 WHERE slug = ?14",
                     params![
                         card.name,
                         card.description,
@@ -141,6 +182,9 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
                         card.post_history_instructions,
                         alternate_greetings,
                         now,
+                        note_text,
+                        note_depth,
+                        note_at_top,
                         slug,
                     ],
                 )
@@ -194,6 +238,7 @@ mod tests {
             system_prompt: "You are Aria.".to_owned(),
             post_history_instructions: "Stay in character.".to_owned(),
             alternate_greetings: vec!["Greetings!".to_owned(), "Welcome!".to_owned()],
+            author_note: None,
         }
     }
 
@@ -254,5 +299,51 @@ mod tests {
 
         delete_character(&conn, "aria").unwrap();
         assert!(load_character(&conn, "aria").is_err());
+    }
+
+    #[test]
+    fn character_author_note_round_trip_some() {
+        let conn = setup_db();
+        let mut card = make_card();
+        card.author_note = Some(crate::author_note::AuthorNote {
+            text: "Stay in scene.".to_owned(),
+            depth: 3,
+            at_top: false,
+        });
+
+        insert_character(&conn, "aria", &card).unwrap();
+        let loaded = load_character(&conn, "aria").unwrap();
+
+        assert_eq!(loaded.author_note, card.author_note);
+    }
+
+    #[test]
+    fn character_author_note_round_trip_none() {
+        let conn = setup_db();
+        let card = make_card();
+        assert!(card.author_note.is_none());
+
+        insert_character(&conn, "aria", &card).unwrap();
+        let loaded = load_character(&conn, "aria").unwrap();
+
+        assert_eq!(loaded.author_note, None);
+    }
+
+    #[test]
+    fn character_author_note_update_round_trip() {
+        let conn = setup_db();
+        let card = make_card();
+        insert_character(&conn, "aria", &card).unwrap();
+
+        let mut updated = card.clone();
+        updated.author_note = Some(crate::author_note::AuthorNote {
+            text: "edit later".to_owned(),
+            depth: 1,
+            at_top: true,
+        });
+        update_character(&conn, "aria", &updated).unwrap();
+
+        let loaded = load_character(&conn, "aria").unwrap();
+        assert_eq!(loaded.author_note, updated.author_note);
     }
 }

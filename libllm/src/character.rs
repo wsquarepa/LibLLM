@@ -22,6 +22,8 @@ pub struct CharacterCard {
     pub post_history_instructions: String,
     #[serde(default)]
     pub alternate_greetings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_note: Option<crate::author_note::AuthorNote>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +105,7 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
         alternate_greetings: data
             .and_then(|d| d.alternate_greetings.clone())
             .unwrap_or_default(),
+        author_note: None,
     })
 }
 
@@ -288,6 +291,7 @@ mod tests {
             system_prompt: "You are TestChar.".to_string(),
             post_history_instructions: "Stay in character.".to_string(),
             alternate_greetings: vec!["Greetings!".to_string()],
+            author_note: None,
         }
     }
 

@@ -579,6 +579,7 @@ pub(super) fn handle_field_dialog_key(
                     system_prompt: values[6].clone(),
                     post_history_instructions: values[7].clone(),
                     alternate_greetings: Vec::new(),
+                    author_note: None,
                 };
                 let old_slug = app.character_editor_slug.clone();
                 let save_result = app

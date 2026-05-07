@@ -29,9 +29,15 @@ fn display_name_from_character(character: Option<&str>) -> String {
     character.unwrap_or("Assistant").to_owned()
 }
 
-fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
-    let now = now_iso8601();
-    let legacy_mirror: Option<String> = if session.characters.len() <= 1 {
+/// Slug to write into `sessions.character` for back-compat: solo sessions
+/// (`characters.len() <= 1`) mirror their attachment slug; group sessions return None.
+///
+/// The `or_else(session.character.clone())` branch is a back-compat bridge for
+/// sessions whose `characters` Vec was never populated (e.g. legacy in-memory state
+/// before group-chat code wires `characters`). `load_session` synthesizes a single
+/// attachment from `sessions.character` on the next read, so the round-trip is preserved.
+fn compute_legacy_mirror(session: &Session) -> Option<String> {
+    if session.characters.len() <= 1 {
         session
             .characters
             .first()
@@ -39,7 +45,12 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             .or_else(|| session.character.clone())
     } else {
         None
-    };
+    }
+}
+
+fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
+    let now = now_iso8601();
+    let legacy_mirror = compute_legacy_mirror(session);
     let display_name = display_name_from_character(legacy_mirror.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
 
@@ -70,15 +81,7 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
 /// (messages, session_worldbooks, file_summaries) are not wiped.
 fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
-    let legacy_mirror: Option<String> = if session.characters.len() <= 1 {
-        session
-            .characters
-            .first()
-            .map(|a| a.slug.clone())
-            .or_else(|| session.character.clone())
-    } else {
-        None
-    };
+    let legacy_mirror = compute_legacy_mirror(session);
     let display_name = display_name_from_character(legacy_mirror.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
 
@@ -150,6 +153,8 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
 }
 
 fn write_session_characters(conn: &Connection, id: &str, session: &Session) -> Result<()> {
+    // Wipe-and-rewrite: callers do not pre-delete (unlike messages/session_worldbooks
+    // which are cleared in save_session before the corresponding writer is called).
     conn.execute(
         "DELETE FROM session_characters WHERE session_id = ?1",
         params![id],

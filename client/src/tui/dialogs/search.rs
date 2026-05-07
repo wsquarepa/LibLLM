@@ -9,6 +9,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use time::format_description::well_known::Rfc3339;
 
 use super::super::theme::Theme;
 use super::super::types::Focus;
@@ -230,8 +231,61 @@ fn render_separator(area: Rect, buf: &mut Buffer, theme: &Theme) {
         .render(area, buf);
 }
 
-fn render_preview(_state: &SearchDialogState, _area: Rect, _buf: &mut Buffer, _theme: &Theme) {
-    // Implemented in Task 14.
+fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &Theme) {
+    let Some(hit) = state.hits.get(state.selected) else {
+        Paragraph::new("(no preview)")
+            .style(Style::default().fg(theme.status_bar_fg))
+            .render(area, buf);
+        return;
+    };
+
+    let header = format!(
+        "{}  {}  {}",
+        hit.session_display_name,
+        hit.role,
+        hit.timestamp.format(&Rfc3339).expect("RFC 3339 format")
+    );
+    Paragraph::new(header)
+        .style(Style::default().fg(theme.status_bar_fg))
+        .render(
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
+
+    let body_area = Rect {
+        x: area.x,
+        y: area.y.saturating_add(2),
+        width: area.width,
+        height: area.height.saturating_sub(2),
+    };
+    let collapsed = collapse_newlines(&hit.preview_text);
+    let spans = highlight_spans(&collapsed, theme);
+    let line_count = hit.preview_text.lines().count().max(1);
+    let visible = body_area.height.saturating_sub(1) as usize;
+
+    Paragraph::new(Line::from(spans))
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .render(body_area, buf);
+
+    if line_count > visible {
+        let footer = format!("... +{} more lines", line_count - visible);
+        Paragraph::new(footer)
+            .style(Style::default().fg(theme.status_bar_fg))
+            .render(
+                Rect {
+                    x: body_area.x,
+                    y: body_area.y + body_area.height.saturating_sub(1),
+                    width: body_area.width,
+                    height: 1,
+                },
+                buf,
+            );
+    }
 }
 
 fn highlight_spans(input: &str, theme: &Theme) -> Vec<Span<'static>> {
@@ -518,5 +572,64 @@ mod tests {
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
         assert!(rendered.contains("type at least 3"), "expected hint, got: {rendered}");
+    }
+
+    #[test]
+    fn preview_pane_shows_full_content_with_highlight() {
+        let theme = crate::tui::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.session_display_name = "alpha".into();
+            hit.role = libllm::session::Role::Assistant;
+            hit.preview_text = "remember to \u{1}redact\u{2} PII before sending and document why".into();
+            hit
+        }];
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("redact"));
+        assert!(rendered.contains("PII"));
+        assert!(rendered.contains("alpha"));
+    }
+
+    #[test]
+    fn preview_truncates_long_messages() {
+        let theme = crate::tui::theme::Theme::dark();
+        let many_lines: String = (0..200).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.preview_text = many_lines;
+            hit
+        }];
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+
+        let rendered = buffer_to_string(&buf);
+        assert!(
+            rendered.contains("more lines"),
+            "expected truncation footer, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn preview_shows_no_preview_when_hits_empty() {
+        let theme = crate::tui::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.hits = vec![];
+        state.input = "redact".into();
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("(no preview)"));
     }
 }

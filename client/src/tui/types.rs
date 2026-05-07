@@ -305,6 +305,7 @@ pub(super) struct App<'a> {
 
     pub(super) regex_list_selected: usize,
     pub(super) regex_editor: Option<dialogs::regex::RegexEditorState>,
+    pub(super) skipped_regex_rules_pending_status: usize,
 
     pub(super) character_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) character_editor_slug: String,

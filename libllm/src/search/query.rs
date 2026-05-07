@@ -45,21 +45,29 @@ pub(crate) struct ParsedQuery {
 }
 
 pub(crate) fn parse(raw: &str) -> Result<ParsedQuery, QueryError> {
-    let tokens = tokenize(raw);
-    if tokens.is_empty() {
-        return Err(QueryError::Empty);
-    }
-
-    let mut match_parts: Vec<String> = Vec::new();
     let mut session_substring: Option<String> = None;
     let mut role: Option<Role> = None;
     let mut before: Option<OffsetDateTime> = None;
     let mut after: Option<OffsetDateTime> = None;
 
-    for token in tokens {
+    let mut leftover = String::new();
+    let mut raw_match: Option<String> = None;
+
+    let tokens = tokenize(raw);
+    if tokens.is_empty() {
+        return Err(QueryError::Empty);
+    }
+
+    let mut iter = tokens.into_iter();
+    while let Some(token) = iter.next() {
         match token {
             Token::Phrase(phrase) => {
-                match_parts.push(format!("\"{}\"", phrase));
+                if !leftover.is_empty() {
+                    leftover.push(' ');
+                }
+                leftover.push('"');
+                leftover.push_str(&phrase);
+                leftover.push('"');
             }
             Token::Term(term) => {
                 if let Some((key, value)) = split_filter(&term) {
@@ -73,25 +81,68 @@ pub(crate) fn parse(raw: &str) -> Result<ParsedQuery, QueryError> {
                     )?;
                     continue;
                 }
-                let cleaned = sanitize_term(&term);
-                if !cleaned.is_empty() {
-                    match_parts.push(format!("{cleaned}*"));
+                if let Some(rest) = term.strip_prefix("m:") {
+                    let mut buf = rest.to_owned();
+                    for next in iter.by_ref() {
+                        match next {
+                            Token::Phrase(p) => {
+                                buf.push_str(" \"");
+                                buf.push_str(&p);
+                                buf.push('"');
+                            }
+                            Token::Term(t) => {
+                                buf.push(' ');
+                                buf.push_str(&t);
+                            }
+                        }
+                    }
+                    raw_match = Some(buf.trim().to_owned());
+                    break;
                 }
+                if !leftover.is_empty() {
+                    leftover.push(' ');
+                }
+                leftover.push_str(&term);
             }
         }
     }
 
-    if match_parts.is_empty() {
-        return Err(QueryError::Empty);
-    }
+    let match_expr = if let Some(raw) = raw_match {
+        if raw.is_empty() {
+            return Err(QueryError::Empty);
+        }
+        raw
+    } else {
+        compile_match_expr(&leftover)?
+    };
 
     Ok(ParsedQuery {
-        match_expr: match_parts.join(" AND "),
+        match_expr,
         session_substring,
         role,
         before,
         after,
     })
+}
+
+fn compile_match_expr(input: &str) -> Result<String, QueryError> {
+    let tokens = tokenize(input);
+    let mut parts: Vec<String> = Vec::new();
+    for token in tokens {
+        match token {
+            Token::Phrase(phrase) => parts.push(format!("\"{}\"", phrase)),
+            Token::Term(term) => {
+                let cleaned = sanitize_term(&term);
+                if !cleaned.is_empty() {
+                    parts.push(format!("{cleaned}*"));
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err(QueryError::Empty);
+    }
+    Ok(parts.join(" AND "))
 }
 
 fn split_filter(token: &str) -> Option<(&str, &str)> {
@@ -340,6 +391,25 @@ mod tests {
         let parsed = parse("\"role:user friendly\"").unwrap();
         assert_eq!(parsed.match_expr, "\"role:user friendly\"");
         assert_eq!(parsed.role, None);
+    }
+
+    #[test]
+    fn raw_mode_passes_through_match_expr() {
+        let parsed = parse("m:redact NEAR/3 pii").unwrap();
+        assert_eq!(parsed.match_expr, "redact NEAR/3 pii");
+    }
+
+    #[test]
+    fn raw_mode_keeps_scope_filters() {
+        let parsed = parse("role:user m:redact NEAR/3 pii").unwrap();
+        assert_eq!(parsed.match_expr, "redact NEAR/3 pii");
+        assert_eq!(parsed.role, Some(Role::User));
+    }
+
+    #[test]
+    fn raw_mode_alone_with_no_match_is_empty() {
+        let err = parse("m:").unwrap_err();
+        assert_eq!(err, QueryError::Empty);
     }
 
     fn seed_db_with_sessions(

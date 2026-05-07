@@ -75,6 +75,9 @@ fn empty_session() -> Session {
         character: None,
         worldbooks: vec![],
         persona: None,
+        characters: Vec::new(),
+        chat_policy: libllm::group_chat::ChatPolicy::default(),
+        card_assembly: libllm::group_chat::CardAssembly::default(),
     }
 }
 

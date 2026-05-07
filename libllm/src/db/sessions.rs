@@ -303,6 +303,9 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 character,
                 worldbooks,
                 persona,
+                characters: Vec::new(),
+                chat_policy: crate::group_chat::ChatPolicy::default(),
+                card_assembly: crate::group_chat::CardAssembly::default(),
             })
     })
 }
@@ -501,6 +504,9 @@ mod tests {
             character: Some("TestChar".to_owned()),
             worldbooks: vec!["book1".to_owned(), "book2".to_owned()],
             persona: Some("TestUser".to_owned()),
+            characters: Vec::new(),
+            chat_policy: crate::group_chat::ChatPolicy::default(),
+            card_assembly: crate::group_chat::CardAssembly::default(),
         }
     }
 
@@ -614,6 +620,9 @@ mod tests {
             character: None,
             worldbooks: vec![],
             persona: None,
+            characters: Vec::new(),
+            chat_policy: crate::group_chat::ChatPolicy::default(),
+            card_assembly: crate::group_chat::CardAssembly::default(),
         };
 
         insert_session(&mut conn, "branching", &session).unwrap();
@@ -649,6 +658,9 @@ mod tests {
             character: None,
             worldbooks: vec![],
             persona: None,
+            characters: Vec::new(),
+            chat_policy: crate::group_chat::ChatPolicy::default(),
+            card_assembly: crate::group_chat::CardAssembly::default(),
         };
         insert_session(&mut conn, "sess-2", &session2).unwrap();
 

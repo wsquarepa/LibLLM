@@ -71,6 +71,9 @@ pub fn linear_session(messages: Vec<Message>) -> Session {
         character: None,
         worldbooks: Vec::new(),
         persona: None,
+        characters: Vec::new(),
+        chat_policy: libllm::group_chat::ChatPolicy::default(),
+        card_assembly: libllm::group_chat::CardAssembly::default(),
     }
 }
 

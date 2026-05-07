@@ -5,6 +5,12 @@
 use libllm::author_note::{AuthorNote, inject_author_notes};
 use libllm::session::{Message, Role};
 
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
+mod common;
+
 fn user(content: &str) -> Message {
     Message::new(Role::User, content.to_owned())
 }

@@ -71,7 +71,7 @@ where
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected =
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
-    let injected = business::replace_template_vars(app.session, injected, user_name);
+    let mut injected = business::replace_template_vars(app.session, injected, user_name);
 
     let card_note = app
         .session
@@ -94,7 +94,6 @@ where
         })
         .and_then(|card| card.author_note);
 
-    let mut injected = injected;
     libllm::author_note::inject_author_notes(
         &mut injected,
         card_note.as_ref(),

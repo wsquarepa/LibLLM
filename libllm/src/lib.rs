@@ -12,6 +12,7 @@ pub mod db;
 pub mod diagnostics;
 pub mod export;
 pub mod files;
+pub mod group_chat;
 pub mod migration;
 pub mod persona;
 pub mod preset;

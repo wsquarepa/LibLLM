@@ -97,6 +97,10 @@ pub struct Message {
     pub timestamp: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thought_seconds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_turn_action_points: Option<String>,
 }
 
 impl Message {
@@ -106,6 +110,8 @@ impl Message {
             content,
             timestamp: now_iso8601(),
             thought_seconds: None,
+            speaker: None,
+            pre_turn_action_points: None,
         }
     }
 
@@ -705,6 +711,12 @@ pub struct Session {
     pub worldbooks: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub persona: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub characters: Vec<crate::group_chat::CharacterAttachment>,
+    #[serde(default)]
+    pub chat_policy: crate::group_chat::ChatPolicy,
+    #[serde(default)]
+    pub card_assembly: crate::group_chat::CardAssembly,
 }
 
 impl Session {
@@ -1260,5 +1272,95 @@ mod tests {
         assert_eq!(tree.node(ids[1]).unwrap().message.content, "second");
         assert_eq!(tree.node(ids[2]).unwrap().message.content, "third");
         assert_eq!(tree.head(), Some(ids[2]));
+    }
+
+    #[test]
+    fn session_default_has_empty_characters_and_round_robin() {
+        let s = super::Session::default();
+        assert!(s.characters.is_empty());
+        assert!(matches!(
+            s.chat_policy,
+            crate::group_chat::ChatPolicy::RoundRobin
+        ));
+        assert!(matches!(
+            s.card_assembly,
+            crate::group_chat::CardAssembly::JoinCards
+        ));
+    }
+
+    #[test]
+    fn session_serde_round_trip_with_characters() {
+        let s = super::Session {
+            characters: vec![
+                crate::group_chat::CharacterAttachment {
+                    slug: "alice".to_owned(),
+                    talkativeness: 0.7,
+                    action_points: 0.3,
+                },
+                crate::group_chat::CharacterAttachment {
+                    slug: "bob".to_owned(),
+                    talkativeness: 0.4,
+                    action_points: 0.0,
+                },
+            ],
+            chat_policy: crate::group_chat::ChatPolicy::WeightedRandom,
+            card_assembly: crate::group_chat::CardAssembly::SwapCards,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: super::Session = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.characters.len(), 2);
+        assert_eq!(back.characters[0].slug, "alice");
+        assert!((back.characters[0].talkativeness - 0.7).abs() < f32::EPSILON);
+        assert!((back.characters[0].action_points - 0.3).abs() < f32::EPSILON);
+        assert!(matches!(
+            back.chat_policy,
+            crate::group_chat::ChatPolicy::WeightedRandom
+        ));
+        assert!(matches!(
+            back.card_assembly,
+            crate::group_chat::CardAssembly::SwapCards
+        ));
+    }
+
+    #[test]
+    fn session_deserializes_legacy_json_without_new_fields() {
+        let json = r#"{"tree":{"nodes":[],"head":null,"preferred_child":{}}}"#;
+        let s: super::Session = serde_json::from_str(json).unwrap();
+        assert!(s.characters.is_empty());
+        assert!(matches!(
+            s.chat_policy,
+            crate::group_chat::ChatPolicy::RoundRobin
+        ));
+        assert!(matches!(
+            s.card_assembly,
+            crate::group_chat::CardAssembly::JoinCards
+        ));
+    }
+
+    #[test]
+    fn message_new_has_no_speaker_or_action_points() {
+        let m = super::Message::new(super::Role::Assistant, "hi".to_owned());
+        assert!(m.speaker.is_none());
+        assert!(m.pre_turn_action_points.is_none());
+    }
+
+    #[test]
+    fn message_serde_round_trip_with_speaker() {
+        let mut m = super::Message::new(super::Role::Assistant, "hi".to_owned());
+        m.speaker = Some("alice".to_owned());
+        m.pre_turn_action_points = Some(r#"{"alice":0.2,"bob":0.5}"#.to_owned());
+        let json = serde_json::to_string(&m).unwrap();
+        let back: super::Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.speaker.as_deref(), Some("alice"));
+        assert_eq!(back.pre_turn_action_points.as_deref(), Some(r#"{"alice":0.2,"bob":0.5}"#));
+    }
+
+    #[test]
+    fn message_serde_round_trip_without_optional_fields() {
+        let json = r#"{"role":"user","content":"hello","timestamp":"2026-05-07T12:00:00Z"}"#;
+        let m: super::Message = serde_json::from_str(json).unwrap();
+        assert!(m.speaker.is_none());
+        assert!(m.pre_turn_action_points.is_none());
     }
 }

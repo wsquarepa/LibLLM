@@ -727,12 +727,16 @@ mod tests {
                 content: "Hello {{char}}".to_owned(),
                 timestamp: "2026-01-15T10:00:00Z".to_owned(),
                 thought_seconds: None,
+                speaker: None,
+                pre_turn_action_points: None,
             },
             Message {
                 role: Role::Assistant,
                 content: "Hi {{user}}!".to_owned(),
                 timestamp: "2026-01-15T10:00:05Z".to_owned(),
                 thought_seconds: None,
+                speaker: None,
+                pre_turn_action_points: None,
             },
         ]
     }
@@ -1083,6 +1087,8 @@ mod tests {
             content: content.to_owned(),
             timestamp: "2026-01-15T10:00:05Z".to_owned(),
             thought_seconds,
+            speaker: None,
+            pre_turn_action_points: None,
         }
     }
 

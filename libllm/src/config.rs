@@ -319,6 +319,8 @@ pub struct Config {
     pub auth: Auth,
     #[serde(default)]
     pub files: FilesConfig,
+    #[serde(default)]
+    pub group_chat: GroupChatConfig,
 }
 
 const DEFAULT_SUMMARIZATION_PROMPT: &str = "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
@@ -516,6 +518,38 @@ impl Default for FilesConfig {
     }
 }
 
+fn default_max_consecutive_turns() -> u32 {
+    6
+}
+
+/// Group-chat orchestration settings, nested under `[group_chat]` in config.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupChatConfig {
+    #[serde(default = "default_max_consecutive_turns")]
+    pub max_consecutive_turns: u32,
+}
+
+impl Default for GroupChatConfig {
+    fn default() -> Self {
+        Self { max_consecutive_turns: default_max_consecutive_turns() }
+    }
+}
+
+impl GroupChatConfig {
+    /// Clamp `max_consecutive_turns` into `[1, 50]` at read time. Emits a warn when
+    /// the stored value is out of range. Called at each use site instead of at load to
+    /// avoid the loader's current "return defaults on parse error" contract.
+    pub fn effective_max_consecutive_turns(&self) -> u32 {
+        if !(1..=50).contains(&self.max_consecutive_turns) {
+            tracing::warn!(
+                value = self.max_consecutive_turns,
+                "group_chat.max_consecutive_turns out of range [1, 50]; clamping",
+            );
+        }
+        self.max_consecutive_turns.clamp(1, 50)
+    }
+}
+
 /// Optional color overrides for TUI theme elements, specified as CSS-style hex strings.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ThemeColorOverrides {
@@ -552,6 +586,23 @@ pub struct ThemeColorOverrides {
     pub token_band_ok: Option<String>,
     pub token_band_warn: Option<String>,
     pub token_band_over: Option<String>,
+    pub group_character_fg_1: Option<String>,
+    pub group_character_fg_2: Option<String>,
+    pub group_character_fg_3: Option<String>,
+    pub group_character_fg_4: Option<String>,
+    pub group_character_fg_5: Option<String>,
+    pub group_character_fg_6: Option<String>,
+    pub group_character_fg_7: Option<String>,
+    pub group_character_fg_8: Option<String>,
+    pub group_character_bg_1: Option<String>,
+    pub group_character_bg_2: Option<String>,
+    pub group_character_bg_3: Option<String>,
+    pub group_character_bg_4: Option<String>,
+    pub group_character_bg_5: Option<String>,
+    pub group_character_bg_6: Option<String>,
+    pub group_character_bg_7: Option<String>,
+    pub group_character_bg_8: Option<String>,
+    pub missing_character_badge_fg: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -589,10 +640,27 @@ pub enum ColorLabel {
     TokenBandOk,
     TokenBandWarn,
     TokenBandOver,
+    GroupCharacterFg1,
+    GroupCharacterFg2,
+    GroupCharacterFg3,
+    GroupCharacterFg4,
+    GroupCharacterFg5,
+    GroupCharacterFg6,
+    GroupCharacterFg7,
+    GroupCharacterFg8,
+    GroupCharacterBg1,
+    GroupCharacterBg2,
+    GroupCharacterBg3,
+    GroupCharacterBg4,
+    GroupCharacterBg5,
+    GroupCharacterBg6,
+    GroupCharacterBg7,
+    GroupCharacterBg8,
+    MissingCharacterBadgeFg,
 }
 
 impl ColorLabel {
-    pub const ALL: [ColorLabel; 33] = [
+    pub const ALL: [ColorLabel; 50] = [
         Self::UserCharacterFg,
         Self::UserCharacterBg,
         Self::SideCharacterFg,
@@ -626,6 +694,23 @@ impl ColorLabel {
         Self::TokenBandOk,
         Self::TokenBandWarn,
         Self::TokenBandOver,
+        Self::GroupCharacterFg1,
+        Self::GroupCharacterFg2,
+        Self::GroupCharacterFg3,
+        Self::GroupCharacterFg4,
+        Self::GroupCharacterFg5,
+        Self::GroupCharacterFg6,
+        Self::GroupCharacterFg7,
+        Self::GroupCharacterFg8,
+        Self::GroupCharacterBg1,
+        Self::GroupCharacterBg2,
+        Self::GroupCharacterBg3,
+        Self::GroupCharacterBg4,
+        Self::GroupCharacterBg5,
+        Self::GroupCharacterBg6,
+        Self::GroupCharacterBg7,
+        Self::GroupCharacterBg8,
+        Self::MissingCharacterBadgeFg,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -663,6 +748,23 @@ impl ColorLabel {
             Self::TokenBandOk => "token_band_ok",
             Self::TokenBandWarn => "token_band_warn",
             Self::TokenBandOver => "token_band_over",
+            Self::GroupCharacterFg1 => "group_character_fg_1",
+            Self::GroupCharacterFg2 => "group_character_fg_2",
+            Self::GroupCharacterFg3 => "group_character_fg_3",
+            Self::GroupCharacterFg4 => "group_character_fg_4",
+            Self::GroupCharacterFg5 => "group_character_fg_5",
+            Self::GroupCharacterFg6 => "group_character_fg_6",
+            Self::GroupCharacterFg7 => "group_character_fg_7",
+            Self::GroupCharacterFg8 => "group_character_fg_8",
+            Self::GroupCharacterBg1 => "group_character_bg_1",
+            Self::GroupCharacterBg2 => "group_character_bg_2",
+            Self::GroupCharacterBg3 => "group_character_bg_3",
+            Self::GroupCharacterBg4 => "group_character_bg_4",
+            Self::GroupCharacterBg5 => "group_character_bg_5",
+            Self::GroupCharacterBg6 => "group_character_bg_6",
+            Self::GroupCharacterBg7 => "group_character_bg_7",
+            Self::GroupCharacterBg8 => "group_character_bg_8",
+            Self::MissingCharacterBadgeFg => "missing_character_badge_fg",
         }
     }
 
@@ -707,6 +809,23 @@ impl ThemeColorOverrides {
             ColorLabel::TokenBandOk => &self.token_band_ok,
             ColorLabel::TokenBandWarn => &self.token_band_warn,
             ColorLabel::TokenBandOver => &self.token_band_over,
+            ColorLabel::GroupCharacterFg1 => &self.group_character_fg_1,
+            ColorLabel::GroupCharacterFg2 => &self.group_character_fg_2,
+            ColorLabel::GroupCharacterFg3 => &self.group_character_fg_3,
+            ColorLabel::GroupCharacterFg4 => &self.group_character_fg_4,
+            ColorLabel::GroupCharacterFg5 => &self.group_character_fg_5,
+            ColorLabel::GroupCharacterFg6 => &self.group_character_fg_6,
+            ColorLabel::GroupCharacterFg7 => &self.group_character_fg_7,
+            ColorLabel::GroupCharacterFg8 => &self.group_character_fg_8,
+            ColorLabel::GroupCharacterBg1 => &self.group_character_bg_1,
+            ColorLabel::GroupCharacterBg2 => &self.group_character_bg_2,
+            ColorLabel::GroupCharacterBg3 => &self.group_character_bg_3,
+            ColorLabel::GroupCharacterBg4 => &self.group_character_bg_4,
+            ColorLabel::GroupCharacterBg5 => &self.group_character_bg_5,
+            ColorLabel::GroupCharacterBg6 => &self.group_character_bg_6,
+            ColorLabel::GroupCharacterBg7 => &self.group_character_bg_7,
+            ColorLabel::GroupCharacterBg8 => &self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => &self.missing_character_badge_fg,
         };
         slot.as_deref()
     }
@@ -746,6 +865,23 @@ impl ThemeColorOverrides {
             ColorLabel::TokenBandOk => &mut self.token_band_ok,
             ColorLabel::TokenBandWarn => &mut self.token_band_warn,
             ColorLabel::TokenBandOver => &mut self.token_band_over,
+            ColorLabel::GroupCharacterFg1 => &mut self.group_character_fg_1,
+            ColorLabel::GroupCharacterFg2 => &mut self.group_character_fg_2,
+            ColorLabel::GroupCharacterFg3 => &mut self.group_character_fg_3,
+            ColorLabel::GroupCharacterFg4 => &mut self.group_character_fg_4,
+            ColorLabel::GroupCharacterFg5 => &mut self.group_character_fg_5,
+            ColorLabel::GroupCharacterFg6 => &mut self.group_character_fg_6,
+            ColorLabel::GroupCharacterFg7 => &mut self.group_character_fg_7,
+            ColorLabel::GroupCharacterFg8 => &mut self.group_character_fg_8,
+            ColorLabel::GroupCharacterBg1 => &mut self.group_character_bg_1,
+            ColorLabel::GroupCharacterBg2 => &mut self.group_character_bg_2,
+            ColorLabel::GroupCharacterBg3 => &mut self.group_character_bg_3,
+            ColorLabel::GroupCharacterBg4 => &mut self.group_character_bg_4,
+            ColorLabel::GroupCharacterBg5 => &mut self.group_character_bg_5,
+            ColorLabel::GroupCharacterBg6 => &mut self.group_character_bg_6,
+            ColorLabel::GroupCharacterBg7 => &mut self.group_character_bg_7,
+            ColorLabel::GroupCharacterBg8 => &mut self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => &mut self.missing_character_badge_fg,
         };
         *slot = value;
     }
@@ -1527,5 +1663,47 @@ summary_prompt = "custom prompt"
         assert_eq!(config.files.per_file_bytes, defaults.per_file_bytes);
         assert_eq!(config.files.per_message_bytes, defaults.per_message_bytes);
         assert_eq!(config.files.summary_prompt, defaults.summary_prompt);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_default_is_six() {
+        let cfg = super::GroupChatConfig::default();
+        assert_eq!(cfg.effective_max_consecutive_turns(), 6);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_clamps_zero_to_one() {
+        let cfg = super::GroupChatConfig { max_consecutive_turns: 0 };
+        assert_eq!(cfg.effective_max_consecutive_turns(), 1);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_clamps_over_max() {
+        let cfg = super::GroupChatConfig { max_consecutive_turns: 51 };
+        assert_eq!(cfg.effective_max_consecutive_turns(), 50);
+        let cfg = super::GroupChatConfig { max_consecutive_turns: u32::MAX };
+        assert_eq!(cfg.effective_max_consecutive_turns(), 50);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_in_range_passthrough() {
+        for v in [1u32, 2, 6, 25, 50] {
+            let cfg = super::GroupChatConfig { max_consecutive_turns: v };
+            assert_eq!(cfg.effective_max_consecutive_turns(), v);
+        }
+    }
+
+    #[test]
+    fn group_chat_config_defaults_when_missing() {
+        let toml_str = r#"api_url = "http://localhost:5001/v1""#;
+        let cfg: super::Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.group_chat.max_consecutive_turns, 6);
+    }
+
+    #[test]
+    fn group_chat_config_round_trips_through_toml() {
+        let toml_str = "[group_chat]\nmax_consecutive_turns = 12\n";
+        let cfg: super::Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.group_chat.max_consecutive_turns, 12);
     }
 }

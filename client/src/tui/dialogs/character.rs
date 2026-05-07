@@ -23,7 +23,14 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
-        .map(|&i| ListItem::new(app.character_names[i].clone()))
+        .map(|&i| {
+            let mark = if app.character_picks.get(i).copied().unwrap_or(false) {
+                "[x] "
+            } else {
+                "[ ] "
+            };
+            ListItem::new(format!("{mark}{}", app.character_names[i]))
+        })
         .collect();
 
     super::render_paged_list(
@@ -45,7 +52,7 @@ pub(in crate::tui) fn render_character_dialog(f: &mut ratatui::Frame, app: &App,
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
             Line::from(
-                "Enter: select  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel",
+                "Space: toggle  Enter: confirm  Right: edit  a: add  Del: delete  Ctrl+F: search  Esc: cancel",
             ),
             Line::from("Drop .png/.json to import"),
         ]
@@ -93,11 +100,59 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
     };
 
     match key.code {
+        KeyCode::Char(' ') => {
+            if let Some(pick) = app.character_picks.get_mut(selected) {
+                *pick = !*pick;
+            }
+            return None;
+        }
         KeyCode::Enter => {
+            let picked: Vec<usize> = visible_indices
+                .iter()
+                .copied()
+                .filter(|&i| app.character_picks.get(i).copied().unwrap_or(false))
+                .collect();
+
+            if picked.len() >= 2 {
+                let slugs: Vec<String> =
+                    picked.iter().map(|&i| app.character_slugs[i].clone()).collect();
+                let names_by_slug: std::collections::HashMap<String, String> = picked
+                    .iter()
+                    .map(|&i| (app.character_slugs[i].clone(), app.character_names[i].clone()))
+                    .collect();
+                if let Err(e) =
+                    crate::cli::validate_group_chat_args(&slugs, &Default::default(), &names_by_slug)
+                {
+                    app.set_status(e.to_string(), super::super::StatusLevel::Error);
+                    return None;
+                }
+                let prior: std::collections::HashMap<String, libllm::group_chat::CharacterAttachment> =
+                    app.session.characters.iter().map(|c| (c.slug.clone(), c.clone())).collect();
+                app.session.characters = slugs
+                    .iter()
+                    .map(|s| {
+                        prior
+                            .get(s)
+                            .cloned()
+                            .unwrap_or_else(|| libllm::group_chat::CharacterAttachment::new(s.clone()))
+                    })
+                    .collect();
+                app.session.character = None;
+                crate::tui::business::rebuild_character_cards_cache(app);
+                return_to_input(app);
+                return Some(Action::OpenGroupChatSettings);
+            }
+
+            let single_index = if picked.len() == 1 {
+                picked[0]
+            } else {
+                selected
+            };
+
             if !app.flush_session_before_transition() {
                 return None;
             }
-            let slug = app.character_slugs[selected].clone();
+            let slug = app.character_slugs[single_index].clone();
             let load_result = app.db.as_ref().and_then(|db| db.load_character(&slug).ok());
             match load_result {
                 Some(card) => {
@@ -110,6 +165,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.session.system_prompt =
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
+                    app.session.characters = vec![libllm::group_chat::CharacterAttachment::new(slug)];
                     app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();
                     if !card.first_mes.is_empty() {

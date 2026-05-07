@@ -478,6 +478,9 @@ pub fn render_chat(
                 } else {
                     None
                 };
+                let in_group = app.session.characters.len() >= 2;
+                let group_speaker = if in_group { msg.speaker.as_deref() } else { None };
+
                 let (role_label, base_role_style) = match msg.role {
                     Role::User => {
                         let (label, fg, bg) = match &side {
@@ -500,13 +503,38 @@ pub fn render_chat(
                                 .add_modifier(Modifier::BOLD),
                         )
                     }
-                    Role::Assistant => (
-                        assistant_label.clone(),
-                        Style::default()
-                            .fg(app.theme.assistant_message_fg)
-                            .bg(app.theme.assistant_message_bg)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Role::Assistant => {
+                        let (label, fg, bg) = if let Some(slug) = group_speaker {
+                            let attach_index = app
+                                .session
+                                .characters
+                                .iter()
+                                .position(|c| c.slug == slug)
+                                .unwrap_or(0);
+                            let palette_idx = attach_index % 8;
+                            let fg = app.theme.group_character_palette()[palette_idx];
+                            let bg = app.theme.group_character_bg_palette()[palette_idx];
+                            let display_name = app
+                                .character_cards_cache
+                                .get(slug)
+                                .map(|c| c.name.clone())
+                                .unwrap_or_else(|| slug.to_owned());
+                            (display_name, fg, bg)
+                        } else {
+                            (
+                                assistant_label.clone(),
+                                app.theme.assistant_message_fg,
+                                app.theme.assistant_message_bg,
+                            )
+                        };
+                        (
+                            label,
+                            Style::default()
+                                .fg(fg)
+                                .bg(bg)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    }
                     Role::System => {
                         let label = if libllm::files::is_snapshot(&msg.content) {
                             "File".to_owned()
@@ -574,8 +602,22 @@ pub fn render_chat(
                     };
                     let content = replace_vars(raw_content);
                     if msg.role == Role::Assistant {
+                        let displayed = if let Some(slug) = group_speaker {
+                            let display_name = app
+                                .character_cards_cache
+                                .get(slug)
+                                .map(|c| c.name.as_str())
+                                .unwrap_or(slug);
+                            let prefix = format!("{display_name}: ");
+                            content
+                                .strip_prefix(prefix.as_str())
+                                .map(str::to_owned)
+                                .unwrap_or(content)
+                        } else {
+                            content
+                        };
                         render_assistant_lines(
-                            &content,
+                            &displayed,
                             msg.thought_seconds,
                             &app.theme,
                             app.reasoning_preset.as_ref(),

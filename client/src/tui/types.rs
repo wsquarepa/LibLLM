@@ -51,6 +51,7 @@ pub(super) enum Focus {
     TemplatePromptDialog,
     DangerConfirmDialog,
     DangerTypedConfirmDialog,
+    GroupChatSettingsDialog,
 }
 
 pub(super) enum Action {
@@ -61,6 +62,8 @@ pub(super) enum Action {
     },
     SlashCommand(String, String),
     Quit,
+    OpenGroupChatSettings,
+    SaveGroupChatSettings,
 }
 
 pub(super) enum DeleteContext {
@@ -298,6 +301,7 @@ pub(super) struct App<'a> {
     pub(super) character_names: Vec<String>,
     pub(super) character_slugs: Vec<String>,
     pub(super) character_selected: usize,
+    pub(super) character_picks: Vec<bool>,
 
     pub(super) worldbook_list: Vec<String>,
     pub(super) worldbook_selected: usize,
@@ -370,6 +374,13 @@ pub(super) struct App<'a> {
     pub(super) danger_confirm_op: Option<DangerOp>,
     pub(super) danger_confirm_selected: Option<usize>,
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
+    pub(super) group_settings_selected: usize,
+    pub(super) character_cards_cache: std::collections::HashMap<String, libllm::character::CharacterCard>,
+    /// Active RNG for the in-progress group-chat action-point loop. `None` when no group-chat
+    /// loop is running. Set before the first turn, cleared after the loop ends.
+    pub(super) group_chat_loop_rng: Option<rand::rngs::StdRng>,
+    pub(super) group_chat_consecutive: u32,
+    pub(super) group_chat_max_consecutive: u32,
 }
 
 impl<'a> App<'a> {

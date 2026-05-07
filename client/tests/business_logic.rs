@@ -54,6 +54,10 @@ fn no_overrides() -> CliOverrides {
         sampling: common::empty_overrides(),
         system_prompt: None,
         persona: None,
+        characters: vec![],
+        chat_policy: None,
+        card_assembly: None,
+        talkativeness: std::collections::HashMap::new(),
         no_summarize: false,
         auth_type: None,
         auth_basic_username: None,
@@ -75,6 +79,9 @@ fn empty_session() -> Session {
         character: None,
         worldbooks: vec![],
         persona: None,
+        characters: Vec::new(),
+        chat_policy: libllm::group_chat::ChatPolicy::default(),
+        card_assembly: libllm::group_chat::CardAssembly::default(),
     }
 }
 

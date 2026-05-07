@@ -80,6 +80,8 @@ where
                 content: libllm::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
                 thought_seconds: m.thought_seconds,
+                speaker: m.speaker.clone(),
+                pre_turn_action_points: m.pre_turn_action_points.clone(),
             },
             _ => m,
         })
@@ -117,6 +119,19 @@ pub(in crate::tui) fn build_rendered_prompt_continuation(
 ) -> (String, usize) {
     build_rendered_prompt_common(app, dropped, |preset, refs, sys| {
         preset.render_continuation(refs, sys)
+    })
+}
+
+/// Same as `build_rendered_prompt` but overrides the system prompt with `system`. Used by
+/// the group-chat path where `build_turn_prompt` supplies the speaker-specific system prompt.
+fn build_rendered_prompt_with_system(
+    app: &crate::tui::App,
+    dropped: usize,
+    system: &str,
+) -> (String, usize) {
+    let system = system.to_owned();
+    build_rendered_prompt_common(app, dropped, move |preset, refs, _| {
+        preset.render(refs, Some(&system))
     })
 }
 
@@ -280,6 +295,179 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.streaming_task = Some(handle);
 }
 
+/// Prepares streaming state for a group-chat assistant turn, then spawns the
+/// completion request. The message node for this turn must already be appended
+/// to the tree and set as head (with prefill content, speaker, and
+/// pre_turn_action_points populated) before calling this. On `Done`, the token
+/// handler appends the streamed completion to the head node's existing content
+/// via the continuation path, preserving the prefill and speaker fields.
+async fn stream_into_message(
+    app: &mut App<'_>,
+    system: String,
+    stop_sequences: Vec<String>,
+    sender: mpsc::Sender<StreamToken>,
+) {
+    app.mark_session_dirty(SaveTrigger::Debounced, false);
+    app.invalidate_chat_caches();
+    app.is_streaming = true;
+    app.is_continuation = true;
+    app.stream_started_at = None;
+    app.stream_first_think_closed_at = None;
+    app.focus = crate::tui::Focus::Input;
+    app.nav_cursor = None;
+    app.hover_node = None;
+    app.streaming_buffer.clear();
+    app.auto_scroll = true;
+
+    let worldbooks = loaded_worldbooks(app);
+    let budget = app.context_mgr.token_limit();
+    let branch_path = app.session.tree.branch_path();
+    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+    let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+
+    let render = |k: usize| -> String { build_rendered_prompt_with_system(app, k, &system).0 };
+
+    let dropped = match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
+        Ok(k) => k,
+        Err(err) => {
+            tracing::warn!(
+                result = "fallback_heuristic",
+                error = %err,
+                "stream.truncate"
+            );
+            0
+        }
+    };
+
+    let prompt = build_rendered_prompt_with_system(app, dropped, &system).0;
+    let sampling = app.sampling.clone();
+
+    tracing::info!(
+        phase = "dispatch",
+        branch_len = branch_path.len(),
+        summary_aware_len = summary_aware.len(),
+        dropped = dropped,
+        worldbook_count = worldbooks.len(),
+        stop_token_count = stop_sequences.len(),
+        prompt_bytes = prompt.len(),
+        continuation = true,
+        group_turn = true,
+        "stream.start"
+    );
+
+    let client = app.client.clone();
+    let handle = tokio::spawn(async move {
+        let stop_refs: Vec<&str> = stop_sequences.iter().map(String::as_str).collect();
+        client
+            .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
+            .await;
+    });
+    app.streaming_task = Some(handle);
+}
+
+pub(super) async fn run_one_group_turn(
+    app: &mut App<'_>,
+    speaker_slug: &str,
+    snapshot_json: &str,
+    sender: &mpsc::Sender<StreamToken>,
+) {
+    let tpl_name = app.config.template_preset.as_deref().unwrap_or("Default").to_owned();
+    let template = libllm::preset::resolve_template_preset(&tpl_name);
+
+    let persona = app
+        .session
+        .persona
+        .as_ref()
+        .and_then(|slug| app.db.as_ref().and_then(|db| db.load_persona(slug).ok()));
+
+    let prompt = match libllm::group_chat::build_turn_prompt(
+        app.session,
+        &app.character_cards_cache,
+        persona.as_ref(),
+        Some(&template),
+        speaker_slug,
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            app.set_status(
+                format!("group prompt build failed: {e}"),
+                StatusLevel::Error,
+            );
+            return;
+        }
+    };
+
+    let _span = tracing::info_span!(
+        "group_turn",
+        speaker = %speaker_slug,
+        policy = ?app.session.chat_policy
+    )
+    .entered();
+
+    let mut assistant_msg = Message::new(Role::Assistant, prompt.prefill.clone());
+    assistant_msg.speaker = Some(speaker_slug.to_owned());
+    assistant_msg.pre_turn_action_points = Some(snapshot_json.to_owned());
+
+    let parent_id = app.session.tree.head();
+    app.session.tree.push(parent_id, assistant_msg);
+
+    stream_into_message(app, prompt.system, prompt.stop_sequences, sender.clone()).await;
+}
+
+/// Initializes the group-chat action-point loop state and starts the first turn.
+/// Subsequent turns are triggered by `handle_stream_token` after each `Done` event.
+pub(in crate::tui) async fn start_group_chat_loop(
+    app: &mut App<'_>,
+    sender: &mpsc::Sender<StreamToken>,
+) {
+    app.group_chat_loop_rng = Some(rand::make_rng());
+    app.group_chat_consecutive = 0;
+    app.group_chat_max_consecutive = app.config.group_chat.effective_max_consecutive_turns();
+    continue_group_chat_loop(app, sender).await;
+}
+
+/// Runs the next turn of the active group-chat loop, or ends the loop if no speaker is eligible
+/// or the consecutive-turn cap has been reached.
+pub(in crate::tui) async fn continue_group_chat_loop(
+    app: &mut App<'_>,
+    sender: &mpsc::Sender<StreamToken>,
+) {
+    let Some(ref mut rng) = app.group_chat_loop_rng else {
+        return;
+    };
+
+    if app.group_chat_consecutive >= app.group_chat_max_consecutive {
+        tracing::warn!(
+            consecutive = app.group_chat_consecutive,
+            "group_chat: consecutive-turn cap fired, yielding to user"
+        );
+        app.group_chat_loop_rng = None;
+        return;
+    }
+
+    let Some(decision) = libllm::group_chat::decide_next_speaker(
+        &app.session.characters,
+        app.session.chat_policy,
+        rng,
+    ) else {
+        tracing::debug!("group_chat: no speaker eligible, yielding to user");
+        app.group_chat_loop_rng = None;
+        return;
+    };
+
+    for (slug, ap) in &decision.updated_action_points {
+        if let Some(c) = app.session.characters.iter_mut().find(|c| &c.slug == slug) {
+            c.action_points = *ap;
+        }
+    }
+
+    let snapshot_json = serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
+    let speaker_slug = decision.speaker_slug.clone();
+
+    app.group_chat_consecutive += 1;
+    run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
+}
+
 pub(in crate::tui) async fn start_streaming(
     app: &mut App<'_>,
     content: &str,
@@ -375,7 +563,11 @@ pub(in crate::tui) async fn start_streaming(
     }
     push_user_segments(app, content);
 
-    launch_stream(app, sender).await;
+    if app.session.characters.len() >= 2 {
+        start_group_chat_loop(app, &sender).await;
+    } else {
+        launch_stream(app, sender).await;
+    }
 }
 
 /// Push a new user message at the current head and stream. Unlike
@@ -650,7 +842,9 @@ pub(in crate::tui) async fn handle_stream_token(
                     }
                 }
             }
-            if !app.message_queue.is_empty() {
+            if app.group_chat_loop_rng.is_some() && !app.is_summarizing {
+                Box::pin(continue_group_chat_loop(app, &sender)).await;
+            } else if !app.message_queue.is_empty() {
                 let next = app.message_queue.remove(0);
                 Box::pin(start_streaming(app, &next, sender)).await;
                 if !app.is_streaming {
@@ -666,6 +860,7 @@ pub(in crate::tui) async fn handle_stream_token(
             app.stream_started_at = None;
             app.stream_first_think_closed_at = None;
             app.message_queue.clear();
+            app.group_chat_loop_rng = None;
             app.set_status(format!("Error: {err}"), StatusLevel::Error);
         }
     }
@@ -748,6 +943,8 @@ mod tests {
                     content: libllm::files::rewrite_user_message(&m.content),
                     timestamp: m.timestamp.clone(),
                     thought_seconds: m.thought_seconds,
+                    speaker: m.speaker.clone(),
+                    pre_turn_action_points: m.pre_turn_action_points.clone(),
                 },
                 _ => m.clone(),
             })

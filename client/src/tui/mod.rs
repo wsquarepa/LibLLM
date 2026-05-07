@@ -230,6 +230,7 @@ pub async fn run(
         character_names: Vec::new(),
         character_slugs: Vec::new(),
         character_selected: 0,
+        character_picks: Vec::new(),
         worldbook_list: Vec::new(),
         worldbook_selected: 0,
         character_editor: None,
@@ -293,9 +294,15 @@ pub async fn run(
         danger_confirm_op: None,
         danger_confirm_selected: None,
         danger_typed_confirm: None,
+        group_settings_selected: 0,
+        character_cards_cache: std::collections::HashMap::new(),
+        group_chat_loop_rng: None,
+        group_chat_consecutive: 0,
+        group_chat_max_consecutive: 0,
     };
 
     business::load_active_persona(&mut app);
+    business::rebuild_character_cards_cache(&mut app);
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(
@@ -663,6 +670,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::TemplatePromptDialog => Some("template_prompt"),
         Focus::DangerConfirmDialog => Some("danger_confirm"),
         Focus::DangerTypedConfirmDialog => Some("danger_typed_confirm"),
+        Focus::GroupChatSettingsDialog => Some("group_chat_settings"),
         _ => None,
     };
 
@@ -912,6 +920,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
                     state,
                 );
             }
+        }
+        Focus::GroupChatSettingsDialog => {
+            dialogs::group_chat_settings::render(f, app, f.area());
         }
         _ => {}
     }

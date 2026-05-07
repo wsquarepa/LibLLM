@@ -132,11 +132,15 @@ pub fn inject_loaded_worldbook_entries(
     user_name: &str,
     worldbooks: &[RuntimeWorldBook],
 ) -> Vec<Message> {
-    if session.character.is_none() || worldbooks.is_empty() {
+    if (session.character.is_none() && session.characters.is_empty()) || worldbooks.is_empty() {
         return messages.iter().map(|m| (*m).clone()).collect();
     }
 
-    let char_name = session.character.as_deref().unwrap_or("");
+    let char_name = session
+        .character
+        .as_deref()
+        .or_else(|| session.characters.first().map(|c| c.slug.as_str()))
+        .unwrap_or("");
     let msg_texts: Vec<&str> = messages.iter().map(|m| m.content.as_str()).collect();
 
     let mut all_activated: Vec<ActivatedEntry> = worldbooks
@@ -181,11 +185,15 @@ pub fn replace_template_vars(
     messages: Vec<Message>,
     user_name: &str,
 ) -> Vec<Message> {
-    if session.character.is_none() {
+    if session.character.is_none() && session.characters.is_empty() {
         return messages;
     }
 
-    let char_name = session.character.as_deref().unwrap_or("");
+    let char_name = session
+        .character
+        .as_deref()
+        .or_else(|| session.characters.first().map(|c| c.slug.as_str()))
+        .unwrap_or("");
 
     messages
         .into_iter()
@@ -482,6 +490,7 @@ pub fn apply_tabbed_config_fields(
                 None => libllm::config::FilesConfig::default().summary_prompt,
             },
         },
+        group_chat: existing.group_chat,
     };
 
     libllm::config::save(&cfg)
@@ -804,6 +813,16 @@ pub(super) fn load_active_persona(app: &mut App) {
     app.active_persona_desc = None;
 }
 
+pub(super) fn rebuild_character_cards_cache(app: &mut App) {
+    app.character_cards_cache.clear();
+    let Some(ref db) = app.db else { return };
+    for attachment in &app.session.characters {
+        if let Ok(card) = db.load_character(&attachment.slug) {
+            app.character_cards_cache.insert(attachment.slug.clone(), card);
+        }
+    }
+}
+
 pub fn new_chat_entry() -> SessionEntry {
     SessionEntry {
         id: String::new(),
@@ -1044,6 +1063,10 @@ mod tests {
             sampling: libllm::sampling::SamplingOverrides::default(),
             system_prompt: None,
             persona: None,
+            characters: vec![],
+            chat_policy: None,
+            card_assembly: None,
+            talkativeness: std::collections::HashMap::new(),
             no_summarize: true,
             auth_type: None,
             auth_basic_username: None,
@@ -1079,6 +1102,10 @@ mod tests {
             sampling: libllm::sampling::SamplingOverrides::default(),
             system_prompt: None,
             persona: None,
+            characters: vec![],
+            chat_policy: None,
+            card_assembly: None,
+            talkativeness: std::collections::HashMap::new(),
             no_summarize: false,
             auth_type: Some(libllm::config::AuthKind::Header),
             auth_basic_username: None,
@@ -1118,6 +1145,10 @@ mod tests {
             sampling: libllm::sampling::SamplingOverrides::default(),
             system_prompt: None,
             persona: None,
+            characters: vec![],
+            chat_policy: None,
+            card_assembly: None,
+            talkativeness: std::collections::HashMap::new(),
             no_summarize: false,
             auth_type: None,
             auth_basic_username: None,

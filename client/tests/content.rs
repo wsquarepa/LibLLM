@@ -179,6 +179,8 @@ fn rendered_prompt_contains_wrapped_body_and_basename_substitution() {
                 content: libllm::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
                 thought_seconds: m.thought_seconds,
+                speaker: m.speaker.clone(),
+                pre_turn_action_points: m.pre_turn_action_points.clone(),
             },
             _ => m.clone(),
         })
@@ -226,6 +228,8 @@ fn rendered_prompt_preserves_snapshot_for_multiple_files_in_order() {
                 content: libllm::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
                 thought_seconds: m.thought_seconds,
+                speaker: m.speaker.clone(),
+                pre_turn_action_points: m.pre_turn_action_points.clone(),
             },
             _ => m.clone(),
         })

@@ -230,6 +230,10 @@ pub fn build_system_prompt(
             wi_before: String::new(),
             wi_after: String::new(),
             mes_examples: card.mes_example.clone(),
+            characters_block: String::new(),
+            roster_block: String::new(),
+            active_speaker: String::new(),
+            other_speakers: String::new(),
         };
         return tpl.render_story_string(&vars);
     }

@@ -14,6 +14,8 @@ type SessionRow = (
     Option<String>,
     Option<String>,
     Option<i64>,
+    Option<String>,
+    Option<String>,
 );
 
 pub struct SessionListEntry {
@@ -27,23 +29,45 @@ fn display_name_from_character(character: Option<&str>) -> String {
     character.unwrap_or("Assistant").to_owned()
 }
 
+/// Slug to write into `sessions.character` for back-compat: solo sessions
+/// (`characters.len() <= 1`) mirror their attachment slug; group sessions return None.
+///
+/// The `or_else(session.character.clone())` branch is a back-compat bridge for
+/// sessions whose `characters` Vec was never populated (e.g. legacy in-memory state
+/// before group-chat code wires `characters`). `load_session` synthesizes a single
+/// attachment from `sessions.character` on the next read, so the round-trip is preserved.
+fn compute_legacy_mirror(session: &Session) -> Option<String> {
+    if session.characters.len() <= 1 {
+        session
+            .characters
+            .first()
+            .map(|a| a.slug.clone())
+            .or_else(|| session.character.clone())
+    } else {
+        None
+    }
+}
+
 fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
-    let display_name = display_name_from_character(session.character.as_deref());
+    let legacy_mirror = compute_legacy_mirror(session);
+    let display_name = display_name_from_character(legacy_mirror.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
 
     conn.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             id,
             display_name,
             session.model,
             session.template,
             session.system_prompt,
-            session.character,
+            legacy_mirror,
             session.persona,
             head_id,
+            session.chat_policy.as_db_str(),
+            session.card_assembly.as_db_str(),
             now,
             now,
         ],
@@ -57,12 +81,13 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
 /// (messages, session_worldbooks, file_summaries) are not wiped.
 fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
-    let display_name = display_name_from_character(session.character.as_deref());
+    let legacy_mirror = compute_legacy_mirror(session);
+    let display_name = display_name_from_character(legacy_mirror.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
 
     conn.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
          ON CONFLICT(id) DO UPDATE SET
             display_name = excluded.display_name,
             model = excluded.model,
@@ -71,6 +96,8 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             character = excluded.character,
             persona = excluded.persona,
             head_id = excluded.head_id,
+            chat_policy = excluded.chat_policy,
+            card_assembly = excluded.card_assembly,
             updated_at = excluded.updated_at",
         params![
             id,
@@ -78,9 +105,11 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             session.model,
             session.template,
             session.system_prompt,
-            session.character,
+            legacy_mirror,
             session.persona,
             head_id,
+            session.chat_policy.as_db_str(),
+            session.card_assembly.as_db_str(),
             now,
         ],
     )
@@ -96,8 +125,8 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
             .get(&node.id)
             .map(|&c| c as i64);
         conn.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 node.id as i64,
                 id,
@@ -107,6 +136,8 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
                 node.message.content,
                 node.message.timestamp,
                 node.message.thought_seconds.map(i64::from),
+                node.message.speaker,
+                node.message.pre_turn_action_points,
             ],
         )
         .context("failed to insert message row")?;
@@ -123,6 +154,32 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
     Ok(())
 }
 
+fn write_session_characters(conn: &Connection, id: &str, session: &Session) -> Result<()> {
+    // Wipe-and-rewrite: callers do not pre-delete (unlike messages/session_worldbooks
+    // which are cleared in save_session before the corresponding writer is called).
+    conn.execute(
+        "DELETE FROM session_characters WHERE session_id = ?1",
+        params![id],
+    )
+    .context("failed to clear session_characters")?;
+
+    for (idx, attachment) in session.characters.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id,
+                attachment.slug,
+                idx as i64,
+                attachment.talkativeness as f64,
+                attachment.action_points as f64,
+            ],
+        )
+        .context("failed to insert session_characters row")?;
+    }
+    Ok(())
+}
+
 pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
     let node_count = session.tree.node_count();
     let worldbook_count = session.worldbooks.len();
@@ -136,6 +193,7 @@ pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Res
             let sp = conn.savepoint().context("failed to begin savepoint")?;
             insert_session_row(&sp, id, session)?;
             write_messages_and_worldbooks(&sp, id, session)?;
+            write_session_characters(&sp, id, session)?;
             sp.commit().context("failed to commit session insert")?;
             Ok(())
         }
@@ -162,6 +220,7 @@ pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Resul
             )
             .context("failed to clear session_worldbooks")?;
             write_messages_and_worldbooks(&sp, id, session)?;
+            write_session_characters(&sp, id, session)?;
             sp.commit().context("failed to commit session save")?;
             Ok(())
         }
@@ -187,9 +246,9 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
 
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
     crate::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
-            let (model, template, system_prompt, character, persona, head_id): SessionRow = conn
+            let (model, template, system_prompt, character, persona, head_id, chat_policy_str, card_assembly_str): SessionRow = conn
                 .query_row(
-                    "SELECT model, template, system_prompt, character, persona, head_id
+                    "SELECT model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly
                      FROM sessions WHERE id = ?1",
                     params![id],
                     |row| {
@@ -200,14 +259,25 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                             row.get(3)?,
                             row.get(4)?,
                             row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
                         ))
                     },
                 )
                 .with_context(|| format!("session not found: {id}"))?;
 
+            let chat_policy = crate::group_chat::ChatPolicy::from_db_str(
+                chat_policy_str.as_deref().unwrap_or(""),
+            )
+            .unwrap_or_default();
+            let card_assembly = crate::group_chat::CardAssembly::from_db_str(
+                card_assembly_str.as_deref().unwrap_or(""),
+            )
+            .unwrap_or_default();
+
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds
+                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points
                      FROM messages WHERE session_id = ?1 ORDER BY id",
                 )
                 .context("failed to prepare message query")?;
@@ -224,6 +294,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     let content: String = row.get(4)?;
                     let timestamp: String = row.get(5)?;
                     let thought_seconds: Option<i64> = row.get(6)?;
+                    let speaker: Option<String> = row.get(7)?;
+                    let pre_turn_action_points: Option<String> = row.get(8)?;
                     Ok((
                         msg_id,
                         parent_id,
@@ -232,6 +304,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         content,
                         timestamp,
                         thought_seconds,
+                        speaker,
+                        pre_turn_action_points,
                     ))
                 })
                 .context("failed to query messages")?;
@@ -245,6 +319,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     content,
                     timestamp,
                     thought_seconds,
+                    speaker,
+                    pre_turn_action_points,
                 ) = row.context("failed to read message row")?;
 
                 let role: Role = role_str
@@ -262,6 +338,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         content,
                         timestamp,
                         thought_seconds,
+                        speaker,
+                        pre_turn_action_points,
                     },
                 };
 
@@ -295,6 +373,38 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 worldbooks.push(wb.context("failed to read worldbook row")?);
             }
 
+            let mut ch_stmt = conn
+                .prepare(
+                    "SELECT slug, talkativeness, action_points
+                     FROM session_characters WHERE session_id = ?1
+                     ORDER BY attach_index",
+                )
+                .context("failed to prepare session_characters query")?;
+            let ch_rows = ch_stmt
+                .query_map(params![id], |row| {
+                    let slug: String = row.get(0)?;
+                    let talkativeness: f64 = row.get(1)?;
+                    let action_points: f64 = row.get(2)?;
+                    Ok(crate::group_chat::CharacterAttachment {
+                        slug,
+                        talkativeness: talkativeness as f32,
+                        action_points: action_points as f32,
+                    })
+                })
+                .context("failed to query session_characters")?;
+            let mut characters: Vec<crate::group_chat::CharacterAttachment> = Vec::new();
+            for ch in ch_rows {
+                characters.push(ch.context("failed to read session_characters row")?);
+            }
+
+            if characters.is_empty() && let Some(slug) = character.as_deref() {
+                characters.push(crate::group_chat::CharacterAttachment {
+                    slug: slug.to_owned(),
+                    talkativeness: 1.0,
+                    action_points: 0.0,
+                });
+            }
+
             Ok(Session {
                 tree,
                 model,
@@ -303,6 +413,9 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 character,
                 worldbooks,
                 persona,
+                characters,
+                chat_policy,
+                card_assembly,
             })
     })
 }
@@ -370,8 +483,8 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
         content_bytes = content_bytes
         ; {
             conn.execute(
-                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     node.id as i64,
                     session_id,
@@ -381,6 +494,8 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
                     node.message.content,
                     node.message.timestamp,
                     node.message.thought_seconds.map(i64::from),
+                    node.message.speaker,
+                    node.message.pre_turn_action_points,
                 ],
             )
             .context("failed to upsert message")?;
@@ -478,6 +593,8 @@ mod tests {
                     content: "Hello".to_owned(),
                     timestamp: "2026-01-01T00:00:00Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -489,6 +606,8 @@ mod tests {
                     content: "Hi there!".to_owned(),
                     timestamp: "2026-01-01T00:00:01Z".to_owned(),
                     thought_seconds: Some(7),
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
         ];
@@ -501,6 +620,9 @@ mod tests {
             character: Some("TestChar".to_owned()),
             worldbooks: vec!["book1".to_owned(), "book2".to_owned()],
             persona: Some("TestUser".to_owned()),
+            characters: Vec::new(),
+            chat_policy: crate::group_chat::ChatPolicy::default(),
+            card_assembly: crate::group_chat::CardAssembly::default(),
         }
     }
 
@@ -568,6 +690,8 @@ mod tests {
                     content: "Hello".to_owned(),
                     timestamp: "2026-01-01T00:00:00Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -579,6 +703,8 @@ mod tests {
                     content: "Response A".to_owned(),
                     timestamp: "2026-01-01T00:00:01Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -590,6 +716,8 @@ mod tests {
                     content: "Response B".to_owned(),
                     timestamp: "2026-01-01T00:00:02Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -601,6 +729,8 @@ mod tests {
                     content: "Follow up".to_owned(),
                     timestamp: "2026-01-01T00:00:03Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
         ];
@@ -614,6 +744,9 @@ mod tests {
             character: None,
             worldbooks: vec![],
             persona: None,
+            characters: Vec::new(),
+            chat_policy: crate::group_chat::ChatPolicy::default(),
+            card_assembly: crate::group_chat::CardAssembly::default(),
         };
 
         insert_session(&mut conn, "branching", &session).unwrap();
@@ -649,6 +782,9 @@ mod tests {
             character: None,
             worldbooks: vec![],
             persona: None,
+            characters: Vec::new(),
+            chat_policy: crate::group_chat::ChatPolicy::default(),
+            card_assembly: crate::group_chat::CardAssembly::default(),
         };
         insert_session(&mut conn, "sess-2", &session2).unwrap();
 
@@ -734,6 +870,179 @@ mod tests {
     }
 
     #[test]
+    fn save_and_load_group_session_round_trips_attachments_and_settings() {
+        use crate::group_chat::{CardAssembly, ChatPolicy, CharacterAttachment};
+        use crate::session::{MessageTree, Session};
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+
+        let session = Session {
+            tree: MessageTree::new(),
+            model: None,
+            template: None,
+            system_prompt: None,
+            character: None,
+            characters: vec![
+                CharacterAttachment { slug: "alice".to_owned(), talkativeness: 0.7, action_points: 0.3 },
+                CharacterAttachment { slug: "bob".to_owned(), talkativeness: 0.4, action_points: 0.0 },
+                CharacterAttachment {
+                    slug: "charlie".to_owned(),
+                    talkativeness: 0.6,
+                    action_points: 0.9,
+                },
+            ],
+            chat_policy: ChatPolicy::WeightedRandom,
+            card_assembly: CardAssembly::SwapCards,
+            worldbooks: vec![],
+            persona: None,
+        };
+
+        insert_session(&mut conn, "g1", &session).unwrap();
+        let loaded = load_session(&conn, "g1").unwrap();
+
+        assert_eq!(loaded.characters.len(), 3);
+        assert_eq!(loaded.characters[0].slug, "alice");
+        assert!((loaded.characters[0].talkativeness - 0.7).abs() < 1e-6);
+        assert!((loaded.characters[0].action_points - 0.3).abs() < 1e-6);
+        assert_eq!(loaded.characters[2].slug, "charlie");
+        assert!((loaded.characters[2].action_points - 0.9).abs() < 1e-6);
+        assert!(matches!(loaded.chat_policy, ChatPolicy::WeightedRandom));
+        assert!(matches!(loaded.card_assembly, CardAssembly::SwapCards));
+    }
+
+    #[test]
+    fn save_solo_session_mirrors_character_column() {
+        use crate::group_chat::CharacterAttachment;
+        use crate::session::{MessageTree, Session};
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+
+        let session = Session {
+            tree: MessageTree::new(),
+            characters: vec![CharacterAttachment::new("alice")],
+            ..Default::default()
+        };
+        insert_session(&mut conn, "s1", &session).unwrap();
+
+        let mirror: Option<String> = conn
+            .query_row("SELECT character FROM sessions WHERE id = 's1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(mirror.as_deref(), Some("alice"));
+
+        let loaded = load_session(&conn, "s1").unwrap();
+        assert_eq!(loaded.characters.len(), 1);
+        assert_eq!(loaded.characters[0].slug, "alice");
+    }
+
+    #[test]
+    fn save_group_session_clears_character_mirror() {
+        use crate::group_chat::CharacterAttachment;
+        use crate::session::{MessageTree, Session};
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+
+        let session = Session {
+            tree: MessageTree::new(),
+            characters: vec![CharacterAttachment::new("alice"), CharacterAttachment::new("bob")],
+            ..Default::default()
+        };
+        insert_session(&mut conn, "g2", &session).unwrap();
+
+        let mirror: Option<String> = conn
+            .query_row("SELECT character FROM sessions WHERE id = 'g2'", [], |row| row.get(0))
+            .unwrap();
+        assert!(mirror.is_none(), "character column should be NULL for group sessions");
+    }
+
+    #[test]
+    fn save_session_replaces_attachment_set_on_re_save() {
+        use crate::group_chat::CharacterAttachment;
+        use crate::session::{MessageTree, Session};
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+
+        let mut session = Session {
+            tree: MessageTree::new(),
+            characters: vec![CharacterAttachment::new("alice"), CharacterAttachment::new("bob")],
+            ..Default::default()
+        };
+        insert_session(&mut conn, "g3", &session).unwrap();
+
+        session.characters = vec![CharacterAttachment::new("alice")];
+        save_session(&mut conn, "g3", &session).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_characters WHERE session_id = 'g3'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let loaded = load_session(&conn, "g3").unwrap();
+        assert_eq!(loaded.characters.len(), 1);
+        assert_eq!(loaded.characters[0].slug, "alice");
+    }
+
+    #[test]
+    fn load_session_synthesizes_attachment_from_legacy_character_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, character, created_at, updated_at)
+             VALUES ('legacy', 'alice', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM session_characters WHERE session_id = 'legacy'",
+            [],
+        )
+        .unwrap();
+
+        let loaded = load_session(&conn, "legacy").unwrap();
+        assert_eq!(loaded.characters.len(), 1);
+        assert_eq!(loaded.characters[0].slug, "alice");
+        assert!((loaded.characters[0].talkativeness - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn save_and_load_message_round_trips_speaker_and_action_points() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+
+        let mut tree = MessageTree::new();
+        let user_msg = Message::new(Role::User, "hello".to_owned());
+        let user_id = tree.push(None, user_msg);
+
+        let mut alice_msg = Message::new(Role::Assistant, "Alice: hi".to_owned());
+        alice_msg.speaker = Some("alice".to_owned());
+        alice_msg.pre_turn_action_points = Some(r#"{"alice":0.2,"bob":0.5}"#.to_owned());
+        tree.push(Some(user_id), alice_msg);
+
+        let session = Session { tree, ..Default::default() };
+        insert_session(&mut conn, "m1", &session).unwrap();
+
+        let loaded = super::load_session(&conn, "m1").unwrap();
+        let nodes = loaded.tree.nodes();
+        let assistant = nodes.iter().find(|n| matches!(n.message.role, Role::Assistant)).unwrap();
+        assert_eq!(assistant.message.speaker.as_deref(), Some("alice"));
+        assert_eq!(
+            assistant.message.pre_turn_action_points.as_deref(),
+            Some(r#"{"alice":0.2,"bob":0.5}"#)
+        );
+
+        let user = nodes.iter().find(|n| matches!(n.message.role, Role::User)).unwrap();
+        assert!(user.message.speaker.is_none());
+        assert!(user.message.pre_turn_action_points.is_none());
+    }
+
+    #[test]
     fn upsert_message_and_update_head() {
         let mut conn = setup_db();
         let session = make_session_with_messages();
@@ -748,6 +1057,8 @@ mod tests {
                 content: "Another message".to_owned(),
                 timestamp: "2026-01-01T00:00:05Z".to_owned(),
                 thought_seconds: None,
+                speaker: None,
+                pre_turn_action_points: None,
             },
         };
 

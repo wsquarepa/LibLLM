@@ -39,6 +39,23 @@ pub struct Theme {
     pub token_band_ok: Color,
     pub token_band_warn: Color,
     pub token_band_over: Color,
+    pub group_character_fg_1: Color,
+    pub group_character_fg_2: Color,
+    pub group_character_fg_3: Color,
+    pub group_character_fg_4: Color,
+    pub group_character_fg_5: Color,
+    pub group_character_fg_6: Color,
+    pub group_character_fg_7: Color,
+    pub group_character_fg_8: Color,
+    pub group_character_bg_1: Color,
+    pub group_character_bg_2: Color,
+    pub group_character_bg_3: Color,
+    pub group_character_bg_4: Color,
+    pub group_character_bg_5: Color,
+    pub group_character_bg_6: Color,
+    pub group_character_bg_7: Color,
+    pub group_character_bg_8: Color,
+    pub missing_character_badge_fg: Color,
 }
 
 impl Theme {
@@ -77,6 +94,23 @@ impl Theme {
             token_band_ok: Color::Green,
             token_band_warn: Color::Yellow,
             token_band_over: Color::Red,
+            group_character_fg_1: Color::Rgb(0xf4, 0xa8, 0xa8),
+            group_character_fg_2: Color::Rgb(0xa8, 0xd8, 0xf4),
+            group_character_fg_3: Color::Rgb(0xb8, 0xe6, 0xc1),
+            group_character_fg_4: Color::Rgb(0xf4, 0xe3, 0xa8),
+            group_character_fg_5: Color::Rgb(0xd4, 0xa8, 0xf4),
+            group_character_fg_6: Color::Rgb(0xa8, 0xf4, 0xe6),
+            group_character_fg_7: Color::Rgb(0xf4, 0xc4, 0xa8),
+            group_character_fg_8: Color::Rgb(0xc8, 0xc8, 0xf4),
+            group_character_bg_1: Color::Rgb(0x49, 0x32, 0x32),
+            group_character_bg_2: Color::Rgb(0x32, 0x41, 0x49),
+            group_character_bg_3: Color::Rgb(0x37, 0x45, 0x3a),
+            group_character_bg_4: Color::Rgb(0x49, 0x44, 0x32),
+            group_character_bg_5: Color::Rgb(0x40, 0x32, 0x49),
+            group_character_bg_6: Color::Rgb(0x32, 0x49, 0x45),
+            group_character_bg_7: Color::Rgb(0x49, 0x3b, 0x32),
+            group_character_bg_8: Color::Rgb(0x3c, 0x3c, 0x49),
+            missing_character_badge_fg: Color::Rgb(0xff, 0x55, 0x55),
         }
     }
 
@@ -115,6 +149,23 @@ impl Theme {
             token_band_ok: Color::Green,
             token_band_warn: Color::Yellow,
             token_band_over: Color::Red,
+            group_character_fg_1: Color::Rgb(0xf4, 0xa8, 0xa8),
+            group_character_fg_2: Color::Rgb(0xa8, 0xd8, 0xf4),
+            group_character_fg_3: Color::Rgb(0xb8, 0xe6, 0xc1),
+            group_character_fg_4: Color::Rgb(0xf4, 0xe3, 0xa8),
+            group_character_fg_5: Color::Rgb(0xd4, 0xa8, 0xf4),
+            group_character_fg_6: Color::Rgb(0xa8, 0xf4, 0xe6),
+            group_character_fg_7: Color::Rgb(0xf4, 0xc4, 0xa8),
+            group_character_fg_8: Color::Rgb(0xc8, 0xc8, 0xf4),
+            group_character_bg_1: Color::Rgb(0x49, 0x32, 0x32),
+            group_character_bg_2: Color::Rgb(0x32, 0x41, 0x49),
+            group_character_bg_3: Color::Rgb(0x37, 0x45, 0x3a),
+            group_character_bg_4: Color::Rgb(0x49, 0x44, 0x32),
+            group_character_bg_5: Color::Rgb(0x40, 0x32, 0x49),
+            group_character_bg_6: Color::Rgb(0x32, 0x49, 0x45),
+            group_character_bg_7: Color::Rgb(0x49, 0x3b, 0x32),
+            group_character_bg_8: Color::Rgb(0x3c, 0x3c, 0x49),
+            missing_character_badge_fg: Color::Rgb(0xff, 0x55, 0x55),
         }
     }
 
@@ -171,6 +222,23 @@ impl Theme {
             ColorLabel::TokenBandOk => self.token_band_ok,
             ColorLabel::TokenBandWarn => self.token_band_warn,
             ColorLabel::TokenBandOver => self.token_band_over,
+            ColorLabel::GroupCharacterFg1 => self.group_character_fg_1,
+            ColorLabel::GroupCharacterFg2 => self.group_character_fg_2,
+            ColorLabel::GroupCharacterFg3 => self.group_character_fg_3,
+            ColorLabel::GroupCharacterFg4 => self.group_character_fg_4,
+            ColorLabel::GroupCharacterFg5 => self.group_character_fg_5,
+            ColorLabel::GroupCharacterFg6 => self.group_character_fg_6,
+            ColorLabel::GroupCharacterFg7 => self.group_character_fg_7,
+            ColorLabel::GroupCharacterFg8 => self.group_character_fg_8,
+            ColorLabel::GroupCharacterBg1 => self.group_character_bg_1,
+            ColorLabel::GroupCharacterBg2 => self.group_character_bg_2,
+            ColorLabel::GroupCharacterBg3 => self.group_character_bg_3,
+            ColorLabel::GroupCharacterBg4 => self.group_character_bg_4,
+            ColorLabel::GroupCharacterBg5 => self.group_character_bg_5,
+            ColorLabel::GroupCharacterBg6 => self.group_character_bg_6,
+            ColorLabel::GroupCharacterBg7 => self.group_character_bg_7,
+            ColorLabel::GroupCharacterBg8 => self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => self.missing_character_badge_fg,
         }
     }
 
@@ -209,12 +277,61 @@ impl Theme {
             ColorLabel::TokenBandOk => &mut self.token_band_ok,
             ColorLabel::TokenBandWarn => &mut self.token_band_warn,
             ColorLabel::TokenBandOver => &mut self.token_band_over,
+            ColorLabel::GroupCharacterFg1 => &mut self.group_character_fg_1,
+            ColorLabel::GroupCharacterFg2 => &mut self.group_character_fg_2,
+            ColorLabel::GroupCharacterFg3 => &mut self.group_character_fg_3,
+            ColorLabel::GroupCharacterFg4 => &mut self.group_character_fg_4,
+            ColorLabel::GroupCharacterFg5 => &mut self.group_character_fg_5,
+            ColorLabel::GroupCharacterFg6 => &mut self.group_character_fg_6,
+            ColorLabel::GroupCharacterFg7 => &mut self.group_character_fg_7,
+            ColorLabel::GroupCharacterFg8 => &mut self.group_character_fg_8,
+            ColorLabel::GroupCharacterBg1 => &mut self.group_character_bg_1,
+            ColorLabel::GroupCharacterBg2 => &mut self.group_character_bg_2,
+            ColorLabel::GroupCharacterBg3 => &mut self.group_character_bg_3,
+            ColorLabel::GroupCharacterBg4 => &mut self.group_character_bg_4,
+            ColorLabel::GroupCharacterBg5 => &mut self.group_character_bg_5,
+            ColorLabel::GroupCharacterBg6 => &mut self.group_character_bg_6,
+            ColorLabel::GroupCharacterBg7 => &mut self.group_character_bg_7,
+            ColorLabel::GroupCharacterBg8 => &mut self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => &mut self.missing_character_badge_fg,
         };
         *slot = color;
     }
 
     pub fn available_themes() -> &'static [&'static str] {
         &["dark", "light"]
+    }
+
+    pub fn group_character_palette(&self) -> [Color; 8] {
+        [
+            self.group_character_fg_1,
+            self.group_character_fg_2,
+            self.group_character_fg_3,
+            self.group_character_fg_4,
+            self.group_character_fg_5,
+            self.group_character_fg_6,
+            self.group_character_fg_7,
+            self.group_character_fg_8,
+        ]
+    }
+
+    pub fn group_character_bg_palette(&self) -> [Color; 8] {
+        [
+            self.group_character_bg_1,
+            self.group_character_bg_2,
+            self.group_character_bg_3,
+            self.group_character_bg_4,
+            self.group_character_bg_5,
+            self.group_character_bg_6,
+            self.group_character_bg_7,
+            self.group_character_bg_8,
+        ]
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::dark()
     }
 }
 
@@ -384,6 +501,25 @@ mod tests {
         };
         let t = resolve_theme(&config);
         assert_eq!(t.user_character_fg, Color::Green);
+    }
+
+    #[test]
+    fn group_character_palette_has_eight_distinct_defaults() {
+        let theme = super::Theme::default();
+        let palette = theme.group_character_palette();
+        assert_eq!(palette.len(), 8);
+        let mut seen = std::collections::HashSet::new();
+        for c in &palette {
+            seen.insert(format!("{:?}", c));
+        }
+        assert_eq!(seen.len(), 8, "expected 8 distinct default colors");
+    }
+
+    #[test]
+    fn group_character_bg_palette_has_eight_entries() {
+        let theme = super::Theme::default();
+        let palette = theme.group_character_bg_palette();
+        assert_eq!(palette.len(), 8);
     }
 
     #[test]

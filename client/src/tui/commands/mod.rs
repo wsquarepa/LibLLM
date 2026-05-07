@@ -9,7 +9,7 @@ pub mod export;
 pub mod streaming;
 
 pub(super) use background::handle_background_event;
-pub(super) use streaming::{handle_stream_token, start_retry_streaming, start_streaming};
+pub(super) use streaming::{handle_stream_token, start_group_chat_loop, start_retry_streaming, start_streaming};
 
 use tokio::sync::mpsc;
 
@@ -38,8 +38,10 @@ pub(super) async fn handle_slash_command(
         "/persona" => cmd_persona(app),
         "/worldbook" => cmd_worldbook(app),
         "/character" => cmd_character(app),
+        "/chat" => cmd_chat(app),
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
+        "/next" => cmd_next(app, arg, sender).await,
         "/export" => export::cmd_export(app, arg),
         "/macro" => cmd_macro(app, arg, sender).await,
         "/report" => cmd_report(app),
@@ -63,6 +65,10 @@ fn cmd_clear(app: &mut App) {
     app.session.character = None;
     app.session.worldbooks.clear();
     app.session.persona = None;
+    app.session.characters = vec![];
+    app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
+    app.session.card_assembly = libllm::group_chat::CardAssembly::default();
+    app.character_cards_cache.clear();
     app.active_persona_name = None;
     app.active_persona_desc = None;
     app.discard_pending_session_save();
@@ -77,6 +83,13 @@ fn cmd_clear(app: &mut App) {
 
 async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.nav_cursor = None;
+
+    if app.session.characters.len() >= 2
+        && let Some(result) = try_group_retry(app, &sender).await
+    {
+        return result;
+    }
+
     app.session.retreat_trailing_assistant();
 
     let last_user_content = app
@@ -96,6 +109,41 @@ async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
             app.set_status("No user message to retry.".to_owned(), StatusLevel::Warning);
         }
     }
+}
+
+/// Attempts a group-chat-aware retry of the current head assistant message.
+///
+/// Returns `Some(())` when a group-chat retry was dispatched (caller should return immediately),
+/// or `None` when the head message lacks the group-chat fields needed for restoration (caller
+/// should fall through to the default single-character retry path).
+async fn try_group_retry(
+    app: &mut App<'_>,
+    sender: &mpsc::Sender<StreamToken>,
+) -> Option<()> {
+    let head_msg = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .filter(|n| n.message.role == Role::Assistant)
+        .map(|n| n.message.clone())?;
+
+    let speaker_slug = head_msg.speaker.clone()?;
+    let snapshot_json = head_msg.pre_turn_action_points.clone()?;
+
+    let snapshot: std::collections::HashMap<String, f32> =
+        serde_json::from_str(&snapshot_json).ok()?;
+
+    for c in app.session.characters.iter_mut() {
+        if let Some(&ap) = snapshot.get(&c.slug) {
+            c.action_points = ap;
+        }
+    }
+    tracing::debug!(speaker = %speaker_slug, "group_chat: /retry restored action-points");
+
+    app.session.tree.retreat_head();
+    streaming::run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
+    Some(())
 }
 
 async fn cmd_continue(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
@@ -321,7 +369,30 @@ fn cmd_character(app: &mut App) {
     app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
     app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
     app.character_selected = 0;
+    let active_slugs: std::collections::HashSet<&str> = app
+        .session
+        .characters
+        .iter()
+        .map(|a| a.slug.as_str())
+        .collect();
+    app.character_picks = app
+        .character_slugs
+        .iter()
+        .map(|s| active_slugs.contains(s.as_str()))
+        .collect();
     app.open_paged_dialog(Focus::CharacterDialog);
+}
+
+fn cmd_chat(app: &mut App) {
+    if app.session.characters.len() < 2 {
+        app.set_status(
+            "/chat requires 2 or more attached characters".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    app.group_settings_selected = 0;
+    app.focus = Focus::GroupChatSettingsDialog;
 }
 
 fn cmd_passkey(app: &mut App) {
@@ -440,6 +511,71 @@ async fn cmd_macro(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToke
             app.set_status(err, StatusLevel::Error)
         }
     }
+}
+
+async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken>) {
+    if app.session.characters.len() < 2 {
+        app.set_status(
+            "/next requires 2 or more attached characters".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    if app.model_name.is_none() {
+        app.set_status(
+            "Connecting to API server...".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    if !app.api_available {
+        app.set_status(
+            "Cannot send: API server is not available".to_owned(),
+            StatusLevel::Error,
+        );
+        return;
+    }
+
+    let needle = arg.trim();
+    if needle.is_empty() {
+        start_group_chat_loop(app, &sender).await;
+        return;
+    }
+    match resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, needle) {
+        Some(slug) => {
+            let snapshot_before: std::collections::HashMap<String, f32> = app
+                .session
+                .characters
+                .iter()
+                .map(|c| (c.slug.clone(), c.action_points))
+                .collect();
+            let snapshot_json =
+                serde_json::to_string(&snapshot_before).unwrap_or_default();
+            streaming::run_one_group_turn(app, &slug, &snapshot_json, &sender).await;
+        }
+        None => {
+            app.set_status(
+                format!("no attached character matches '{needle}'"),
+                StatusLevel::Error,
+            );
+        }
+    }
+}
+
+fn resolve_speaker_by_name(
+    chars: &[libllm::group_chat::CharacterAttachment],
+    card_cache: &std::collections::HashMap<String, libllm::character::CharacterCard>,
+    needle: &str,
+) -> Option<String> {
+    let needle_lower = needle.to_lowercase();
+    for c in chars {
+        if let Some(card) = card_cache.get(&c.slug)
+            && card.name.to_lowercase() == needle_lower
+        {
+            return Some(c.slug.clone());
+        }
+    }
+    None
 }
 
 fn cmd_report(app: &mut App) {

@@ -720,3 +720,115 @@ fn sql_rejects_query_only_pragma_in_read_only_mode() {
         "expected query_only rejection message, got: {stderr}"
     );
 }
+
+#[test]
+fn db_dump_import_round_trips_group_session() {
+    use libllm::group_chat::{CardAssembly, CharacterAttachment, ChatPolicy};
+
+    let src = common::temp_dir();
+    let src_data = src.path();
+    {
+        let mut db = Database::open(&src_data.join("data.db"), None).expect("open src db");
+        db.insert_session(
+            "g1",
+            &libllm::session::Session {
+                characters: vec![
+                    CharacterAttachment::new("alice"),
+                    CharacterAttachment::new("bob"),
+                ],
+                card_assembly: CardAssembly::SwapCards,
+                chat_policy: ChatPolicy::RoundRobin,
+                ..Default::default()
+            },
+        )
+        .expect("insert group session");
+    }
+
+    let dump_path = src.path().join("dump.db");
+    let dump = Command::new(client_bin())
+        .args([
+            "-d",
+            src_data.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "dump",
+            dump_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn dump");
+    assert!(
+        dump.status.success(),
+        "dump failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&dump.stdout),
+        String::from_utf8_lossy(&dump.stderr),
+    );
+
+    let dst = common::temp_dir();
+    let dst_data = dst.path();
+    let import = Command::new(client_bin())
+        .args([
+            "-d",
+            dst_data.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "import",
+            "--yes",
+            dump_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn import");
+    assert!(
+        import.status.success(),
+        "import failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&import.stdout),
+        String::from_utf8_lossy(&import.stderr),
+    );
+
+    let assembly_out = Command::new(client_bin())
+        .args([
+            "-d",
+            dst_data.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "SELECT card_assembly FROM sessions WHERE id = 'g1';",
+        ])
+        .output()
+        .expect("spawn db sql card_assembly");
+    assert!(
+        assembly_out.status.success(),
+        "db sql card_assembly failed: {}",
+        String::from_utf8_lossy(&assembly_out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&assembly_out.stdout).contains("swap_cards"),
+        "card_assembly round-trip failed: {}",
+        String::from_utf8_lossy(&assembly_out.stdout),
+    );
+
+    let chars_out = Command::new(client_bin())
+        .args([
+            "-d",
+            dst_data.to_str().unwrap(),
+            "--no-encrypt",
+            "db",
+            "sql",
+            "SELECT slug FROM session_characters WHERE session_id = 'g1' ORDER BY attach_index;",
+        ])
+        .output()
+        .expect("spawn db sql session_characters");
+    assert!(
+        chars_out.status.success(),
+        "db sql session_characters failed: {}",
+        String::from_utf8_lossy(&chars_out.stderr)
+    );
+    let chars_stdout = String::from_utf8_lossy(&chars_out.stdout);
+    assert!(
+        chars_stdout.contains("alice"),
+        "alice missing from session_characters: {chars_stdout}"
+    );
+    assert!(
+        chars_stdout.contains("bob"),
+        "bob missing from session_characters: {chars_stdout}"
+    );
+}

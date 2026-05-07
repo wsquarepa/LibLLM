@@ -349,6 +349,7 @@ fn handle_key(
             | Focus::WorldbookEntryDeleteDialog
             | Focus::SystemPromptDialog
             | Focus::BranchDialog
+            | Focus::SearchDialog
             | Focus::DeleteConfirmDialog
             | Focus::ApiErrorDialog
             | Focus::LoadingDialog

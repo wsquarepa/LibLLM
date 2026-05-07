@@ -4,7 +4,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use libllm::db::Database;
 use libllm::search::{self, SearchHit};
 use libllm::search::query as search_query;
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
+use super::super::theme::Theme;
 use super::super::types::Focus;
 
 pub(crate) const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
@@ -140,6 +146,146 @@ pub(crate) fn handle_key(state: &mut SearchDialogState, key: KeyEvent) -> Search
             SearchDialogOutcome::Consumed
         }
         _ => SearchDialogOutcome::Consumed,
+    }
+}
+
+pub(crate) fn render(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &Theme) {
+    let block = Block::default()
+        .title("Search")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused));
+    let inner = block.inner(area);
+    block.render(area, buf);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(4),
+            Constraint::Length(1),
+            Constraint::Min(3),
+        ])
+        .split(inner);
+
+    render_input(state, chunks[0], buf);
+    render_hits(state, chunks[1], buf, theme);
+    render_separator(chunks[2], buf, theme);
+    render_preview(state, chunks[3], buf, theme);
+}
+
+fn render_input(state: &SearchDialogState, area: Rect, buf: &mut Buffer) {
+    let prompt = format!("> {}_", state.input);
+    Paragraph::new(prompt).render(area, buf);
+}
+
+fn render_hits(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &Theme) {
+    if state.hits.is_empty() {
+        let empty = if let Some(err) = &state.error {
+            err.clone()
+        } else if state.input.trim().chars().count() < MIN_QUERY_CHARS {
+            "type at least 3 characters".to_owned()
+        } else {
+            "no matches".to_owned()
+        };
+        Paragraph::new(empty)
+            .style(Style::default().fg(theme.status_bar_fg))
+            .render(area, buf);
+        return;
+    }
+
+    let session_col_width = (area.width / 4).clamp(8, 20) as usize;
+    for (i, hit) in state.hits.iter().enumerate().take(area.height as usize) {
+        let y = area.y + i as u16;
+        let prefix = if i == state.selected { "> " } else { "  " };
+        let session = trunc(&hit.session_display_name, session_col_width);
+        let role = trunc(&hit.role.to_string(), 6);
+        let snippet_spans = highlight_spans(&collapse_newlines(&hit.snippet), theme);
+        let mut line = vec![
+            Span::raw(prefix.to_owned()),
+            Span::styled(
+                format!("{session:<width$}", width = session_col_width),
+                Style::default().fg(theme.status_bar_fg),
+            ),
+            Span::raw("  ".to_owned()),
+            Span::styled(format!("{role:<6}"), Style::default().fg(theme.status_bar_fg)),
+            Span::raw("  ".to_owned()),
+        ];
+        line.extend(snippet_spans);
+        Paragraph::new(Line::from(line)).render(
+            Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            },
+            buf,
+        );
+    }
+}
+
+fn render_separator(area: Rect, buf: &mut Buffer, theme: &Theme) {
+    let bar = "─".repeat(area.width as usize);
+    Paragraph::new(bar)
+        .style(Style::default().fg(theme.status_bar_fg))
+        .render(area, buf);
+}
+
+fn render_preview(_state: &SearchDialogState, _area: Rect, _buf: &mut Buffer, _theme: &Theme) {
+    // Implemented in Task 14.
+}
+
+fn highlight_spans(input: &str, theme: &Theme) -> Vec<Span<'static>> {
+    const OPEN: char = '\u{1}';
+    const CLOSE: char = '\u{2}';
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut buffer = String::new();
+    let mut highlighted = false;
+    for c in input.chars() {
+        match c {
+            OPEN => {
+                if !buffer.is_empty() {
+                    spans.push(Span::raw(std::mem::take(&mut buffer)));
+                }
+                highlighted = true;
+            }
+            CLOSE => {
+                if !buffer.is_empty() {
+                    spans.push(Span::styled(
+                        std::mem::take(&mut buffer),
+                        Style::default()
+                            .fg(theme.status_warning_fg)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                }
+                highlighted = false;
+            }
+            other => buffer.push(other),
+        }
+    }
+    if !buffer.is_empty() {
+        let style = if highlighted {
+            Style::default()
+                .fg(theme.status_warning_fg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        spans.push(Span::styled(buffer, style));
+    }
+    spans
+}
+
+fn collapse_newlines(s: &str) -> String {
+    s.replace(['\n', '\r'], " ")
+}
+
+fn trunc(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_owned()
+    } else {
+        let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+        out.push('…');
+        out
     }
 }
 
@@ -325,5 +471,52 @@ mod tests {
         maybe_run_query(&mut state, &db, now);
 
         assert!(state.hits.is_empty(), "should not run when input matches last_compiled");
+    }
+
+    fn buffer_to_string(buf: &ratatui::buffer::Buffer) -> String {
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn dialog_renders_three_column_list() {
+        let theme = crate::tui::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.input = "redact".into();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.session_display_name = "feature-x".into();
+            hit.role = libllm::session::Role::User;
+            hit.snippet = "remember to \u{1}redact\u{2} PII".into();
+            hit
+        }];
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("feature-x"));
+        assert!(rendered.contains("user"));
+        assert!(rendered.contains("remember to"));
+        assert!(rendered.contains("redact"));
+        assert!(!rendered.contains('\u{1}'), "raw delimiter leaked into rendered buffer");
+    }
+
+    #[test]
+    fn dialog_renders_empty_state_message() {
+        let theme = crate::tui::theme::Theme::dark();
+        let state = SearchDialogState::new();
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("type at least 3"), "expected hint, got: {rendered}");
     }
 }

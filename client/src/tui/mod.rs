@@ -662,6 +662,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditDialog => Some("edit"),
         Focus::EditConfirmDialog => Some("edit_confirm"),
         Focus::BranchDialog => Some("branch"),
+        Focus::SearchDialog => Some("search"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
         Focus::FilePickerDialog => Some("file_picker"),
@@ -884,6 +885,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::BranchDialog => {
             dialogs::branch::render_branch_dialog(f, app, f.area());
+        }
+        Focus::SearchDialog => {
+            if let Some(state) = app.search_dialog.as_ref() {
+                dialogs::search::render(state, f.area(), f.buffer_mut(), &app.theme);
+            }
         }
         Focus::DeleteConfirmDialog => {
             dialogs::delete_confirm::render_delete_confirm_dialog(f, app, f.area());

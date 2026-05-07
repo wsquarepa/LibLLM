@@ -131,6 +131,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
                     .collect();
                 app.session.character = None;
+                crate::tui::business::rebuild_character_cards_cache(app);
                 return_to_input(app);
                 return Some(Action::OpenGroupChatSettings);
             }

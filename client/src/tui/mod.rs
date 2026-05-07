@@ -295,6 +295,7 @@ pub async fn run(
         danger_confirm_selected: None,
         danger_typed_confirm: None,
         group_settings_selected: 0,
+        character_cards_cache: std::collections::HashMap::new(),
     };
 
     business::load_active_persona(&mut app);

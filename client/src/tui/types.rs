@@ -64,6 +64,8 @@ pub(super) enum Action {
     Quit,
     OpenGroupChatSettings,
     SaveGroupChatSettings,
+    #[expect(dead_code, reason = "constructed by the group-chat streaming loop added in Task 10.1")]
+    ForcedSpeakerTurn(Option<String>),
 }
 
 pub(super) enum DeleteContext {
@@ -375,6 +377,7 @@ pub(super) struct App<'a> {
     pub(super) danger_confirm_selected: Option<usize>,
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
     pub(super) group_settings_selected: usize,
+    pub(super) character_cards_cache: std::collections::HashMap<String, libllm::character::CharacterCard>,
 }
 
 impl<'a> App<'a> {

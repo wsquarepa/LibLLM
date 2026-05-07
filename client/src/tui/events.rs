@@ -192,6 +192,21 @@ pub(super) async fn process_action(
             app.mark_session_dirty(SaveTrigger::Debounced, false);
             return_to_input(app);
         }
+        Action::ForcedSpeakerTurn(forced) => {
+            let Some(slug) = forced else {
+                tracing::debug!("ForcedSpeakerTurn: auto-pick via force_step — streaming integration pending (Task 10.1)");
+                app.set_status(
+                    "/next: streaming integration pending (Task 10.1)".to_owned(),
+                    StatusLevel::Info,
+                );
+                return;
+            };
+            tracing::debug!(speaker = %slug, "ForcedSpeakerTurn: named — streaming integration pending (Task 10.1)");
+            app.set_status(
+                format!("/next {slug}: streaming integration pending (Task 10.1)"),
+                StatusLevel::Info,
+            );
+        }
     }
 }
 

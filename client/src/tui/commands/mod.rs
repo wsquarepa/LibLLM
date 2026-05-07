@@ -41,6 +41,7 @@ pub(super) async fn handle_slash_command(
         "/chat" => cmd_chat(app),
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
+        "/next" => cmd_next(app, arg),
         "/export" => export::cmd_export(app, arg),
         "/macro" => cmd_macro(app, arg, sender).await,
         "/report" => cmd_report(app),
@@ -464,6 +465,56 @@ async fn cmd_macro(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToke
             app.set_status(err, StatusLevel::Error)
         }
     }
+}
+
+fn cmd_next(app: &mut App, arg: &str) {
+    if app.session.characters.len() < 2 {
+        app.set_status(
+            "/next requires 2 or more attached characters".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    let needle = arg.trim();
+    if needle.is_empty() {
+        tracing::debug!("ForcedSpeakerTurn: auto-pick via force_step — streaming integration pending (Task 10.1)");
+        app.set_status(
+            "/next: streaming integration pending (Task 10.1)".to_owned(),
+            StatusLevel::Info,
+        );
+        return;
+    }
+    match resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, needle) {
+        Some(slug) => {
+            tracing::debug!(speaker = %slug, "ForcedSpeakerTurn: named — streaming integration pending (Task 10.1)");
+            app.set_status(
+                format!("/next {slug}: streaming integration pending (Task 10.1)"),
+                StatusLevel::Info,
+            );
+        }
+        None => {
+            app.set_status(
+                format!("no attached character matches '{needle}'"),
+                StatusLevel::Error,
+            );
+        }
+    }
+}
+
+fn resolve_speaker_by_name(
+    chars: &[libllm::group_chat::CharacterAttachment],
+    card_cache: &std::collections::HashMap<String, libllm::character::CharacterCard>,
+    needle: &str,
+) -> Option<String> {
+    let needle_lower = needle.to_lowercase();
+    for c in chars {
+        if let Some(card) = card_cache.get(&c.slug)
+            && card.name.to_lowercase() == needle_lower
+        {
+            return Some(c.slug.clone());
+        }
+    }
+    None
 }
 
 fn cmd_report(app: &mut App) {

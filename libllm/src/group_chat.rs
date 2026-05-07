@@ -364,6 +364,52 @@ fn weighted_pick(candidates: &[usize], characters: &[CharacterAttachment], rng: 
     *candidates.last().expect("non-empty by guard")
 }
 
+pub fn force_step(
+    characters: &[CharacterAttachment],
+    policy: ChatPolicy,
+    rng: &mut impl Rng,
+) -> Option<TurnDecision> {
+    if characters.is_empty() {
+        return None;
+    }
+
+    let snapshot_before: HashMap<String, f32> = characters
+        .iter()
+        .map(|a| (a.slug.clone(), a.action_points))
+        .collect();
+
+    let mut updated: Vec<(String, f32)> = characters
+        .iter()
+        .map(|a| (a.slug.clone(), a.action_points + a.talkativeness))
+        .collect();
+
+    let max_ap = updated
+        .iter()
+        .map(|(_, ap)| *ap)
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    let candidates: Vec<usize> = updated
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, ap))| (*ap - max_ap).abs() < 1e-6)
+        .map(|(i, _)| i)
+        .collect();
+
+    let chosen = if candidates.len() == 1 {
+        candidates[0]
+    } else {
+        match policy {
+            ChatPolicy::RoundRobin => candidates[0],
+            ChatPolicy::WeightedRandom => weighted_pick(&candidates, characters, rng),
+        }
+    };
+
+    let chosen_slug = updated[chosen].0.clone();
+    updated[chosen].1 -= ACTION_POINT_COST;
+
+    Some(TurnDecision { speaker_slug: chosen_slug, updated_action_points: updated, snapshot_before })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,6 +636,32 @@ mod tests {
     fn chat_policy_default_is_round_robin() {
         let p = ChatPolicy::default();
         assert!(matches!(p, ChatPolicy::RoundRobin));
+    }
+
+    #[test]
+    fn force_step_advances_even_when_no_one_eligible() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.3, 0.0), att("b", 0.1, 0.0)];
+        let d = force_step(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        assert_eq!(d.speaker_slug, "a");
+        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
+        assert!((new_a - (-0.7)).abs() < 1e-5, "a paid 1.0 from 0.3 → -0.7");
+    }
+
+    #[test]
+    fn force_step_returns_none_for_empty_characters() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs: Vec<CharacterAttachment> = vec![];
+        assert!(force_step(&cs, ChatPolicy::RoundRobin, &mut rng).is_none());
+    }
+
+    #[test]
+    fn force_step_picks_highest_ap_candidate() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.2, 0.1), att("b", 0.5, 0.6)];
+        // After increment: a=0.3, b=1.1. Max is b.
+        let d = force_step(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        assert_eq!(d.speaker_slug, "b");
     }
 
     #[test]

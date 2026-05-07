@@ -805,6 +805,16 @@ pub(super) fn load_active_persona(app: &mut App) {
     app.active_persona_desc = None;
 }
 
+pub(super) fn rebuild_character_cards_cache(app: &mut App) {
+    app.character_cards_cache.clear();
+    let Some(ref db) = app.db else { return };
+    for attachment in &app.session.characters {
+        if let Ok(card) = db.load_character(&attachment.slug) {
+            app.character_cards_cache.insert(attachment.slug.clone(), card);
+        }
+    }
+}
+
 pub fn new_chat_entry() -> SessionEntry {
     SessionEntry {
         id: String::new(),

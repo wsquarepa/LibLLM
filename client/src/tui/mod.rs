@@ -261,6 +261,7 @@ pub async fn run(
         delete_context: DeleteContext::Session,
         active_persona_name: None,
         active_persona_desc: None,
+        active_card_author_note: None,
         persona_slugs: Vec::new(),
         persona_names: Vec::new(),
         persona_selected: 0,
@@ -297,6 +298,7 @@ pub async fn run(
     };
 
     business::load_active_persona(&mut app);
+    business::load_active_card_author_note(&mut app);
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(

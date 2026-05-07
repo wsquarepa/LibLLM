@@ -333,6 +333,7 @@ pub(super) struct App<'a> {
     pub(super) delete_context: DeleteContext,
     pub(super) active_persona_name: Option<String>,
     pub(super) active_persona_desc: Option<String>,
+    pub(super) active_card_author_note: Option<libllm::author_note::AuthorNote>,
     pub(super) persona_slugs: Vec<String>,
     pub(super) persona_names: Vec<String>,
     pub(super) persona_selected: usize,

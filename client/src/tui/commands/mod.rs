@@ -67,6 +67,7 @@ fn cmd_clear(app: &mut App) {
     app.session.author_note = None;
     app.active_persona_name = None;
     app.active_persona_desc = None;
+    app.active_card_author_note = None;
     app.discard_pending_session_save();
     app.invalidate_chat_caches();
     app.invalidate_worldbook_cache();

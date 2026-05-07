@@ -652,6 +652,7 @@ pub(super) fn handle_field_dialog_key(
                             app.session.system_prompt =
                                 Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                             app.session.character = Some(card.name.clone());
+                            app.active_card_author_note = card.author_note.clone();
                             app.invalidate_chat_caches();
                         }
                     }

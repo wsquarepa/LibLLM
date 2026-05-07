@@ -835,11 +835,31 @@ pub fn render_chat(
         let token_color = token_band_color(&app.theme, pct, trigger_percent);
         let token_label = format!(" {prefix}{count} tokens ({pct:.0}%) ");
 
-        chat_block = chat_block
-            .title_bottom(Line::from(Span::styled(
-                format!(" {worldbook_label} "),
+        let session_note = app.session.author_note.as_ref();
+        let card_note = app.active_card_author_note.as_ref();
+        let note_indicator: Option<String> = match (session_note, card_note) {
+            (None, None) => None,
+            (s, c) => {
+                let total: usize = s.map(|n| estimate_note_tokens(&n.text)).unwrap_or(0)
+                    + c.map(|n| estimate_note_tokens(&n.text)).unwrap_or(0);
+                let depth_marker = format_depth_marker(s, c);
+                Some(format!("note: {total}t @{depth_marker}"))
+            }
+        };
+
+        chat_block = chat_block.title_bottom(Line::from(Span::styled(
+            format!(" {worldbook_label} "),
+            Style::default().fg(app.theme.dimmed),
+        )));
+
+        if let Some(text) = note_indicator {
+            chat_block = chat_block.title_bottom(Line::from(Span::styled(
+                format!(" {text} "),
                 Style::default().fg(app.theme.dimmed),
-            )))
+            )));
+        }
+
+        chat_block = chat_block
             .title_bottom(
                 Line::from(Span::styled(format!(" {model_label} "), model_style)).centered(),
             )
@@ -899,6 +919,29 @@ fn token_band_color(
         theme.token_band_warn
     } else {
         theme.token_band_over
+    }
+}
+
+fn estimate_note_tokens(text: &str) -> usize {
+    let chars = text.chars().count();
+    ((chars as f64) * 0.303).ceil() as usize
+}
+
+fn format_depth_marker(
+    session: Option<&libllm::author_note::AuthorNote>,
+    card: Option<&libllm::author_note::AuthorNote>,
+) -> String {
+    let session_top = session.is_some_and(|n| n.at_top);
+    let card_top = card.is_some_and(|n| n.at_top);
+    if session_top || card_top {
+        return "top".to_owned();
+    }
+    match (session, card) {
+        (Some(s), Some(c)) if s.depth == c.depth => format!("d{}", s.depth),
+        (Some(s), Some(c)) => format!("d{}/d{}", s.depth, c.depth),
+        (Some(s), None) => format!("d{}", s.depth),
+        (None, Some(c)) => format!("d{}", c.depth),
+        (None, None) => unreachable!("format_depth_marker called with both notes None"),
     }
 }
 

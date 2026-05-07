@@ -804,6 +804,15 @@ pub(super) fn load_active_persona(app: &mut App) {
     app.active_persona_desc = None;
 }
 
+pub(super) fn load_active_card_author_note(app: &mut App) {
+    app.active_card_author_note = app
+        .session
+        .character
+        .as_deref()
+        .and_then(|name| app.db.as_ref().and_then(|db| db.load_character(name).ok()))
+        .and_then(|card| card.author_note);
+}
+
 pub fn new_chat_entry() -> SessionEntry {
     SessionEntry {
         id: String::new(),

@@ -2,6 +2,7 @@ use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
 use time::OffsetDateTime;
 
+use crate::db::Database;
 use crate::session::Role;
 
 #[derive(Debug, Clone)]
@@ -191,7 +192,7 @@ fn sanitize_term(raw: &str) -> String {
         .collect()
 }
 
-pub fn compile(raw: &str, db: &crate::db::Database) -> Result<CompiledQuery, QueryError> {
+pub fn compile(raw: &str, db: &Database) -> Result<CompiledQuery, QueryError> {
     let parsed = parse(raw)?;
 
     let session_ids = match parsed.session_substring.as_deref() {

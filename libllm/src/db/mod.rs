@@ -294,20 +294,7 @@ impl Database {
     }
 
     pub fn session_ids_matching_display_name(&self, substring: &str) -> Result<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT id FROM sessions \
-                 WHERE display_name IS NOT NULL \
-                   AND display_name LIKE '%' || ?1 || '%' COLLATE NOCASE \
-                 ORDER BY id",
-            )
-            .context("failed to prepare session lookup")?;
-        let rows = stmt
-            .query_map(rusqlite::params![substring], |row| row.get::<_, String>(0))
-            .context("failed to execute session lookup")?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!(e))
+        sessions::ids_matching_display_name(&self.conn, substring)
     }
 
     /// Execute a single SQL statement that returns rows.

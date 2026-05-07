@@ -168,6 +168,22 @@ pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Resul
     )
 }
 
+pub fn ids_matching_display_name(conn: &Connection, substring: &str) -> Result<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM sessions \
+             WHERE display_name IS NOT NULL \
+               AND display_name LIKE '%' || ?1 || '%' COLLATE NOCASE \
+             ORDER BY id",
+        )
+        .context("failed to prepare session lookup")?;
+    let rows = stmt
+        .query_map(params![substring], |row| row.get::<_, String>(0))
+        .context("failed to execute session lookup")?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
 pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
     let count: i64 = conn
         .query_row(

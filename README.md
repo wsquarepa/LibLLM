@@ -409,7 +409,7 @@ Type `/` in the input to open the command picker.
 | `/config` | | Open configuration dialog (CLI-overridden fields shown in red) |
 | `/theme` | | Switch color theme (`dark`, `light`) |
 | `/export` | | Export current branch to file (`html`, `md`, `jsonl`) |
-| `/search [query]` | | Full-text search across all sessions (see [Search](#search)) |
+| `/search [query]` | `/find` | Full-text search across all sessions (see [Search](#search)) |
 | `/macro` | `/m` | Run a user-defined macro (see [Macros](#macros)) |
 | `/report` | | Copy the active debug log to `./debug.log` |
 | `/quit` | `/exit` | Exit the chat |
@@ -427,7 +427,7 @@ Results are debounced at 150 ms and capped at 200 entries. Selecting a result ju
 | Terms | `redact pii` | Prefix-AND — all terms must appear |
 | Phrase | `"redact pii"` | Exact phrase match |
 | Role filter | `role:user redact` | Restrict to a role: `user`, `assistant`, `system`, `summary` |
-| Date before | `before:2026-01-15` | Messages on or before this date (RFC 3339 date or datetime) |
+| Date before | `before:2026-01-15` | Messages strictly before this date (RFC 3339 date or datetime) |
 | Date after | `after:2025-12-01` | Messages on or after this date (RFC 3339 date or datetime) |
 | Session | `session:feature` | Case-insensitive substring match on session display names |
 | Raw FTS5 | `m:redact OR pii` | Pass-through to the underlying FTS5 engine |

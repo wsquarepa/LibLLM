@@ -16,6 +16,7 @@ use super::super::types::Focus;
 
 pub(crate) const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 pub(crate) const MIN_QUERY_CHARS: usize = 3;
+pub(crate) const PAGE_SIZE: usize = 10;
 
 pub(crate) struct SearchDialogState {
     pub input: String,
@@ -122,6 +123,17 @@ pub(crate) fn handle_key(state: &mut SearchDialogState, key: KeyEvent) -> Search
             if !state.hits.is_empty() && state.selected + 1 < state.hits.len() {
                 state.selected += 1;
             }
+            SearchDialogOutcome::Consumed
+        }
+        KeyCode::PageDown => {
+            if !state.hits.is_empty() {
+                let target = state.selected.saturating_add(PAGE_SIZE);
+                state.selected = target.min(state.hits.len() - 1);
+            }
+            SearchDialogOutcome::Consumed
+        }
+        KeyCode::PageUp => {
+            state.selected = state.selected.saturating_sub(PAGE_SIZE);
             SearchDialogOutcome::Consumed
         }
         KeyCode::Backspace => {
@@ -717,5 +729,38 @@ mod tests {
         handle_key(&mut state, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
         assert_eq!(state.input, "redact");
         assert_eq!(state.cursor, "redact".chars().count());
+    }
+
+    #[test]
+    fn page_down_advances_by_page_size() {
+        let mut state = SearchDialogState::new();
+        state.hits = (0..50).map(|_| dummy_hit()).collect();
+        handle_key(&mut state, KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(state.selected, PAGE_SIZE);
+    }
+
+    #[test]
+    fn page_down_clamps_at_last_hit() {
+        let mut state = SearchDialogState::new();
+        state.hits = (0..5).map(|_| dummy_hit()).collect();
+        handle_key(&mut state, KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(state.selected, 4);
+    }
+
+    #[test]
+    fn page_up_retreats_by_page_size() {
+        let mut state = SearchDialogState::new();
+        state.hits = (0..50).map(|_| dummy_hit()).collect();
+        state.selected = 25;
+        handle_key(&mut state, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(state.selected, 25 - PAGE_SIZE);
+    }
+
+    #[test]
+    fn page_up_saturates_at_zero() {
+        let mut state = SearchDialogState::new();
+        state.hits = (0..5).map(|_| dummy_hit()).collect();
+        handle_key(&mut state, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(state.selected, 0);
     }
 }

@@ -321,6 +321,17 @@ fn cmd_character(app: &mut App) {
     app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
     app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
     app.character_selected = 0;
+    let active_slugs: std::collections::HashSet<&str> = app
+        .session
+        .characters
+        .iter()
+        .map(|a| a.slug.as_str())
+        .collect();
+    app.character_picks = app
+        .character_slugs
+        .iter()
+        .map(|s| active_slugs.contains(s.as_str()))
+        .collect();
     app.open_paged_dialog(Focus::CharacterDialog);
 }
 

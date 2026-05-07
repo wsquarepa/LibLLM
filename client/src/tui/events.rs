@@ -184,6 +184,9 @@ pub(super) async fn process_action(
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
+        Action::OpenGroupChatSettings => {
+            tracing::debug!("OpenGroupChatSettings dispatched (dialog impl arrives in Task 9.3)");
+        }
     }
 }
 

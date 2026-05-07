@@ -230,6 +230,7 @@ pub async fn run(
         character_names: Vec::new(),
         character_slugs: Vec::new(),
         character_selected: 0,
+        character_picks: Vec::new(),
         worldbook_list: Vec::new(),
         worldbook_selected: 0,
         character_editor: None,

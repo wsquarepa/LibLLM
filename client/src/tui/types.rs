@@ -61,6 +61,7 @@ pub(super) enum Action {
     },
     SlashCommand(String, String),
     Quit,
+    OpenGroupChatSettings,
 }
 
 pub(super) enum DeleteContext {
@@ -298,6 +299,7 @@ pub(super) struct App<'a> {
     pub(super) character_names: Vec<String>,
     pub(super) character_slugs: Vec<String>,
     pub(super) character_selected: usize,
+    pub(super) character_picks: Vec<bool>,
 
     pub(super) worldbook_list: Vec<String>,
     pub(super) worldbook_selected: usize,

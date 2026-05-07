@@ -42,7 +42,6 @@ pub(super) enum Focus {
     SystemPromptEditorDialog,
     EditDialog,
     BranchDialog,
-    #[expect(dead_code, reason = "wired in by Tasks 11-17")]
     SearchDialog,
     DeleteConfirmDialog,
     EditConfirmDialog,
@@ -328,7 +327,6 @@ pub(super) struct App<'a> {
     pub(super) nav_cursor: Option<NodeId>,
     pub(super) branch_dialog_items: Vec<(NodeId, String)>,
     pub(super) branch_dialog_selected: usize,
-    #[expect(dead_code, reason = "wired in by Tasks 11-17")]
     pub(super) search_dialog: Option<dialogs::search::SearchDialogState>,
     pub(super) delete_confirm_selected: usize,
     pub(super) delete_confirm_filename: String,

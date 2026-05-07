@@ -454,6 +454,21 @@ fn handle_key(
     if app.focus == Focus::LoadingDialog {
         return dialogs::api_error::handle_loading_key(key);
     }
+    if app.focus == Focus::SearchDialog {
+        if let Some(state) = app.search_dialog.as_mut() {
+            let outcome = dialogs::search::handle_key(state, key);
+            match outcome {
+                dialogs::search::SearchDialogOutcome::Close => {
+                    dialogs::search::close(&mut app.focus, &mut app.search_dialog);
+                }
+                dialogs::search::SearchDialogOutcome::Submit => {
+                    // Wired in Task 16.
+                }
+                dialogs::search::SearchDialogOutcome::Consumed => {}
+            }
+        }
+        return None;
+    }
     if app.focus == Focus::DangerConfirmDialog {
         let mut sel = app.danger_confirm_selected.unwrap_or(0);
         let r = handle_danger_confirm_key(key, &mut sel);

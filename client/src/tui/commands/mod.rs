@@ -64,6 +64,7 @@ fn cmd_clear(app: &mut App) {
     app.session.character = None;
     app.session.worldbooks.clear();
     app.session.persona = None;
+    app.session.author_note = None;
     app.active_persona_name = None;
     app.active_persona_desc = None;
     app.discard_pending_session_save();

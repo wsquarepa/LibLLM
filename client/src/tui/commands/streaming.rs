@@ -74,6 +74,21 @@ where
     let injected = business::replace_template_vars(app.session, injected, user_name);
     let injected: Vec<libllm::session::Message> = injected
         .into_iter()
+        .map(|m| {
+            let new_content = libllm::regex_rules::apply(
+                &app.compiled_regex,
+                libllm::regex_rules::Scope::PromptSend,
+                m.role,
+                &m.content,
+            )
+            .into_owned();
+            libllm::session::Message {
+                role: m.role,
+                content: new_content,
+                timestamp: m.timestamp,
+                thought_seconds: m.thought_seconds,
+            }
+        })
         .map(|m| match m.role {
             libllm::session::Role::User => libllm::session::Message {
                 role: m.role,

@@ -314,7 +314,6 @@ pub(super) struct App<'a> {
     pub(super) worldbook_entry_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) worldbook_entry_editor_index: usize,
 
-    #[expect(dead_code, reason = "will be read by regex render hooks not yet wired up")]
     pub(super) compiled_regex: Vec<libllm::regex_rules::CompiledRule>,
     pub(super) display_regex_cache: std::collections::HashMap<libllm::session::NodeId, String>,
     pub(super) chat_content_cache: Option<render::ChatContentCache>,

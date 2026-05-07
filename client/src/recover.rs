@@ -184,7 +184,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         })
         .collect();
 
-    let chosen = crate::interactive::circular_select("Select a backup to restore", &rows, 0)?;
+    let chosen = crate::interactive::arrow_select("Select a backup to restore", &rows, 0)?;
     let Some(chosen) = chosen else {
         return Ok(());
     };

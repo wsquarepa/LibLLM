@@ -576,7 +576,7 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
         .collect();
 
     let default = entries.iter().position(|e| e.current).unwrap_or(0);
-    let Some(index) = crate::interactive::circular_select("Select a release channel:", &rows, default)?
+    let Some(index) = crate::interactive::arrow_select("Select a release channel:", &rows, default)?
     else {
         tracing::debug!(phase = "cancelled", "update.interactive");
         return Ok(None);

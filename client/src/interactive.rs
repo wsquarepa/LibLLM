@@ -11,8 +11,8 @@ use anyhow::{Context, Result};
 use dialoguer::console::{Key, Style, Term, style};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 
-const CIRCULAR_VISIBLE: usize = 9;
-const CIRCULAR_ABOVE: usize = 4;
+const ARROW_VISIBLE: usize = 9;
+const ARROW_ABOVE: usize = 4;
 
 /// Returns true when both stdin and stderr are TTYs.
 ///
@@ -46,34 +46,32 @@ pub fn confirm(prompt: &str, default: bool) -> Result<Option<bool>> {
         .context("failed to show confirm prompt")
 }
 
-/// Indices of items shown in the [`circular_select`] viewport, in render order.
+/// First index shown in the [`arrow_select`] viewport, given the current selection.
 ///
-/// When `n > CIRCULAR_VISIBLE`, returns 9 indices with `sel` always at slot 4
-/// (cursor centered, viewport rotates around it). Otherwise returns
-/// `0..n` so all items are visible without scrolling.
-fn circular_window(sel: usize, n: usize) -> Vec<usize> {
-    if n > CIRCULAR_VISIBLE {
-        let start = (sel + n - CIRCULAR_ABOVE) % n;
-        (0..CIRCULAR_VISIBLE)
-            .map(|offset| (start + offset) % n)
-            .collect()
-    } else {
-        (0..n).collect()
+/// When `n > ARROW_VISIBLE`, the cursor stays at slot 4 while the viewport
+/// scrolls, except near the edges of the list where the viewport freezes
+/// (against `0` at the top and against `n - ARROW_VISIBLE` at the bottom)
+/// and the cursor moves into the edge slots. Otherwise returns `0`.
+fn arrow_window_start(sel: usize, n: usize) -> usize {
+    if n <= ARROW_VISIBLE {
+        return 0;
     }
+    let max_start = n - ARROW_VISIBLE;
+    sel.saturating_sub(ARROW_ABOVE).min(max_start)
 }
 
-/// Selector that always shows up to 9 rows with the cursor centered and the
-/// viewport rotating circularly around it. Up/Down wrap through the list.
+/// Selector that always shows up to 9 rows with the cursor centered when
+/// possible. Up/Down clamp at the ends instead of wrapping.
 ///
 /// Returns `Ok(None)` on Esc / Ctrl+C / `q`. `default` is clamped into range.
-pub fn circular_select(prompt: &str, items: &[String], default: usize) -> Result<Option<usize>> {
+pub fn arrow_select(prompt: &str, items: &[String], default: usize) -> Result<Option<usize>> {
     if items.is_empty() {
         return Ok(None);
     }
 
     let term = Term::stderr();
     if !term.is_term() {
-        anyhow::bail!("circular_select requires a TTY");
+        anyhow::bail!("arrow_select requires a TTY");
     }
 
     let n = items.len();
@@ -84,19 +82,21 @@ pub fn circular_select(prompt: &str, items: &[String], default: usize) -> Result
     let active_item = Style::new().for_stderr().cyan();
 
     let render = |sel_idx: usize| -> io::Result<()> {
-        let window = circular_window(sel_idx, n);
-        let cursor_slot = if n > CIRCULAR_VISIBLE { CIRCULAR_ABOVE } else { sel_idx };
+        let window_start = arrow_window_start(sel_idx, n);
+        let visible = ARROW_VISIBLE.min(n);
+        let cursor_slot = sel_idx - window_start;
         let mut buf = String::new();
         let _ = writeln!(buf, "{} {}", prompt_q, prompt_text.apply_to(prompt));
-        for slot in 0..CIRCULAR_VISIBLE {
-            match window.get(slot) {
-                Some(&idx) if slot == cursor_slot => {
+        for slot in 0..ARROW_VISIBLE {
+            if slot < visible {
+                let idx = window_start + slot;
+                if slot == cursor_slot {
                     let _ = writeln!(buf, "{} {}", cursor, active_item.apply_to(&items[idx]));
-                }
-                Some(&idx) => {
+                } else {
                     let _ = writeln!(buf, "  {}", items[idx]);
                 }
-                None => buf.push('\n'),
+            } else {
+                buf.push('\n');
             }
         }
         term.write_str(&buf)
@@ -107,18 +107,18 @@ pub fn circular_select(prompt: &str, items: &[String], default: usize) -> Result
 
     let outcome = loop {
         match term.read_key().context("failed to read key")? {
-            Key::ArrowDown | Key::Tab | Key::Char('j') => sel = (sel + 1) % n,
-            Key::ArrowUp | Key::BackTab | Key::Char('k') => sel = (sel + n - 1) % n,
+            Key::ArrowDown | Key::Tab | Key::Char('j') => sel = (sel + 1).min(n - 1),
+            Key::ArrowUp | Key::BackTab | Key::Char('k') => sel = sel.saturating_sub(1),
             Key::Enter => break Some(sel),
             Key::Escape | Key::CtrlC | Key::Char('q') => break None,
             _ => continue,
         }
-        term.clear_last_lines(CIRCULAR_VISIBLE + 1)
+        term.clear_last_lines(ARROW_VISIBLE + 1)
             .context("failed to clear selector frame")?;
         render(sel).context("failed to render selector")?;
     };
 
-    term.clear_last_lines(CIRCULAR_VISIBLE + 1)
+    term.clear_last_lines(ARROW_VISIBLE + 1)
         .context("failed to clear selector frame")?;
     term.show_cursor().context("failed to restore cursor")?;
 
@@ -142,40 +142,39 @@ mod tests {
 
     #[test]
     fn window_centers_selection_when_list_exceeds_viewport() {
+        let start = arrow_window_start(10, 20);
+        assert_eq!(start, 6);
+        assert_eq!(10 - start, ARROW_ABOVE);
+    }
+
+    #[test]
+    fn window_freezes_at_top_when_selection_near_start() {
         let n = 20;
-        let window = circular_window(10, n);
-        assert_eq!(window.len(), CIRCULAR_VISIBLE);
-        assert_eq!(window[CIRCULAR_ABOVE], 10);
-        assert_eq!(window, vec![6, 7, 8, 9, 10, 11, 12, 13, 14]);
+        assert_eq!(arrow_window_start(0, n), 0);
+        assert_eq!(arrow_window_start(1, n), 0);
+        assert_eq!(arrow_window_start(ARROW_ABOVE, n), 0);
+        assert_eq!(arrow_window_start(ARROW_ABOVE + 1, n), 1);
     }
 
     #[test]
-    fn window_wraps_circularly_at_top() {
+    fn window_freezes_at_bottom_when_selection_near_end() {
         let n = 20;
-        let window = circular_window(0, n);
-        assert_eq!(window.len(), CIRCULAR_VISIBLE);
-        assert_eq!(window[CIRCULAR_ABOVE], 0);
-        assert_eq!(window, vec![16, 17, 18, 19, 0, 1, 2, 3, 4]);
+        let max_start = n - ARROW_VISIBLE;
+        assert_eq!(arrow_window_start(n - 1, n), max_start);
+        assert_eq!(arrow_window_start(n - 2, n), max_start);
+        assert_eq!(arrow_window_start(n - ARROW_VISIBLE + ARROW_ABOVE, n), max_start);
     }
 
     #[test]
-    fn window_wraps_circularly_at_bottom() {
-        let n = 20;
-        let window = circular_window(19, n);
-        assert_eq!(window.len(), CIRCULAR_VISIBLE);
-        assert_eq!(window[CIRCULAR_ABOVE], 19);
-        assert_eq!(window, vec![15, 16, 17, 18, 19, 0, 1, 2, 3]);
+    fn window_starts_at_zero_when_below_viewport() {
+        assert_eq!(arrow_window_start(2, 5), 0);
+        assert_eq!(arrow_window_start(0, 5), 0);
+        assert_eq!(arrow_window_start(4, 5), 0);
     }
 
     #[test]
-    fn window_returns_full_list_when_below_viewport() {
-        let window = circular_window(2, 5);
-        assert_eq!(window, vec![0, 1, 2, 3, 4]);
-    }
-
-    #[test]
-    fn window_treats_exactly_viewport_size_as_static() {
-        let window = circular_window(3, CIRCULAR_VISIBLE);
-        assert_eq!(window, (0..CIRCULAR_VISIBLE).collect::<Vec<_>>());
+    fn window_starts_at_zero_when_exactly_viewport_size() {
+        assert_eq!(arrow_window_start(3, ARROW_VISIBLE), 0);
+        assert_eq!(arrow_window_start(ARROW_VISIBLE - 1, ARROW_VISIBLE), 0);
     }
 }

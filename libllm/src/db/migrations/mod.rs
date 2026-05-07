@@ -10,11 +10,12 @@ mod v1;
 mod v2;
 mod v3;
 mod v4;
+mod v5;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 4;
+pub const CURRENT_VERSION: i64 = 5;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -52,6 +53,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 4 {
             v4::migrate(conn)?;
             stamp_version(conn, 4)?;
+            applied += 1;
+        }
+        if version < 5 {
+            v5::migrate(conn)?;
+            stamp_version(conn, 5)?;
             applied += 1;
         }
 
@@ -301,5 +307,101 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, super::CURRENT_VERSION);
+    }
+
+    #[test]
+    fn v5_adds_session_characters_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_characters')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(exists, "session_characters table missing");
+
+        let idx_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_session_characters_session')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(idx_exists, "idx_session_characters_session missing");
+    }
+
+    #[test]
+    fn v5_adds_chat_policy_and_card_assembly_to_sessions() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap();
+        assert!(cols.iter().any(|c| c == "chat_policy"), "missing chat_policy in {cols:?}");
+        assert!(cols.iter().any(|c| c == "card_assembly"), "missing card_assembly in {cols:?}");
+    }
+
+    #[test]
+    fn v5_adds_speaker_slug_and_pre_turn_action_points_to_messages() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let mut stmt = conn.prepare("PRAGMA table_info(messages)").unwrap();
+        let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap();
+        assert!(cols.iter().any(|c| c == "speaker_slug"));
+        assert!(cols.iter().any(|c| c == "pre_turn_action_points"));
+    }
+
+    #[test]
+    fn upgrade_from_v4_backfills_solo_session_characters() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (4);",
+        ).unwrap();
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO sessions (id, character, created_at, updated_at)
+             VALUES ('s-solo', 'alice', 'now', 'now')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, character, created_at, updated_at)
+             VALUES ('s-bare', NULL, 'now', 'now')",
+            [],
+        ).unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let solo_attachments: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_characters WHERE session_id = 's-solo'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(solo_attachments, 1);
+
+        let (slug, idx, talk, ap): (String, i64, f64, f64) = conn.query_row(
+            "SELECT slug, attach_index, talkativeness, action_points
+             FROM session_characters WHERE session_id = 's-solo'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(slug, "alice");
+        assert_eq!(idx, 0);
+        assert!((talk - 1.0).abs() < 1e-6);
+        assert!((ap - 0.0).abs() < 1e-6);
+
+        let bare_attachments: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_characters WHERE session_id = 's-bare'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(bare_attachments, 0);
     }
 }

@@ -1,3 +1,7 @@
+#[cfg(test)]
+use time::format_description::well_known::Rfc3339;
+#[cfg(test)]
+use time::macros::format_description;
 use time::OffsetDateTime;
 
 use crate::session::Role;
@@ -51,12 +55,28 @@ pub(crate) fn parse(raw: &str) -> Result<ParsedQuery, QueryError> {
     }
 
     let mut match_parts: Vec<String> = Vec::new();
+    let mut session_substring: Option<String> = None;
+    let mut role: Option<Role> = None;
+    let mut before: Option<OffsetDateTime> = None;
+    let mut after: Option<OffsetDateTime> = None;
+
     for token in tokens {
         match token {
             Token::Phrase(phrase) => {
                 match_parts.push(format!("\"{}\"", phrase));
             }
             Token::Term(term) => {
+                if let Some((key, value)) = split_filter(&term) {
+                    apply_filter(
+                        key,
+                        value,
+                        &mut session_substring,
+                        &mut role,
+                        &mut before,
+                        &mut after,
+                    )?;
+                    continue;
+                }
                 let cleaned = sanitize_term(&term);
                 if !cleaned.is_empty() {
                     match_parts.push(format!("{cleaned}*"));
@@ -71,11 +91,63 @@ pub(crate) fn parse(raw: &str) -> Result<ParsedQuery, QueryError> {
 
     Ok(ParsedQuery {
         match_expr: match_parts.join(" AND "),
-        session_substring: None,
-        role: None,
-        before: None,
-        after: None,
+        session_substring,
+        role,
+        before,
+        after,
     })
+}
+
+#[cfg(test)]
+fn split_filter(token: &str) -> Option<(&str, &str)> {
+    let (key, value) = token.split_once(':')?;
+    if matches!(key, "session" | "role" | "before" | "after") && !value.is_empty() {
+        Some((key, value))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+fn apply_filter(
+    key: &str,
+    value: &str,
+    session_substring: &mut Option<String>,
+    role: &mut Option<Role>,
+    before: &mut Option<OffsetDateTime>,
+    after: &mut Option<OffsetDateTime>,
+) -> Result<(), QueryError> {
+    match key {
+        "session" => {
+            *session_substring = Some(value.to_owned());
+        }
+        "role" => {
+            let parsed = value
+                .parse::<Role>()
+                .map_err(|_| QueryError::BadFilter(format!("role:{value}")))?;
+            *role = Some(parsed);
+        }
+        "before" => {
+            *before = Some(parse_date(value)?);
+        }
+        "after" => {
+            *after = Some(parse_date(value)?);
+        }
+        _ => unreachable!("split_filter guards the key set"),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn parse_date(value: &str) -> Result<OffsetDateTime, QueryError> {
+    if let Ok(dt) = OffsetDateTime::parse(value, &Rfc3339) {
+        return Ok(dt);
+    }
+    let format = format_description!("[year]-[month]-[day]");
+    if let Ok(date) = time::Date::parse(value, &format) {
+        return Ok(OffsetDateTime::new_utc(date, time::Time::MIDNIGHT));
+    }
+    Err(QueryError::ParseDate(value.to_owned()))
 }
 
 #[cfg(test)]
@@ -186,5 +258,56 @@ mod tests {
     fn empty_after_stripping_is_empty_error() {
         assert_eq!(match_expr_only("***"), Err(QueryError::Empty));
         assert_eq!(match_expr_only("   "), Err(QueryError::Empty));
+    }
+
+    #[test]
+    fn role_filter_lifts_out_of_terms() {
+        let parsed = parse("role:user redact").unwrap();
+        assert_eq!(parsed.match_expr, "redact*");
+        assert_eq!(parsed.role, Some(Role::User));
+    }
+
+    #[test]
+    fn role_filter_accepts_assistant_and_system() {
+        assert_eq!(parse("role:assistant x").unwrap().role, Some(Role::Assistant));
+        assert_eq!(parse("role:system x").unwrap().role, Some(Role::System));
+    }
+
+    #[test]
+    fn role_filter_unknown_value_errors() {
+        let err = parse("role:bogus x").unwrap_err();
+        assert_eq!(err, QueryError::BadFilter("role:bogus".into()));
+    }
+
+    #[test]
+    fn before_filter_parses_iso_date() {
+        let parsed = parse("before:2026-01-15 retry").unwrap();
+        assert_eq!(parsed.match_expr, "retry*");
+        assert_eq!(
+            parsed.before.unwrap().format(&Rfc3339).unwrap(),
+            "2026-01-15T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn after_filter_parses_iso_date() {
+        let parsed = parse("after:2025-12-01 retry").unwrap();
+        assert_eq!(
+            parsed.after.unwrap().format(&Rfc3339).unwrap(),
+            "2025-12-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn before_filter_bad_date_errors() {
+        let err = parse("before:not-a-date x").unwrap_err();
+        assert_eq!(err, QueryError::ParseDate("not-a-date".into()));
+    }
+
+    #[test]
+    fn quoted_phrase_with_colon_is_not_a_filter() {
+        let parsed = parse("\"role:user friendly\"").unwrap();
+        assert_eq!(parsed.match_expr, "\"role:user friendly\"");
+        assert_eq!(parsed.role, None);
     }
 }

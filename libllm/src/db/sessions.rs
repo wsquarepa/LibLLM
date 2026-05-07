@@ -125,8 +125,8 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
             .get(&node.id)
             .map(|&c| c as i64);
         conn.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 node.id as i64,
                 id,
@@ -136,6 +136,8 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
                 node.message.content,
                 node.message.timestamp,
                 node.message.thought_seconds.map(i64::from),
+                node.message.speaker,
+                node.message.pre_turn_action_points,
             ],
         )
         .context("failed to insert message row")?;
@@ -275,7 +277,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds
+                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points
                      FROM messages WHERE session_id = ?1 ORDER BY id",
                 )
                 .context("failed to prepare message query")?;
@@ -292,6 +294,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     let content: String = row.get(4)?;
                     let timestamp: String = row.get(5)?;
                     let thought_seconds: Option<i64> = row.get(6)?;
+                    let speaker: Option<String> = row.get(7)?;
+                    let pre_turn_action_points: Option<String> = row.get(8)?;
                     Ok((
                         msg_id,
                         parent_id,
@@ -300,6 +304,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         content,
                         timestamp,
                         thought_seconds,
+                        speaker,
+                        pre_turn_action_points,
                     ))
                 })
                 .context("failed to query messages")?;
@@ -313,6 +319,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     content,
                     timestamp,
                     thought_seconds,
+                    speaker,
+                    pre_turn_action_points,
                 ) = row.context("failed to read message row")?;
 
                 let role: Role = role_str
@@ -330,8 +338,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         content,
                         timestamp,
                         thought_seconds,
-                        speaker: None,
-                        pre_turn_action_points: None,
+                        speaker,
+                        pre_turn_action_points,
                     },
                 };
 
@@ -475,8 +483,8 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
         content_bytes = content_bytes
         ; {
             conn.execute(
-                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     node.id as i64,
                     session_id,
@@ -486,6 +494,8 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
                     node.message.content,
                     node.message.timestamp,
                     node.message.thought_seconds.map(i64::from),
+                    node.message.speaker,
+                    node.message.pre_turn_action_points,
                 ],
             )
             .context("failed to upsert message")?;
@@ -999,6 +1009,37 @@ mod tests {
         assert_eq!(loaded.characters.len(), 1);
         assert_eq!(loaded.characters[0].slug, "alice");
         assert!((loaded.characters[0].talkativeness - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn save_and_load_message_round_trips_speaker_and_action_points() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::run_migrations(&conn).unwrap();
+
+        let mut tree = MessageTree::new();
+        let user_msg = Message::new(Role::User, "hello".to_owned());
+        let user_id = tree.push(None, user_msg);
+
+        let mut alice_msg = Message::new(Role::Assistant, "Alice: hi".to_owned());
+        alice_msg.speaker = Some("alice".to_owned());
+        alice_msg.pre_turn_action_points = Some(r#"{"alice":0.2,"bob":0.5}"#.to_owned());
+        tree.push(Some(user_id), alice_msg);
+
+        let session = Session { tree, ..Default::default() };
+        insert_session(&mut conn, "m1", &session).unwrap();
+
+        let loaded = super::load_session(&conn, "m1").unwrap();
+        let nodes = loaded.tree.nodes();
+        let assistant = nodes.iter().find(|n| matches!(n.message.role, Role::Assistant)).unwrap();
+        assert_eq!(assistant.message.speaker.as_deref(), Some("alice"));
+        assert_eq!(
+            assistant.message.pre_turn_action_points.as_deref(),
+            Some(r#"{"alice":0.2,"bob":0.5}"#)
+        );
+
+        let user = nodes.iter().find(|n| matches!(n.message.role, Role::User)).unwrap();
+        assert!(user.message.speaker.is_none());
+        assert!(user.message.pre_turn_action_points.is_none());
     }
 
     #[test]

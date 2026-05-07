@@ -10,7 +10,7 @@ pub struct AuthorNote {
 impl AuthorNote {
     pub fn from_row_parts(text: Option<String>, depth: u32, at_top: bool) -> Option<Self> {
         text.filter(|t| !t.trim().is_empty())
-            .map(|text| AuthorNote { text, depth, at_top })
+            .map(|text| Self { text, depth, at_top })
     }
 
     pub fn position(&self, message_count: usize) -> usize {

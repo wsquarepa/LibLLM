@@ -6,6 +6,7 @@ mod common;
 
 use libllm::crypto;
 use libllm::db::Database;
+use libllm::group_chat::{CardAssembly, ChatPolicy, CharacterAttachment};
 use libllm::session::{MessageTree, Role, Session};
 
 #[test]
@@ -300,4 +301,36 @@ fn encrypted_session_round_trip_preserves_file_snapshot_nodes() {
         assert!(messages[0].content.contains("<<<FILE secret.md>>>"));
         assert!(messages[0].content.contains("classified"));
     }
+}
+
+#[test]
+fn group_session_round_trips_through_database() {
+    let dir = common::temp_dir();
+    let db_path = dir.path().join("data.db");
+    let mut db = Database::open(&db_path, None).expect("open db");
+
+    let session = Session {
+        tree: MessageTree::new(),
+        characters: vec![
+            CharacterAttachment { slug: "alice".to_owned(), talkativeness: 0.7, action_points: 0.0 },
+            CharacterAttachment { slug: "bob".to_owned(), talkativeness: 0.4, action_points: 0.0 },
+            CharacterAttachment { slug: "charlie".to_owned(), talkativeness: 0.6, action_points: 0.0 },
+        ],
+        chat_policy: ChatPolicy::WeightedRandom,
+        card_assembly: CardAssembly::SwapCards,
+        ..Default::default()
+    };
+
+    db.insert_session("g3", &session).expect("insert group session");
+    let loaded = db.load_session("g3").expect("load group session");
+
+    assert_eq!(loaded.characters.len(), 3);
+    assert!((loaded.characters[0].talkativeness - 0.7_f32).abs() < 1e-6);
+    assert!((loaded.characters[1].talkativeness - 0.4_f32).abs() < 1e-6);
+    assert!((loaded.characters[2].talkativeness - 0.6_f32).abs() < 1e-6);
+    assert_eq!(loaded.characters[0].slug, "alice");
+    assert_eq!(loaded.characters[1].slug, "bob");
+    assert_eq!(loaded.characters[2].slug, "charlie");
+    assert!(matches!(loaded.chat_policy, ChatPolicy::WeightedRandom));
+    assert!(matches!(loaded.card_assembly, CardAssembly::SwapCards));
 }

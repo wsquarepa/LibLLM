@@ -1,7 +1,9 @@
 use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use libllm::search::SearchHit;
+use libllm::db::Database;
+use libllm::search::{self, SearchHit};
+use libllm::search::query as search_query;
 
 use super::super::types::Focus;
 
@@ -15,7 +17,6 @@ pub(crate) struct SearchDialogState {
     pub last_compiled: Option<String>,
     pub hits: Vec<SearchHit>,
     pub selected: usize,
-    #[expect(dead_code, reason = "wired in by Task 12")]
     pub error: Option<String>,
 }
 
@@ -43,7 +44,6 @@ impl SearchDialogState {
         s
     }
 
-    #[expect(dead_code, reason = "wired in by Task 12")]
     pub fn ready_for_query(&self, now: Instant) -> bool {
         let Some(stamp) = self.last_keystroke else {
             return false;
@@ -57,6 +57,43 @@ impl SearchDialogState {
             .is_some_and(|s| s == self.input);
         !same_as_last
     }
+}
+
+pub(crate) const TUI_LIMIT: usize = libllm::search::DEFAULT_MAX_HITS;
+
+pub(crate) fn maybe_run_query(state: &mut SearchDialogState, db: &Database, now: Instant) {
+    if !state.ready_for_query(now) {
+        return;
+    }
+    let trimmed = state.input.trim();
+    if trimmed.chars().count() < MIN_QUERY_CHARS {
+        state.hits.clear();
+        state.error = None;
+        state.last_compiled = Some(state.input.clone());
+        state.last_keystroke = None;
+        state.selected = 0;
+        return;
+    }
+
+    match search_query::compile(&state.input, db) {
+        Ok(compiled) => match search::search(db, &compiled, TUI_LIMIT) {
+            Ok(hits) => {
+                state.hits = hits;
+                state.error = None;
+                if state.selected >= state.hits.len() {
+                    state.selected = state.hits.len().saturating_sub(1);
+                }
+            }
+            Err(err) => {
+                state.error = Some(err.to_string());
+            }
+        },
+        Err(err) => {
+            state.error = Some(err.to_string());
+        }
+    }
+    state.last_compiled = Some(state.input.clone());
+    state.last_keystroke = None;
 }
 
 pub(crate) enum SearchDialogOutcome {
@@ -192,5 +229,101 @@ mod tests {
             preview_text: String::new(),
             score: 0.0,
         }
+    }
+
+    fn seed_db_for_tests(rows: &[(&str, &str, &str)]) -> (libllm::db::Database, tempfile::NamedTempFile) {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        {
+            let _db = libllm::db::Database::open(file.path(), None).unwrap();
+        }
+        let conn = rusqlite::Connection::open(file.path()).unwrap();
+        let mut session_ids: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        for (display, role, content) in rows {
+            let session_id = format!("sess-{display}");
+            let display_owned = (*display).to_owned();
+            if !session_ids.contains_key(&display_owned) {
+                conn.execute(
+                    "INSERT INTO sessions (id, display_name, created_at, updated_at) \
+                     VALUES (?1, ?2, 'now', 'now')",
+                    rusqlite::params![session_id, display],
+                )
+                .unwrap();
+                session_ids.insert(display_owned.clone(), 0);
+            }
+            let next_id = session_ids.get_mut(&display_owned).unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp) \
+                 VALUES (?1, ?2, NULL, NULL, ?3, ?4, '2026-01-01T00:00:00Z')",
+                rusqlite::params![*next_id, session_id, role, content],
+            )
+            .unwrap();
+            *next_id += 1;
+        }
+        drop(conn);
+        let db = libllm::db::Database::open(file.path(), None).unwrap();
+        (db, file)
+    }
+
+    #[test]
+    fn maybe_run_query_returns_hits_after_debounce() {
+        let (db, _file) = seed_db_for_tests(&[
+            ("alpha", "user", "remember to redact PII"),
+            ("alpha", "assistant", "redaction working"),
+        ]);
+        let mut state = SearchDialogState::new();
+        for c in "red".chars() {
+            handle_key(&mut state, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let now = Instant::now();
+        state.last_keystroke = Some(now - std::time::Duration::from_millis(200));
+
+        maybe_run_query(&mut state, &db, now);
+
+        assert!(!state.hits.is_empty(), "expected hits, error={:?}", state.error);
+        assert_eq!(state.last_compiled.as_deref(), Some("red"));
+        assert!(state.last_keystroke.is_none(), "last_keystroke should be cleared");
+    }
+
+    #[test]
+    fn maybe_run_query_with_short_input_clears_hits() {
+        let (db, _file) = seed_db_for_tests(&[("alpha", "user", "anything")]);
+        let mut state = SearchDialogState::new();
+        state.hits = vec![dummy_hit()];
+        state.input = "ab".into();
+        let now = Instant::now();
+        state.last_keystroke = Some(now - std::time::Duration::from_millis(200));
+
+        maybe_run_query(&mut state, &db, now);
+
+        assert!(state.hits.is_empty());
+        assert_eq!(state.last_compiled.as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn maybe_run_query_skips_within_debounce_window() {
+        let (db, _file) = seed_db_for_tests(&[("alpha", "user", "redact")]);
+        let mut state = SearchDialogState::new();
+        state.input = "redact".into();
+        let now = Instant::now();
+        state.last_keystroke = Some(now);
+
+        maybe_run_query(&mut state, &db, now);
+
+        assert!(state.hits.is_empty(), "should not run within debounce window");
+        assert!(state.last_keystroke.is_some(), "last_keystroke must NOT be cleared");
+    }
+
+    #[test]
+    fn maybe_run_query_skips_when_input_unchanged() {
+        let (db, _file) = seed_db_for_tests(&[("alpha", "user", "redact")]);
+        let mut state = SearchDialogState::new();
+        state.input = "redact".into();
+        state.last_compiled = Some("redact".into());
+        let now = Instant::now();
+        state.last_keystroke = Some(now - std::time::Duration::from_millis(200));
+
+        maybe_run_query(&mut state, &db, now);
+
+        assert!(state.hits.is_empty(), "should not run when input matches last_compiled");
     }
 }

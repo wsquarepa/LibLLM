@@ -416,6 +416,12 @@ pub async fn run(
                     app.file_summary_revision = app.file_summary_revision.wrapping_add(1);
                     needs_redraw = true;
                 }
+                if matches!(app.focus, Focus::SearchDialog)
+                    && let (Some(state), Some(db)) = (app.search_dialog.as_mut(), app.db.as_ref())
+                {
+                    dialogs::search::maybe_run_query(state, db, std::time::Instant::now());
+                    needs_redraw = true;
+                }
                 if app.pending_save_deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
                     let trigger = app.pending_save_trigger.unwrap_or(SaveTrigger::Retry);
                     if let Err(err) = app.flush_session_save(trigger) {

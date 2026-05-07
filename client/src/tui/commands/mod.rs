@@ -79,6 +79,13 @@ fn cmd_clear(app: &mut App) {
 
 async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.nav_cursor = None;
+
+    if app.session.characters.len() >= 2
+        && let Some(result) = try_group_retry(app, &sender).await
+    {
+        return result;
+    }
+
     app.session.retreat_trailing_assistant();
 
     let last_user_content = app
@@ -98,6 +105,41 @@ async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
             app.set_status("No user message to retry.".to_owned(), StatusLevel::Warning);
         }
     }
+}
+
+/// Attempts a group-chat-aware retry of the current head assistant message.
+///
+/// Returns `Some(())` when a group-chat retry was dispatched (caller should return immediately),
+/// or `None` when the head message lacks the group-chat fields needed for restoration (caller
+/// should fall through to the default single-character retry path).
+async fn try_group_retry(
+    app: &mut App<'_>,
+    sender: &mpsc::Sender<StreamToken>,
+) -> Option<()> {
+    let head_msg = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .filter(|n| n.message.role == Role::Assistant)
+        .map(|n| n.message.clone())?;
+
+    let speaker_slug = head_msg.speaker.clone()?;
+    let snapshot_json = head_msg.pre_turn_action_points.clone()?;
+
+    let snapshot: std::collections::HashMap<String, f32> =
+        serde_json::from_str(&snapshot_json).ok()?;
+
+    for c in app.session.characters.iter_mut() {
+        if let Some(&ap) = snapshot.get(&c.slug) {
+            c.action_points = ap;
+        }
+    }
+    tracing::debug!(speaker = %speaker_slug, "group_chat: /retry restored action-points");
+
+    app.session.tree.retreat_head();
+    streaming::run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
+    Some(())
 }
 
 async fn cmd_continue(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {

@@ -215,24 +215,59 @@ async fn main() -> Result<()> {
                 .map(|p| p.content);
         }
 
-        if let Some(char_arg) = args.character.first() {
-            let card = libllm::timed_result!(
-                tracing::Level::INFO,
-                "startup.phase",
-                phase = "resolve_character",
-                character = char_arg.as_str() ;
-                { resolve_character(char_arg, db.as_ref()) }
-            )?;
-            session.system_prompt = Some(character::build_system_prompt(
-                &card,
-                Some(&template_preset),
-            ));
-            session.character = Some(card.name.clone());
-            if session.tree.head().is_none() && !card.first_mes.is_empty() {
-                session
-                    .tree
-                    .push(None, Message::new(Role::Assistant, card.first_mes.clone()));
+        if !args.character.is_empty() {
+            let talkativeness_overrides =
+                cli::parse_talkativeness(args.talkativeness.as_deref().unwrap_or(""))
+                    .context("parsing --talkativeness")?;
+
+            let mut card_names_by_slug = std::collections::HashMap::new();
+            let mut loaded_cards: Vec<(String, character::CharacterCard)> = Vec::new();
+            for slug in &args.character {
+                let card = libllm::timed_result!(
+                    tracing::Level::INFO,
+                    "startup.phase",
+                    phase = "resolve_character",
+                    character = slug.as_str() ;
+                    { resolve_character(slug, db.as_ref()) }
+                )?;
+                card_names_by_slug.insert(slug.clone(), card.name.clone());
+                loaded_cards.push((slug.clone(), card));
             }
+
+            if let Err(e) = cli::validate_group_chat_args(
+                &args.character,
+                &talkativeness_overrides,
+                &card_names_by_slug,
+            ) {
+                eprintln!("error: {e}");
+                std::process::exit(2);
+            }
+
+            if args.character.len() == 1 {
+                let (_, card) = &loaded_cards[0];
+                session.system_prompt = Some(character::build_system_prompt(
+                    card,
+                    Some(&template_preset),
+                ));
+                session.character = Some(card.name.clone());
+                if session.tree.head().is_none() && !card.first_mes.is_empty() {
+                    session
+                        .tree
+                        .push(None, Message::new(Role::Assistant, card.first_mes.clone()));
+                }
+            }
+
+            let mut characters = Vec::new();
+            for (slug, _) in &loaded_cards {
+                let mut attachment = libllm::group_chat::CharacterAttachment::new(slug.clone());
+                if let Some(t) = talkativeness_overrides.get(slug.as_str()) {
+                    attachment.talkativeness = *t;
+                }
+                characters.push(attachment);
+            }
+            session.characters = characters;
+            session.chat_policy = args.chat_policy.into();
+            session.card_assembly = args.card_assembly.into();
         }
     }
 

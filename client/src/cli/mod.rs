@@ -2,8 +2,10 @@
 
 pub mod db;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
+use anyhow::{anyhow, bail, ensure, Context};
 use clap::{Parser, Subcommand};
 use libllm::sampling::SamplingOverrides;
 
@@ -197,6 +199,84 @@ pub struct CliOverrides {
     pub auth_header_value: Option<String>,
     pub auth_query_name: Option<String>,
     pub auth_query_value: Option<String>,
+}
+
+/// Parses a `"slug=value,slug=value"` talkativeness override string into a map.
+///
+/// Each entry must be `slug=f32`. The value is clamped to `[0.0, 1.0]`. An empty string
+/// returns an empty map. Malformed entries (missing `=`, empty slug, empty value, or
+/// non-numeric value) return an error.
+pub fn parse_talkativeness(raw: &str) -> anyhow::Result<HashMap<String, f32>> {
+    let mut out = HashMap::new();
+    if raw.trim().is_empty() {
+        return Ok(out);
+    }
+    for piece in raw.split(',') {
+        let piece = piece.trim();
+        if piece.is_empty() {
+            continue;
+        }
+        let (slug, value) = piece
+            .split_once('=')
+            .ok_or_else(|| anyhow!("invalid --talkativeness entry: {piece}"))?;
+        let slug = slug.trim();
+        let value = value.trim();
+        if slug.is_empty() {
+            return Err(anyhow!("--talkativeness entry has empty slug: {piece}"));
+        }
+        if value.is_empty() {
+            return Err(anyhow!("--talkativeness entry has empty value: {piece}"));
+        }
+        let parsed: f32 = value
+            .parse()
+            .with_context(|| format!("invalid talkativeness value: {value}"))?;
+        out.insert(slug.to_owned(), parsed.clamp(0.0, 1.0));
+    }
+    Ok(out)
+}
+
+/// Validates that the group-chat arguments are self-consistent.
+///
+/// Checks: character count is within `MAX_GROUP_SIZE`, every talkativeness slug refers to a
+/// character in the `-c` list, every character slug has a matching card in `card_names_by_slug`,
+/// and no two characters share a display name (case-insensitive).
+pub fn validate_group_chat_args(
+    characters: &[String],
+    talkativeness: &HashMap<String, f32>,
+    card_names_by_slug: &HashMap<String, String>,
+) -> anyhow::Result<()> {
+    ensure!(
+        characters.len() <= libllm::group_chat::MAX_GROUP_SIZE,
+        "group chats are limited to {} characters",
+        libllm::group_chat::MAX_GROUP_SIZE,
+    );
+
+    for slug in talkativeness.keys() {
+        ensure!(
+            characters.iter().any(|c| c == slug),
+            "--talkativeness references slug '{slug}' not in -c",
+        );
+    }
+
+    for slug in characters {
+        ensure!(
+            card_names_by_slug.contains_key(slug),
+            "character card not found: {slug}",
+        );
+    }
+
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for slug in characters {
+        let name = card_names_by_slug.get(slug).expect("checked above");
+        let key = name.to_lowercase();
+        if let Some(other_slug) = seen.get(&key) {
+            bail!(
+                "two characters in this group share display name '{name}'; pick distinct cards or rename one (slugs: {other_slug}, {slug})",
+            );
+        }
+        seen.insert(key, slug.clone());
+    }
+    Ok(())
 }
 
 #[derive(Parser)]
@@ -397,6 +477,90 @@ impl CliOverrides {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    fn names(items: &[(&str, &str)]) -> HashMap<String, String> {
+        items
+            .iter()
+            .map(|(s, n)| ((*s).to_owned(), (*n).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn parse_talkativeness_overrides_simple() {
+        let m = parse_talkativeness("alice=0.3,bob=0.8").unwrap();
+        assert_eq!(m.get("alice"), Some(&0.3));
+        assert_eq!(m.get("bob"), Some(&0.8));
+    }
+
+    #[test]
+    fn parse_talkativeness_clamps_out_of_range() {
+        let m = parse_talkativeness("alice=2.0,bob=-1.0").unwrap();
+        assert_eq!(m.get("alice"), Some(&1.0));
+        assert_eq!(m.get("bob"), Some(&0.0));
+    }
+
+    #[test]
+    fn parse_talkativeness_rejects_malformed() {
+        assert!(parse_talkativeness("alice").is_err());
+        assert!(parse_talkativeness("alice=").is_err());
+        assert!(parse_talkativeness("=0.5").is_err());
+        assert!(parse_talkativeness("alice=abc").is_err());
+    }
+
+    #[test]
+    fn parse_talkativeness_empty_returns_empty_map() {
+        let m = parse_talkativeness("").unwrap();
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn validate_rejects_over_cap() {
+        let chars: Vec<String> = (0..9).map(|i| format!("c{i}")).collect();
+        let card_names = chars
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), format!("N{i}")))
+            .collect();
+        let err = validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
+        assert!(err.to_string().contains("limited to"));
+    }
+
+    #[test]
+    fn validate_rejects_unknown_talkativeness_slug() {
+        let chars = vec!["alice".to_owned()];
+        let card_names = names(&[("alice", "Alice")]);
+        let mut talk = HashMap::new();
+        talk.insert("ghost".to_owned(), 0.5);
+        let err = validate_group_chat_args(&chars, &talk, &card_names).unwrap_err();
+        assert!(err.to_string().contains("ghost"));
+    }
+
+    #[test]
+    fn validate_rejects_missing_card() {
+        let chars = vec!["alice".to_owned(), "bob".to_owned()];
+        let card_names = names(&[("alice", "Alice")]);
+        let err =
+            validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
+        assert!(err.to_string().contains("bob"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_display_names_case_insensitive() {
+        let chars = vec!["alice1".to_owned(), "alice2".to_owned()];
+        let card_names = names(&[("alice1", "Alice"), ("alice2", "alice")]);
+        let err =
+            validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
+        assert!(err.to_string().contains("share display name"));
+    }
+
+    #[test]
+    fn validate_accepts_valid_group() {
+        let chars = vec!["alice".to_owned(), "bob".to_owned()];
+        let card_names = names(&[("alice", "Alice"), ("bob", "Bob")]);
+        let mut talk = HashMap::new();
+        talk.insert("alice".to_owned(), 0.3);
+        validate_group_chat_args(&chars, &talk, &card_names).unwrap();
+    }
 
     #[test]
     fn single_character_parses_into_vec_of_one() {

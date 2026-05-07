@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches-ignore: [master]
+    branches: ['**']
     tags: ['v*.*.*']
 
 env:
@@ -96,7 +96,14 @@ jobs:
               echo "::error::Branch name '$BRANCH' is reserved for the stable release channel"
               exit 1
             fi
-            echo "LIBLLM_CHANNEL=${BRANCH}" >> "$GITHUB_ENV"
+            if [[ "$BRANCH" == "master" ]]; then
+              echo "LIBLLM_CHANNEL=preview" >> "$GITHUB_ENV"
+            elif [[ "$BRANCH" == "preview" ]]; then
+              echo "::error::Branch name 'preview' is reserved for the preview release channel"
+              exit 1
+            else
+              echo "LIBLLM_CHANNEL=${BRANCH}" >> "$GITHUB_ENV"
+            fi
           fi
 
       - name: Verify Cargo version matches tag
@@ -197,6 +204,11 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
             BRANCH="${GITHUB_REF#refs/heads/}"
+            if [[ "$BRANCH" == "master" ]]; then
+              CHANNEL_TAG="preview"
+            else
+              CHANNEL_TAG="$BRANCH"
+            fi
             {
               echo "Changes this release:"
               echo ""
@@ -208,8 +220,8 @@ jobs:
               fi
             } > notes.md
 
-            echo "tag=${BRANCH}" >> "$GITHUB_OUTPUT"
-            echo "title=${BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "tag=${CHANNEL_TAG}" >> "$GITHUB_OUTPUT"
+            echo "title=${CHANNEL_TAG}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
           fi

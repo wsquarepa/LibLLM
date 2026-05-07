@@ -16,6 +16,7 @@ pub mod migration;
 pub mod persona;
 pub mod preset;
 pub mod sampling;
+pub mod search;
 pub mod session;
 pub mod side_character;
 pub mod summarize;

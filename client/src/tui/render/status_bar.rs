@@ -25,8 +25,6 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
         return;
     }
 
-    let left_text = format!(" {}", crate::version::STATUS_BAR);
-
     let left_style = if !app.api_available {
         Style::default()
             .fg(app.theme.api_unavailable)
@@ -39,7 +37,7 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
 
     let total_width = area.width as usize;
     if total_width < 20 {
-        let paragraph = Paragraph::new(left_text).style(left_style);
+        let paragraph = Paragraph::new(format!(" {}", crate::version::STATUS_BAR)).style(left_style);
         f.render_widget(paragraph, area);
         return;
     }
@@ -73,9 +71,9 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let right_width: usize = right_spans.iter().map(|s| s.content.len()).sum();
 
     let left_max = total_width.saturating_sub(right_width).saturating_sub(1);
-    let truncated_left = truncate_str(&left_text, left_max);
+    let left_spans = build_left_spans(app, left_style, left_max);
+    let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
 
-    let left_area = Rect::new(area.x, area.y, left_max as u16, 1);
     let right_area = Rect::new(
         area.x + (total_width - right_width) as u16,
         area.y,
@@ -84,11 +82,54 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
     );
 
     f.render_widget(Paragraph::new("").style(bg_style), area);
-    f.render_widget(Paragraph::new(truncated_left).style(left_style), left_area);
+    f.render_widget(
+        Paragraph::new(Line::from(left_spans)).style(left_style),
+        Rect::new(area.x, area.y, left_width.min(left_max) as u16, 1),
+    );
     f.render_widget(
         Paragraph::new(Line::from(right_spans)).style(bg_style),
         right_area,
     );
+}
+
+fn build_left_spans<'a>(app: &'a App, base_style: Style, max_len: usize) -> Vec<Span<'a>> {
+    let version = format!(" {}", crate::version::STATUS_BAR);
+    let mut spans: Vec<Span<'a>> = Vec::new();
+
+    if app.session.characters.len() >= 2 {
+        let policy = match app.session.chat_policy {
+            libllm::group_chat::ChatPolicy::RoundRobin => "RR",
+            libllm::group_chat::ChatPolicy::WeightedRandom => "WR",
+        };
+        let assembly = match app.session.card_assembly {
+            libllm::group_chat::CardAssembly::JoinCards => "join",
+            libllm::group_chat::CardAssembly::SwapCards => "swap",
+        };
+        let n = app.session.characters.len();
+        let group_chip = format!("[{n} chars · {policy} · {assembly}] ");
+        spans.push(Span::styled(group_chip, base_style));
+
+        let broken = app
+            .session
+            .characters
+            .iter()
+            .filter(|c| !app.character_cards_cache.contains_key(&c.slug))
+            .count();
+        if broken > 0 {
+            let badge = format!("[{broken} missing] ");
+            spans.push(Span::styled(
+                badge,
+                Style::default().fg(Color::Red).bg(base_style.bg.unwrap_or(Color::Reset)),
+            ));
+        }
+    }
+
+    let used: usize = spans.iter().map(|s| s.content.len()).sum();
+    let version_budget = max_len.saturating_sub(used);
+    let truncated_version = truncate_str(&version, version_budget);
+    spans.push(Span::styled(truncated_version, base_style));
+
+    spans
 }
 
 fn build_right_spans<'a>(

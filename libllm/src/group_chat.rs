@@ -310,4 +310,43 @@ mod tests {
         }
         assert_eq!(CardAssembly::from_db_str("bogus"), None);
     }
+
+    fn run_rounds(
+        characters: Vec<CharacterAttachment>,
+        policy: ChatPolicy,
+        rounds: usize,
+        seed: u64,
+    ) -> Vec<String> {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut state = characters;
+        let mut order = Vec::new();
+        for _ in 0..rounds {
+            let Some(d) = decide_next_speaker(&state, policy, &mut rng) else { break; };
+            order.push(d.speaker_slug.clone());
+            for (slug, ap) in d.updated_action_points {
+                if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
+                    c.action_points = ap;
+                }
+            }
+        }
+        order
+    }
+
+    #[test]
+    fn round_robin_produces_predictable_alternation_with_equal_talkativeness() {
+        // Starting AP 0.5 each: iter 1 pushes both to 1.0 (tie → a), iter 2 pushes a to 0.5 / b to 1.5 (only b).
+        let cs = vec![att("a", 0.5, 0.5), att("b", 0.5, 0.5)];
+        let order = run_rounds(cs, ChatPolicy::RoundRobin, 8, 0);
+        assert_eq!(order, vec!["a", "b", "a", "b", "a", "b", "a", "b"]);
+    }
+
+    #[test]
+    fn high_talkativeness_speaks_more_often() {
+        // Starting AP 0.5 each so loud crosses threshold immediately on iter 1.
+        let cs = vec![att("loud", 0.9, 0.5), att("quiet", 0.2, 0.5)];
+        let order = run_rounds(cs, ChatPolicy::RoundRobin, 20, 0);
+        let loud = order.iter().filter(|s| *s == "loud").count();
+        let quiet = order.iter().filter(|s| *s == "quiet").count();
+        assert!(loud > quiet * 2, "loud={loud}, quiet={quiet}");
+    }
 }

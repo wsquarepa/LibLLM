@@ -6,7 +6,8 @@ use libllm::client::ApiClient;
 use libllm::db::Database;
 use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
-use libllm::session::{Message, Role, SaveMode, Session, SessionEntry};
+use libllm::search::SearchHit;
+use libllm::session::{Message, MessageTree, NodeId, Role, SaveMode, Session, SessionEntry};
 use libllm::tokenizer::{TokenCountUpdate, TokenCounter};
 use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
 
@@ -933,6 +934,101 @@ pub fn discover_sidebar_sessions(save_mode: &SaveMode, db: Option<&Database>) ->
     sessions
 }
 
+#[derive(Debug)]
+pub enum JumpError {
+    Save(anyhow::Error),
+    Load(anyhow::Error),
+    MissingNode,
+    MissingSession,
+}
+
+impl std::fmt::Display for JumpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Save(e) => write!(f, "save failed: {e}"),
+            Self::Load(e) => write!(f, "load failed: {e}"),
+            Self::MissingNode => f.write_str("hit message no longer exists"),
+            Self::MissingSession => f.write_str("hit session no longer exists"),
+        }
+    }
+}
+
+impl std::error::Error for JumpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Save(e) | Self::Load(e) => e.source(),
+            Self::MissingNode | Self::MissingSession => None,
+        }
+    }
+}
+
+#[expect(dead_code, reason = "called from input.rs in Task 16")]
+pub(super) async fn jump_to_search_hit(
+    app: &mut App<'_>,
+    hit: &SearchHit,
+) -> Result<(), JumpError> {
+    if app.save_mode.id() != Some(hit.session_id.as_str()) {
+        if !app.flush_session_before_transition() {
+            return Err(JumpError::Save(anyhow::anyhow!(
+                "save failed before search jump"
+            )));
+        }
+        let load_result = app
+            .db
+            .as_ref()
+            .map(|db| db.load_session(&hit.session_id))
+            .ok_or_else(|| JumpError::Load(anyhow::anyhow!("no database")))?;
+        match load_result {
+            Ok(loaded) => {
+                app.discard_pending_session_save();
+                *app.session = loaded;
+                load_active_persona(app);
+                app.invalidate_chat_caches();
+                app.invalidate_worldbook_cache();
+                app.save_mode.set_id(hit.session_id.clone());
+                app.chat_scroll = 0;
+                app.auto_scroll = true;
+            }
+            Err(err) => {
+                let msg = format!("{err}");
+                if msg.contains("not found") || msg.contains("no rows") {
+                    return Err(JumpError::MissingSession);
+                }
+                return Err(JumpError::Load(err));
+            }
+        }
+    }
+
+    let node_id = match find_node_for_message(&app.session.tree, hit.message_id) {
+        Some(id) => id,
+        None => {
+            app.set_status(
+                "Message no longer exists".to_owned(),
+                super::StatusLevel::Warning,
+            );
+            return Err(JumpError::MissingNode);
+        }
+    };
+
+    if app.session.tree.head() != Some(node_id) {
+        app.session.tree.switch_to(node_id);
+        app.session_dirty = true;
+    }
+    app.nav_cursor = Some(node_id);
+    app.focus = super::Focus::Chat;
+    app.search_dialog = None;
+    app.set_status(
+        format!("Jumped to {}", hit.session_display_name),
+        super::StatusLevel::Info,
+    );
+    Ok(())
+}
+
+fn find_node_for_message(tree: &MessageTree, message_id: i64) -> Option<NodeId> {
+    let target = usize::try_from(message_id).ok()?;
+    tree.nodes().iter().find(|n| n.id == target).map(|n| n.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1209,5 +1305,27 @@ mod tests {
         prepare_sidebar_entries(&mut entries);
         assert_eq!(entries[0].sidebar_label, "? • Bob");
         assert_eq!(entries[0].sidebar_preview.as_deref(), Some("  0 messages"));
+    }
+
+    #[test]
+    fn find_node_for_existing_message_id() {
+        let mut tree = MessageTree::new();
+        let id = tree.push(None, Message::new(Role::User, "hello".into()));
+        let found = find_node_for_message(&tree, id as i64);
+        assert_eq!(found, Some(id));
+    }
+
+    #[test]
+    fn find_node_for_missing_message_id_returns_none() {
+        let tree = MessageTree::new();
+        let found = find_node_for_message(&tree, 99);
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn find_node_for_negative_message_id_returns_none() {
+        let tree = MessageTree::new();
+        let found = find_node_for_message(&tree, -1);
+        assert_eq!(found, None);
     }
 }

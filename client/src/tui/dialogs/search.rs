@@ -40,7 +40,6 @@ impl SearchDialogState {
         }
     }
 
-    #[expect(dead_code, reason = "wired in by Task 17")]
     pub fn with_prefilled(query: &str) -> Self {
         let mut s = Self::new();
         s.input = query.to_owned();
@@ -133,6 +132,17 @@ pub(crate) fn handle_key(state: &mut SearchDialogState, key: KeyEvent) -> Search
                 state.cursor -= 1;
                 state.last_keystroke = Some(Instant::now());
             }
+            SearchDialogOutcome::Consumed
+        }
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(rest) = state.input.strip_prefix("m:") {
+                state.input = rest.to_owned();
+                state.cursor = state.input.chars().count();
+            } else {
+                state.input.insert_str(0, "m:");
+                state.cursor += 2;
+            }
+            state.last_keystroke = Some(Instant::now());
             SearchDialogOutcome::Consumed
         }
         KeyCode::Char(c) => {
@@ -687,5 +697,25 @@ mod tests {
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
         assert!(!rendered.contains("more line"), "expected no truncation footer");
+    }
+
+    #[test]
+    fn ctrl_r_adds_m_prefix_when_absent() {
+        let mut state = SearchDialogState::new();
+        state.input = "redact".into();
+        state.cursor = state.input.chars().count();
+        handle_key(&mut state, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert_eq!(state.input, "m:redact");
+        assert_eq!(state.cursor, "m:redact".chars().count());
+    }
+
+    #[test]
+    fn ctrl_r_strips_m_prefix_when_present() {
+        let mut state = SearchDialogState::new();
+        state.input = "m:redact".into();
+        state.cursor = state.input.chars().count();
+        handle_key(&mut state, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert_eq!(state.input, "redact");
+        assert_eq!(state.cursor, "redact".chars().count());
     }
 }

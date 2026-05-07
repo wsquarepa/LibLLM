@@ -43,6 +43,7 @@ pub(super) async fn handle_slash_command(
         "/export" => export::cmd_export(app, arg),
         "/macro" => cmd_macro(app, arg, sender).await,
         "/report" => cmd_report(app),
+        "/search" => cmd_search(app, arg),
         _ => {
             tracing::debug!(cmd, result = "unknown", "tui.command");
             app.set_status(format!("Unknown command: {cmd}"), StatusLevel::Warning);
@@ -440,6 +441,16 @@ async fn cmd_macro(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToke
             app.set_status(err, StatusLevel::Error)
         }
     }
+}
+
+fn cmd_search(app: &mut App, arg: &str) {
+    let state = if arg.is_empty() {
+        dialogs::search::SearchDialogState::new()
+    } else {
+        dialogs::search::SearchDialogState::with_prefilled(arg)
+    };
+    app.search_dialog = Some(state);
+    app.focus = Focus::SearchDialog;
 }
 
 fn cmd_report(app: &mut App) {

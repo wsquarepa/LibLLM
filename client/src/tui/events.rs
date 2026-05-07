@@ -604,6 +604,15 @@ fn handle_key(
         return Some(Action::Quit);
     }
 
+    if key.code == KeyCode::Char('f')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(app.focus, Focus::Input | Focus::Chat | Focus::Sidebar)
+    {
+        app.search_dialog = Some(dialogs::search::SearchDialogState::new());
+        app.focus = Focus::SearchDialog;
+        return None;
+    }
+
     if key.code == KeyCode::Left && key.modifiers.contains(KeyModifiers::ALT) {
         app.nav_cursor = None;
         let previous_head = app.session.tree.head();

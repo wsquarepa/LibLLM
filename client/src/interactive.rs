@@ -26,7 +26,7 @@ pub fn is_interactive() -> bool {
 ///
 /// Returns `Ok(None)` when the user cancels with Esc or Ctrl+C.
 /// Returns `Err` only on I/O failures writing to the terminal.
-pub fn select<T: ToString>(prompt: &str, items: &[T]) -> Result<Option<usize>> {
+pub fn select<T: std::fmt::Display>(prompt: &str, items: &[T]) -> Result<Option<usize>> {
     Select::with_theme(&ColorfulTheme::default())
         .with_prompt(prompt)
         .items(items)

@@ -13,24 +13,24 @@ toml = "1.1.0"
 uuid = { version = "1.23.0", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 argon2 = "0.5"
-rand = "0.9"
+rand = "0.10"
 zeroize = { version = "1.8.2", features = ["derive"] }
 reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls-no-provider", "charset", "http2", "system-proxy", "query"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 futures = "0.3"
 futures-util = "0.3"
-infer = "0.16"
+infer = "0.19"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-lru = "0.16"
-pdf-extract = "0.9"
+lru = "0.18"
+pdf-extract = "0.10"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-sysinfo = "0.38"
+sysinfo = "0.39"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 hex = "0.4"
 minijinja = { version = "2", default-features = false, features = ["builtins", "serde"] }
-sha2 = "0.10"
+sha2 = "0.11"
 strsim = "0.11"
 tar = "0.4"
 unicode-normalization = "0.1"

@@ -7,10 +7,10 @@ use anyhow::{Result, bail};
 use argon2::Argon2;
 use chacha20poly1305::{
     XChaCha20Poly1305,
-    aead::{Aead, NewAead},
+    aead::{Aead, KeyInit},
 };
 use hkdf::Hkdf;
-use rand::RngCore;
+use rand::Rng;
 use sha2::Sha256;
 
 use crate::index::WrappedDek;

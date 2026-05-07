@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use rand::RngCore;
+use rand::Rng;
 
 use crate::BackupConfig;
 use crate::index::{

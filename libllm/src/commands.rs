@@ -88,6 +88,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Run a user-defined macro",
     },
     CommandInfo {
+        name: "/regex",
+        aliases: &[],
+        args: "",
+        description: "Manage regex find/replace rules",
+    },
+    CommandInfo {
         name: "/report",
         aliases: &[],
         args: "",

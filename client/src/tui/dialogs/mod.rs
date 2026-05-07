@@ -14,6 +14,7 @@ pub mod injection_warning;
 pub mod passkey;
 pub mod persona;
 pub mod preset;
+pub mod regex;
 pub mod set_passkey;
 pub mod system_prompt;
 pub mod template_prompt;

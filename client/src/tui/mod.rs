@@ -232,6 +232,9 @@ pub async fn run(
         character_selected: 0,
         worldbook_list: Vec::new(),
         worldbook_selected: 0,
+
+        regex_list_selected: 0,
+        regex_editor: None,
         character_editor: None,
         character_editor_slug: String::new(),
         worldbook_editor_entries: Vec::new(),
@@ -658,6 +661,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditDialog => Some("edit"),
         Focus::EditConfirmDialog => Some("edit_confirm"),
         Focus::BranchDialog => Some("branch"),
+        Focus::RegexDialog => Some("regex"),
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
         Focus::FilePickerDialog => Some("file_picker"),
@@ -848,6 +852,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             if let Some(ref dialog) = app.character_editor {
                 dialog.render(f, f.area());
             }
+        }
+        Focus::RegexDialog => {
+            dialogs::regex::render_regex_dialog(f, app, f.area());
         }
         Focus::WorldbookDialog => {
             dialogs::worldbook::render_worldbook_dialog(f, app, f.area());

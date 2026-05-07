@@ -51,6 +51,7 @@ pub(super) enum Focus {
     TemplatePromptDialog,
     DangerConfirmDialog,
     DangerTypedConfirmDialog,
+    RegexDialog,
 }
 
 pub(super) enum Action {
@@ -301,6 +302,9 @@ pub(super) struct App<'a> {
 
     pub(super) worldbook_list: Vec<String>,
     pub(super) worldbook_selected: usize,
+
+    pub(super) regex_list_selected: usize,
+    pub(super) regex_editor: Option<dialogs::regex::RegexEditorState>,
 
     pub(super) character_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) character_editor_slug: String,

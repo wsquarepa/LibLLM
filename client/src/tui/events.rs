@@ -349,6 +349,7 @@ fn handle_key(
             | Focus::WorldbookEntryDeleteDialog
             | Focus::SystemPromptDialog
             | Focus::BranchDialog
+            | Focus::RegexDialog
             | Focus::DeleteConfirmDialog
             | Focus::ApiErrorDialog
             | Focus::LoadingDialog
@@ -437,6 +438,9 @@ fn handle_key(
     }
     if app.focus == Focus::BranchDialog {
         return dialogs::branch::handle_branch_dialog_key(key, app);
+    }
+    if app.focus == Focus::RegexDialog {
+        return dialogs::regex::handle_regex_dialog_key(key, app);
     }
     if app.focus == Focus::DeleteConfirmDialog {
         return dialogs::delete_confirm::handle_delete_confirm_key(key, app);
@@ -895,6 +899,9 @@ fn scroll_dialog(app: &mut App, direction: ScrollDirection) {
         }
         Focus::BranchDialog => {
             dialogs::branch::handle_branch_dialog_key(key, app);
+        }
+        Focus::RegexDialog => {
+            dialogs::regex::handle_regex_dialog_key(key, app);
         }
         Focus::WorldbookDialog => {
             dialogs::worldbook::handle_worldbook_dialog_key(key, app);

@@ -37,6 +37,7 @@ pub(super) async fn handle_slash_command(
         "/branch" => cmd_branch(app),
         "/persona" => cmd_persona(app),
         "/worldbook" => cmd_worldbook(app),
+        "/regex" => cmd_regex(app),
         "/character" => cmd_character(app),
         "/passkey" => cmd_passkey(app),
         "/theme" => cmd_theme(app, arg),
@@ -310,6 +311,10 @@ fn cmd_worldbook(app: &mut App) {
     app.worldbook_list = books.into_iter().map(|(_, name)| name).collect();
     app.worldbook_selected = 0;
     app.open_paged_dialog(Focus::WorldbookDialog);
+}
+
+fn cmd_regex(app: &mut App) {
+    super::dialogs::regex::open(app);
 }
 
 fn cmd_character(app: &mut App) {

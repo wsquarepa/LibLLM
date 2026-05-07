@@ -469,6 +469,7 @@ pub fn apply_tabbed_config_fields(
         backup: backup_cfg,
         summarization: summarization_cfg,
         auth: existing.auth,
+        regex: existing.regex,
         files: libllm::config::FilesConfig {
             enabled: files_section[0] == "true",
             per_file_bytes: parse_usize_clamped(&files_section[1], 0, usize::MAX),

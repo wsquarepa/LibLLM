@@ -15,6 +15,7 @@ pub mod files;
 pub mod migration;
 pub mod persona;
 pub mod preset;
+pub mod regex_rules;
 pub mod sampling;
 pub mod session;
 pub mod side_character;

@@ -301,6 +301,8 @@ pub struct Config {
     pub sampling: SamplingOverrides,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub worldbooks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub regex: Vec<crate::regex_rules::RegexRule>,
     #[serde(default)]
     pub tls_skip_verify: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]

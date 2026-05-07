@@ -484,6 +484,58 @@ fn search_query_parse_error_exits_two() {
 }
 
 #[test]
+fn search_json_output_is_parseable_array() {
+    let dir = common::seed_search_db(&[
+        ("alpha", "user", "redact this"),
+        ("alpha", "assistant", "redaction done"),
+    ]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("redact")
+        .arg("--json")
+        .output()
+        .expect("client search did not run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output was not valid JSON");
+    let arr = value.as_array().expect("expected JSON array");
+    assert_eq!(arr.len(), 2);
+    assert!(arr[0]["snippet"].is_string());
+    assert!(arr[0]["preview_text"].is_string());
+    assert!(arr[0]["score"].is_number());
+}
+
+#[test]
+fn search_full_prints_highlight_text() {
+    let dir = common::seed_search_db(&[
+        ("alpha", "user", "remember to redact PII before sending"),
+    ]);
+
+    let output = std::process::Command::new(common::client_bin())
+        .arg("-d")
+        .arg(dir.path())
+        .arg("--no-encrypt")
+        .arg("search")
+        .arg("redact")
+        .arg("--full")
+        .output()
+        .expect("client search did not run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("**redact**"),
+        "expected ** delimiters around 'redact', got: {stdout}"
+    );
+}
+
+#[test]
 fn cli_dash_m_still_reads_stdin_as_prompt_with_no_attachment() {
     let data_dir = tempfile::tempdir().expect("data-dir");
 

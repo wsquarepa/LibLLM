@@ -17,16 +17,18 @@ main() {
 
 select_channel() {
     printf "Select release channel:\n"
-    printf "  1) stable  - latest stable release\n"
-    printf "  2) branch  - pick a development branch\n"
+    printf "  1) stable   - latest stable release\n"
+    printf "  2) preview  - latest bleeding-edge build from master\n"
+    printf "  3) branch   - pick a development branch\n"
 
     while true; do
-        printf "Choice [1/2]: "
+        printf "Choice [1/2/3]: "
         read -r choice < /dev/tty
         case "$choice" in
             1) CHANNEL="stable"; break ;;
-            2) select_branch; break ;;
-            *) printf "Invalid choice. Enter 1 or 2.\n" ;;
+            2) CHANNEL="preview"; break ;;
+            3) select_branch; break ;;
+            *) printf "Invalid choice. Enter 1, 2, or 3.\n" ;;
         esac
     done
 }
@@ -46,7 +48,7 @@ select_branch() {
 
     BRANCHES=$(awk '
         /"tag_name":/ { gsub(/.*"tag_name": *"|".*/, "", $0); tag = $0 }
-        /"prerelease":/ { gsub(/.*"prerelease": *|,.*/, "", $0); if ($0 == "true") print tag }
+        /"prerelease":/ { gsub(/.*"prerelease": *|,.*/, "", $0); if ($0 == "true" && tag != "preview") print tag }
     ' "$RELEASES_JSON")
     rm -f "$RELEASES_JSON"
 

@@ -4,6 +4,7 @@ mod common;
 use std::process::Command;
 
 use common::{client_bin, import_card, import_persona, temp_dir};
+use libllm::group_chat::{CardAssembly, ChatPolicy};
 
 fn workspace_with(chars: &[(&str, &str)], persona: Option<(&str, &str)>) -> tempfile::TempDir {
     let ws = temp_dir();
@@ -86,4 +87,49 @@ fn over_cap_characters_fail() {
         "expected 'limited to' in stderr: {}",
         String::from_utf8_lossy(&out.stderr),
     );
+}
+
+#[test]
+fn legacy_v4_solo_session_loads_with_v5_backfill() {
+    let dir = temp_dir();
+    let db_path = dir.path().join("sessions.db");
+
+    // Open via Database::open, which runs all migrations through v5 and creates
+    // the v5 schema (session_characters table, chat_policy/card_assembly columns).
+    let db = libllm::db::Database::open(&db_path, None).unwrap();
+
+    // Insert a solo session using only the v4-era columns. The v5 columns
+    // (chat_policy, card_assembly) get their DEFAULT values from the schema.
+    // No session_characters row is written — this emulates a session that was
+    // written by a v4 binary before the v5 migration ran.
+    db.execute_statement(
+        "INSERT INTO sessions (id, character, created_at, updated_at) \
+         VALUES ('legacy-solo', 'alice', 'now', 'now')",
+    )
+    .unwrap();
+
+    // v5 migration would have backfilled this row, but v4 binaries never wrote it.
+    // Confirm it's absent so load_session exercises the synthesis path.
+    db.execute_statement(
+        "DELETE FROM session_characters WHERE session_id = 'legacy-solo'",
+    )
+    .unwrap();
+
+    let loaded = db.load_session("legacy-solo").unwrap();
+
+    assert_eq!(
+        loaded.characters.len(),
+        1,
+        "synthesis from sessions.character should produce one attachment"
+    );
+    assert_eq!(loaded.characters[0].slug, "alice");
+    assert!(
+        (loaded.characters[0].talkativeness - 1.0).abs() < 1e-6,
+        "synthesized attachment must use talkativeness=1.0"
+    );
+    // sessions.character is preserved as the legacy mirror column.
+    assert_eq!(loaded.character.as_deref(), Some("alice"));
+    // v5 schema defaults: round_robin and join_cards.
+    assert!(matches!(loaded.chat_policy, ChatPolicy::RoundRobin));
+    assert!(matches!(loaded.card_assembly, CardAssembly::JoinCards));
 }

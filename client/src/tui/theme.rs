@@ -55,6 +55,7 @@ pub struct Theme {
     pub group_character_bg_6: Color,
     pub group_character_bg_7: Color,
     pub group_character_bg_8: Color,
+    pub missing_character_badge_fg: Color,
 }
 
 impl Theme {
@@ -109,6 +110,7 @@ impl Theme {
             group_character_bg_6: Color::Rgb(0x32, 0x49, 0x45),
             group_character_bg_7: Color::Rgb(0x49, 0x3b, 0x32),
             group_character_bg_8: Color::Rgb(0x3c, 0x3c, 0x49),
+            missing_character_badge_fg: Color::Rgb(0xff, 0x55, 0x55),
         }
     }
 
@@ -163,6 +165,7 @@ impl Theme {
             group_character_bg_6: Color::Rgb(0x32, 0x49, 0x45),
             group_character_bg_7: Color::Rgb(0x49, 0x3b, 0x32),
             group_character_bg_8: Color::Rgb(0x3c, 0x3c, 0x49),
+            missing_character_badge_fg: Color::Rgb(0xff, 0x55, 0x55),
         }
     }
 
@@ -235,6 +238,7 @@ impl Theme {
             ColorLabel::GroupCharacterBg6 => self.group_character_bg_6,
             ColorLabel::GroupCharacterBg7 => self.group_character_bg_7,
             ColorLabel::GroupCharacterBg8 => self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => self.missing_character_badge_fg,
         }
     }
 
@@ -289,6 +293,7 @@ impl Theme {
             ColorLabel::GroupCharacterBg6 => &mut self.group_character_bg_6,
             ColorLabel::GroupCharacterBg7 => &mut self.group_character_bg_7,
             ColorLabel::GroupCharacterBg8 => &mut self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => &mut self.missing_character_badge_fg,
         };
         *slot = color;
     }

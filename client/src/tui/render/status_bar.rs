@@ -119,7 +119,9 @@ fn build_left_spans<'a>(app: &'a App, base_style: Style, max_len: usize) -> Vec<
             let badge = format!("[{broken} missing] ");
             spans.push(Span::styled(
                 badge,
-                Style::default().fg(Color::Red).bg(base_style.bg.unwrap_or(Color::Reset)),
+                Style::default()
+                    .fg(app.theme.missing_character_badge_fg)
+                    .bg(base_style.bg.unwrap_or(Color::Reset)),
             ));
         }
     }

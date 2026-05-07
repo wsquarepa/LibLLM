@@ -125,9 +125,24 @@ fn adjust(app: &mut App, delta: f32) {
     let i = app.group_settings_selected;
 
     if i < policy_idx {
+        let slug = app.session.characters[i].slug.clone();
+        if app.cli_overrides.talkativeness.contains_key(&slug) {
+            app.set_status(
+                format!("talkativeness for {slug} is locked by --talkativeness CLI flag"),
+                crate::tui::StatusLevel::Warning,
+            );
+            return;
+        }
         let v = (app.session.characters[i].talkativeness + delta).clamp(0.0, 1.0);
         app.session.characters[i].talkativeness = v;
     } else if i == policy_idx {
+        if app.cli_overrides.chat_policy.is_some() {
+            app.set_status(
+                "chat policy is locked by --chat-policy CLI flag".to_owned(),
+                crate::tui::StatusLevel::Warning,
+            );
+            return;
+        }
         app.session.chat_policy = match app.session.chat_policy {
             libllm::group_chat::ChatPolicy::RoundRobin => {
                 libllm::group_chat::ChatPolicy::WeightedRandom
@@ -137,6 +152,13 @@ fn adjust(app: &mut App, delta: f32) {
             }
         };
     } else if i == assembly_idx {
+        if app.cli_overrides.card_assembly.is_some() {
+            app.set_status(
+                "card assembly is locked by --card-assembly CLI flag".to_owned(),
+                crate::tui::StatusLevel::Warning,
+            );
+            return;
+        }
         app.session.card_assembly = match app.session.card_assembly {
             libllm::group_chat::CardAssembly::JoinCards => {
                 libllm::group_chat::CardAssembly::SwapCards

@@ -64,8 +64,6 @@ pub(super) enum Action {
     Quit,
     OpenGroupChatSettings,
     SaveGroupChatSettings,
-    #[expect(dead_code, reason = "constructed by the group-chat streaming loop added in Task 10.1")]
-    ForcedSpeakerTurn(Option<String>),
 }
 
 pub(super) enum DeleteContext {

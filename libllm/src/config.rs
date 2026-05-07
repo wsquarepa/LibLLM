@@ -602,6 +602,7 @@ pub struct ThemeColorOverrides {
     pub group_character_bg_6: Option<String>,
     pub group_character_bg_7: Option<String>,
     pub group_character_bg_8: Option<String>,
+    pub missing_character_badge_fg: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -655,10 +656,11 @@ pub enum ColorLabel {
     GroupCharacterBg6,
     GroupCharacterBg7,
     GroupCharacterBg8,
+    MissingCharacterBadgeFg,
 }
 
 impl ColorLabel {
-    pub const ALL: [ColorLabel; 49] = [
+    pub const ALL: [ColorLabel; 50] = [
         Self::UserCharacterFg,
         Self::UserCharacterBg,
         Self::SideCharacterFg,
@@ -708,6 +710,7 @@ impl ColorLabel {
         Self::GroupCharacterBg6,
         Self::GroupCharacterBg7,
         Self::GroupCharacterBg8,
+        Self::MissingCharacterBadgeFg,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -761,6 +764,7 @@ impl ColorLabel {
             Self::GroupCharacterBg6 => "group_character_bg_6",
             Self::GroupCharacterBg7 => "group_character_bg_7",
             Self::GroupCharacterBg8 => "group_character_bg_8",
+            Self::MissingCharacterBadgeFg => "missing_character_badge_fg",
         }
     }
 
@@ -821,6 +825,7 @@ impl ThemeColorOverrides {
             ColorLabel::GroupCharacterBg6 => &self.group_character_bg_6,
             ColorLabel::GroupCharacterBg7 => &self.group_character_bg_7,
             ColorLabel::GroupCharacterBg8 => &self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => &self.missing_character_badge_fg,
         };
         slot.as_deref()
     }
@@ -876,6 +881,7 @@ impl ThemeColorOverrides {
             ColorLabel::GroupCharacterBg6 => &mut self.group_character_bg_6,
             ColorLabel::GroupCharacterBg7 => &mut self.group_character_bg_7,
             ColorLabel::GroupCharacterBg8 => &mut self.group_character_bg_8,
+            ColorLabel::MissingCharacterBadgeFg => &mut self.missing_character_badge_fg,
         };
         *slot = value;
     }

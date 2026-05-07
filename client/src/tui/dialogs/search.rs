@@ -263,23 +263,46 @@ fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme
         width: area.width,
         height: area.height.saturating_sub(2),
     };
-    let collapsed = collapse_newlines(&hit.preview_text);
-    let spans = highlight_spans(&collapsed, theme);
-    let line_count = hit.preview_text.lines().count().max(1);
-    let visible = body_area.height.saturating_sub(1) as usize;
+    if body_area.height == 0 {
+        return;
+    }
 
-    Paragraph::new(Line::from(spans))
-        .wrap(ratatui::widgets::Wrap { trim: false })
-        .render(body_area, buf);
+    let all_lines: Vec<Line<'static>> = hit
+        .preview_text
+        .lines()
+        .map(|line_text| Line::from(highlight_spans(line_text, theme)))
+        .collect();
+    let total = all_lines.len();
+    let visible_rows = body_area.height as usize;
 
-    if line_count > visible {
-        let footer = format!("... +{} more lines", line_count - visible);
+    let truncated = total > visible_rows;
+    let body_rows = if truncated {
+        visible_rows.saturating_sub(1)
+    } else {
+        visible_rows
+    };
+
+    let body_lines: Vec<Line<'static>> = all_lines.into_iter().take(body_rows).collect();
+    Paragraph::new(ratatui::text::Text::from(body_lines)).render(
+        Rect {
+            x: body_area.x,
+            y: body_area.y,
+            width: body_area.width,
+            height: body_rows as u16,
+        },
+        buf,
+    );
+
+    if truncated {
+        let remaining = total - body_rows;
+        let noun = if remaining == 1 { "line" } else { "lines" };
+        let footer = format!("... +{remaining} more {noun}");
         Paragraph::new(footer)
             .style(Style::default().fg(theme.status_bar_fg))
             .render(
                 Rect {
                     x: body_area.x,
-                    y: body_area.y + body_area.height.saturating_sub(1),
+                    y: body_area.y + body_rows as u16,
                     width: body_area.width,
                     height: 1,
                 },
@@ -631,5 +654,38 @@ mod tests {
 
         let rendered = buffer_to_string(&buf);
         assert!(rendered.contains("(no preview)"));
+    }
+
+    #[test]
+    fn preview_truncates_pluralisation_for_many_extra_lines() {
+        let theme = crate::tui::theme::Theme::dark();
+        let lines: String = (0..30).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.preview_text = lines;
+            hit
+        }];
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("more lines"), "expected 'more lines' for plural");
+    }
+
+    #[test]
+    fn preview_does_not_truncate_when_content_fits() {
+        let theme = crate::tui::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.preview_text = "short message".into();
+            hit
+        }];
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(!rendered.contains("more line"), "expected no truncation footer");
     }
 }

@@ -101,8 +101,12 @@ const CHARACTER_EDITOR_FIELDS: &[&str] = &[
     "Examples",
     "System Prompt",
     "Post-History",
+    "Author's note",
+    "Author's note depth",
+    "Pin note to top",
 ];
-const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
+const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7, 8];
+const CHARACTER_EDITOR_BOOLEAN: &[usize] = &[10];
 
 const SYSTEM_PROMPT_FIELDS: &[&str] = &["Name", "Content"];
 const SYSTEM_PROMPT_MULTILINE: &[usize] = &[1];
@@ -235,7 +239,11 @@ pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
         values,
         CHARACTER_EDITOR_MULTILINE,
     )
-    .with_validated_fields(vec![(0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH))])
+    .with_boolean_fields(CHARACTER_EDITOR_BOOLEAN)
+    .with_validated_fields(vec![
+        (0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH)),
+        (9, FieldValidation::Int { min: 0, max: 999 }),
+    ])
 }
 
 pub fn open_template_editor(values: Vec<String>) -> FieldDialog<'static> {

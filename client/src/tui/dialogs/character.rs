@@ -152,6 +152,21 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         card.mes_example,
                         card.system_prompt,
                         card.post_history_instructions,
+                        card.author_note
+                            .as_ref()
+                            .map(|n| n.text.clone())
+                            .unwrap_or_default(),
+                        card.author_note
+                            .as_ref()
+                            .map(|n| n.depth.to_string())
+                            .unwrap_or_else(|| {
+                                libllm::author_note::DEFAULT_DEPTH.to_string()
+                            }),
+                        if card.author_note.as_ref().is_some_and(|n| n.at_top) {
+                            "true".to_owned()
+                        } else {
+                            "false".to_owned()
+                        },
                     ];
                     app.character_editor = Some(super::open_character_editor(values));
                     app.character_editor_slug = slug;
@@ -225,6 +240,9 @@ fn create_and_edit_character(app: &mut App) {
         card.mes_example,
         card.system_prompt,
         card.post_history_instructions,
+        String::new(),
+        libllm::author_note::DEFAULT_DEPTH.to_string(),
+        "false".to_owned(),
     ];
     app.character_editor = Some(super::open_character_editor(values));
     app.character_editor_slug = slug;

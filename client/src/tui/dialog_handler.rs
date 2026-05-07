@@ -595,6 +595,11 @@ pub(super) fn handle_field_dialog_key(
                     return None;
                 }
 
+                let note_depth = values
+                    .get(9)
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+                    .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+                let note_at_top = values.get(10).is_some_and(|s| s == "true");
                 let card = libllm::character::CharacterCard {
                     name: values[0].clone(),
                     description: values[1].clone(),
@@ -605,7 +610,11 @@ pub(super) fn handle_field_dialog_key(
                     system_prompt: values[6].clone(),
                     post_history_instructions: values[7].clone(),
                     alternate_greetings: Vec::new(),
-                    author_note: None,
+                    author_note: libllm::author_note::AuthorNote::from_row_parts(
+                        values.get(8).cloned(),
+                        note_depth,
+                        note_at_top,
+                    ),
                 };
                 let old_slug = app.character_editor_slug.clone();
                 let save_result = app

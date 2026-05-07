@@ -574,6 +574,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
 
+    app.prefill_display_regex_cache();
     let max_scroll;
     let mut cache = app.chat_content_cache.take();
     {

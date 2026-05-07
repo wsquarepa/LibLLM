@@ -38,6 +38,40 @@ fn prompt_send_rule_rewrites_outgoing_text_without_mutating_tree() {
 }
 
 #[test]
+fn display_rule_does_not_mutate_stored_content() {
+    use libllm::session::MessageTree;
+
+    let rule = RegexRule {
+        name: "strip-think".to_owned(),
+        pattern: r"(?s)<think>.*?</think>\s*".to_owned(),
+        replacement: String::new(),
+        scope: vec![Scope::Display],
+        target: vec![Target::Assistant],
+        enabled: true,
+        compile_error: None,
+    };
+    let compiled = libllm::regex_rules::compile_rules(&[rule]);
+
+    let mut tree = MessageTree::new();
+    let original = "<think>plan</think>\n\nhello";
+    let id = tree.push(None, Message::new(Role::Assistant, original.to_owned()));
+
+    let displayed = libllm::regex_rules::apply(
+        &compiled,
+        Scope::Display,
+        Role::Assistant,
+        &tree.node(id).unwrap().message.content,
+    );
+
+    assert_eq!(displayed, "hello");
+    assert_eq!(
+        tree.node(id).unwrap().message.content,
+        original,
+        "display rules must not change stored content"
+    );
+}
+
+#[test]
 fn prompt_recv_rule_mutates_stored_assistant_content() {
     let rule = RegexRule {
         name: "verbal-tic".to_owned(),

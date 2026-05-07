@@ -40,7 +40,6 @@ impl std::error::Error for QueryError {}
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedQuery {
     pub match_expr: String,
-    #[expect(dead_code, reason = "populated by later tasks that parse the session: filter")]
     pub session_substring: Option<String>,
     pub role: Option<Role>,
     pub before: Option<OffsetDateTime>,
@@ -302,6 +301,22 @@ mod tests {
     fn before_filter_bad_date_errors() {
         let err = parse("before:not-a-date x").unwrap_err();
         assert_eq!(err, QueryError::ParseDate("not-a-date".into()));
+    }
+
+    #[test]
+    fn before_filter_parses_rfc3339_datetime() {
+        let parsed = parse("before:2026-01-15T12:30:00Z retry").unwrap();
+        assert_eq!(
+            parsed.before.unwrap().format(&Rfc3339).unwrap(),
+            "2026-01-15T12:30:00Z"
+        );
+    }
+
+    #[test]
+    fn session_filter_captures_substring() {
+        let parsed = parse("session:feature bug").unwrap();
+        assert_eq!(parsed.session_substring, Some("feature".to_owned()));
+        assert_eq!(parsed.match_expr, "bug*");
     }
 
     #[test]

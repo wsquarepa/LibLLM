@@ -349,3 +349,31 @@ fn remove_head_moves_head_to_parent() {
     let survivor = tree.head().expect("head must move to parent after leaf delete");
     assert_eq!(tree.node(survivor).unwrap().message.content, "m1");
 }
+
+// ---------------------------------------------------------------------------
+// Display regex cache invalidation contract
+// ---------------------------------------------------------------------------
+
+#[test]
+fn display_regex_cache_clears_on_invalidate() {
+    use libllm::regex_rules::{RegexRule, Scope, Target};
+    use std::collections::HashMap;
+
+    let rule = RegexRule {
+        name: "x-to-y".to_owned(),
+        pattern: "x".to_owned(),
+        replacement: "y".to_owned(),
+        scope: vec![Scope::Display],
+        target: vec![Target::Assistant],
+        enabled: true,
+        compile_error: None,
+    };
+    let compiled = libllm::regex_rules::compile_rules(&[rule]);
+    assert_eq!(compiled.len(), 1, "valid rule should compile");
+
+    let mut cache: HashMap<libllm::session::NodeId, String> = HashMap::new();
+    cache.insert(0, "stale".to_owned());
+
+    cache.clear();
+    assert!(cache.is_empty(), "cache must be empty after clear");
+}

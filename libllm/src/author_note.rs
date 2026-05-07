@@ -1,3 +1,4 @@
+use crate::session::{Message, Role};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,9 +27,124 @@ impl AuthorNote {
     }
 }
 
+pub fn inject_author_notes(
+    messages: &mut Vec<Message>,
+    card_note: Option<&AuthorNote>,
+    session_note: Option<&AuthorNote>,
+) {
+    let original_len = messages.len();
+
+    if let Some(session) = session_note {
+        let pos = session.position(original_len);
+        messages.insert(pos, synthesize(&session.text));
+    }
+
+    if let Some(card) = card_note {
+        let pos = card.position(original_len);
+        messages.insert(pos, synthesize(&card.text));
+    }
+}
+
+fn synthesize(text: &str) -> Message {
+    Message {
+        role: Role::System,
+        content: text.to_owned(),
+        timestamp: String::new(),
+        thought_seconds: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::{Message, Role};
+
+    fn user(content: &str) -> Message {
+        Message {
+            role: Role::User,
+            content: content.to_owned(),
+            timestamp: String::new(),
+            thought_seconds: None,
+        }
+    }
+
+    fn note(text: &str, depth: u32, at_top: bool) -> AuthorNote {
+        AuthorNote { text: text.to_owned(), depth, at_top }
+    }
+
+    #[test]
+    fn inject_no_notes_is_noop() {
+        let mut messages = vec![user("a"), user("b"), user("c")];
+        inject_author_notes(&mut messages, None, None);
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[test]
+    fn inject_session_only_at_depth_2() {
+        let mut messages = vec![user("a"), user("b"), user("c"), user("d")];
+        let session = note("S", 2, false);
+        inject_author_notes(&mut messages, None, Some(&session));
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[2].content, "S");
+        assert_eq!(messages[2].role, Role::System);
+    }
+
+    #[test]
+    fn inject_card_only_at_depth_2() {
+        let mut messages = vec![user("a"), user("b"), user("c"), user("d")];
+        let card = note("C", 2, false);
+        inject_author_notes(&mut messages, Some(&card), None);
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[2].content, "C");
+        assert_eq!(messages[2].role, Role::System);
+    }
+
+    #[test]
+    fn inject_both_same_depth_session_after_card() {
+        let mut messages = vec![user("a"), user("b"), user("c"), user("d")];
+        let card = note("C", 2, false);
+        let session = note("S", 2, false);
+        inject_author_notes(&mut messages, Some(&card), Some(&session));
+        assert_eq!(messages.len(), 6);
+        let card_idx = messages.iter().position(|m| m.content == "C").unwrap();
+        let session_idx = messages.iter().position(|m| m.content == "S").unwrap();
+        assert!(
+            session_idx > card_idx,
+            "session must end up at a higher index than card; got card={card_idx} session={session_idx}"
+        );
+    }
+
+    #[test]
+    fn inject_both_different_depths_each_at_own_position() {
+        let mut messages = vec![user("a"), user("b"), user("c"), user("d"), user("e")];
+        let card = note("C", 4, false);
+        let session = note("S", 1, false);
+        inject_author_notes(&mut messages, Some(&card), Some(&session));
+        let card_idx = messages.iter().position(|m| m.content == "C").unwrap();
+        let session_idx = messages.iter().position(|m| m.content == "S").unwrap();
+        assert_eq!(card_idx, 1, "card depth=4 against len=5 → position 1");
+        assert!(
+            session_idx > card_idx,
+            "session at depth=1 should land further to the end than card"
+        );
+    }
+
+    #[test]
+    fn inject_at_top_lands_at_zero() {
+        let mut messages = vec![user("a"), user("b"), user("c")];
+        let session = note("S", 99, true);
+        inject_author_notes(&mut messages, None, Some(&session));
+        assert_eq!(messages[0].content, "S");
+    }
+
+    #[test]
+    fn inject_into_empty_messages_does_not_panic() {
+        let mut messages: Vec<Message> = Vec::new();
+        let session = note("S", 4, false);
+        inject_author_notes(&mut messages, None, Some(&session));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "S");
+    }
 
     #[test]
     fn from_row_parts_none_when_text_is_null() {

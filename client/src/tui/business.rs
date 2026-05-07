@@ -132,11 +132,15 @@ pub fn inject_loaded_worldbook_entries(
     user_name: &str,
     worldbooks: &[RuntimeWorldBook],
 ) -> Vec<Message> {
-    if session.character.is_none() || worldbooks.is_empty() {
+    if (session.character.is_none() && session.characters.is_empty()) || worldbooks.is_empty() {
         return messages.iter().map(|m| (*m).clone()).collect();
     }
 
-    let char_name = session.character.as_deref().unwrap_or("");
+    let char_name = session
+        .character
+        .as_deref()
+        .or_else(|| session.characters.first().map(|c| c.slug.as_str()))
+        .unwrap_or("");
     let msg_texts: Vec<&str> = messages.iter().map(|m| m.content.as_str()).collect();
 
     let mut all_activated: Vec<ActivatedEntry> = worldbooks
@@ -181,11 +185,15 @@ pub fn replace_template_vars(
     messages: Vec<Message>,
     user_name: &str,
 ) -> Vec<Message> {
-    if session.character.is_none() {
+    if session.character.is_none() && session.characters.is_empty() {
         return messages;
     }
 
-    let char_name = session.character.as_deref().unwrap_or("");
+    let char_name = session
+        .character
+        .as_deref()
+        .or_else(|| session.characters.first().map(|c| c.slug.as_str()))
+        .unwrap_or("");
 
     messages
         .into_iter()

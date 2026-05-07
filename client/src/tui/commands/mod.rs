@@ -65,6 +65,10 @@ fn cmd_clear(app: &mut App) {
     app.session.character = None;
     app.session.worldbooks.clear();
     app.session.persona = None;
+    app.session.characters = vec![];
+    app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
+    app.session.card_assembly = libllm::group_chat::CardAssembly::default();
+    app.character_cards_cache.clear();
     app.active_persona_name = None;
     app.active_persona_desc = None;
     app.discard_pending_session_save();

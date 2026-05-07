@@ -126,9 +126,16 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.set_status(e.to_string(), super::super::StatusLevel::Error);
                     return None;
                 }
+                let prior: std::collections::HashMap<String, libllm::group_chat::CharacterAttachment> =
+                    app.session.characters.iter().map(|c| (c.slug.clone(), c.clone())).collect();
                 app.session.characters = slugs
                     .iter()
-                    .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
+                    .map(|s| {
+                        prior
+                            .get(s)
+                            .cloned()
+                            .unwrap_or_else(|| libllm::group_chat::CharacterAttachment::new(s.clone()))
+                    })
                     .collect();
                 app.session.character = None;
                 crate::tui::business::rebuild_character_cards_cache(app);

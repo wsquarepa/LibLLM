@@ -307,7 +307,11 @@ fn cmd_persona(app: &mut App) {
 fn cmd_note(app: &mut App) {
     let (text, depth, at_top) = match app.session.author_note.as_ref() {
         Some(note) => (note.text.clone(), note.depth.to_string(), note.at_top),
-        None => (String::new(), "4".to_owned(), false),
+        None => (
+            String::new(),
+            libllm::author_note::DEFAULT_DEPTH.to_string(),
+            false,
+        ),
     };
 
     let pin_value = if at_top { "true" } else { "false" }.to_owned();

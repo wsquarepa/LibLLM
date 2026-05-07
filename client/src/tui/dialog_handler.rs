@@ -474,10 +474,16 @@ pub(super) fn handle_field_dialog_key(
                 let dialog = app.author_note_editor.take()?;
                 let values = &dialog.values;
                 let text = values.first().cloned().unwrap_or_default();
-                let depth_str = values.get(1).cloned().unwrap_or_else(|| "4".to_owned());
+                let depth_str = values
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string());
                 let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
 
-                let depth = depth_str.trim().parse::<u32>().unwrap_or(4);
+                let depth = depth_str
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
                 let at_top = at_top_str == "true";
 
                 app.session.author_note =

@@ -101,9 +101,9 @@ const CHARACTER_EDITOR_FIELDS: &[&str] = &[
     "Examples",
     "System Prompt",
     "Post-History",
-    "Author's note",
-    "Author's note depth",
-    "Pin note to top",
+    "Author's Note",
+    "Author's Note Depth",
+    "Pin Note to Top",
 ];
 const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7, 8];
 const CHARACTER_EDITOR_BOOLEAN: &[usize] = &[10];

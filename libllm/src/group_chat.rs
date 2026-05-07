@@ -75,9 +75,184 @@ impl CardAssembly {
     }
 }
 
+use std::collections::HashMap;
+
+use rand::{Rng, RngExt};
+
+#[derive(Debug)]
+pub struct TurnDecision {
+    pub speaker_slug: String,
+    pub updated_action_points: Vec<(String, f32)>,
+    pub snapshot_before: HashMap<String, f32>,
+}
+
+pub fn decide_next_speaker(
+    characters: &[CharacterAttachment],
+    policy: ChatPolicy,
+    rng: &mut impl Rng,
+) -> Option<TurnDecision> {
+    if characters.is_empty() {
+        return None;
+    }
+
+    let snapshot_before: HashMap<String, f32> = characters
+        .iter()
+        .map(|a| (a.slug.clone(), a.action_points))
+        .collect();
+
+    let mut updated: Vec<(String, f32)> = characters
+        .iter()
+        .map(|a| (a.slug.clone(), a.action_points + a.talkativeness))
+        .collect();
+
+    let candidates: Vec<usize> = updated
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, ap))| *ap >= ACTION_POINT_THRESHOLD)
+        .map(|(i, _)| i)
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let chosen_idx = if candidates.len() == 1 {
+        candidates[0]
+    } else {
+        match policy {
+            ChatPolicy::RoundRobin => round_robin_pick(&candidates, characters, &updated),
+            ChatPolicy::WeightedRandom => weighted_pick(&candidates, characters, rng),
+        }
+    };
+
+    let chosen_slug = updated[chosen_idx].0.clone();
+    updated[chosen_idx].1 -= ACTION_POINT_COST;
+
+    Some(TurnDecision {
+        speaker_slug: chosen_slug,
+        updated_action_points: updated,
+        snapshot_before,
+    })
+}
+
+fn round_robin_pick(candidates: &[usize], characters: &[CharacterAttachment], updated: &[(String, f32)]) -> usize {
+    *candidates
+        .iter()
+        .max_by(|&&a, &&b| {
+            updated[a]
+                .1
+                .partial_cmp(&updated[b].1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    characters[a]
+                        .talkativeness
+                        .partial_cmp(&characters[b].talkativeness)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then(b.cmp(&a))
+        })
+        .expect("non-empty by guard")
+}
+
+fn weighted_pick(candidates: &[usize], characters: &[CharacterAttachment], rng: &mut impl Rng) -> usize {
+    let weights: Vec<f32> = candidates
+        .iter()
+        .map(|&i| characters[i].talkativeness.max(0.0))
+        .collect();
+    let total: f32 = weights.iter().sum();
+    if total <= 0.0 {
+        return candidates[0];
+    }
+    let mut roll = rng.random::<f32>() * total;
+    for (k, w) in weights.iter().enumerate() {
+        if roll < *w {
+            return candidates[k];
+        }
+        roll -= w;
+    }
+    *candidates.last().expect("non-empty by guard")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    fn att(slug: &str, talk: f32, ap: f32) -> CharacterAttachment {
+        CharacterAttachment { slug: slug.to_owned(), talkativeness: talk, action_points: ap }
+    }
+
+    #[test]
+    fn decide_next_returns_none_when_no_one_over_threshold() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.4, 0.0), att("b", 0.4, 0.5)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng);
+        assert!(d.is_none());
+    }
+
+    #[test]
+    fn decide_next_picks_only_eligible_speaker() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.4, 0.7), att("b", 0.5, 0.6)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        assert_eq!(d.speaker_slug, "b");
+        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
+        assert!((new_b - 0.1).abs() < 1e-5);
+        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
+        assert!((new_a - 1.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn decide_next_round_robin_breaks_tie_by_attach_index() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.6, 0.5), att("b", 0.6, 0.5), att("c", 0.6, 0.5)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        assert_eq!(d.speaker_slug, "a");
+        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
+        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
+        let new_c = d.updated_action_points.iter().find(|(s, _)| s == "c").unwrap().1;
+        assert!((new_a - 0.1).abs() < 1e-5);
+        assert!((new_b - 1.1).abs() < 1e-5);
+        assert!((new_c - 1.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn decide_next_weighted_random_uses_seeded_rng() {
+        let cs = vec![att("a", 0.6, 0.5), att("b", 0.9, 0.5)];
+        let mut rng = StdRng::seed_from_u64(42);
+        let d = decide_next_speaker(&cs, ChatPolicy::WeightedRandom, &mut rng).unwrap();
+        assert!(d.speaker_slug == "a" || d.speaker_slug == "b");
+
+        let mut counts = (0u32, 0u32);
+        let cs = vec![att("a", 0.6, 0.5), att("b", 0.9, 0.5)];
+        let mut rng = StdRng::seed_from_u64(7);
+        for _ in 0..2000 {
+            let d = decide_next_speaker(&cs, ChatPolicy::WeightedRandom, &mut rng).unwrap();
+            if d.speaker_slug == "a" { counts.0 += 1; } else { counts.1 += 1; }
+        }
+        assert!(counts.1 > counts.0, "expected b to win more often (talk 0.9 vs 0.6): a={}, b={}", counts.0, counts.1);
+    }
+
+    #[test]
+    fn decide_next_zero_talkativeness_never_accumulates() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.0, 0.99), att("b", 0.6, 0.5)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        assert_eq!(d.speaker_slug, "b");
+        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
+        assert!((new_a - 0.99).abs() < 1e-5, "talk=0 must not accumulate");
+    }
+
+    #[test]
+    fn decide_next_snapshot_before_captures_pre_increment_state() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.5, 0.5), att("b", 0.5, 0.7)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        assert!((d.snapshot_before["a"] - 0.5).abs() < 1e-5);
+        assert!((d.snapshot_before["b"] - 0.7).abs() < 1e-5);
+    }
 
     #[test]
     fn character_attachment_default_talkativeness() {

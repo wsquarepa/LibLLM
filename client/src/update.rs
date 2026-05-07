@@ -110,17 +110,23 @@ pub fn build_branch_list(
     };
 
     let mut out: Vec<BranchEntry> = Vec::new();
-    for (idx, (version, release)) in stable.iter().enumerate() {
+    for (version, release) in stable.iter() {
         let is_current = running.as_ref().is_some_and(|r| r == version);
-        let display = if idx == 0 {
-            format!("stable ({})", release.tag_name)
-        } else {
-            release.tag_name.clone()
-        };
         out.push(BranchEntry {
             tag: release.tag_name.clone(),
-            display,
+            display: release.tag_name.clone(),
             current: is_current,
+        });
+    }
+
+    if let Some(preview) = releases
+        .iter()
+        .find(|r| r.prerelease && r.tag_name == "preview")
+    {
+        out.push(BranchEntry {
+            tag: preview.tag_name.clone(),
+            display: preview.tag_name.clone(),
+            current: channel == "preview",
         });
     }
 
@@ -128,7 +134,10 @@ pub fn build_branch_list(
         if !release.prerelease {
             continue;
         }
-        if release.tag_name == "stable" || parse_version_tag(&release.tag_name).is_some() {
+        if release.tag_name == "stable"
+            || release.tag_name == "preview"
+            || parse_version_tag(&release.tag_name).is_some()
+        {
             continue;
         }
         out.push(BranchEntry {
@@ -672,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn build_list_puts_highest_semver_first_labeled_stable() {
+    fn build_list_puts_highest_semver_first_with_bare_tag() {
         let releases = vec![
             rel("v2.4.0", false),
             rel("v2.6.0", false),
@@ -681,8 +690,36 @@ mod tests {
         ];
         let list = build_branch_list(&releases, "stable", "2.6.0");
         assert_eq!(list[0].tag, "v2.6.0");
-        assert_eq!(list[0].display, "stable (v2.6.0)");
+        assert_eq!(list[0].display, "v2.6.0");
         assert!(list[0].current);
+    }
+
+    #[test]
+    fn build_list_pins_preview_after_highest_semver() {
+        let releases = vec![
+            rel("v2.6.0", false),
+            rel("feat/foo", true),
+            rel("preview", true),
+            rel("feat/bar", true),
+        ];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        let names: Vec<&str> = list.iter().map(|e| e.tag.as_str()).collect();
+        assert_eq!(names, vec!["v2.6.0", "preview", "feat/foo", "feat/bar"]);
+    }
+
+    #[test]
+    fn build_list_marks_preview_current_on_preview_channel() {
+        let releases = vec![rel("v2.6.0", false), rel("preview", true)];
+        let list = build_branch_list(&releases, "preview", "2.6.0");
+        let preview = list.iter().find(|e| e.tag == "preview").unwrap();
+        assert!(preview.current);
+    }
+
+    #[test]
+    fn build_list_omits_preview_section_when_not_published() {
+        let releases = vec![rel("v2.6.0", false), rel("feat/foo", true)];
+        let list = build_branch_list(&releases, "stable", "2.6.0");
+        assert!(!list.iter().any(|e| e.tag == "preview"));
     }
 
     #[test]

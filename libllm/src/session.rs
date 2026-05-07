@@ -1306,6 +1306,7 @@ mod tests {
         assert_eq!(back.characters.len(), 2);
         assert_eq!(back.characters[0].slug, "alice");
         assert!((back.characters[0].talkativeness - 0.7).abs() < f32::EPSILON);
+        assert!((back.characters[0].action_points - 0.3).abs() < f32::EPSILON);
         assert!(matches!(
             back.chat_policy,
             crate::group_chat::ChatPolicy::WeightedRandom

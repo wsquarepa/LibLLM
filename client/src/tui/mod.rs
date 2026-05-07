@@ -302,6 +302,7 @@ pub async fn run(
     };
 
     business::load_active_persona(&mut app);
+    business::rebuild_character_cards_cache(&mut app);
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(

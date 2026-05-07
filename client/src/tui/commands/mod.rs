@@ -539,25 +539,14 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
     }
     match resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, needle) {
         Some(slug) => {
-            let mut rng: rand::rngs::StdRng = rand::make_rng();
-            let Some(decision) = libllm::group_chat::force_step(
-                &app.session.characters,
-                app.session.chat_policy,
-                &mut rng,
-            ) else {
-                app.set_status(
-                    "No characters attached".to_owned(),
-                    StatusLevel::Warning,
-                );
-                return;
-            };
-            for (slug_key, ap) in &decision.updated_action_points {
-                if let Some(c) = app.session.characters.iter_mut().find(|c| &c.slug == slug_key) {
-                    c.action_points = *ap;
-                }
-            }
+            let snapshot_before: std::collections::HashMap<String, f32> = app
+                .session
+                .characters
+                .iter()
+                .map(|c| (c.slug.clone(), c.action_points))
+                .collect();
             let snapshot_json =
-                serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
+                serde_json::to_string(&snapshot_before).unwrap_or_default();
             streaming::run_one_group_turn(app, &slug, &snapshot_json, &sender).await;
         }
         None => {

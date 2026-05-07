@@ -53,6 +53,26 @@ pub(in crate::tui::commands) fn cmd_export(app: &mut App, arg: &str) {
         return;
     }
 
+    let transformed_messages: Vec<libllm::session::Message> = messages
+        .iter()
+        .map(|m| {
+            let content = libllm::regex_rules::apply(
+                &app.compiled_regex,
+                libllm::regex_rules::Scope::Export,
+                m.role,
+                &m.content,
+            )
+            .into_owned();
+            libllm::session::Message {
+                role: m.role,
+                content,
+                timestamp: m.timestamp.clone(),
+                thought_seconds: m.thought_seconds,
+            }
+        })
+        .collect();
+    let messages: Vec<&libllm::session::Message> = transformed_messages.iter().collect();
+
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
         Err(err) => {

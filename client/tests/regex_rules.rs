@@ -95,3 +95,30 @@ fn prompt_recv_rule_mutates_stored_assistant_content() {
 
     assert_eq!(stored, "Well, you know, that's how it is.");
 }
+
+#[test]
+fn export_rule_only_affects_export_output() {
+    let rule = RegexRule {
+        name: "redact-token".to_owned(),
+        pattern: "sk-[A-Za-z0-9]+".to_owned(),
+        replacement: "[REDACTED]".to_owned(),
+        scope: vec![Scope::Export],
+        target: vec![Target::User],
+        enabled: true,
+        compile_error: None,
+    };
+    let compiled = libllm::regex_rules::compile_rules(&[rule]);
+
+    let raw = "my key is sk-abc123";
+
+    let display_out =
+        libllm::regex_rules::apply(&compiled, Scope::Display, Role::User, raw);
+    let send_out =
+        libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::User, raw);
+    let export_out =
+        libllm::regex_rules::apply(&compiled, Scope::Export, Role::User, raw);
+
+    assert_eq!(display_out, raw, "Export-scoped rule must not affect display");
+    assert_eq!(send_out, raw, "Export-scoped rule must not affect prompt_send");
+    assert_eq!(export_out, "my key is [REDACTED]");
+}

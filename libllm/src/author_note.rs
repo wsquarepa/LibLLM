@@ -1,6 +1,8 @@
 use crate::session::{Message, Role};
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_DEPTH: u32 = 4;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorNote {
     pub text: String,

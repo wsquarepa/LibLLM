@@ -221,7 +221,7 @@ async fn main() -> Result<()> {
             } else {
                 session.author_note = Some(libllm::author_note::AuthorNote {
                     text: text.clone(),
-                    depth: args.note_depth.unwrap_or(4),
+                    depth: args.note_depth.unwrap_or(libllm::author_note::DEFAULT_DEPTH),
                     at_top: args.note_top,
                 });
             }

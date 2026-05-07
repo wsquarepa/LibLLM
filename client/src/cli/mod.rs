@@ -217,7 +217,7 @@ pub struct Args {
     #[arg(short = 'p', long, requires = "character")]
     pub persona: Option<String>,
 
-    /// Author's note text (overrides session-level note, read-only in dialog)
+    /// Author's note text (overrides session-level note)
     #[arg(long)]
     pub note: Option<String>,
 
@@ -338,7 +338,7 @@ impl Args {
             persona: self.persona.as_deref().map(libllm::character::slugify),
             author_note: self.note.clone(),
             author_note_depth: self.note_depth,
-            author_note_at_top: if self.note_top { Some(true) } else { None },
+            author_note_at_top: self.note_top.then_some(true),
             no_summarize: self.no_summarize,
             auth_type: self.auth_type.map(Into::into),
             auth_basic_username: self.auth_basic_username.clone(),

@@ -122,3 +122,28 @@ fn export_rule_only_affects_export_output() {
     assert_eq!(send_out, raw, "Export-scoped rule must not affect prompt_send");
     assert_eq!(export_out, "my key is [REDACTED]");
 }
+
+#[test]
+fn invalid_rule_is_skipped_at_compile_time() {
+    let bad = RegexRule {
+        name: "bad".to_owned(),
+        pattern: "(unclosed".to_owned(),
+        replacement: String::new(),
+        scope: vec![Scope::Display],
+        target: vec![Target::Assistant],
+        enabled: true,
+        compile_error: None,
+    };
+    let good = RegexRule {
+        name: "good".to_owned(),
+        pattern: "x".to_owned(),
+        replacement: "y".to_owned(),
+        scope: vec![Scope::Display],
+        target: vec![Target::Assistant],
+        enabled: true,
+        compile_error: None,
+    };
+    let compiled = libllm::regex_rules::compile_rules(&[bad, good]);
+    assert_eq!(compiled.len(), 1);
+    assert_eq!(compiled[0].rule.name, "good");
+}

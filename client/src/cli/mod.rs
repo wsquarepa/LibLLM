@@ -194,6 +194,9 @@ pub struct CliOverrides {
     pub chat_policy: Option<libllm::group_chat::ChatPolicy>,
     pub card_assembly: Option<libllm::group_chat::CardAssembly>,
     pub talkativeness: std::collections::HashMap<String, f32>,
+    pub author_note: Option<String>,
+    pub author_note_depth: Option<u32>,
+    pub author_note_at_top: Option<bool>,
     pub no_summarize: bool,
     pub auth_type: Option<libllm::config::AuthKind>,
     pub auth_basic_username: Option<String>,
@@ -330,6 +333,18 @@ pub struct Args {
     #[arg(short = 'p', long, requires = "character")]
     pub persona: Option<String>,
 
+    /// Author's note text (overrides session-level note)
+    #[arg(long)]
+    pub note: Option<String>,
+
+    /// Author's note depth — messages from end to inject at (requires --note)
+    #[arg(long, requires = "note")]
+    pub note_depth: Option<u32>,
+
+    /// Pin author's note just below the system prompt (requires --note)
+    #[arg(long, requires = "note")]
+    pub note_top: bool,
+
     /// API base URL (without /completions suffix)
     #[arg(long, env = "LIBLLM_API_URL")]
     pub api_url: Option<String>,
@@ -465,6 +480,9 @@ impl Args {
                 .as_deref()
                 .and_then(|s| parse_talkativeness(s).ok())
                 .unwrap_or_default(),
+            author_note: self.note.clone(),
+            author_note_depth: self.note_depth,
+            author_note_at_top: self.note_top.then_some(true),
             no_summarize: self.no_summarize,
             auth_type: self.auth_type.map(Into::into),
             auth_basic_username: self.auth_basic_username.clone(),

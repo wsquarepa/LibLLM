@@ -132,6 +132,7 @@ pub(super) enum DialogKind {
     Theme,
     PresetEditor,
     PersonaEditor,
+    AuthorNoteEditor,
     CharacterEditor,
     SystemPromptEditor,
     WorldbookEntryEditor,
@@ -319,6 +320,7 @@ pub(super) fn handle_field_dialog_key(
         DialogKind::Theme => unreachable!(),
         DialogKind::PresetEditor => app.preset_editor.as_mut(),
         DialogKind::PersonaEditor => app.persona_editor.as_mut(),
+        DialogKind::AuthorNoteEditor => app.author_note_editor.as_mut(),
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
         DialogKind::SystemPromptEditor => app.system_prompt_editor.as_mut(),
         DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
@@ -461,6 +463,36 @@ pub(super) fn handle_field_dialog_key(
                 }
                 None
             }
+            DialogKind::AuthorNoteEditor => {
+                if !app.author_note_editor.as_ref().unwrap().has_changes() {
+                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                    app.author_note_editor = None;
+                    return_to_input(app);
+                    return None;
+                }
+
+                let dialog = app.author_note_editor.take()?;
+                let values = &dialog.values;
+                let text = values.first().cloned().unwrap_or_default();
+                let depth_str = values
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string());
+                let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
+
+                let depth = depth_str
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+                let at_top = at_top_str == "true";
+
+                app.session.author_note =
+                    libllm::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);
+                app.mark_session_dirty(SaveTrigger::Debounced, false);
+                app.invalidate_chat_caches();
+                return_to_input(app);
+                None
+            }
             DialogKind::SystemPromptEditor => {
                 if app.system_editor_read_only {
                     app.system_prompt_editor = None;
@@ -569,6 +601,11 @@ pub(super) fn handle_field_dialog_key(
                     return None;
                 }
 
+                let note_depth = values
+                    .get(9)
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+                    .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+                let note_at_top = values.get(10).is_some_and(|s| s == "true");
                 let card = libllm::character::CharacterCard {
                     name: values[0].clone(),
                     description: values[1].clone(),
@@ -579,6 +616,11 @@ pub(super) fn handle_field_dialog_key(
                     system_prompt: values[6].clone(),
                     post_history_instructions: values[7].clone(),
                     alternate_greetings: Vec::new(),
+                    author_note: libllm::author_note::AuthorNote::from_row_parts(
+                        values.get(8).cloned(),
+                        note_depth,
+                        note_at_top,
+                    ),
                 };
                 let old_slug = app.character_editor_slug.clone();
                 let save_result = app
@@ -625,6 +667,7 @@ pub(super) fn handle_field_dialog_key(
                             app.session.system_prompt =
                                 Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                             app.session.character = Some(card.name.clone());
+                            app.active_card_author_note = card.author_note.clone();
                             app.invalidate_chat_caches();
                         }
                     }

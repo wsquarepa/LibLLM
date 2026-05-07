@@ -823,6 +823,15 @@ pub(super) fn rebuild_character_cards_cache(app: &mut App) {
     }
 }
 
+pub(super) fn load_active_card_author_note(app: &mut App) {
+    app.active_card_author_note = app
+        .session
+        .character
+        .as_deref()
+        .and_then(|name| app.db.as_ref().and_then(|db| db.load_character(name).ok()))
+        .and_then(|card| card.author_note);
+}
+
 pub fn new_chat_entry() -> SessionEntry {
     SessionEntry {
         id: String::new(),
@@ -1067,6 +1076,9 @@ mod tests {
             chat_policy: None,
             card_assembly: None,
             talkativeness: std::collections::HashMap::new(),
+            author_note: None,
+            author_note_depth: None,
+            author_note_at_top: None,
             no_summarize: true,
             auth_type: None,
             auth_basic_username: None,
@@ -1106,6 +1118,9 @@ mod tests {
             chat_policy: None,
             card_assembly: None,
             talkativeness: std::collections::HashMap::new(),
+            author_note: None,
+            author_note_depth: None,
+            author_note_at_top: None,
             no_summarize: false,
             auth_type: Some(libllm::config::AuthKind::Header),
             auth_basic_username: None,
@@ -1149,6 +1164,9 @@ mod tests {
             chat_policy: None,
             card_assembly: None,
             talkativeness: std::collections::HashMap::new(),
+            author_note: None,
+            author_note_depth: None,
+            author_note_at_top: None,
             no_summarize: false,
             auth_type: None,
             auth_basic_username: None,

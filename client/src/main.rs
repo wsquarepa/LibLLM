@@ -215,6 +215,18 @@ async fn main() -> Result<()> {
                 .map(|p| p.content);
         }
 
+        if let Some(ref text) = args.note {
+            if text.trim().is_empty() {
+                session.author_note = None;
+            } else {
+                session.author_note = Some(libllm::author_note::AuthorNote {
+                    text: text.clone(),
+                    depth: args.note_depth.unwrap_or(libllm::author_note::DEFAULT_DEPTH),
+                    at_top: args.note_top,
+                });
+            }
+        }
+
         if !args.character.is_empty() {
             let talkativeness_overrides =
                 cli::parse_talkativeness(args.talkativeness.as_deref().unwrap_or(""))

@@ -717,6 +717,8 @@ pub struct Session {
     pub chat_policy: crate::group_chat::ChatPolicy,
     #[serde(default)]
     pub card_assembly: crate::group_chat::CardAssembly,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub author_note: Option<crate::author_note::AuthorNote>,
 }
 
 impl Session {

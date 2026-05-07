@@ -214,6 +214,7 @@ pub async fn run(
         base_theme_picker_names: Vec::new(),
         base_theme_picker_selected: 0,
         persona_editor: None,
+        author_note_editor: None,
         system_prompt_editor: None,
         system_editor_prompt_name: String::new(),
         system_editor_return_focus: Focus::Input,
@@ -261,6 +262,7 @@ pub async fn run(
         delete_context: DeleteContext::Session,
         active_persona_name: None,
         active_persona_desc: None,
+        active_card_author_note: None,
         persona_slugs: Vec::new(),
         persona_names: Vec::new(),
         persona_selected: 0,
@@ -303,6 +305,7 @@ pub async fn run(
 
     business::load_active_persona(&mut app);
     business::rebuild_character_cards_cache(&mut app);
+    business::load_active_card_author_note(&mut app);
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(
@@ -651,6 +654,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::PresetEditorDialog => Some("preset_editor"),
         Focus::PersonaDialog => Some("persona"),
         Focus::PersonaEditorDialog => Some("persona_editor"),
+        Focus::AuthorNoteEditorDialog => Some("author_note_editor"),
         Focus::CharacterDialog => Some("character"),
         Focus::CharacterEditorDialog => Some("character_editor"),
         Focus::WorldbookDialog => Some("worldbook"),
@@ -843,6 +847,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::PersonaEditorDialog => {
             if let Some(ref dialog) = app.persona_editor {
+                dialog.render(f, f.area());
+            }
+        }
+        Focus::AuthorNoteEditorDialog => {
+            if let Some(ref dialog) = app.author_note_editor {
                 dialog.render(f, f.area());
             }
         }

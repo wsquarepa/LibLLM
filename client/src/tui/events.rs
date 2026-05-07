@@ -98,6 +98,11 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
                 d.insert_into_active_editor(&text);
             }
         }
+        Focus::AuthorNoteEditorDialog => {
+            if let Some(ref mut d) = app.author_note_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
         Focus::CharacterEditorDialog => {
             if let Some(ref mut d) = app.character_editor {
                 d.insert_into_active_editor(&text);
@@ -334,6 +339,7 @@ fn handle_key(
             Focus::ThemeDialog => app.theme_dialog.is_some(),
             Focus::PresetEditorDialog => app.preset_editor.is_some(),
             Focus::PersonaEditorDialog => app.persona_editor.is_some(),
+            Focus::AuthorNoteEditorDialog => app.author_note_editor.is_some(),
             Focus::CharacterEditorDialog => app.character_editor.is_some(),
             Focus::SystemPromptEditorDialog => app.system_prompt_editor.is_some(),
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
@@ -413,6 +419,9 @@ fn handle_key(
     }
     if app.focus == Focus::PersonaEditorDialog {
         return handle_field_dialog_key(key, app, DialogKind::PersonaEditor);
+    }
+    if app.focus == Focus::AuthorNoteEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::AuthorNoteEditor);
     }
     if app.focus == Focus::CharacterDialog {
         return dialogs::character::handle_character_dialog_key(key, app);
@@ -947,6 +956,11 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
                 return d.scroll_editor_by(rows);
             }
         }
+        Focus::AuthorNoteEditorDialog => {
+            if let Some(ref mut d) = app.author_note_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
         Focus::CharacterEditorDialog => {
             if let Some(ref mut d) = app.character_editor {
                 return d.scroll_editor_by(rows);
@@ -990,6 +1004,11 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
         }
         Focus::PersonaEditorDialog => {
             if let Some(ref mut d) = app.persona_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::AuthorNoteEditorDialog => {
+            if let Some(ref mut d) = app.author_note_editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }

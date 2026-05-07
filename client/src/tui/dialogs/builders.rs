@@ -88,6 +88,10 @@ const REASONING_EDITOR_FIELDS: &[&str] = &["Name", "Prefix", "Suffix", "Separato
 const PERSONA_FIELDS: &[&str] = &["Name", "Persona"];
 const PERSONA_MULTILINE: &[usize] = &[1];
 
+const AUTHOR_NOTE_FIELDS: &[&str] = &["Note", "Depth", "Pin to top"];
+const AUTHOR_NOTE_MULTILINE: &[usize] = &[0];
+const AUTHOR_NOTE_BOOLEAN: &[usize] = &[2];
+
 const CHARACTER_EDITOR_FIELDS: &[&str] = &[
     "Name",
     "Description",
@@ -97,8 +101,12 @@ const CHARACTER_EDITOR_FIELDS: &[&str] = &[
     "Examples",
     "System Prompt",
     "Post-History",
+    "Author's Note",
+    "Author's Note Depth",
+    "Pin Note to Top",
 ];
-const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7];
+const CHARACTER_EDITOR_MULTILINE: &[usize] = &[1, 2, 3, 4, 5, 6, 7, 8];
+const CHARACTER_EDITOR_BOOLEAN: &[usize] = &[10];
 
 const SYSTEM_PROMPT_FIELDS: &[&str] = &["Name", "Content"];
 const SYSTEM_PROMPT_MULTILINE: &[usize] = &[1];
@@ -213,6 +221,17 @@ pub fn open_persona_editor(values: Vec<String>) -> FieldDialog<'static> {
         .with_validated_fields(vec![(0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH))])
 }
 
+pub fn open_author_note_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(
+        " Edit Author's Note ",
+        AUTHOR_NOTE_FIELDS,
+        values,
+        AUTHOR_NOTE_MULTILINE,
+    )
+    .with_boolean_fields(AUTHOR_NOTE_BOOLEAN)
+    .with_validated_fields(vec![(1, FieldValidation::Int { min: 0, max: 999 })])
+}
+
 pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
     FieldDialog::new(
         " Edit Character ",
@@ -220,7 +239,11 @@ pub fn open_character_editor(values: Vec<String>) -> FieldDialog<'static> {
         values,
         CHARACTER_EDITOR_MULTILINE,
     )
-    .with_validated_fields(vec![(0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH))])
+    .with_boolean_fields(CHARACTER_EDITOR_BOOLEAN)
+    .with_validated_fields(vec![
+        (0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH)),
+        (9, FieldValidation::Int { min: 0, max: 999 }),
+    ])
 }
 
 pub fn open_template_editor(values: Vec<String>) -> FieldDialog<'static> {

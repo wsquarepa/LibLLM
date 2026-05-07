@@ -133,6 +133,7 @@ fn session_metadata_fields_survive_round_trip() {
         characters: Vec::new(),
         chat_policy: libllm::group_chat::ChatPolicy::default(),
         card_assembly: libllm::group_chat::CardAssembly::default(),
+        author_note: None,
     };
     db.insert_session("meta-1", &session).expect("insert meta");
     let loaded = db.load_session("meta-1").expect("load meta");

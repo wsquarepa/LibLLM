@@ -166,6 +166,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
                     app.session.characters = vec![libllm::group_chat::CharacterAttachment::new(slug)];
+                    app.active_card_author_note = card.author_note.clone();
                     app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();
                     if !card.first_mes.is_empty() {
@@ -207,6 +208,21 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         card.mes_example,
                         card.system_prompt,
                         card.post_history_instructions,
+                        card.author_note
+                            .as_ref()
+                            .map(|n| n.text.clone())
+                            .unwrap_or_default(),
+                        card.author_note
+                            .as_ref()
+                            .map(|n| n.depth.to_string())
+                            .unwrap_or_else(|| {
+                                libllm::author_note::DEFAULT_DEPTH.to_string()
+                            }),
+                        if card.author_note.as_ref().is_some_and(|n| n.at_top) {
+                            "true".to_owned()
+                        } else {
+                            "false".to_owned()
+                        },
                     ];
                     app.character_editor = Some(super::open_character_editor(values));
                     app.character_editor_slug = slug;
@@ -252,6 +268,7 @@ fn create_and_edit_character(app: &mut App) {
         system_prompt: String::new(),
         post_history_instructions: String::new(),
         alternate_greetings: Vec::new(),
+        author_note: None,
     };
     let slug = libllm::character::slugify(&new_name);
     if let Err(e) = app
@@ -279,6 +296,9 @@ fn create_and_edit_character(app: &mut App) {
         card.mes_example,
         card.system_prompt,
         card.post_history_instructions,
+        String::new(),
+        libllm::author_note::DEFAULT_DEPTH.to_string(),
+        "false".to_owned(),
     ];
     app.character_editor = Some(super::open_character_editor(values));
     app.character_editor_slug = slug;

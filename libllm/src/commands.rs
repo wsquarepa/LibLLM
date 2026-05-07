@@ -58,6 +58,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Manage user personas",
     },
     CommandInfo {
+        name: "/note",
+        aliases: &["/an", "/authornote"],
+        args: "",
+        description: "View or edit author's note (sticky per-session text)",
+    },
+    CommandInfo {
         name: "/worldbook",
         aliases: &["/lore", "/world", "/lorebook"],
         args: "",
@@ -188,6 +194,13 @@ mod tests {
             matches[0].name, "/macro",
             "/macro (via /m alias) should rank before /persona (via /me)"
         );
+    }
+
+    #[test]
+    fn note_aliases_resolve() {
+        assert_eq!(resolve_alias("/note"), "/note");
+        assert_eq!(resolve_alias("/an"), "/note");
+        assert_eq!(resolve_alias("/authornote"), "/note");
     }
 
     #[test]

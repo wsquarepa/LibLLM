@@ -8,14 +8,17 @@ use rusqlite::{Connection, params};
 use crate::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
 
 type SessionRow = (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<i64>,
-    Option<String>,
-    Option<String>,
+    Option<String>, // model
+    Option<String>, // template
+    Option<String>, // system_prompt
+    Option<String>, // character
+    Option<String>, // persona
+    Option<i64>,    // head_id
+    Option<String>, // chat_policy
+    Option<String>, // card_assembly
+    Option<String>, // author_note
+    i64,            // author_note_depth
+    i64,            // author_note_at_top
 );
 
 pub struct SessionListEntry {
@@ -48,15 +51,27 @@ fn compute_legacy_mirror(session: &Session) -> Option<String> {
     }
 }
 
+fn author_note_columns(session: &Session) -> (Option<&str>, i64, i64) {
+    match session.author_note.as_ref() {
+        Some(note) => (
+            Some(note.text.as_str()),
+            note.depth as i64,
+            note.at_top as i64,
+        ),
+        None => (None, crate::author_note::DEFAULT_DEPTH as i64, 0),
+    }
+}
+
 fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
     let legacy_mirror = compute_legacy_mirror(session);
     let display_name = display_name_from_character(legacy_mirror.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
+    let (note_text, note_depth, note_at_top) = author_note_columns(session);
 
     conn.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             id,
             display_name,
@@ -70,6 +85,9 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             session.card_assembly.as_db_str(),
             now,
             now,
+            note_text,
+            note_depth,
+            note_at_top,
         ],
     )
     .context("failed to insert session row")?;
@@ -84,10 +102,11 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
     let legacy_mirror = compute_legacy_mirror(session);
     let display_name = display_name_from_character(legacy_mirror.as_deref());
     let head_id = session.tree.head().map(|h| h as i64);
+    let (note_text, note_depth, note_at_top) = author_note_columns(session);
 
     conn.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?13, ?14)
          ON CONFLICT(id) DO UPDATE SET
             display_name = excluded.display_name,
             model = excluded.model,
@@ -98,7 +117,10 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             head_id = excluded.head_id,
             chat_policy = excluded.chat_policy,
             card_assembly = excluded.card_assembly,
-            updated_at = excluded.updated_at",
+            updated_at = excluded.updated_at,
+            author_note = excluded.author_note,
+            author_note_depth = excluded.author_note_depth,
+            author_note_at_top = excluded.author_note_at_top",
         params![
             id,
             display_name,
@@ -111,6 +133,9 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             session.chat_policy.as_db_str(),
             session.card_assembly.as_db_str(),
             now,
+            note_text,
+            note_depth,
+            note_at_top,
         ],
     )
     .context("failed to upsert session row")?;
@@ -246,9 +271,23 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
 
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
     crate::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
-            let (model, template, system_prompt, character, persona, head_id, chat_policy_str, card_assembly_str): SessionRow = conn
+            let (
+                model,
+                template,
+                system_prompt,
+                character,
+                persona,
+                head_id,
+                chat_policy_str,
+                card_assembly_str,
+                author_note_text,
+                author_note_depth,
+                author_note_at_top,
+            ): SessionRow = conn
                 .query_row(
-                    "SELECT model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly
+                    "SELECT model, template, system_prompt, character, persona, head_id,
+                            chat_policy, card_assembly,
+                            author_note, author_note_depth, author_note_at_top
                      FROM sessions WHERE id = ?1",
                     params![id],
                     |row| {
@@ -261,6 +300,9 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                             row.get(5)?,
                             row.get(6)?,
                             row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
+                            row.get(10)?,
                         ))
                     },
                 )
@@ -405,6 +447,21 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 });
             }
 
+            let depth = u32::try_from(author_note_depth).unwrap_or_else(|_| {
+                tracing::warn!(
+                    session_id = id,
+                    raw = author_note_depth,
+                    "db.session.load: author_note_depth out of range, defaulting to {}",
+                    crate::author_note::DEFAULT_DEPTH
+                );
+                crate::author_note::DEFAULT_DEPTH
+            });
+            let author_note = crate::author_note::AuthorNote::from_row_parts(
+                author_note_text,
+                depth,
+                author_note_at_top != 0,
+            );
+
             Ok(Session {
                 tree,
                 model,
@@ -416,6 +473,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 characters,
                 chat_policy,
                 card_assembly,
+                author_note,
             })
     })
 }
@@ -623,6 +681,7 @@ mod tests {
             characters: Vec::new(),
             chat_policy: crate::group_chat::ChatPolicy::default(),
             card_assembly: crate::group_chat::CardAssembly::default(),
+            author_note: None,
         }
     }
 
@@ -747,6 +806,7 @@ mod tests {
             characters: Vec::new(),
             chat_policy: crate::group_chat::ChatPolicy::default(),
             card_assembly: crate::group_chat::CardAssembly::default(),
+            author_note: None,
         };
 
         insert_session(&mut conn, "branching", &session).unwrap();
@@ -785,6 +845,7 @@ mod tests {
             characters: Vec::new(),
             chat_policy: crate::group_chat::ChatPolicy::default(),
             card_assembly: crate::group_chat::CardAssembly::default(),
+            author_note: None,
         };
         insert_session(&mut conn, "sess-2", &session2).unwrap();
 
@@ -1072,5 +1133,50 @@ mod tests {
         let added = loaded.tree.node(2).unwrap();
         assert_eq!(added.message.content, "Another message");
         assert_eq!(added.parent, Some(1));
+    }
+
+    #[test]
+    fn session_author_note_round_trip_some() {
+        let mut conn = setup_db();
+        let mut session = make_session_with_messages();
+        session.author_note = Some(crate::author_note::AuthorNote {
+            text: "Steer dramatic.".to_owned(),
+            depth: 6,
+            at_top: false,
+        });
+
+        insert_session(&mut conn, "sess-an", &session).unwrap();
+        let loaded = load_session(&conn, "sess-an").unwrap();
+
+        assert_eq!(loaded.author_note, session.author_note);
+    }
+
+    #[test]
+    fn session_author_note_round_trip_none() {
+        let mut conn = setup_db();
+        let session = make_session_with_messages();
+        assert!(session.author_note.is_none());
+
+        insert_session(&mut conn, "sess-no-an", &session).unwrap();
+        let loaded = load_session(&conn, "sess-no-an").unwrap();
+
+        assert_eq!(loaded.author_note, None);
+    }
+
+    #[test]
+    fn session_author_note_save_round_trip_after_edit() {
+        let mut conn = setup_db();
+        let mut session = make_session_with_messages();
+        insert_session(&mut conn, "sess-edit", &session).unwrap();
+
+        session.author_note = Some(crate::author_note::AuthorNote {
+            text: "later note".to_owned(),
+            depth: 2,
+            at_top: true,
+        });
+        save_session(&mut conn, "sess-edit", &session).unwrap();
+
+        let loaded = load_session(&conn, "sess-edit").unwrap();
+        assert_eq!(loaded.author_note, session.author_note);
     }
 }

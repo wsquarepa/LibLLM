@@ -74,6 +74,7 @@ pub fn linear_session(messages: Vec<Message>) -> Session {
         characters: Vec::new(),
         chat_policy: libllm::group_chat::ChatPolicy::default(),
         card_assembly: libllm::group_chat::CardAssembly::default(),
+        author_note: None,
     }
 }
 
@@ -89,6 +90,7 @@ pub fn simple_character(name: &str, description: &str) -> CharacterCard {
         system_prompt: String::new(),
         post_history_instructions: String::new(),
         alternate_greetings: Vec::new(),
+        author_note: None,
     }
 }
 
@@ -104,6 +106,7 @@ pub fn full_character() -> CharacterCard {
         system_prompt: "You are TestChar.".to_string(),
         post_history_instructions: "Stay in character.".to_string(),
         alternate_greetings: vec!["Greetings!".to_string()],
+        author_note: None,
     }
 }
 

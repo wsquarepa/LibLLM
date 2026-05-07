@@ -36,6 +36,7 @@ pub(super) async fn handle_slash_command(
         "/config" => cmd_config(app),
         "/branch" => cmd_branch(app),
         "/persona" => cmd_persona(app),
+        "/note" => cmd_note(app),
         "/worldbook" => cmd_worldbook(app),
         "/character" => cmd_character(app),
         "/chat" => cmd_chat(app),
@@ -69,8 +70,10 @@ fn cmd_clear(app: &mut App) {
     app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
     app.session.card_assembly = libllm::group_chat::CardAssembly::default();
     app.character_cards_cache.clear();
+    app.session.author_note = None;
     app.active_persona_name = None;
     app.active_persona_desc = None;
+    app.active_card_author_note = None;
     app.discard_pending_session_save();
     app.invalidate_chat_caches();
     app.invalidate_worldbook_cache();
@@ -347,6 +350,34 @@ fn cmd_persona(app: &mut App) {
     app.persona_slugs = personas.into_iter().map(|(slug, _)| slug).collect();
     app.persona_selected = 0;
     app.open_paged_dialog(Focus::PersonaDialog);
+}
+
+fn cmd_note(app: &mut App) {
+    let (text, depth, at_top) = match app.session.author_note.as_ref() {
+        Some(note) => (note.text.clone(), note.depth.to_string(), note.at_top),
+        None => (
+            String::new(),
+            libllm::author_note::DEFAULT_DEPTH.to_string(),
+            false,
+        ),
+    };
+
+    let pin_value = if at_top { "true" } else { "false" }.to_owned();
+    let values = vec![text, depth, pin_value];
+
+    let mut dialog = dialogs::open_author_note_editor(values);
+    if app.cli_overrides.author_note.is_some() {
+        let mut locks = vec![0_usize];
+        if app.cli_overrides.author_note_depth.is_some() {
+            locks.push(1);
+        }
+        if app.cli_overrides.author_note_at_top.is_some() {
+            locks.push(2);
+        }
+        dialog = dialog.with_locked_fields(locks);
+    }
+    app.author_note_editor = Some(dialog);
+    app.focus = Focus::AuthorNoteEditorDialog;
 }
 
 fn cmd_worldbook(app: &mut App) {

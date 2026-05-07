@@ -454,3 +454,50 @@ fn cli_dash_m_still_reads_stdin_as_prompt_with_no_attachment() {
         "expected streaming to fail against unreachable API"
     );
 }
+
+#[test]
+fn note_flag_round_trips_into_overrides() {
+    let args = Args::try_parse_from(["libllm", "--note", "stay terse"]).unwrap();
+    let overrides = args.cli_overrides();
+    assert_eq!(overrides.author_note.as_deref(), Some("stay terse"));
+    assert_eq!(overrides.author_note_depth, None);
+    assert_eq!(overrides.author_note_at_top, None);
+}
+
+#[test]
+fn note_depth_flag_round_trips_into_overrides() {
+    let args = Args::try_parse_from(["libllm", "--note", "x", "--note-depth", "6"]).unwrap();
+    let overrides = args.cli_overrides();
+    assert_eq!(overrides.author_note_depth, Some(6));
+}
+
+#[test]
+fn note_top_flag_round_trips_into_overrides() {
+    let args = Args::try_parse_from(["libllm", "--note", "x", "--note-top"]).unwrap();
+    let overrides = args.cli_overrides();
+    assert_eq!(overrides.author_note_at_top, Some(true));
+}
+
+#[test]
+fn note_depth_rejects_non_numeric() {
+    let result = Args::try_parse_from(["libllm", "--note", "x", "--note-depth", "wat"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn note_depth_rejects_negative() {
+    let result = Args::try_parse_from(["libllm", "--note", "x", "--note-depth", "-3"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn note_depth_without_note_rejected() {
+    let result = Args::try_parse_from(["libllm", "--note-depth", "3"]);
+    assert!(result.is_err(), "--note-depth requires --note");
+}
+
+#[test]
+fn note_top_without_note_rejected() {
+    let result = Args::try_parse_from(["libllm", "--note-top"]);
+    assert!(result.is_err(), "--note-top requires --note");
+}

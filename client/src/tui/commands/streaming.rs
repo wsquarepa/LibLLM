@@ -71,7 +71,35 @@ where
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected =
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
-    let injected = business::replace_template_vars(app.session, injected, user_name);
+    let mut injected = business::replace_template_vars(app.session, injected, user_name);
+
+    let card_note = app
+        .session
+        .character
+        .as_deref()
+        .and_then(|slug| {
+            let db = app.db.as_ref()?;
+            match db.load_character(slug) {
+                Ok(card) => Some(card),
+                Err(err) => {
+                    tracing::warn!(
+                        slug = slug,
+                        result = "error",
+                        error = %err,
+                        "author_note.card_load"
+                    );
+                    None
+                }
+            }
+        })
+        .and_then(|card| card.author_note);
+
+    libllm::author_note::inject_author_notes(
+        &mut injected,
+        card_note.as_ref(),
+        app.session.author_note.as_ref(),
+    );
+
     let injected: Vec<libllm::session::Message> = injected
         .into_iter()
         .map(|m| match m.role {

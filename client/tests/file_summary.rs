@@ -289,6 +289,7 @@ async fn fresh_encrypted_session_schedules_after_unlock_save() {
             characters: Vec::new(),
             chat_policy: libllm::group_chat::ChatPolicy::default(),
             card_assembly: libllm::group_chat::CardAssembly::default(),
+            author_note: None,
         };
         db.save_session(session_id, &empty_session).unwrap();
     }

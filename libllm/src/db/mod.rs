@@ -332,7 +332,9 @@ impl Database {
         self.conn.changes()
     }
 
-    pub fn with_connection<F, R>(&self, f: F) -> R
+    /// Expose the raw connection for crate-internal modules that build
+    /// dynamic SQL outside the typed Database methods (e.g., the search executor).
+    pub(crate) fn with_connection<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Connection) -> R,
     {

@@ -59,14 +59,16 @@ pub fn search(
     query: &CompiledQuery,
     limit: usize,
 ) -> Result<Vec<SearchHit>, SearchError> {
-    crate::timed_result!(
+    let result = crate::timed_result!(
         tracing::Level::DEBUG,
         "search.execute",
         terms = query.match_expr.as_str() ;
-        {
-            db.with_connection(|conn| run(conn, query, limit))
-        }
-    )
+        { db.with_connection(|conn| run(conn, query, limit)) }
+    );
+    if let Ok(hits) = &result {
+        tracing::debug!(hits = hits.len(), "search.hits");
+    }
+    result
 }
 
 fn run(
@@ -141,7 +143,7 @@ fn run(
 
     let mut hits: Vec<SearchHit> = Vec::new();
     for row in rows {
-        let raw = row?;
+        let raw = row.map_err(map_match_error)?;
         let role: Role = raw.role_raw.parse().map_err(|e: anyhow::Error| {
             SearchError::InvalidMatch(format!("unrecognised role '{}': {e}", raw.role_raw))
         })?;
@@ -175,8 +177,8 @@ struct RawHit {
     score: f64,
 }
 
-fn parse_iso(s: &str) -> anyhow::Result<OffsetDateTime> {
-    Ok(OffsetDateTime::parse(s, &Rfc3339)?)
+fn parse_iso(s: &str) -> Result<OffsetDateTime, time::error::Parse> {
+    OffsetDateTime::parse(s, &Rfc3339)
 }
 
 fn map_match_error(err: rusqlite::Error) -> SearchError {
@@ -186,27 +188,6 @@ fn map_match_error(err: rusqlite::Error) -> SearchError {
         return SearchError::InvalidMatch(msg.clone());
     }
     SearchError::Db(err)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn search_hit_is_clone() {
-        let hit = SearchHit {
-            session_id: "s".into(),
-            session_display_name: "S".into(),
-            message_id: 0,
-            message_rowid: 0,
-            role: Role::User,
-            timestamp: OffsetDateTime::now_utc(),
-            snippet: String::new(),
-            preview_text: String::new(),
-            score: 0.0,
-        };
-        let _clone = hit.clone();
-    }
 }
 
 #[cfg(test)]
@@ -288,5 +269,23 @@ mod executor_tests {
         let hits = search(&db, &q, DEFAULT_MAX_HITS).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].session_id, "s2");
+    }
+
+    #[test]
+    fn combined_filters_apply_together() {
+        let (db, _file) = seed();
+        let q = query::compile("role:user before:2026-02-01 redact", &db).unwrap();
+        let hits = search(&db, &q, DEFAULT_MAX_HITS).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_id, "s1");
+        assert_eq!(hits[0].role, Role::User);
+    }
+
+    #[test]
+    fn malformed_match_expression_returns_invalid_match() {
+        let (db, _file) = seed();
+        let q = query::compile("m:(((", &db).unwrap();
+        let err = search(&db, &q, DEFAULT_MAX_HITS).unwrap_err();
+        assert!(matches!(err, SearchError::InvalidMatch(_)), "expected InvalidMatch, got {err:?}");
     }
 }

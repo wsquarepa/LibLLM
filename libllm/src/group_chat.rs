@@ -116,12 +116,14 @@ pub fn decide_next_speaker(
         return None;
     }
 
-    let chosen_idx = if candidates.len() == 1 {
-        candidates[0]
-    } else {
-        match policy {
-            ChatPolicy::RoundRobin => round_robin_pick(&candidates, characters, &updated),
-            ChatPolicy::WeightedRandom => weighted_pick(&candidates, characters, rng),
+    let chosen_idx = match policy {
+        ChatPolicy::RoundRobin => candidates[0],
+        ChatPolicy::WeightedRandom => {
+            if candidates.len() == 1 {
+                candidates[0]
+            } else {
+                weighted_pick(&candidates, characters, rng)
+            }
         }
     };
 
@@ -133,25 +135,6 @@ pub fn decide_next_speaker(
         updated_action_points: updated,
         snapshot_before,
     })
-}
-
-fn round_robin_pick(candidates: &[usize], characters: &[CharacterAttachment], updated: &[(String, f32)]) -> usize {
-    *candidates
-        .iter()
-        .max_by(|&&a, &&b| {
-            updated[a]
-                .1
-                .partial_cmp(&updated[b].1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    characters[a]
-                        .talkativeness
-                        .partial_cmp(&characters[b].talkativeness)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .then(b.cmp(&a))
-        })
-        .expect("non-empty by guard")
 }
 
 fn weighted_pick(candidates: &[usize], characters: &[CharacterAttachment], rng: &mut impl Rng) -> usize {
@@ -195,13 +178,15 @@ mod tests {
     #[test]
     fn decide_next_picks_only_eligible_speaker() {
         let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.4, 0.7), att("b", 0.5, 0.6)];
+        // a: 0.4 + 0.4 = 0.8 (under threshold)
+        // b: 0.5 + 0.6 = 1.1 (over threshold)
+        let cs = vec![att("a", 0.4, 0.4), att("b", 0.5, 0.6)];
         let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
         assert_eq!(d.speaker_slug, "b");
         let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
         assert!((new_b - 0.1).abs() < 1e-5);
         let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        assert!((new_a - 1.1).abs() < 1e-5);
+        assert!((new_a - 0.8).abs() < 1e-5);
     }
 
     #[test]

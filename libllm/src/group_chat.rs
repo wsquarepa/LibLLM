@@ -434,6 +434,7 @@ mod tests {
             system_prompt: String::new(),
             post_history_instructions: String::new(),
             alternate_greetings: vec![],
+            author_note: None,
         }
     }
 

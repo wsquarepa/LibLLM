@@ -957,6 +957,7 @@ mod tests {
             card_assembly: CardAssembly::SwapCards,
             worldbooks: vec![],
             persona: None,
+            author_note: None,
         };
 
         insert_session(&mut conn, "g1", &session).unwrap();

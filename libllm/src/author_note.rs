@@ -58,6 +58,8 @@ mod tests {
             content: content.to_owned(),
             timestamp: String::new(),
             thought_seconds: None,
+            speaker: None,
+            pre_turn_action_points: None,
         }
     }
 

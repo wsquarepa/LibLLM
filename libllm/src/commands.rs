@@ -46,6 +46,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Select a character",
     },
     CommandInfo {
+        name: "/chat",
+        aliases: &[],
+        args: "",
+        description: "Open chat settings (talkativeness, policy)",
+    },
+    CommandInfo {
         name: "/persona",
         aliases: &["/self", "/user", "/me"],
         args: "",
@@ -86,6 +92,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         aliases: &["/m"],
         args: "<name> <args...>",
         description: "Run a user-defined macro",
+    },
+    CommandInfo {
+        name: "/next",
+        aliases: &[],
+        args: "[name]",
+        description: "Force the next assistant turn (optional speaker)",
     },
     CommandInfo {
         name: "/report",
@@ -202,5 +214,15 @@ mod tests {
                 cmd.name
             );
         }
+    }
+
+    #[test]
+    fn chat_command_is_registered() {
+        assert!(super::COMMANDS.iter().any(|c| c.name == "/chat"));
+    }
+
+    #[test]
+    fn next_command_is_registered() {
+        assert!(super::COMMANDS.iter().any(|c| c.name == "/next"));
     }
 }

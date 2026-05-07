@@ -133,6 +133,16 @@ async fn main() -> Result<()> {
         return cli::db::dispatch(&args, command);
     }
 
+    if let Some(cli::Command::Search {
+        query,
+        limit,
+        json,
+        full,
+    }) = &args.command
+    {
+        return cli::search::dispatch(&args, query, *limit, *json, *full);
+    }
+
     migration::migrate_config_path();
 
     legacy_migration::check_and_run_migration(args.no_encrypt, args.passkey.as_deref()).await?;
@@ -408,6 +418,7 @@ fn infer_run_mode(args: &Args) -> &'static str {
             cli::Command::Recover { .. } => "recover_subcommand",
             cli::Command::Update { .. } => "update_subcommand",
             cli::Command::Db { .. } => "db_subcommand",
+            cli::Command::Search { .. } => "search_subcommand",
         }
     } else if args.message.is_some() {
         "single_message"

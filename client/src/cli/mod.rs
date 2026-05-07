@@ -1,6 +1,7 @@
 //! Command-line argument parsing and CLI override definitions.
 
 pub mod db;
+pub mod search;
 
 use std::path::PathBuf;
 
@@ -138,6 +139,20 @@ pub enum Command {
         /// Skip downgrade confirmation
         #[arg(long, short = 'y')]
         yes: bool,
+    },
+    /// Search every stored message for a query string.
+    Search {
+        /// Query string (terms, "phrase", scope filters, m: raw mode)
+        query: String,
+        /// Maximum number of results to print
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+        /// Emit a JSON array instead of human-readable text
+        #[arg(long)]
+        json: bool,
+        /// Print full message content (with match highlighting) instead of snippet
+        #[arg(long)]
+        full: bool,
     },
     /// Direct database inspection and editing.
     #[command(alias = "database")]

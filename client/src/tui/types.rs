@@ -51,6 +51,7 @@ pub(super) enum Focus {
     TemplatePromptDialog,
     DangerConfirmDialog,
     DangerTypedConfirmDialog,
+    GroupChatSettingsDialog,
 }
 
 pub(super) enum Action {
@@ -62,6 +63,7 @@ pub(super) enum Action {
     SlashCommand(String, String),
     Quit,
     OpenGroupChatSettings,
+    SaveGroupChatSettings,
 }
 
 pub(super) enum DeleteContext {
@@ -372,6 +374,7 @@ pub(super) struct App<'a> {
     pub(super) danger_confirm_op: Option<DangerOp>,
     pub(super) danger_confirm_selected: Option<usize>,
     pub(super) danger_typed_confirm: Option<TypedConfirmState>,
+    pub(super) group_settings_selected: usize,
 }
 
 impl<'a> App<'a> {

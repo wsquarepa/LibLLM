@@ -185,7 +185,12 @@ pub(super) async fn process_action(
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
         Action::OpenGroupChatSettings => {
-            tracing::debug!("OpenGroupChatSettings dispatched (dialog impl arrives in Task 9.3)");
+            app.group_settings_selected = 0;
+            app.focus = Focus::GroupChatSettingsDialog;
+        }
+        Action::SaveGroupChatSettings => {
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+            return_to_input(app);
         }
     }
 }
@@ -357,7 +362,8 @@ fn handle_key(
             | Focus::LoadingDialog
             | Focus::TemplatePromptDialog
             | Focus::DangerConfirmDialog
-            | Focus::DangerTypedConfirmDialog => true,
+            | Focus::DangerTypedConfirmDialog
+            | Focus::GroupChatSettingsDialog => true,
         };
         debug_assert!(
             invariant_ok,
@@ -554,6 +560,10 @@ fn handle_key(
                 return None;
             }
         }
+    }
+
+    if app.focus == Focus::GroupChatSettingsDialog {
+        return dialogs::group_chat_settings::handle_key(key, app);
     }
 
     if app.is_streaming {

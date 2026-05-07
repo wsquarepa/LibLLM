@@ -119,12 +119,16 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
         alternate_greetings: data
             .and_then(|d| d.alternate_greetings.clone())
             .unwrap_or_default(),
-        author_note: data
-            .and_then(|d| d.extensions.as_ref())
-            .and_then(|e| e.depth_prompt.as_ref())
+        author_note: raw
+            .data
+            .and_then(|d| d.extensions)
+            .and_then(|e| e.depth_prompt)
             .and_then(|dp| {
-                let text = dp.prompt.clone()?;
-                crate::author_note::AuthorNote::from_row_parts(Some(text), dp.depth.unwrap_or(4), false)
+                crate::author_note::AuthorNote::from_row_parts(
+                    dp.prompt,
+                    dp.depth.unwrap_or(4),
+                    false,
+                )
             }),
     })
 }

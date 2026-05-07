@@ -537,7 +537,8 @@ impl Default for GroupChatConfig {
 
 impl GroupChatConfig {
     /// Clamp `max_consecutive_turns` into `[1, 50]` at read time. Emits a warn when
-    /// the stored value is out of range.
+    /// the stored value is out of range. Called at each use site instead of at load to
+    /// avoid the loader's current "return defaults on parse error" contract.
     pub fn effective_max_consecutive_turns(&self) -> u32 {
         if !(1..=50).contains(&self.max_consecutive_turns) {
             tracing::warn!(
@@ -1588,5 +1589,19 @@ summary_prompt = "custom prompt"
             let cfg = super::GroupChatConfig { max_consecutive_turns: v };
             assert_eq!(cfg.effective_max_consecutive_turns(), v);
         }
+    }
+
+    #[test]
+    fn group_chat_config_defaults_when_missing() {
+        let toml_str = r#"api_url = "http://localhost:5001/v1""#;
+        let cfg: super::Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.group_chat.max_consecutive_turns, 6);
+    }
+
+    #[test]
+    fn group_chat_config_round_trips_through_toml() {
+        let toml_str = "[group_chat]\nmax_consecutive_turns = 12\n";
+        let cfg: super::Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.group_chat.max_consecutive_turns, 12);
     }
 }

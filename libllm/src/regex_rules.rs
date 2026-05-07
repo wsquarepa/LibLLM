@@ -318,4 +318,29 @@ mod tests {
         let rules = compile_rules(&[bad]);
         assert!(rules.is_empty());
     }
+
+    #[test]
+    fn config_round_trips_disabled_rule() {
+        let cfg = Config {
+            regex: vec![RegexRule {
+                name: "off".to_owned(),
+                pattern: "x".to_owned(),
+                replacement: "y".to_owned(),
+                scope: vec![Scope::Display],
+                target: vec![Target::Assistant],
+                enabled: false,
+                compile_error: None,
+            }],
+            ..Config::default()
+        };
+
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        assert!(
+            s.contains("enabled = false"),
+            "serialized TOML must include `enabled = false` for disabled rules; got: {s}"
+        );
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(back.regex.len(), 1);
+        assert!(!back.regex[0].enabled, "deserialized rule must remain disabled");
+    }
 }

@@ -262,6 +262,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         content,
                         timestamp,
                         thought_seconds,
+                        speaker: None,
+                        pre_turn_action_points: None,
                     },
                 };
 
@@ -481,6 +483,8 @@ mod tests {
                     content: "Hello".to_owned(),
                     timestamp: "2026-01-01T00:00:00Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -492,6 +496,8 @@ mod tests {
                     content: "Hi there!".to_owned(),
                     timestamp: "2026-01-01T00:00:01Z".to_owned(),
                     thought_seconds: Some(7),
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
         ];
@@ -574,6 +580,8 @@ mod tests {
                     content: "Hello".to_owned(),
                     timestamp: "2026-01-01T00:00:00Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -585,6 +593,8 @@ mod tests {
                     content: "Response A".to_owned(),
                     timestamp: "2026-01-01T00:00:01Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -596,6 +606,8 @@ mod tests {
                     content: "Response B".to_owned(),
                     timestamp: "2026-01-01T00:00:02Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
             Node {
@@ -607,6 +619,8 @@ mod tests {
                     content: "Follow up".to_owned(),
                     timestamp: "2026-01-01T00:00:03Z".to_owned(),
                     thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
                 },
             },
         ];
@@ -760,6 +774,8 @@ mod tests {
                 content: "Another message".to_owned(),
                 timestamp: "2026-01-01T00:00:05Z".to_owned(),
                 thought_seconds: None,
+                speaker: None,
+                pre_turn_action_points: None,
             },
         };
 

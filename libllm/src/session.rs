@@ -97,6 +97,10 @@ pub struct Message {
     pub timestamp: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thought_seconds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_turn_action_points: Option<String>,
 }
 
 impl Message {
@@ -106,6 +110,8 @@ impl Message {
             content,
             timestamp: now_iso8601(),
             thought_seconds: None,
+            speaker: None,
+            pre_turn_action_points: None,
         }
     }
 
@@ -1330,5 +1336,31 @@ mod tests {
             s.card_assembly,
             crate::group_chat::CardAssembly::JoinCards
         ));
+    }
+
+    #[test]
+    fn message_new_has_no_speaker_or_action_points() {
+        let m = super::Message::new(super::Role::Assistant, "hi".to_owned());
+        assert!(m.speaker.is_none());
+        assert!(m.pre_turn_action_points.is_none());
+    }
+
+    #[test]
+    fn message_serde_round_trip_with_speaker() {
+        let mut m = super::Message::new(super::Role::Assistant, "hi".to_owned());
+        m.speaker = Some("alice".to_owned());
+        m.pre_turn_action_points = Some(r#"{"alice":0.2,"bob":0.5}"#.to_owned());
+        let json = serde_json::to_string(&m).unwrap();
+        let back: super::Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.speaker.as_deref(), Some("alice"));
+        assert_eq!(back.pre_turn_action_points.as_deref(), Some(r#"{"alice":0.2,"bob":0.5}"#));
+    }
+
+    #[test]
+    fn message_serde_round_trip_without_optional_fields() {
+        let json = r#"{"role":"user","content":"hello","timestamp":"2026-05-07T12:00:00Z"}"#;
+        let m: super::Message = serde_json::from_str(json).unwrap();
+        assert!(m.speaker.is_none());
+        assert!(m.pre_turn_action_points.is_none());
     }
 }

@@ -10,11 +10,12 @@ mod v1;
 mod v2;
 mod v3;
 mod v4;
+mod v5;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 4;
+pub const CURRENT_VERSION: i64 = 5;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -52,6 +53,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 4 {
             v4::migrate(conn)?;
             stamp_version(conn, 4)?;
+            applied += 1;
+        }
+        if version < 5 {
+            v5::migrate(conn)?;
+            stamp_version(conn, 5)?;
             applied += 1;
         }
 
@@ -279,6 +285,113 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM file_summaries", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn v5_adds_author_note_columns_to_sessions() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        for expected in ["author_note", "author_note_depth", "author_note_at_top"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column '{expected}' on sessions; got {cols:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v5_adds_author_note_columns_to_characters() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let mut stmt = conn.prepare("PRAGMA table_info(characters)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        for expected in ["author_note", "author_note_depth", "author_note_at_top"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column '{expected}' on characters; got {cols:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v5_default_depth_is_four() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let depth: i64 = conn
+            .query_row(
+                "SELECT author_note_depth FROM sessions WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(depth, 4);
+    }
+
+    #[test]
+    fn upgrade_from_v4_preserves_existing_sessions() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (4);",
+        )
+        .unwrap();
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, character, created_at, updated_at)
+             VALUES ('s-pre-v5', 'Aria', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let character: Option<String> = conn
+            .query_row(
+                "SELECT character FROM sessions WHERE id = 's-pre-v5'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let note: Option<String> = conn
+            .query_row(
+                "SELECT author_note FROM sessions WHERE id = 's-pre-v5'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let depth: i64 = conn
+            .query_row(
+                "SELECT author_note_depth FROM sessions WHERE id = 's-pre-v5'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(character.as_deref(), Some("Aria"));
+        assert_eq!(note, None);
+        assert_eq!(depth, 4);
     }
 
     #[test]

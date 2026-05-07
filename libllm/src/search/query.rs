@@ -412,6 +412,18 @@ mod tests {
         assert_eq!(err, QueryError::Empty);
     }
 
+    #[test]
+    fn raw_mode_preserves_quoted_phrase_in_drain() {
+        let parsed = parse("m:foo \"hello world\" bar").unwrap();
+        assert_eq!(parsed.match_expr, "foo \"hello world\" bar");
+    }
+
+    #[test]
+    fn raw_mode_second_m_prefix_is_literal() {
+        let parsed = parse("m:a m:b").unwrap();
+        assert_eq!(parsed.match_expr, "a m:b");
+    }
+
     fn seed_db_with_sessions(
         names: &[(&str, &str)],
     ) -> (crate::db::Database, tempfile::NamedTempFile) {

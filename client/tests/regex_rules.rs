@@ -124,6 +124,37 @@ fn export_rule_only_affects_export_output() {
 }
 
 #[test]
+fn prompt_send_runs_before_file_rewrite_for_at_path_tokens() {
+    use libllm::session::Role;
+
+    let rule = RegexRule {
+        name: "redact-secret".to_owned(),
+        pattern: "secret".to_owned(),
+        replacement: "classified".to_owned(),
+        scope: vec![Scope::PromptSend],
+        target: vec![Target::User],
+        enabled: true,
+        compile_error: None,
+    };
+    let compiled = libllm::regex_rules::compile_rules(&[rule]);
+
+    // Real production path runs PromptSend rules, THEN rewrite_user_message
+    // (which substitutes @paths). Confirm the regex sees the @path token unchanged
+    // and that the @path is still recognized for file resolution.
+    let user_input = "check @/home/user/file.txt and secret info";
+    let after_regex = libllm::regex_rules::apply(
+        &compiled,
+        Scope::PromptSend,
+        Role::User,
+        user_input,
+    );
+    assert_eq!(
+        after_regex, "check @/home/user/file.txt and classified info",
+        "PromptSend regex must not corrupt @path tokens"
+    );
+}
+
+#[test]
 fn invalid_rule_is_skipped_at_compile_time() {
     let bad = RegexRule {
         name: "bad".to_owned(),

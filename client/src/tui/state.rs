@@ -109,6 +109,7 @@ impl App<'_> {
     pub(super) fn invalidate_chat_caches(&mut self) {
         self.invalidate_chat_render_cache();
         self.invalidate_prompt_cache();
+        self.display_regex_cache.clear();
     }
 
     /// Clear the textarea only when it still holds `submitted_content` (trimmed).

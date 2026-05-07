@@ -243,6 +243,8 @@ pub async fn run(
         worldbook_editor_selected: 0,
         worldbook_entry_editor: None,
         worldbook_entry_editor_index: 0,
+        compiled_regex: libllm::regex_rules::compile_rules(&config.regex),
+        display_regex_cache: std::collections::HashMap::new(),
         chat_content_cache: None,
         cached_token_count: None,
         token_counter,

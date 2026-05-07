@@ -277,6 +277,16 @@ async fn main() -> Result<()> {
                         .tree
                         .push(None, Message::new(Role::Assistant, card.first_mes.clone()));
                 }
+            } else if session.tree.head().is_none() {
+                for (slug, card) in &loaded_cards {
+                    if card.first_mes.is_empty() {
+                        continue;
+                    }
+                    let parent = session.tree.head();
+                    let mut msg = Message::new(Role::Assistant, card.first_mes.clone());
+                    msg.speaker = Some(slug.clone());
+                    session.tree.push(parent, msg);
+                }
             }
 
             let mut characters = Vec::new();

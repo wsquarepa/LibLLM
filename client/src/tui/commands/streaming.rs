@@ -490,14 +490,35 @@ pub(in crate::tui) async fn continue_group_chat_loop(
         return;
     }
 
-    let Some(decision) = libllm::group_chat::decide_next_speaker(
+    let decision = match libllm::group_chat::decide_next_speaker(
         &app.session.characters,
         app.session.chat_policy,
         rng,
-    ) else {
-        tracing::debug!("group_chat: no speaker eligible, yielding to user");
-        app.group_chat_loop_rng = None;
-        return;
+    ) {
+        Some(d) => d,
+        None if app.group_chat_consecutive == 0 => {
+            match libllm::group_chat::force_step(
+                &app.session.characters,
+                app.session.chat_policy,
+                rng,
+            ) {
+                Some(d) => {
+                    tracing::debug!(
+                        "group_chat: no speaker over threshold; forcing first-turn speaker"
+                    );
+                    d
+                }
+                None => {
+                    app.group_chat_loop_rng = None;
+                    return;
+                }
+            }
+        }
+        None => {
+            tracing::debug!("group_chat: no speaker eligible, yielding to user");
+            app.group_chat_loop_rng = None;
+            return;
+        }
     };
 
     for (slug, ap) in &decision.updated_action_points {
@@ -638,7 +659,11 @@ pub(in crate::tui) async fn start_retry_streaming(
     );
     app.clear_input_textarea_if_holds(content);
     push_user_segments(app, content);
-    launch_stream(app, sender).await;
+    if app.session.characters.len() >= 2 {
+        start_group_chat_loop(app, &sender).await;
+    } else {
+        launch_stream(app, sender).await;
+    }
 }
 
 pub(in crate::tui) async fn handle_stream_token(

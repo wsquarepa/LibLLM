@@ -126,19 +126,60 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.set_status(e.to_string(), super::super::StatusLevel::Error);
                     return None;
                 }
-                let prior: std::collections::HashMap<String, libllm::group_chat::CharacterAttachment> =
-                    app.session.characters.iter().map(|c| (c.slug.clone(), c.clone())).collect();
+
+                if !app.flush_session_before_transition() {
+                    return None;
+                }
+
+                let cards: Vec<libllm::character::CharacterCard> = slugs
+                    .iter()
+                    .filter_map(|s| app.db.as_ref().and_then(|db| db.load_character(s).ok()))
+                    .collect();
+                if cards.len() != slugs.len() {
+                    app.set_status(
+                        "One or more selected characters could not be loaded.".to_owned(),
+                        super::super::StatusLevel::Error,
+                    );
+                    return_to_input(app);
+                    return None;
+                }
+
+                app.discard_pending_session_save();
+                app.session.tree.clear();
+                app.session.worldbooks.clear();
+                app.session.system_prompt = None;
+                app.session.author_note = None;
+                app.active_card_author_note = None;
+                app.session.character = None;
                 app.session.characters = slugs
                     .iter()
-                    .map(|s| {
-                        prior
-                            .get(s)
-                            .cloned()
-                            .unwrap_or_else(|| libllm::group_chat::CharacterAttachment::new(s.clone()))
-                    })
+                    .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
                     .collect();
-                app.session.character = None;
+                app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
+                app.session.card_assembly = libllm::group_chat::CardAssembly::default();
+
+                for (slug, card) in slugs.iter().zip(cards.iter()) {
+                    if !card.first_mes.is_empty() {
+                        let parent = app.session.tree.head();
+                        let mut msg = Message::new(Role::Assistant, card.first_mes.clone());
+                        msg.speaker = Some(slug.clone());
+                        app.session.tree.push(parent, msg);
+                    }
+                }
+
                 crate::tui::business::rebuild_character_cards_cache(app);
+                app.invalidate_chat_caches();
+                app.invalidate_worldbook_cache();
+                app.chat_scroll = 0;
+                app.auto_scroll = true;
+                let new_id = session::generate_session_id();
+                app.save_mode.set_id(new_id);
+                app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
+                app.set_status(
+                    format!("Started group chat with {} characters", slugs.len()),
+                    super::super::StatusLevel::Info,
+                );
+                refresh_sidebar(app);
                 return_to_input(app);
                 return Some(Action::OpenGroupChatSettings);
             }

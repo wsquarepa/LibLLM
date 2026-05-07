@@ -155,10 +155,16 @@ pub fn build_turn_prompt(
             other_speakers: other_names.join(", "),
         };
         let body = tpl.render_story_string(&vars);
-        format!(
-            "{body}\n\n<active_speaker>{}</active_speaker>\n\n{closing}",
-            active_card.name
-        )
+        let mut parts = vec![body];
+        if !characters_block.is_empty() && !parts[0].contains(&characters_block) {
+            parts.push(characters_block.clone());
+        }
+        if !roster_block.is_empty() && !parts[0].contains(&roster_block) {
+            parts.push(roster_block.clone());
+        }
+        parts.push(format!("<active_speaker>{}</active_speaker>", active_card.name));
+        parts.push(closing.clone());
+        parts.join("\n\n")
     } else {
         let mut parts = vec![opening.to_owned()];
         if !scene_block.is_empty() {
@@ -758,5 +764,96 @@ mod tests {
         assert!(!p.system.contains("ghost"));
         assert!(!p.stop_sequences.iter().any(|s| s.contains("ghost")));
         assert!(!p.stop_sequences.iter().any(|s| s.contains("Ghost")));
+    }
+
+    #[test]
+    fn build_turn_prompt_template_without_characters_block_still_injects_it() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
+            ("bob",   card("Bob",   "Dwarf.", "Stoic.", "",          "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let template = crate::preset::ContextPreset {
+            name: "no-roster".to_owned(),
+            story_string:
+                "{{#if system}}{{system}}\n{{/if}}{{#if persona}}{{persona}}\n{{/if}}{{trim}}"
+                    .to_owned(),
+            example_separator: String::new(),
+            chat_start: String::new(),
+            story_string_position: 0,
+            story_string_depth: 0,
+            story_string_role: 0,
+        };
+        let p = build_turn_prompt(&session, &cards, None, Some(&template), "alice").unwrap();
+        assert!(
+            p.system.contains("<character name=\"Alice\">"),
+            "characters block must appear even when template omits it: {}",
+            p.system,
+        );
+        assert!(
+            p.system.contains("<character name=\"Bob\">"),
+            "characters block must include all attached cards: {}",
+            p.system,
+        );
+        assert!(
+            p.system.contains("<active_speaker>Alice</active_speaker>"),
+            "active speaker tag missing: {}",
+            p.system,
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_template_with_characters_block_does_not_duplicate_it() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
+            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let template = crate::preset::ContextPreset {
+            name: "with-block".to_owned(),
+            story_string: "{{characters_block}}".to_owned(),
+            example_separator: String::new(),
+            chat_start: String::new(),
+            story_string_position: 0,
+            story_string_depth: 0,
+            story_string_role: 0,
+        };
+        let p = build_turn_prompt(&session, &cards, None, Some(&template), "alice").unwrap();
+        assert_eq!(
+            p.system.matches("<character name=\"Alice\">").count(),
+            1,
+            "characters block should not be duplicated: {}",
+            p.system,
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_template_with_persona_renders_persona_text() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
+            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let persona = crate::persona::PersonaFile {
+            name: "Trav".to_owned(),
+            persona: "A traveler from the north.".to_owned(),
+        };
+        let template = crate::preset::ContextPreset {
+            name: "default-like".to_owned(),
+            story_string: "{{#if system}}{{system}}\n{{/if}}{{#if persona}}{{persona}}\n{{/if}}{{trim}}"
+                .to_owned(),
+            example_separator: String::new(),
+            chat_start: String::new(),
+            story_string_position: 0,
+            story_string_depth: 0,
+            story_string_role: 0,
+        };
+        let p = build_turn_prompt(&session, &cards, Some(&persona), Some(&template), "alice")
+            .unwrap();
+        assert!(
+            p.system.contains("A traveler from the north."),
+            "persona text missing from system prompt: {}",
+            p.system,
+        );
     }
 }

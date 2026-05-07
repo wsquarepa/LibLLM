@@ -34,8 +34,8 @@ fn author_note_columns(session: &Session) -> (Option<&str>, i64, i64) {
     match session.author_note.as_ref() {
         Some(note) => (
             Some(note.text.as_str()),
-            i64::from(note.depth),
-            i64::from(note.at_top),
+            note.depth as i64,
+            note.at_top as i64,
         ),
         None => (None, 4, 0),
     }
@@ -334,9 +334,17 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 worldbooks.push(wb.context("failed to read worldbook row")?);
             }
 
+            let depth = u32::try_from(author_note_depth).unwrap_or_else(|_| {
+                tracing::warn!(
+                    session_id = id,
+                    raw = author_note_depth,
+                    "db.session.load: author_note_depth out of range, defaulting to 4"
+                );
+                4
+            });
             let author_note = crate::author_note::AuthorNote::from_row_parts(
                 author_note_text,
-                u32::try_from(author_note_depth).unwrap_or(4),
+                depth,
                 author_note_at_top != 0,
             );
 

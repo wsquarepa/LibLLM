@@ -215,7 +215,7 @@ async fn main() -> Result<()> {
                 .map(|p| p.content);
         }
 
-        if let Some(ref char_arg) = args.character {
+        if let Some(char_arg) = args.character.first() {
             let card = libllm::timed_result!(
                 tracing::Level::INFO,
                 "startup.phase",
@@ -236,7 +236,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    if args.character.is_some() {
+    if !args.character.is_empty() {
         let new_id = session::generate_session_id();
         save_mode.set_id(new_id);
     }

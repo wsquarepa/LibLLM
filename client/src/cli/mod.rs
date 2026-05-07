@@ -31,6 +31,38 @@ impl From<AuthKindArg> for libllm::config::AuthKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ChatPolicyArg {
+    #[value(name = "round-robin")]
+    RoundRobin,
+    #[value(name = "weighted-random")]
+    WeightedRandom,
+}
+
+impl From<ChatPolicyArg> for libllm::group_chat::ChatPolicy {
+    fn from(v: ChatPolicyArg) -> Self {
+        match v {
+            ChatPolicyArg::RoundRobin => Self::RoundRobin,
+            ChatPolicyArg::WeightedRandom => Self::WeightedRandom,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum CardAssemblyArg {
+    Join,
+    Swap,
+}
+
+impl From<CardAssemblyArg> for libllm::group_chat::CardAssembly {
+    fn from(v: CardAssemblyArg) -> Self {
+        match v {
+            CardAssemblyArg::Join => Self::JoinCards,
+            CardAssemblyArg::Swap => Self::SwapCards,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum RecoverCommand {
     /// List all backup points
@@ -250,9 +282,21 @@ pub struct Args {
     #[arg(long)]
     pub max_tokens: Option<i64>,
 
-    /// Character card to use (name or path to .json/.png file, requires -p)
-    #[arg(short = 'c', long, requires = "persona")]
-    pub character: Option<String>,
+    /// Character cards to use (repeatable for group chats; requires -p)
+    #[arg(short = 'c', long, requires = "persona", num_args = 1)]
+    pub character: Vec<String>,
+
+    /// Turn-order policy for group chats (>= 2 characters)
+    #[arg(long, value_enum, default_value_t = ChatPolicyArg::RoundRobin)]
+    pub chat_policy: ChatPolicyArg,
+
+    /// Card assembly mode for group chats (>= 2 characters)
+    #[arg(long, value_enum, default_value_t = CardAssemblyArg::Join)]
+    pub card_assembly: CardAssemblyArg,
+
+    /// Per-character talkativeness override (e.g. "alice=0.7,bob=0.3")
+    #[arg(long)]
+    pub talkativeness: Option<String>,
 
     /// Skip TLS certificate verification for API connections
     #[arg(long)]
@@ -346,5 +390,47 @@ impl CliOverrides {
             auth_query_name: self.auth_query_name.clone(),
             auth_query_value: self.auth_query_value.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn single_character_parses_into_vec_of_one() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-p", "me"]).unwrap();
+        assert_eq!(args.character, vec!["alice".to_owned()]);
+    }
+
+    #[test]
+    fn multiple_characters_parse_in_order() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-c", "charlie", "-p", "me"]).unwrap();
+        assert_eq!(args.character, vec!["alice", "bob", "charlie"]);
+    }
+
+    #[test]
+    fn group_without_persona_is_rejected() {
+        let result = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn chat_policy_default_round_robin() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me"]).unwrap();
+        assert!(matches!(args.chat_policy, ChatPolicyArg::RoundRobin));
+    }
+
+    #[test]
+    fn chat_policy_weighted_random_parses() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-policy", "weighted-random"]).unwrap();
+        assert!(matches!(args.chat_policy, ChatPolicyArg::WeightedRandom));
+    }
+
+    #[test]
+    fn card_assembly_swap_parses() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--card-assembly", "swap"]).unwrap();
+        assert!(matches!(args.card_assembly, CardAssemblyArg::Swap));
     }
 }

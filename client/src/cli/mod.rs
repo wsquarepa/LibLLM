@@ -156,6 +156,9 @@ pub struct CliOverrides {
     pub sampling: SamplingOverrides,
     pub system_prompt: Option<String>,
     pub persona: Option<String>,
+    pub author_note: Option<String>,
+    pub author_note_depth: Option<u32>,
+    pub author_note_at_top: Option<bool>,
     pub no_summarize: bool,
     pub auth_type: Option<libllm::config::AuthKind>,
     pub auth_basic_username: Option<String>,
@@ -213,6 +216,18 @@ pub struct Args {
     /// User persona to use (requires -c)
     #[arg(short = 'p', long, requires = "character")]
     pub persona: Option<String>,
+
+    /// Author's note text (overrides session-level note, read-only in dialog)
+    #[arg(long)]
+    pub note: Option<String>,
+
+    /// Author's note depth — messages from end to inject at (requires --note)
+    #[arg(long, requires = "note")]
+    pub note_depth: Option<u32>,
+
+    /// Pin author's note just below the system prompt (requires --note)
+    #[arg(long, requires = "note")]
+    pub note_top: bool,
 
     /// API base URL (without /completions suffix)
     #[arg(long, env = "LIBLLM_API_URL")]
@@ -321,6 +336,9 @@ impl Args {
             sampling: self.sampling_overrides(),
             system_prompt: self.system_prompt.clone(),
             persona: self.persona.as_deref().map(libllm::character::slugify),
+            author_note: self.note.clone(),
+            author_note_depth: self.note_depth,
+            author_note_at_top: if self.note_top { Some(true) } else { None },
             no_summarize: self.no_summarize,
             auth_type: self.auth_type.map(Into::into),
             auth_basic_username: self.auth_basic_username.clone(),

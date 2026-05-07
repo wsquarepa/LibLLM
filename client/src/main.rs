@@ -215,6 +215,18 @@ async fn main() -> Result<()> {
                 .map(|p| p.content);
         }
 
+        if let Some(ref text) = args.note {
+            if text.trim().is_empty() {
+                session.author_note = None;
+            } else {
+                session.author_note = Some(libllm::author_note::AuthorNote {
+                    text: text.clone(),
+                    depth: args.note_depth.unwrap_or(4),
+                    at_top: args.note_top,
+                });
+            }
+        }
+
         if let Some(ref char_arg) = args.character {
             let card = libllm::timed_result!(
                 tracing::Level::INFO,

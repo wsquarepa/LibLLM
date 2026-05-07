@@ -312,7 +312,18 @@ fn cmd_note(app: &mut App) {
     let pin_value = if at_top { "true" } else { "false" }.to_owned();
     let values = vec![text, depth, pin_value];
 
-    app.author_note_editor = Some(dialogs::open_author_note_editor(values));
+    let mut dialog = dialogs::open_author_note_editor(values);
+    if app.cli_overrides.author_note.is_some() {
+        let mut locks = vec![0_usize];
+        if app.cli_overrides.author_note_depth.is_some() {
+            locks.push(1);
+        }
+        if app.cli_overrides.author_note_at_top.is_some() {
+            locks.push(2);
+        }
+        dialog = dialog.with_locked_fields(locks);
+    }
+    app.author_note_editor = Some(dialog);
     app.focus = Focus::AuthorNoteEditorDialog;
 }
 

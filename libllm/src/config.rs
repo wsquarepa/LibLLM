@@ -319,6 +319,8 @@ pub struct Config {
     pub auth: Auth,
     #[serde(default)]
     pub files: FilesConfig,
+    #[serde(default)]
+    pub group_chat: GroupChatConfig,
 }
 
 const DEFAULT_SUMMARIZATION_PROMPT: &str = "Summarize the following conversation. Preserve key decisions, important details, character information, and narrative developments. Be concise but comprehensive.";
@@ -513,6 +515,37 @@ impl Default for FilesConfig {
             summarize_mode: FileSummarizeMode::Eager,
             summary_prompt: DEFAULT_FILES_SUMMARY_PROMPT.to_owned(),
         }
+    }
+}
+
+fn default_max_consecutive_turns() -> u32 {
+    6
+}
+
+/// Group-chat orchestration settings, nested under `[group_chat]` in config.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupChatConfig {
+    #[serde(default = "default_max_consecutive_turns")]
+    pub max_consecutive_turns: u32,
+}
+
+impl Default for GroupChatConfig {
+    fn default() -> Self {
+        Self { max_consecutive_turns: default_max_consecutive_turns() }
+    }
+}
+
+impl GroupChatConfig {
+    /// Clamp `max_consecutive_turns` into `[1, 50]` at read time. Emits a warn when
+    /// the stored value is out of range.
+    pub fn effective_max_consecutive_turns(&self) -> u32 {
+        if !(1..=50).contains(&self.max_consecutive_turns) {
+            tracing::warn!(
+                value = self.max_consecutive_turns,
+                "group_chat.max_consecutive_turns out of range [1, 50]; clamping",
+            );
+        }
+        self.max_consecutive_turns.clamp(1, 50)
     }
 }
 
@@ -1527,5 +1560,33 @@ summary_prompt = "custom prompt"
         assert_eq!(config.files.per_file_bytes, defaults.per_file_bytes);
         assert_eq!(config.files.per_message_bytes, defaults.per_message_bytes);
         assert_eq!(config.files.summary_prompt, defaults.summary_prompt);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_default_is_six() {
+        let cfg = super::GroupChatConfig::default();
+        assert_eq!(cfg.effective_max_consecutive_turns(), 6);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_clamps_zero_to_one() {
+        let cfg = super::GroupChatConfig { max_consecutive_turns: 0 };
+        assert_eq!(cfg.effective_max_consecutive_turns(), 1);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_clamps_over_max() {
+        let cfg = super::GroupChatConfig { max_consecutive_turns: 51 };
+        assert_eq!(cfg.effective_max_consecutive_turns(), 50);
+        let cfg = super::GroupChatConfig { max_consecutive_turns: u32::MAX };
+        assert_eq!(cfg.effective_max_consecutive_turns(), 50);
+    }
+
+    #[test]
+    fn effective_max_consecutive_turns_in_range_passthrough() {
+        for v in [1u32, 2, 6, 25, 50] {
+            let cfg = super::GroupChatConfig { max_consecutive_turns: v };
+            assert_eq!(cfg.effective_max_consecutive_turns(), v);
+        }
     }
 }

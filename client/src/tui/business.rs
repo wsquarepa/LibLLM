@@ -482,6 +482,7 @@ pub fn apply_tabbed_config_fields(
                 None => libllm::config::FilesConfig::default().summary_prompt,
             },
         },
+        group_chat: existing.group_chat,
     };
 
     libllm::config::save(&cfg)

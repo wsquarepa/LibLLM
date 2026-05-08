@@ -169,6 +169,12 @@ pub(in crate::tui) fn build_rendered_prompt_continuation(
 
 /// Same as `build_rendered_prompt` but overrides the system prompt with `system`. Used by
 /// the group-chat path where `build_turn_prompt` supplies the speaker-specific system prompt.
+///
+/// Renders in continuation mode: the last assistant message holds the speaker-name prefill
+/// (e.g. `Alice: `), and the model is meant to extend it. Using `render` here would close
+/// the assistant turn with `output_suffix` (e.g. `<|im_end|>`), which forces the model to
+/// open a fresh turn after a system instruction it just received — the path that produces
+/// "Understood. I will follow..." preambles.
 fn build_rendered_prompt_with_system(
     app: &crate::tui::App,
     dropped: usize,
@@ -176,7 +182,7 @@ fn build_rendered_prompt_with_system(
 ) -> (String, usize) {
     let system = system.to_owned();
     build_rendered_prompt_common(app, dropped, move |preset, refs, _| {
-        preset.render(refs, Some(&system))
+        preset.render_continuation(refs, Some(&system))
     })
 }
 
@@ -490,23 +496,19 @@ pub(in crate::tui) async fn continue_group_chat_loop(
         return;
     }
 
-    let decision = match libllm::group_chat::decide_next_speaker(
+    let (decision, yield_after_turn) = match libllm::group_chat::decide_next_speaker(
         &app.session.characters,
         app.session.chat_policy,
         rng,
     ) {
-        Some(d) => d,
+        Some(d) => (d, false),
         None if app.group_chat_consecutive == 0 => {
-            match libllm::group_chat::force_step(
-                &app.session.characters,
-                app.session.chat_policy,
-                rng,
-            ) {
+            match libllm::group_chat::pick_random_speaker(&app.session.characters, rng) {
                 Some(d) => {
                     tracing::debug!(
-                        "group_chat: no speaker over threshold; forcing first-turn speaker"
+                        "group_chat: no speaker over threshold; picking one at random and yielding after"
                     );
-                    d
+                    (d, true)
                 }
                 None => {
                     app.group_chat_loop_rng = None;
@@ -531,6 +533,9 @@ pub(in crate::tui) async fn continue_group_chat_loop(
     let speaker_slug = decision.speaker_slug.clone();
 
     app.group_chat_consecutive += 1;
+    if yield_after_turn {
+        app.group_chat_loop_rng = None;
+    }
     run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
 }
 

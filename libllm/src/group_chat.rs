@@ -370,9 +370,16 @@ fn weighted_pick(candidates: &[usize], characters: &[CharacterAttachment], rng: 
     *candidates.last().expect("non-empty by guard")
 }
 
-pub fn force_step(
+/// Uniformly random fallback when no character is over the action-point threshold.
+///
+/// Mirrors `decide_next_speaker`'s arithmetic (apply +talkativeness, subtract one
+/// `ACTION_POINT_COST` from the chosen speaker), but selects the speaker uniformly
+/// at random instead of by AP. Callers must yield to the user after running the
+/// returned turn — chaining this into another `decide_next_speaker` call lets the
+/// non-chosen characters' freshly-incremented AP cross the threshold and produce a
+/// second back-to-back turn from a single user message.
+pub fn pick_random_speaker(
     characters: &[CharacterAttachment],
-    policy: ChatPolicy,
     rng: &mut impl Rng,
 ) -> Option<TurnDecision> {
     if characters.is_empty() {
@@ -389,31 +396,16 @@ pub fn force_step(
         .map(|a| (a.slug.clone(), a.action_points + a.talkativeness))
         .collect();
 
-    let max_ap = updated
-        .iter()
-        .map(|(_, ap)| *ap)
-        .fold(f32::NEG_INFINITY, f32::max);
-
-    let candidates: Vec<usize> = updated
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, ap))| (*ap - max_ap).abs() < 1e-6)
-        .map(|(i, _)| i)
-        .collect();
-
-    let chosen = if candidates.len() == 1 {
-        candidates[0]
-    } else {
-        match policy {
-            ChatPolicy::RoundRobin => candidates[0],
-            ChatPolicy::WeightedRandom => weighted_pick(&candidates, characters, rng),
-        }
-    };
+    let chosen = rng.random_range(0..characters.len());
 
     let chosen_slug = updated[chosen].0.clone();
     updated[chosen].1 -= ACTION_POINT_COST;
 
-    Some(TurnDecision { speaker_slug: chosen_slug, updated_action_points: updated, snapshot_before })
+    Some(TurnDecision {
+        speaker_slug: chosen_slug,
+        updated_action_points: updated,
+        snapshot_before,
+    })
 }
 
 #[cfg(test)]
@@ -646,29 +638,81 @@ mod tests {
     }
 
     #[test]
-    fn force_step_advances_even_when_no_one_eligible() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.3, 0.0), att("b", 0.1, 0.0)];
-        let d = force_step(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
-        assert_eq!(d.speaker_slug, "a");
-        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        assert!((new_a - (-0.7)).abs() < 1e-5, "a paid 1.0 from 0.3 → -0.7");
-    }
-
-    #[test]
-    fn force_step_returns_none_for_empty_characters() {
+    fn pick_random_speaker_returns_none_for_empty_characters() {
         let mut rng = StdRng::seed_from_u64(0);
         let cs: Vec<CharacterAttachment> = vec![];
-        assert!(force_step(&cs, ChatPolicy::RoundRobin, &mut rng).is_none());
+        assert!(pick_random_speaker(&cs, &mut rng).is_none());
     }
 
     #[test]
-    fn force_step_picks_highest_ap_candidate() {
+    fn pick_random_speaker_applies_increment_and_cost() {
         let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.2, 0.1), att("b", 0.5, 0.6)];
-        // After increment: a=0.3, b=1.1. Max is b.
-        let d = force_step(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
-        assert_eq!(d.speaker_slug, "b");
+        let cs = vec![att("a", 0.3, 0.0), att("b", 0.1, 0.0)];
+        let d = pick_random_speaker(&cs, &mut rng).unwrap();
+
+        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
+        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
+
+        match d.speaker_slug.as_str() {
+            "a" => {
+                assert!((new_a - (-0.7)).abs() < 1e-5, "a should pay 1.0 from 0.3 → -0.7");
+                assert!((new_b - 0.1).abs() < 1e-5, "b should only get +0.1 increment");
+            }
+            "b" => {
+                assert!((new_a - 0.3).abs() < 1e-5, "a should only get +0.3 increment");
+                assert!((new_b - (-0.9)).abs() < 1e-5, "b should pay 1.0 from 0.1 → -0.9");
+            }
+            other => panic!("unexpected speaker: {other}"),
+        }
+    }
+
+    #[test]
+    fn pick_random_speaker_snapshot_before_captures_pre_increment_state() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.5, 0.5), att("b", 0.5, 0.7)];
+        let d = pick_random_speaker(&cs, &mut rng).unwrap();
+        assert!((d.snapshot_before["a"] - 0.5).abs() < 1e-5);
+        assert!((d.snapshot_before["b"] - 0.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn pick_random_speaker_distribution_is_uniform() {
+        let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut counts = [0u32; 3];
+        for _ in 0..3000 {
+            let d = pick_random_speaker(&cs, &mut rng).unwrap();
+            match d.speaker_slug.as_str() {
+                "a" => counts[0] += 1,
+                "b" => counts[1] += 1,
+                "c" => counts[2] += 1,
+                other => panic!("unexpected speaker: {other}"),
+            }
+        }
+        for &n in &counts {
+            assert!(
+                (800..=1200).contains(&n),
+                "expected ~1000 each for uniform pick, got {counts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pick_random_speaker_ignores_talkativeness_weighting() {
+        // Loud character has 4x talkativeness but should still be picked uniformly.
+        let cs = vec![att("loud", 0.9, 0.0), att("quiet", 0.2, 0.0)];
+        let mut rng = StdRng::seed_from_u64(1234);
+        let mut loud_count = 0;
+        for _ in 0..2000 {
+            let d = pick_random_speaker(&cs, &mut rng).unwrap();
+            if d.speaker_slug == "loud" {
+                loud_count += 1;
+            }
+        }
+        assert!(
+            (800..=1200).contains(&loud_count),
+            "uniform pick should be ~1000/2000 regardless of talkativeness, got {loud_count}"
+        );
     }
 
     #[test]

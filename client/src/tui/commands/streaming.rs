@@ -167,8 +167,10 @@ pub(in crate::tui) fn build_rendered_prompt_continuation(
     })
 }
 
-/// Same as `build_rendered_prompt` but overrides the system prompt with `system`. Used by
-/// the group-chat path where `build_turn_prompt` supplies the speaker-specific system prompt.
+/// Same as `build_rendered_prompt` but overrides the system prompt with `system` and
+/// optionally injects a short `nudge` system message immediately before the assistant
+/// prefill. Used by the group-chat path where `build_turn_prompt` supplies the
+/// speaker-specific system prompt and group nudge.
 ///
 /// Renders in continuation mode: the last assistant message holds the speaker-name prefill
 /// (e.g. `Alice: `), and the model is meant to extend it. Using `render` here would close
@@ -179,10 +181,46 @@ fn build_rendered_prompt_with_system(
     app: &crate::tui::App,
     dropped: usize,
     system: &str,
+    nudge: Option<&str>,
 ) -> (String, usize) {
     let system = system.to_owned();
-    build_rendered_prompt_common(app, dropped, move |preset, refs, _| {
+    let nudge = nudge.map(str::to_owned);
+    build_rendered_prompt_common_with_nudge(app, dropped, nudge, move |preset, refs, _| {
         preset.render_continuation(refs, Some(&system))
+    })
+}
+
+/// Variant of `build_rendered_prompt_common` that inserts a `Role::System` message
+/// containing `nudge` immediately before the last branch message (the assistant
+/// prefill, in the group-chat path) before passing the message list to `render`.
+/// Mirrors SillyTavern's `groupNudge` injection (`openai.js:1361-1375`,
+/// `group-chats.js:114`): the nudge sits between the user's last turn and the
+/// assistant's turn opener, naming the active speaker.
+fn build_rendered_prompt_common_with_nudge<F>(
+    app: &crate::tui::App,
+    dropped: usize,
+    nudge: Option<String>,
+    render: F,
+) -> (String, usize)
+where
+    F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
+{
+    build_rendered_prompt_common(app, dropped, |preset, refs, sys| {
+        let Some(nudge_text) = nudge.as_deref() else {
+            return render(preset, refs, sys);
+        };
+        let nudge_msg = libllm::session::Message::new(
+            libllm::session::Role::System,
+            nudge_text.to_owned(),
+        );
+        let mut with_nudge: Vec<&libllm::session::Message> = refs.to_vec();
+        if with_nudge.is_empty() {
+            with_nudge.push(&nudge_msg);
+        } else {
+            let last_idx = with_nudge.len() - 1;
+            with_nudge.insert(last_idx, &nudge_msg);
+        }
+        render(preset, &with_nudge, sys)
     })
 }
 
@@ -356,6 +394,7 @@ async fn stream_into_message(
     app: &mut App<'_>,
     system: String,
     stop_sequences: Vec<String>,
+    nudge: Option<String>,
     sender: mpsc::Sender<StreamToken>,
 ) {
     app.mark_session_dirty(SaveTrigger::Debounced, false);
@@ -376,7 +415,9 @@ async fn stream_into_message(
     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
     let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
 
-    let render = |k: usize| -> String { build_rendered_prompt_with_system(app, k, &system).0 };
+    let render = |k: usize| -> String {
+        build_rendered_prompt_with_system(app, k, &system, nudge.as_deref()).0
+    };
 
     let dropped = match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
         Ok(k) => k,
@@ -390,7 +431,7 @@ async fn stream_into_message(
         }
     };
 
-    let prompt = build_rendered_prompt_with_system(app, dropped, &system).0;
+    let prompt = build_rendered_prompt_with_system(app, dropped, &system, nudge.as_deref()).0;
     let sampling = app.sampling.clone();
 
     tracing::info!(
@@ -431,13 +472,18 @@ pub(super) async fn run_one_group_turn(
         .as_ref()
         .and_then(|slug| app.db.as_ref().and_then(|db| db.load_persona(slug).ok()));
 
-    let prompt = match libllm::group_chat::build_turn_prompt(
-        app.session,
-        &app.character_cards_cache,
-        persona.as_ref(),
-        Some(&template),
+    let base_system_prompt = app.session.system_prompt.clone();
+    let nudge_template = app.config.group_chat.nudge_prompt.clone();
+
+    let prompt = match libllm::group_chat::build_turn_prompt(libllm::group_chat::TurnPromptInputs {
+        session: app.session,
+        cards: &app.character_cards_cache,
+        persona: persona.as_ref(),
+        template: Some(&template),
         speaker_slug,
-    ) {
+        base_system_prompt: base_system_prompt.as_deref(),
+        nudge_template: Some(nudge_template.as_str()),
+    }) {
         Ok(p) => p,
         Err(e) => {
             app.set_status(
@@ -462,7 +508,14 @@ pub(super) async fn run_one_group_turn(
     let parent_id = app.session.tree.head();
     app.session.tree.push(parent_id, assistant_msg);
 
-    stream_into_message(app, prompt.system, prompt.stop_sequences, sender.clone()).await;
+    stream_into_message(
+        app,
+        prompt.system,
+        prompt.stop_sequences,
+        prompt.nudge,
+        sender.clone(),
+    )
+    .await;
 }
 
 /// Initializes the group-chat action-point loop state and starts the first turn.

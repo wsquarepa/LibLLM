@@ -90,106 +90,149 @@ pub struct TurnPrompt {
     pub system: String,
     pub prefill: String,
     pub stop_sequences: Vec<String>,
+    /// Optional short system message to inject between the last chat message and the
+    /// assistant prefill (e.g. `[Write the next reply only as Alice.]`). Mirrors
+    /// SillyTavern's `group_nudge_prompt` (openai.js:114). The renderer is responsible
+    /// for emitting this as a `Role::System` block immediately before the assistant turn.
+    pub nudge: Option<String>,
 }
 
-pub fn build_turn_prompt(
-    session: &Session,
-    cards: &HashMap<String, CharacterCard>,
-    persona: Option<&PersonaFile>,
-    template: Option<&ContextPreset>,
-    speaker_slug: &str,
-) -> Result<TurnPrompt> {
-    ensure!(
-        session.characters.iter().any(|a| a.slug == speaker_slug),
-        "speaker {speaker_slug} is not attached to this session",
-    );
-    let active_card = cards
-        .get(speaker_slug)
-        .ok_or_else(|| anyhow!("missing card for speaker {speaker_slug}"))?;
+/// Inputs to `build_turn_prompt`. Bundled into a struct so callers don't have to track a
+/// long positional argument list, and so future additions don't churn every call site.
+pub struct TurnPromptInputs<'a> {
+    pub session: &'a Session,
+    pub cards: &'a HashMap<String, CharacterCard>,
+    pub persona: Option<&'a PersonaFile>,
+    pub template: Option<&'a ContextPreset>,
+    pub speaker_slug: &'a str,
+    /// User-configured roleplay prompt, used as the `{{system}}` slot in the context
+    /// preset template (the same role `power_user.sysprompt.content` plays in
+    /// SillyTavern). `None` or empty leaves the system slot empty.
+    pub base_system_prompt: Option<&'a str>,
+    /// Group nudge template with `{{char}}` / `{{user}}` macros.
+    /// `None` or empty disables the nudge entirely.
+    pub nudge_template: Option<&'a str>,
+}
 
-    let live: Vec<(&str, &CharacterCard)> = session
+/// Builds the per-turn prompt for one group-chat speaker.
+///
+/// Structure mirrors SillyTavern's text-completion flow (see script.js:5073-5145 +
+/// group-chats.js:497-571): the user's roleplay prompt fills the `{{system}}` slot,
+/// the active speaker's card (or all members joined for `JoinCards`) fills
+/// `{{description}}` / `{{personality}}` / `{{scenario}}` / `{{mesExamples}}`, and
+/// the persona text fills `{{persona}}`. A short nudge naming the active speaker is
+/// returned separately so the caller can inject it as a system message immediately
+/// before the assistant turn opens. `{{char}}` and `{{user}}` macros are substituted
+/// throughout.
+pub fn build_turn_prompt(inputs: TurnPromptInputs<'_>) -> Result<TurnPrompt> {
+    ensure!(
+        inputs
+            .session
+            .characters
+            .iter()
+            .any(|a| a.slug == inputs.speaker_slug),
+        "speaker {} is not attached to this session",
+        inputs.speaker_slug,
+    );
+    let active_card = inputs
+        .cards
+        .get(inputs.speaker_slug)
+        .ok_or_else(|| anyhow!("missing card for speaker {}", inputs.speaker_slug))?;
+
+    let live: Vec<(&str, &CharacterCard)> = inputs
+        .session
         .characters
         .iter()
-        .filter_map(|a| cards.get(&a.slug).map(|c| (a.slug.as_str(), c)))
+        .filter_map(|a| inputs.cards.get(&a.slug).map(|c| (a.slug.as_str(), c)))
         .collect();
 
-    let user_name = persona.map(|p| p.name.as_str()).unwrap_or("User");
-    let user_text = persona.map(|p| p.persona.as_str()).unwrap_or("");
+    let user_name = inputs.persona.map(|p| p.name.as_str()).unwrap_or("User");
+    let user_text = inputs.persona.map(|p| p.persona.as_str()).unwrap_or("");
+    let active_name = active_card.name.as_str();
 
-    let other_names: Vec<&str> = live
-        .iter()
-        .filter(|(slug, _)| *slug != speaker_slug)
-        .map(|(_, c)| c.name.as_str())
-        .collect();
-
-    let characters_block = render_characters_block(&live, speaker_slug, session.card_assembly);
-    let roster_block = render_roster_block(&live, speaker_slug, session.card_assembly);
-    let scene_block = render_scene_block(&live);
-    let user_block = user_text.to_owned();
-    let examples_block = render_examples_block(&live, speaker_slug, session.card_assembly);
-
-    let opening = "You are running a group roleplay scene with multiple characters. On this turn you will reply as exactly one character, named below. Stay strictly in that character. Do not narrate, quote, or speak as any other character or as the user. Reply with one message in the named character's voice and stop.";
-    let others_clause = if other_names.is_empty() {
-        "any other character".to_owned()
-    } else {
-        other_names.join(", ")
+    // Resolve description / personality / scenario / mes_examples per card-assembly mode.
+    // Mirrors SillyTavern's `getGroupCharacterCardsLazy` (group-chats.js:497):
+    // SwapCards (~ ST SWAP) uses the active speaker's card alone; JoinCards (~ ST APPEND)
+    // joins each member's field with a `[<Label> for <Name>]` header on its own line,
+    // then the field content. The header is required: without name binding the model
+    // can't tell which trait belongs to which character, and tends to fall into omniscient
+    // narration of the group rather than speaking as the active character.
+    // SillyTavern exposes this header as the user-configurable
+    // `generation_mode_join_prefix` (default empty); we hardcode a sensible default.
+    // mes_example is joined raw — character-name prefixing inside dialogue lines is
+    // the card author's responsibility, matching the TavernAI v2 card spec.
+    let (description, personality, scenario, mes_examples) = match inputs.session.card_assembly {
+        CardAssembly::SwapCards => (
+            active_card.description.clone(),
+            active_card.personality.clone(),
+            active_card.scenario.clone(),
+            active_card.mes_example.clone(),
+        ),
+        CardAssembly::JoinCards => (
+            join_field_labeled(&live, "Description", |c| c.description.as_str()),
+            join_field_labeled(&live, "Personality", |c| c.personality.as_str()),
+            join_field_labeled(&live, "Scenario", |c| c.scenario.as_str()),
+            join_field_raw(&live, |c| c.mes_example.as_str()),
+        ),
     };
-    let closing = format!(
-        "You are now {active}. Reply as {active} in one message. Do not write as {others_clause} or {user_name}. Do not narrate other characters' actions or dialogue. End the message naturally; do not write another character's name on a new line.",
-        active = active_card.name,
-    );
 
-    let system = if let Some(tpl) = template {
+    let subst = |s: &str| crate::template::apply_template_vars(s, active_name, user_name);
+
+    let system_text = inputs.base_system_prompt.map(subst).unwrap_or_default();
+
+    let body = if let Some(tpl) = inputs.template {
+        let other_names: Vec<&str> = live
+            .iter()
+            .filter(|(s, _)| *s != inputs.speaker_slug)
+            .map(|(_, c)| c.name.as_str())
+            .collect();
         let vars = crate::preset::ContextVars {
-            system: opening.to_owned(),
-            description: String::new(),
-            personality: String::new(),
-            scenario: scene_block.clone(),
-            persona: user_block.clone(),
+            system: system_text,
+            description: subst(&description),
+            personality: subst(&personality),
+            scenario: subst(&scenario),
+            persona: subst(user_text),
             wi_before: String::new(),
             wi_after: String::new(),
-            mes_examples: examples_block.clone(),
-            characters_block: characters_block.clone(),
-            roster_block: roster_block.clone(),
-            active_speaker: active_card.name.clone(),
+            mes_examples: subst(&mes_examples),
+            // Legacy XML slots intentionally left empty: pre-rewrite presets that
+            // referenced {{characters_block}} / {{roster_block}} now resolve to nothing.
+            characters_block: String::new(),
+            roster_block: String::new(),
+            active_speaker: active_name.to_owned(),
             other_speakers: other_names.join(", "),
         };
-        let body = tpl.render_story_string(&vars);
-        let mut parts = vec![body];
-        if !characters_block.is_empty() && !parts[0].contains(&characters_block) {
-            parts.push(characters_block.clone());
-        }
-        if !roster_block.is_empty() && !parts[0].contains(&roster_block) {
-            parts.push(roster_block.clone());
-        }
-        parts.push(format!("<active_speaker>{}</active_speaker>", active_card.name));
-        parts.push(closing.clone());
-        parts.join("\n\n")
+        tpl.render_story_string(&vars)
     } else {
-        let mut parts = vec![opening.to_owned()];
-        if !scene_block.is_empty() {
-            parts.push(format!("<scene>\n{scene_block}\n</scene>"));
+        // No template: simple newline-joined sections. Each section is independently
+        // optional so empty fields don't introduce blank lines.
+        let mut parts: Vec<String> = Vec::new();
+        if !system_text.is_empty() {
+            parts.push(system_text);
         }
-        parts.push(characters_block.clone());
-        if !roster_block.is_empty() {
-            parts.push(roster_block.clone());
+        if !description.is_empty() {
+            parts.push(subst(&description));
         }
-        if !user_block.is_empty() {
-            parts.push(format!("<user name=\"{user_name}\">\n{user_block}\n</user>"));
+        if !personality.is_empty() {
+            parts.push(subst(&personality));
         }
-        if !examples_block.is_empty() {
-            parts.push(format!("<examples>\n{examples_block}\n</examples>"));
+        if !scenario.is_empty() {
+            parts.push(subst(&scenario));
         }
-        parts.push(format!("<active_speaker>{}</active_speaker>", active_card.name));
-        parts.push(closing);
-        parts.join("\n\n")
+        if !user_text.is_empty() {
+            parts.push(subst(user_text));
+        }
+        if !mes_examples.is_empty() {
+            parts.push(subst(&mes_examples));
+        }
+        parts.join("\n")
     };
 
-    let prefill = format!("{}: ", active_card.name);
+    let prefill = format!("{active_name}: ");
 
     let mut stop_sequences: Vec<String> = Vec::new();
     for (slug, card) in &live {
-        if *slug == speaker_slug {
+        if *slug == inputs.speaker_slug {
             continue;
         }
         stop_sequences.push(format!("\n{}:", card.name));
@@ -197,100 +240,46 @@ pub fn build_turn_prompt(
     }
     stop_sequences.push(format!("\n{user_name}:"));
     stop_sequences.push(format!("\n[{user_name}]:"));
-    stop_sequences.push("\n</".to_owned());
 
-    Ok(TurnPrompt { system, prefill, stop_sequences })
+    let nudge = inputs.nudge_template.and_then(|t| {
+        let s = subst(t);
+        if s.is_empty() { None } else { Some(s) }
+    });
+
+    Ok(TurnPrompt {
+        system: body,
+        prefill,
+        stop_sequences,
+        nudge,
+    })
 }
 
-fn render_characters_block(
-    live: &[(&str, &CharacterCard)],
-    speaker_slug: &str,
-    mode: CardAssembly,
-) -> String {
-    let included: Vec<&(&str, &CharacterCard)> = match mode {
-        CardAssembly::JoinCards => live.iter().collect(),
-        CardAssembly::SwapCards => live.iter().filter(|(slug, _)| *slug == speaker_slug).collect(),
-    };
-    let mut out = String::from("<characters>\n");
-    for (_slug, card) in included {
-        out.push_str(&format!("  <character name=\"{}\">\n", card.name));
-        if !card.description.is_empty() {
-            out.push_str(&format!("    <description>{}</description>\n", card.description));
-        }
-        if !card.personality.is_empty() {
-            out.push_str(&format!("    <personality>{}</personality>\n", card.personality));
-        }
-        out.push_str("  </character>\n");
-    }
-    out.push_str("</characters>");
-    out
+fn join_field_raw<F>(live: &[(&str, &CharacterCard)], get: F) -> String
+where
+    F: Fn(&CharacterCard) -> &str,
+{
+    live.iter()
+        .map(|(_, c)| get(c).trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
-fn render_roster_block(
-    live: &[(&str, &CharacterCard)],
-    speaker_slug: &str,
-    mode: CardAssembly,
-) -> String {
-    if !matches!(mode, CardAssembly::SwapCards) {
-        return String::new();
-    }
-    let others: Vec<&str> = live
-        .iter()
-        .filter(|(slug, _)| *slug != speaker_slug)
-        .map(|(_, c)| c.name.as_str())
-        .collect();
-    if others.is_empty() {
-        return String::new();
-    }
-    let mut out =
-        String::from("<roster>\nOther characters in this scene (do not speak as them):\n");
-    for name in others {
-        out.push_str(&format!("- {name}\n"));
-    }
-    out.push_str("</roster>");
-    out
-}
-
-fn render_scene_block(live: &[(&str, &CharacterCard)]) -> String {
-    let mut seen = std::collections::HashSet::new();
-    let mut parts = Vec::new();
-    for (_, c) in live {
-        if !c.scenario.is_empty() && seen.insert(c.scenario.as_str()) {
-            parts.push(c.scenario.clone());
-        }
-    }
-    parts.join("\n\n")
-}
-
-fn render_examples_block(
-    live: &[(&str, &CharacterCard)],
-    speaker_slug: &str,
-    mode: CardAssembly,
-) -> String {
-    let included: Vec<&(&str, &CharacterCard)> = match mode {
-        CardAssembly::JoinCards => live.iter().collect(),
-        CardAssembly::SwapCards => live.iter().filter(|(slug, _)| *slug == speaker_slug).collect(),
-    };
-    let mut parts = Vec::new();
-    for (_, card) in included {
-        if card.mes_example.is_empty() {
-            continue;
-        }
-        let prefixed: String = card
-            .mes_example
-            .lines()
-            .map(|l| {
-                if l.is_empty() {
-                    String::new()
-                } else {
-                    format!("{}: {}", card.name, l)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        parts.push(prefixed);
-    }
-    parts.join("\n\n")
+fn join_field_labeled<F>(live: &[(&str, &CharacterCard)], label: &str, get: F) -> String
+where
+    F: Fn(&CharacterCard) -> &str,
+{
+    live.iter()
+        .filter_map(|(_, c)| {
+            let v = get(c).trim();
+            if v.is_empty() {
+                None
+            } else {
+                Some(format!("[{label} for {}]\n{v}", c.name))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug)]
@@ -448,6 +437,22 @@ mod tests {
         }
     }
 
+    fn inputs<'a>(
+        session: &'a Session,
+        cards: &'a HashMap<String, CharacterCard>,
+        speaker: &'a str,
+    ) -> TurnPromptInputs<'a> {
+        TurnPromptInputs {
+            session,
+            cards,
+            persona: None,
+            template: None,
+            speaker_slug: speaker,
+            base_system_prompt: None,
+            nudge_template: None,
+        }
+    }
+
     #[test]
     fn build_turn_prompt_join_two_matches_fixture() {
         let cards = cards_map(&[
@@ -458,15 +463,15 @@ mod tests {
             ("bob", card("Bob", "A grumpy dwarf.", "Stoic.", "", "")),
         ]);
         let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
-        let p = build_turn_prompt(&session, &cards, None, None, "alice").unwrap();
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
         let expected = include_str!("group_chat_fixtures/join_two.txt");
         assert_eq!(p.system.trim(), expected.trim(), "system prompt mismatch");
         assert_eq!(p.prefill, "Alice: ");
         assert!(p.stop_sequences.contains(&"\nBob:".to_owned()));
         assert!(p.stop_sequences.contains(&"\n[Bob]:".to_owned()));
         assert!(p.stop_sequences.contains(&"\nUser:".to_owned()));
-        assert!(p.stop_sequences.contains(&"\n</".to_owned()));
         assert!(!p.stop_sequences.iter().any(|s| s == "\nAlice:"));
+        assert!(p.nudge.is_none(), "no nudge template configured");
     }
 
     #[test]
@@ -482,7 +487,11 @@ mod tests {
             name: "Trav".to_owned(),
             persona: "A traveler from the north.".to_owned(),
         };
-        let p = build_turn_prompt(&session, &cards, Some(&persona), None, "bob").unwrap();
+        let p = build_turn_prompt(TurnPromptInputs {
+            persona: Some(&persona),
+            ..inputs(&session, &cards, "bob")
+        })
+        .unwrap();
         let expected = include_str!("group_chat_fixtures/join_three.txt");
         assert_eq!(
             p.system.trim(),
@@ -499,7 +508,7 @@ mod tests {
     fn build_turn_prompt_speaker_not_attached_errors() {
         let cards = cards_map(&[("alice", card("Alice", "", "", "", ""))]);
         let session = fixture_session(&["alice"], CardAssembly::JoinCards);
-        let err = build_turn_prompt(&session, &cards, None, None, "ghost").unwrap_err();
+        let err = build_turn_prompt(inputs(&session, &cards, "ghost")).unwrap_err();
         assert!(err.to_string().contains("ghost"));
     }
 
@@ -507,8 +516,63 @@ mod tests {
     fn build_turn_prompt_missing_card_errors() {
         let cards = cards_map(&[]);
         let session = fixture_session(&["alice"], CardAssembly::JoinCards);
-        let err = build_turn_prompt(&session, &cards, None, None, "alice").unwrap_err();
+        let err = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap_err();
         assert!(err.to_string().contains("missing card"));
+    }
+
+    #[test]
+    fn build_turn_prompt_emits_nudge_with_macro_substitution() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "", "")),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let p = build_turn_prompt(TurnPromptInputs {
+            nudge_template: Some("[Write the next reply only as {{char}}.]"),
+            ..inputs(&session, &cards, "alice")
+        })
+        .unwrap();
+        assert_eq!(
+            p.nudge.as_deref(),
+            Some("[Write the next reply only as Alice.]"),
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_empty_nudge_template_yields_none() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "", "")),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let p = build_turn_prompt(TurnPromptInputs {
+            nudge_template: Some(""),
+            ..inputs(&session, &cards, "alice")
+        })
+        .unwrap();
+        assert!(p.nudge.is_none(), "empty nudge template should not emit a message");
+    }
+
+    #[test]
+    fn build_turn_prompt_substitutes_macros_in_system_prompt() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "", "")),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
+        let persona = crate::persona::PersonaFile {
+            name: "Trav".to_owned(),
+            persona: String::new(),
+        };
+        let p = build_turn_prompt(TurnPromptInputs {
+            persona: Some(&persona),
+            base_system_prompt: Some(
+                "You are {{char}} in a roleplay with {{user}}.",
+            ),
+            ..inputs(&session, &cards, "alice")
+        })
+        .unwrap();
+        assert_eq!(p.system.trim(), "You are Alice in a roleplay with Trav.");
     }
 
     fn att(slug: &str, talk: f32, ap: f32) -> CharacterAttachment {
@@ -777,24 +841,45 @@ mod tests {
     }
 
     #[test]
-    fn build_turn_prompt_swap_three_includes_only_active_card_and_roster() {
+    fn build_turn_prompt_swap_includes_only_active_card_fields() {
         let cards = cards_map(&[
             ("alice",   card("Alice",   "Bard.",   "Cheerful.", "A tavern.", "")),
             ("bob",     card("Bob",     "Dwarf.",  "Stoic.",    "",          "")),
             ("charlie", card("Charlie", "Wizard.", "Curious.",  "",          "")),
         ]);
         let session = fixture_session(&["alice", "bob", "charlie"], CardAssembly::SwapCards);
-        let p = build_turn_prompt(&session, &cards, None, None, "alice").unwrap();
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
         let expected = include_str!("group_chat_fixtures/swap_three.txt");
-        assert_eq!(p.system.trim(), expected.trim(),
-            "swap-three mismatch:\n--- got ---\n{}\n--- want ---\n{}", p.system, expected);
+        assert_eq!(
+            p.system.trim(),
+            expected.trim(),
+            "swap-three mismatch:\n--- got ---\n{}\n--- want ---\n{}",
+            p.system,
+            expected
+        );
 
-        assert!(p.system.contains("<character name=\"Alice\">"));
-        assert!(!p.system.contains("<character name=\"Bob\">"));
-        assert!(!p.system.contains("<character name=\"Charlie\">"));
-        assert!(p.system.contains("<roster>"));
-        assert!(p.system.contains("- Bob"));
-        assert!(p.system.contains("- Charlie"));
+        assert!(p.system.contains("Bard."));
+        assert!(p.system.contains("Cheerful."));
+        // SwapCards uses ONLY the active card; other members' fields must not appear.
+        assert!(!p.system.contains("Dwarf."));
+        assert!(!p.system.contains("Stoic."));
+        assert!(!p.system.contains("Wizard."));
+        assert!(!p.system.contains("Curious."));
+    }
+
+    #[test]
+    fn build_turn_prompt_join_combines_fields_across_members() {
+        let cards = cards_map(&[
+            ("alice",   card("Alice",   "Bard.",   "Cheerful.", "", "")),
+            ("bob",     card("Bob",     "Dwarf.",  "Stoic.",    "", "")),
+            ("charlie", card("Charlie", "Wizard.", "Curious.",  "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob", "charlie"], CardAssembly::JoinCards);
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        // Every member's description and personality is present.
+        for term in ["Bard.", "Dwarf.", "Wizard.", "Cheerful.", "Stoic.", "Curious."] {
+            assert!(p.system.contains(term), "missing {term:?} in: {}", p.system);
+        }
     }
 
     #[test]
@@ -804,87 +889,32 @@ mod tests {
             ("bob",   card("Bob",   "Dwarf.", "Stoic.", "", "")),
         ]);
         let session = fixture_session(&["alice", "bob", "ghost"], CardAssembly::JoinCards);
-        let p = build_turn_prompt(&session, &cards, None, None, "alice").unwrap();
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
         assert!(!p.system.contains("ghost"));
         assert!(!p.stop_sequences.iter().any(|s| s.contains("ghost")));
         assert!(!p.stop_sequences.iter().any(|s| s.contains("Ghost")));
     }
 
     #[test]
-    fn build_turn_prompt_template_without_characters_block_still_injects_it() {
+    fn build_turn_prompt_default_template_renders_persona_and_card_fields() {
         let cards = cards_map(&[
             ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
-            ("bob",   card("Bob",   "Dwarf.", "Stoic.", "",          "")),
-        ]);
-        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
-        let template = crate::preset::ContextPreset {
-            name: "no-roster".to_owned(),
-            story_string:
-                "{{#if system}}{{system}}\n{{/if}}{{#if persona}}{{persona}}\n{{/if}}{{trim}}"
-                    .to_owned(),
-            example_separator: String::new(),
-            chat_start: String::new(),
-            story_string_position: 0,
-            story_string_depth: 0,
-            story_string_role: 0,
-        };
-        let p = build_turn_prompt(&session, &cards, None, Some(&template), "alice").unwrap();
-        assert!(
-            p.system.contains("<character name=\"Alice\">"),
-            "characters block must appear even when template omits it: {}",
-            p.system,
-        );
-        assert!(
-            p.system.contains("<character name=\"Bob\">"),
-            "characters block must include all attached cards: {}",
-            p.system,
-        );
-        assert!(
-            p.system.contains("<active_speaker>Alice</active_speaker>"),
-            "active speaker tag missing: {}",
-            p.system,
-        );
-    }
-
-    #[test]
-    fn build_turn_prompt_template_with_characters_block_does_not_duplicate_it() {
-        let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
-            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "", "")),
-        ]);
-        let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
-        let template = crate::preset::ContextPreset {
-            name: "with-block".to_owned(),
-            story_string: "{{characters_block}}".to_owned(),
-            example_separator: String::new(),
-            chat_start: String::new(),
-            story_string_position: 0,
-            story_string_depth: 0,
-            story_string_role: 0,
-        };
-        let p = build_turn_prompt(&session, &cards, None, Some(&template), "alice").unwrap();
-        assert_eq!(
-            p.system.matches("<character name=\"Alice\">").count(),
-            1,
-            "characters block should not be duplicated: {}",
-            p.system,
-        );
-    }
-
-    #[test]
-    fn build_turn_prompt_template_with_persona_renders_persona_text() {
-        let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
-            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "", "")),
+            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "",          "")),
         ]);
         let session = fixture_session(&["alice", "bob"], CardAssembly::JoinCards);
         let persona = crate::persona::PersonaFile {
             name: "Trav".to_owned(),
             persona: "A traveler from the north.".to_owned(),
         };
+        // Mirrors the production "Default" template (story_string with `{{system}}`
+        // / `{{description}}` / `{{personality}}` / `{{scenario}}` / `{{persona}}`).
         let template = crate::preset::ContextPreset {
             name: "default-like".to_owned(),
-            story_string: "{{#if system}}{{system}}\n{{/if}}{{#if persona}}{{persona}}\n{{/if}}{{trim}}"
+            story_string: "{{#if system}}{{system}}\n{{/if}}\
+                {{#if description}}{{description}}\n{{/if}}\
+                {{#if personality}}{{personality}}\n{{/if}}\
+                {{#if scenario}}{{scenario}}\n{{/if}}\
+                {{#if persona}}{{persona}}\n{{/if}}{{trim}}"
                 .to_owned(),
             example_separator: String::new(),
             chat_start: String::new(),
@@ -892,12 +922,44 @@ mod tests {
             story_string_depth: 0,
             story_string_role: 0,
         };
-        let p = build_turn_prompt(&session, &cards, Some(&persona), Some(&template), "alice")
-            .unwrap();
+        let p = build_turn_prompt(TurnPromptInputs {
+            persona: Some(&persona),
+            template: Some(&template),
+            base_system_prompt: Some("You are {{char}} chatting with {{user}}."),
+            ..inputs(&session, &cards, "alice")
+        })
+        .unwrap();
         assert!(
-            p.system.contains("A traveler from the north."),
-            "persona text missing from system prompt: {}",
+            p.system.contains("You are Alice chatting with Trav."),
+            "system prompt with macros missing: {}",
             p.system,
         );
+        assert!(p.system.contains("A traveler from the north."));
+        assert!(p.system.contains("Bard."));
+        assert!(p.system.contains("Cheerful."));
+        assert!(p.system.contains("A tavern."));
+    }
+
+    #[test]
+    fn build_turn_prompt_substitutes_macros_in_card_fields() {
+        let cards = cards_map(&[
+            (
+                "alice",
+                card("Alice", "{{char}} runs the tavern.", "Friendly to {{user}}.", "", ""),
+            ),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"], CardAssembly::SwapCards);
+        let persona = crate::persona::PersonaFile {
+            name: "Trav".to_owned(),
+            persona: String::new(),
+        };
+        let p = build_turn_prompt(TurnPromptInputs {
+            persona: Some(&persona),
+            ..inputs(&session, &cards, "alice")
+        })
+        .unwrap();
+        assert!(p.system.contains("Alice runs the tavern."), "got: {}", p.system);
+        assert!(p.system.contains("Friendly to Trav."), "got: {}", p.system);
     }
 }

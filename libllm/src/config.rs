@@ -529,12 +529,25 @@ fn default_max_consecutive_turns() -> u32 {
 pub struct GroupChatConfig {
     #[serde(default = "default_max_consecutive_turns")]
     pub max_consecutive_turns: u32,
+    /// Short system message injected just before the assistant turn opens, naming the
+    /// active speaker. Mirrors SillyTavern's `group_nudge_prompt` (default
+    /// `[Write the next reply only as {{char}}.]`). Empty string disables.
+    /// `{{char}}` and `{{user}}` macros are substituted at prompt-build time.
+    #[serde(default = "default_group_nudge_prompt")]
+    pub nudge_prompt: String,
 }
 
 impl Default for GroupChatConfig {
     fn default() -> Self {
-        Self { max_consecutive_turns: default_max_consecutive_turns() }
+        Self {
+            max_consecutive_turns: default_max_consecutive_turns(),
+            nudge_prompt: default_group_nudge_prompt(),
+        }
     }
+}
+
+fn default_group_nudge_prompt() -> String {
+    "[Write the next reply only as {{char}}.]".to_owned()
 }
 
 impl GroupChatConfig {
@@ -1687,22 +1700,34 @@ summary_prompt = "custom prompt"
 
     #[test]
     fn effective_max_consecutive_turns_clamps_zero_to_one() {
-        let cfg = super::GroupChatConfig { max_consecutive_turns: 0 };
+        let cfg = super::GroupChatConfig {
+            max_consecutive_turns: 0,
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_max_consecutive_turns(), 1);
     }
 
     #[test]
     fn effective_max_consecutive_turns_clamps_over_max() {
-        let cfg = super::GroupChatConfig { max_consecutive_turns: 51 };
+        let cfg = super::GroupChatConfig {
+            max_consecutive_turns: 51,
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_max_consecutive_turns(), 50);
-        let cfg = super::GroupChatConfig { max_consecutive_turns: u32::MAX };
+        let cfg = super::GroupChatConfig {
+            max_consecutive_turns: u32::MAX,
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_max_consecutive_turns(), 50);
     }
 
     #[test]
     fn effective_max_consecutive_turns_in_range_passthrough() {
         for v in [1u32, 2, 6, 25, 50] {
-            let cfg = super::GroupChatConfig { max_consecutive_turns: v };
+            let cfg = super::GroupChatConfig {
+                max_consecutive_turns: v,
+                ..Default::default()
+            };
             assert_eq!(cfg.effective_max_consecutive_turns(), v);
         }
     }

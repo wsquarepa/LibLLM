@@ -1,25 +1,12 @@
-You are running a group roleplay scene with multiple characters. On this turn you will reply as exactly one character, named below. Stay strictly in that character. Do not narrate, quote, or speak as any other character or as the user. Reply with one message in the named character's voice and stop.
-
-<scene>
+[Description for Alice]
+A wandering bard.
+[Description for Bob]
+A grumpy dwarf.
+[Personality for Alice]
+Cheerful.
+[Personality for Bob]
+Stoic.
+[Scenario for Alice]
 A tavern.
-</scene>
-
-<characters>
-  <character name="Alice">
-    <description>A wandering bard.</description>
-    <personality>Cheerful.</personality>
-  </character>
-  <character name="Bob">
-    <description>A grumpy dwarf.</description>
-    <personality>Stoic.</personality>
-  </character>
-</characters>
-
-<examples>
-Alice: Hi!
-Alice: Good evening.
-</examples>
-
-<active_speaker>Alice</active_speaker>
-
-You are now Alice. Reply as Alice in one message. Do not write as Bob or User. Do not narrate other characters' actions or dialogue. End the message naturally; do not write another character's name on a new line.
+Hi!
+Good evening.

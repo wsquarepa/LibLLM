@@ -21,10 +21,16 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
 
     let mut lines: Vec<Line> = vec![Line::from("")];
 
+    let notches_total = libllm::group_chat::TALKATIVENESS_NOTCHES as usize;
+    let weights = libllm::group_chat::normalized_talkativeness(chars);
     for (idx, c) in chars.iter().enumerate() {
-        let bar_len = (c.talkativeness * 20.0).round() as usize;
-        let bar: String = "#".repeat(bar_len) + &".".repeat(20 - bar_len);
-        let row = format!("  {:<16} [{bar}] {:.2}", c.slug, c.talkativeness);
+        let filled = libllm::group_chat::talkativeness_to_notch(c.talkativeness) as usize;
+        let bar: String = "#".repeat(filled) + &".".repeat(notches_total - filled);
+        let percent = (weights.get(idx).copied().unwrap_or(0.0) * 100.0).round() as u32;
+        let row = format!(
+            "  {:<16} [{bar}] {}/{notches_total}  ({percent:>3}%)",
+            c.slug, filled,
+        );
         let style = if app.group_settings_selected == idx {
             Style::default()
                 .fg(Color::Cyan)
@@ -106,11 +112,11 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
             None
         }
         KeyCode::Left => {
-            adjust(app, -0.05);
+            adjust(app, -1);
             None
         }
         KeyCode::Right => {
-            adjust(app, 0.05);
+            adjust(app, 1);
             None
         }
         KeyCode::Enter => Some(Action::SaveGroupChatSettings),
@@ -118,7 +124,7 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
     }
 }
 
-fn adjust(app: &mut App, delta: f32) {
+fn adjust(app: &mut App, notch_delta: i32) {
     let char_count = app.session.characters.len();
     let policy_idx = char_count;
     let assembly_idx = policy_idx + 1;
@@ -133,8 +139,15 @@ fn adjust(app: &mut App, delta: f32) {
             );
             return;
         }
-        let v = (app.session.characters[i].talkativeness + delta).clamp(0.0, 1.0);
-        app.session.characters[i].talkativeness = v;
+        let current = libllm::group_chat::talkativeness_to_notch(
+            app.session.characters[i].talkativeness,
+        ) as i32;
+        let max = libllm::group_chat::TALKATIVENESS_NOTCHES as i32;
+        let new_notch = (current + notch_delta).clamp(0, max) as u8;
+        let new_talk = libllm::group_chat::notch_to_talkativeness(new_notch);
+        app.session.characters[i].talkativeness = new_talk;
+        app.session.characters[i].action_points =
+            libllm::group_chat::base_action_value(new_talk);
     } else if i == policy_idx {
         if app.cli_overrides.chat_policy.is_some() {
             app.set_status(

@@ -316,6 +316,7 @@ pub async fn run(
         group_chat_loop_rng: None,
         group_chat_consecutive: 0,
         group_chat_max_consecutive: 0,
+        group_chat_remaining_budget: 0.0,
     };
 
     business::load_active_persona(&mut app);
@@ -563,6 +564,31 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             " Up arrow to edit, Enter to send "
         };
         input_block = input_block.title_bottom(Line::from(hint).centered());
+    } else if app.session.characters.len() >= 2 {
+        let policy = match app.session.chat_policy {
+            libllm::group_chat::ChatPolicy::RoundRobin => "round-robin order",
+            libllm::group_chat::ChatPolicy::WeightedRandom => "weighted-random order",
+        };
+        let assembly = match app.session.card_assembly {
+            libllm::group_chat::CardAssembly::JoinCards => "joined cards",
+            libllm::group_chat::CardAssembly::SwapCards => "swapped cards",
+        };
+        let n = app.session.characters.len();
+        let broken = app
+            .session
+            .characters
+            .iter()
+            .filter(|c| !app.character_cards_cache.contains_key(&c.slug))
+            .count();
+        let chip = format!(" {n} chars · {policy} · {assembly} ");
+        let mut spans = vec![Span::styled(chip, Style::default().fg(app.theme.dimmed))];
+        if broken > 0 {
+            spans.push(Span::styled(
+                format!("{broken} missing "),
+                Style::default().fg(app.theme.missing_character_badge_fg),
+            ));
+        }
+        input_block = input_block.title_bottom(Line::from(spans).centered());
     }
     app.textarea.set_block(input_block);
     app.textarea.clear_custom_highlight();

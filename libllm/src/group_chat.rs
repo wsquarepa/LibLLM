@@ -1,18 +1,52 @@
-//! Group-chat runtime: per-session character attachments, action-point turn-order engine,
-//! and per-turn prompt assembly. Pure logic, no I/O.
+//! Group-chat runtime: per-session character attachments, Honkai-Star-Rail-style
+//! action-value turn-order engine (lower AV = sooner), and per-turn prompt assembly.
+//! Pure logic, no I/O.
+//!
+//! # Turn order
+//!
+//! Each character has a `talkativeness` value (treated as SPD) and an `action_points`
+//! value (the field name is historical; semantically it is an *action value* — time
+//! until the character's next turn). At each iteration of the cascade:
+//!
+//! 1. The character with the lowest `action_points` among those that haven't yet
+//!    spoken this round is selected.
+//! 2. Every character's `action_points` decreases by that minimum (the active
+//!    character thus reaches zero).
+//! 3. The active character speaks, then their `action_points` is reset to their
+//!    base action value, `BASE_ACTION_VALUE_NUMERATOR / talkativeness`.
+//!
+//! Characters who haven't spoken this round carry their reduced AVs into the next
+//! iteration; characters who already spoke have `spoke_this_round = true` and are
+//! filtered out until the user sends another message (which clears the flags and
+//! renormalizes AVs so the minimum is zero — this prevents long-term drift in
+//! magnitude).
 
 use serde::{Deserialize, Serialize};
 
 pub const MAX_GROUP_SIZE: usize = 8;
 pub const DEFAULT_TALKATIVENESS: f32 = 0.5;
-pub const ACTION_POINT_THRESHOLD: f32 = 1.0;
-pub const ACTION_POINT_COST: f32 = 1.0;
+/// SPD-to-period scaling constant. Mirrors HSR's `Base AV = 10000 / SPD`, scaled to
+/// our (talkativeness ∈ [0, 1]) range: with `numerator = 1`, a character at
+/// talkativeness 1.0 (the cap) has base AV 1.0; at 0.5, base AV 2.0; at 1/6, base AV 6.
+pub const BASE_ACTION_VALUE_NUMERATOR: f32 = 1.0;
+/// Talkativeness slider granularity. Six notches, mapping to talkativeness values
+/// 1/6, 2/6, ..., 6/6 (notch 0 mutes the character entirely).
+pub const TALKATIVENESS_NOTCHES: u8 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterAttachment {
     pub slug: String,
     pub talkativeness: f32,
+    /// Action value (HSR-style): time until this character's next turn. Lower = sooner.
+    /// Stored under the legacy column name `action_points` for back-compat; semantics
+    /// is action value, not action points. Migration v8 resets this column to zero on
+    /// upgrade, so any old AP-threshold values do not contaminate the new ordering.
     pub action_points: f32,
+    /// Transient: set when this character has already spoken since the most recent user
+    /// message. Cleared in `push_user_segments`. Not persisted across session reload —
+    /// reopening a chat starts a fresh round.
+    #[serde(default, skip)]
+    pub spoke_this_round: bool,
 }
 
 impl CharacterAttachment {
@@ -21,8 +55,52 @@ impl CharacterAttachment {
             slug: slug.into(),
             talkativeness: DEFAULT_TALKATIVENESS,
             action_points: 0.0,
+            spoke_this_round: false,
         }
     }
+}
+
+/// Computes a character's base action value (time until their next turn after they
+/// just acted). Mirrors HSR: faster characters (higher talkativeness) have shorter
+/// periods. A talkativeness of 0 returns `f32::INFINITY`, meaning the character is
+/// muted and will never be chosen by the turn-order engine.
+pub fn base_action_value(talkativeness: f32) -> f32 {
+    if talkativeness <= 0.0 {
+        f32::INFINITY
+    } else {
+        BASE_ACTION_VALUE_NUMERATOR / talkativeness
+    }
+}
+
+/// Normalizes raw talkativeness values so they sum to 1.0. Negatives are clamped to 0.
+/// If all weights are zero, returns a uniform distribution so callers always have a
+/// well-defined relative ratio. Used for the percentage display in the settings
+/// dialog and as the tiebreak weight when multiple eligible speakers share the same
+/// AV under `WeightedRandom` policy.
+pub fn normalized_talkativeness(characters: &[CharacterAttachment]) -> Vec<f32> {
+    if characters.is_empty() {
+        return Vec::new();
+    }
+    let raw: Vec<f32> = characters.iter().map(|c| c.talkativeness.max(0.0)).collect();
+    let sum: f32 = raw.iter().sum();
+    if sum <= 0.0 {
+        let n = characters.len() as f32;
+        return vec![1.0 / n; characters.len()];
+    }
+    raw.into_iter().map(|w| w / sum).collect()
+}
+
+/// Snaps a talkativeness value to the nearest notch in `[0, TALKATIVENESS_NOTCHES]`,
+/// returning that notch index and the canonical f32 value for it.
+pub fn talkativeness_to_notch(talkativeness: f32) -> u8 {
+    let scaled = (talkativeness.clamp(0.0, 1.0) * TALKATIVENESS_NOTCHES as f32).round();
+    (scaled as u8).min(TALKATIVENESS_NOTCHES)
+}
+
+/// Converts a notch index back into the canonical talkativeness f32 (notch/N).
+pub fn notch_to_talkativeness(notch: u8) -> f32 {
+    let n = notch.min(TALKATIVENESS_NOTCHES);
+    n as f32 / TALKATIVENESS_NOTCHES as f32
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -282,75 +360,121 @@ where
         .join("\n")
 }
 
+/// Default amount of conversation time that elapses for one user message. The fastest
+/// character (talkativeness 1.0, base AV 1.0) gets a turn each round; slower characters
+/// accumulate progress over multiple rounds and eventually speak.
+pub const DEFAULT_TURN_TIME_BUDGET: f32 = 1.0;
+
 #[derive(Debug)]
 pub struct TurnDecision {
     pub speaker_slug: String,
+    /// New action-value for every attached character after this turn fires. The chosen
+    /// speaker is reset to their base AV; everyone else has the minimum AV subtracted
+    /// from theirs (HSR-style time advance).
     pub updated_action_points: Vec<(String, f32)>,
+    /// Pre-turn snapshot of every character's action_value, recorded for the per-message
+    /// diff dialog. Mirrors the field name on the stored snapshot (`pre_turn_action_points`).
     pub snapshot_before: HashMap<String, f32>,
+    /// How much "conversation time" elapsed for this turn (i.e. the AV of the chosen
+    /// speaker before they acted). Callers subtract this from the per-cascade
+    /// remaining-time budget; when the next speaker's AV exceeds what's left, the
+    /// cascade yields to the user.
+    pub time_advanced: f32,
 }
 
+/// Picks the next speaker using HSR-style turn order. The caller passes the remaining
+/// per-cascade time budget; if the next eligible character's AV exceeds that budget,
+/// returns `None` (the cascade yields to the user). Passing `None` for `time_budget`
+/// disables the check, used for the **forced first turn** of each cascade so at least
+/// one character always speaks per user message.
+///
+/// Returns `None` when every attached character has already spoken this round
+/// (cascade complete). Characters with `talkativeness == 0` have `f32::INFINITY` base
+/// AV and effectively never speak unless they're the only non-spoken candidate and
+/// the budget is unbounded (the forced first turn).
 pub fn decide_next_speaker(
     characters: &[CharacterAttachment],
     policy: ChatPolicy,
     rng: &mut impl Rng,
+    time_budget: Option<f32>,
 ) -> Option<TurnDecision> {
     if characters.is_empty() {
         return None;
     }
 
-    let snapshot_before: HashMap<String, f32> = characters
-        .iter()
-        .map(|a| (a.slug.clone(), a.action_points))
-        .collect();
-
-    let mut updated: Vec<(String, f32)> = characters
-        .iter()
-        .map(|a| (a.slug.clone(), a.action_points + a.talkativeness))
-        .collect();
-
-    let candidates: Vec<usize> = updated
+    let eligible: Vec<usize> = characters
         .iter()
         .enumerate()
-        .filter(|(_, (_, ap))| *ap >= ACTION_POINT_THRESHOLD)
+        .filter(|(_, c)| !c.spoke_this_round)
         .map(|(i, _)| i)
         .collect();
-
-    if candidates.is_empty() {
+    if eligible.is_empty() {
         return None;
     }
 
-    let chosen_idx = match policy {
-        ChatPolicy::RoundRobin => candidates[0],
-        ChatPolicy::WeightedRandom => {
-            if candidates.len() == 1 {
-                candidates[0]
-            } else {
-                weighted_pick(&candidates, characters, rng)
+    let snapshot_before: HashMap<String, f32> = characters
+        .iter()
+        .map(|c| (c.slug.clone(), c.action_points))
+        .collect();
+
+    let min_av = eligible
+        .iter()
+        .map(|&i| characters[i].action_points)
+        .fold(f32::INFINITY, f32::min);
+
+    if let Some(budget) = time_budget
+        && min_av > budget
+    {
+        return None;
+    }
+
+    let candidates: Vec<usize> = eligible
+        .iter()
+        .copied()
+        .filter(|&i| (characters[i].action_points - min_av).abs() < 1e-5)
+        .collect();
+
+    let chosen_idx = if candidates.len() == 1 {
+        candidates[0]
+    } else {
+        match policy {
+            ChatPolicy::RoundRobin => candidates[0],
+            ChatPolicy::WeightedRandom => {
+                let weights = normalized_talkativeness(characters);
+                weighted_pick(&candidates, &weights, rng)
             }
         }
     };
 
-    let chosen_slug = updated[chosen_idx].0.clone();
-    updated[chosen_idx].1 -= ACTION_POINT_COST;
+    let updated: Vec<(String, f32)> = characters
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let new_av = if i == chosen_idx {
+                base_action_value(c.talkativeness)
+            } else {
+                c.action_points - min_av
+            };
+            (c.slug.clone(), new_av)
+        })
+        .collect();
 
     Some(TurnDecision {
-        speaker_slug: chosen_slug,
+        speaker_slug: characters[chosen_idx].slug.clone(),
         updated_action_points: updated,
         snapshot_before,
+        time_advanced: min_av,
     })
 }
 
-fn weighted_pick(candidates: &[usize], characters: &[CharacterAttachment], rng: &mut impl Rng) -> usize {
-    let weights: Vec<f32> = candidates
-        .iter()
-        .map(|&i| characters[i].talkativeness.max(0.0))
-        .collect();
-    let total: f32 = weights.iter().sum();
+fn weighted_pick(candidates: &[usize], weights: &[f32], rng: &mut impl Rng) -> usize {
+    let candidate_weights: Vec<f32> = candidates.iter().map(|&i| weights[i].max(0.0)).collect();
+    let total: f32 = candidate_weights.iter().sum();
     if total <= 0.0 {
         return candidates[0];
     }
     let mut roll = rng.random::<f32>() * total;
-    for (k, w) in weights.iter().enumerate() {
+    for (k, w) in candidate_weights.iter().enumerate() {
         if roll < *w {
             return candidates[k];
         }
@@ -359,42 +483,26 @@ fn weighted_pick(candidates: &[usize], characters: &[CharacterAttachment], rng: 
     *candidates.last().expect("non-empty by guard")
 }
 
-/// Uniformly random fallback when no character is over the action-point threshold.
-///
-/// Mirrors `decide_next_speaker`'s arithmetic (apply +talkativeness, subtract one
-/// `ACTION_POINT_COST` from the chosen speaker), but selects the speaker uniformly
-/// at random instead of by AP. Callers must yield to the user after running the
-/// returned turn — chaining this into another `decide_next_speaker` call lets the
-/// non-chosen characters' freshly-incremented AP cross the threshold and produce a
-/// second back-to-back turn from a single user message.
-pub fn pick_random_speaker(
-    characters: &[CharacterAttachment],
-    rng: &mut impl Rng,
-) -> Option<TurnDecision> {
+/// Renormalizes action values so the minimum across all characters is zero. Called when
+/// a new user message arrives (the start of a fresh cascade), to keep AV magnitudes
+/// bounded across many rounds. Preserves relative ordering exactly.
+pub fn renormalize_action_values(characters: &mut [CharacterAttachment]) {
     if characters.is_empty() {
-        return None;
+        return;
     }
-
-    let snapshot_before: HashMap<String, f32> = characters
+    let min_av = characters
         .iter()
-        .map(|a| (a.slug.clone(), a.action_points))
-        .collect();
-
-    let mut updated: Vec<(String, f32)> = characters
-        .iter()
-        .map(|a| (a.slug.clone(), a.action_points + a.talkativeness))
-        .collect();
-
-    let chosen = rng.random_range(0..characters.len());
-
-    let chosen_slug = updated[chosen].0.clone();
-    updated[chosen].1 -= ACTION_POINT_COST;
-
-    Some(TurnDecision {
-        speaker_slug: chosen_slug,
-        updated_action_points: updated,
-        snapshot_before,
-    })
+        .map(|c| c.action_points)
+        .filter(|av| av.is_finite())
+        .fold(f32::INFINITY, f32::min);
+    if !min_av.is_finite() || min_av == 0.0 {
+        return;
+    }
+    for c in characters.iter_mut() {
+        if c.action_points.is_finite() {
+            c.action_points -= min_av;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -576,79 +684,159 @@ mod tests {
     }
 
     fn att(slug: &str, talk: f32, ap: f32) -> CharacterAttachment {
-        CharacterAttachment { slug: slug.to_owned(), talkativeness: talk, action_points: ap }
+        CharacterAttachment {
+            slug: slug.to_owned(),
+            talkativeness: talk,
+            action_points: ap,
+            spoke_this_round: false,
+        }
+    }
+
+    fn att_spoken(slug: &str, talk: f32, ap: f32) -> CharacterAttachment {
+        CharacterAttachment {
+            slug: slug.to_owned(),
+            talkativeness: talk,
+            action_points: ap,
+            spoke_this_round: true,
+        }
     }
 
     #[test]
-    fn decide_next_returns_none_when_no_one_over_threshold() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.4, 0.0), att("b", 0.4, 0.5)];
-        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng);
-        assert!(d.is_none());
+    fn normalized_talkativeness_sums_to_one() {
+        let cs = vec![att("a", 0.4, 0.0), att("b", 0.5, 0.0), att("c", 0.6, 0.0)];
+        let weights = normalized_talkativeness(&cs);
+        let sum: f32 = weights.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5, "weights sum {} != 1.0", sum);
     }
 
     #[test]
-    fn decide_next_picks_only_eligible_speaker() {
+    fn normalized_talkativeness_zero_returns_uniform() {
+        let cs = vec![att("a", 0.0, 0.0), att("b", 0.0, 0.0)];
+        let weights = normalized_talkativeness(&cs);
+        assert!((weights[0] - 0.5).abs() < 1e-5);
+        assert!((weights[1] - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn base_action_value_inverse_of_talkativeness() {
+        assert!((base_action_value(1.0) - 1.0).abs() < 1e-5);
+        assert!((base_action_value(0.5) - 2.0).abs() < 1e-5);
+        let one_sixth = 1.0_f32 / 6.0;
+        assert!((base_action_value(one_sixth) - 6.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn base_action_value_zero_talkativeness_is_infinite() {
+        assert_eq!(base_action_value(0.0), f32::INFINITY);
+        assert_eq!(base_action_value(-0.1), f32::INFINITY);
+    }
+
+    #[test]
+    fn notch_round_trip_is_stable() {
+        for n in 0..=TALKATIVENESS_NOTCHES {
+            let t = notch_to_talkativeness(n);
+            assert_eq!(talkativeness_to_notch(t), n, "notch {n} did not round-trip");
+        }
+    }
+
+    #[test]
+    fn decide_next_returns_none_when_empty() {
         let mut rng = StdRng::seed_from_u64(0);
-        // a: 0.4 + 0.4 = 0.8 (under threshold)
-        // b: 0.5 + 0.6 = 1.1 (over threshold)
-        let cs = vec![att("a", 0.4, 0.4), att("b", 0.5, 0.6)];
-        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        let cs: Vec<CharacterAttachment> = vec![];
+        assert!(decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).is_none());
+    }
+
+    #[test]
+    fn decide_next_picks_lowest_av_speaker() {
+        let mut rng = StdRng::seed_from_u64(0);
+        // a: AV=2 (waiting), b: AV=0.5 (sooner). b wins.
+        let cs = vec![att("a", 0.5, 2.0), att("b", 0.5, 0.5)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).unwrap();
         assert_eq!(d.speaker_slug, "b");
-        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
-        assert!((new_b - 0.1).abs() < 1e-5);
+        // Time advance = 0.5. a: 2 - 0.5 = 1.5. b: reset to base = 1/0.5 = 2.
         let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        assert!((new_a - 0.8).abs() < 1e-5);
+        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
+        assert!((new_a - 1.5).abs() < 1e-4, "new_a={new_a}");
+        assert!((new_b - 2.0).abs() < 1e-4, "new_b={new_b}");
     }
 
     #[test]
-    fn decide_next_round_robin_breaks_tie_by_attach_index() {
+    fn decide_next_skips_characters_that_already_spoke() {
         let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.6, 0.5), att("b", 0.6, 0.5), att("c", 0.6, 0.5)];
-        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
-        assert_eq!(d.speaker_slug, "a");
-        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
-        let new_c = d.updated_action_points.iter().find(|(s, _)| s == "c").unwrap().1;
-        assert!((new_a - 0.1).abs() < 1e-5);
-        assert!((new_b - 1.1).abs() < 1e-5);
-        assert!((new_c - 1.1).abs() < 1e-5);
+        // a has lower AV but already spoke; b should be picked despite higher AV.
+        let cs = vec![att_spoken("a", 0.5, 0.0), att("b", 0.5, 1.5)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).unwrap();
+        assert_eq!(d.speaker_slug, "b", "should pick b because a already spoke");
     }
 
     #[test]
-    fn decide_next_weighted_random_uses_seeded_rng() {
-        let cs = vec![att("a", 0.6, 0.5), att("b", 0.9, 0.5)];
-        let mut rng = StdRng::seed_from_u64(42);
-        let d = decide_next_speaker(&cs, ChatPolicy::WeightedRandom, &mut rng).unwrap();
-        assert!(d.speaker_slug == "a" || d.speaker_slug == "b");
+    fn decide_next_returns_none_when_all_eligible_spoke() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att_spoken("a", 0.5, 0.0), att_spoken("b", 0.5, 1.0)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None);
+        assert!(d.is_none(), "no eligible characters left in this round");
+    }
 
+    #[test]
+    fn decide_next_round_robin_ties_break_by_attach_index() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).unwrap();
+        assert_eq!(d.speaker_slug, "a", "all tied at AV=0; round-robin picks first attach");
+    }
+
+    #[test]
+    fn decide_next_weighted_random_uses_talkativeness_at_ties() {
+        // Both at AV=0 (tied for next), but b has 3x talkativeness. Over many rolls,
+        // b should be picked roughly 3x as often.
         let mut counts = (0u32, 0u32);
-        let cs = vec![att("a", 0.6, 0.5), att("b", 0.9, 0.5)];
         let mut rng = StdRng::seed_from_u64(7);
-        for _ in 0..2000 {
-            let d = decide_next_speaker(&cs, ChatPolicy::WeightedRandom, &mut rng).unwrap();
+        for _ in 0..3000 {
+            let cs = vec![att("a", 0.25, 0.0), att("b", 0.75, 0.0)];
+            let d = decide_next_speaker(&cs, ChatPolicy::WeightedRandom, &mut rng, None).unwrap();
             if d.speaker_slug == "a" { counts.0 += 1; } else { counts.1 += 1; }
         }
-        assert!(counts.1 > counts.0, "expected b to win more often (talk 0.9 vs 0.6): a={}, b={}", counts.0, counts.1);
+        assert!(
+            counts.1 > counts.0 * 2,
+            "expected b to win at least 2x: a={}, b={}",
+            counts.0, counts.1,
+        );
     }
 
     #[test]
-    fn decide_next_zero_talkativeness_never_accumulates() {
+    fn decide_next_zero_talkativeness_yields_to_others() {
+        // a is muted (talk=0 -> base AV=inf); b should always be picked.
         let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.0, 0.99), att("b", 0.6, 0.5)];
-        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        let cs = vec![att("a", 0.0, f32::INFINITY), att("b", 0.5, 1.0)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).unwrap();
         assert_eq!(d.speaker_slug, "b");
-        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        assert!((new_a - 0.99).abs() < 1e-5, "talk=0 must not accumulate");
     }
 
     #[test]
-    fn decide_next_snapshot_before_captures_pre_increment_state() {
+    fn decide_next_snapshot_before_captures_pre_advance_state() {
         let mut rng = StdRng::seed_from_u64(0);
         let cs = vec![att("a", 0.5, 0.5), att("b", 0.5, 0.7)];
-        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng).unwrap();
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).unwrap();
         assert!((d.snapshot_before["a"] - 0.5).abs() < 1e-5);
         assert!((d.snapshot_before["b"] - 0.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn renormalize_action_values_subtracts_minimum() {
+        let mut cs = vec![att("a", 0.5, -4.0), att("b", 0.5, -2.0), att("c", 0.5, 6.0)];
+        renormalize_action_values(&mut cs);
+        assert!((cs[0].action_points - 0.0).abs() < 1e-5);
+        assert!((cs[1].action_points - 2.0).abs() < 1e-5);
+        assert!((cs[2].action_points - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn renormalize_action_values_handles_infinity() {
+        let mut cs = vec![att("a", 0.0, f32::INFINITY), att("b", 0.5, 2.0)];
+        renormalize_action_values(&mut cs);
+        // Min is 2.0 (infinity ignored). a stays infinite, b drops to 0.
+        assert_eq!(cs[0].action_points, f32::INFINITY);
+        assert!((cs[1].action_points - 0.0).abs() < 1e-5);
     }
 
     #[test]
@@ -687,12 +875,18 @@ mod tests {
 
     #[test]
     fn character_attachment_serde_round_trip() {
-        let a = CharacterAttachment { slug: "alice".to_owned(), talkativeness: 0.7, action_points: 0.3 };
+        let a = CharacterAttachment {
+            slug: "alice".to_owned(),
+            talkativeness: 0.7,
+            action_points: 0.3,
+            spoke_this_round: true,
+        };
         let s = serde_json::to_string(&a).unwrap();
         let back: CharacterAttachment = serde_json::from_str(&s).unwrap();
         assert_eq!(back.slug, "alice");
         assert!((back.talkativeness - 0.7).abs() < f32::EPSILON);
         assert!((back.action_points - 0.3).abs() < f32::EPSILON);
+        assert!(!back.spoke_this_round, "spoke_this_round must not persist across serde");
     }
 
     #[test]
@@ -701,83 +895,6 @@ mod tests {
         assert!(matches!(p, ChatPolicy::RoundRobin));
     }
 
-    #[test]
-    fn pick_random_speaker_returns_none_for_empty_characters() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let cs: Vec<CharacterAttachment> = vec![];
-        assert!(pick_random_speaker(&cs, &mut rng).is_none());
-    }
-
-    #[test]
-    fn pick_random_speaker_applies_increment_and_cost() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.3, 0.0), att("b", 0.1, 0.0)];
-        let d = pick_random_speaker(&cs, &mut rng).unwrap();
-
-        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
-
-        match d.speaker_slug.as_str() {
-            "a" => {
-                assert!((new_a - (-0.7)).abs() < 1e-5, "a should pay 1.0 from 0.3 → -0.7");
-                assert!((new_b - 0.1).abs() < 1e-5, "b should only get +0.1 increment");
-            }
-            "b" => {
-                assert!((new_a - 0.3).abs() < 1e-5, "a should only get +0.3 increment");
-                assert!((new_b - (-0.9)).abs() < 1e-5, "b should pay 1.0 from 0.1 → -0.9");
-            }
-            other => panic!("unexpected speaker: {other}"),
-        }
-    }
-
-    #[test]
-    fn pick_random_speaker_snapshot_before_captures_pre_increment_state() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.5, 0.5), att("b", 0.5, 0.7)];
-        let d = pick_random_speaker(&cs, &mut rng).unwrap();
-        assert!((d.snapshot_before["a"] - 0.5).abs() < 1e-5);
-        assert!((d.snapshot_before["b"] - 0.7).abs() < 1e-5);
-    }
-
-    #[test]
-    fn pick_random_speaker_distribution_is_uniform() {
-        let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
-        let mut rng = StdRng::seed_from_u64(7);
-        let mut counts = [0u32; 3];
-        for _ in 0..3000 {
-            let d = pick_random_speaker(&cs, &mut rng).unwrap();
-            match d.speaker_slug.as_str() {
-                "a" => counts[0] += 1,
-                "b" => counts[1] += 1,
-                "c" => counts[2] += 1,
-                other => panic!("unexpected speaker: {other}"),
-            }
-        }
-        for &n in &counts {
-            assert!(
-                (800..=1200).contains(&n),
-                "expected ~1000 each for uniform pick, got {counts:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn pick_random_speaker_ignores_talkativeness_weighting() {
-        // Loud character has 4x talkativeness but should still be picked uniformly.
-        let cs = vec![att("loud", 0.9, 0.0), att("quiet", 0.2, 0.0)];
-        let mut rng = StdRng::seed_from_u64(1234);
-        let mut loud_count = 0;
-        for _ in 0..2000 {
-            let d = pick_random_speaker(&cs, &mut rng).unwrap();
-            if d.speaker_slug == "loud" {
-                loud_count += 1;
-            }
-        }
-        assert!(
-            (800..=1200).contains(&loud_count),
-            "uniform pick should be ~1000/2000 regardless of talkativeness, got {loud_count}"
-        );
-    }
 
     #[test]
     fn card_assembly_default_is_join() {
@@ -801,43 +918,178 @@ mod tests {
         assert_eq!(CardAssembly::from_db_str("bogus"), None);
     }
 
-    fn run_rounds(
+    /// Simulates `user_rounds` user messages. Within each round the cascade runs until
+    /// either every character has spoken once (cap=1/character) or `max_per_round` is
+    /// reached. Between rounds spoke_this_round is cleared and AVs are renormalized.
+    fn simulate(
         characters: Vec<CharacterAttachment>,
         policy: ChatPolicy,
-        rounds: usize,
+        user_rounds: usize,
+        max_per_round: usize,
         seed: u64,
-    ) -> Vec<String> {
+    ) -> Vec<Vec<String>> {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut state = characters;
-        let mut order = Vec::new();
-        for _ in 0..rounds {
-            let Some(d) = decide_next_speaker(&state, policy, &mut rng) else { break; };
-            order.push(d.speaker_slug.clone());
-            for (slug, ap) in d.updated_action_points {
-                if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
-                    c.action_points = ap;
+        let mut rounds: Vec<Vec<String>> = Vec::new();
+        for _ in 0..user_rounds {
+            for c in state.iter_mut() {
+                c.spoke_this_round = false;
+            }
+            renormalize_action_values(&mut state);
+            let mut order = Vec::new();
+            for _ in 0..max_per_round {
+                let Some(d) = decide_next_speaker(&state, policy, &mut rng, None) else { break };
+                order.push(d.speaker_slug.clone());
+                for (slug, av) in d.updated_action_points {
+                    if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
+                        c.action_points = av;
+                    }
+                }
+                if let Some(c) = state.iter_mut().find(|c| c.slug == d.speaker_slug) {
+                    c.spoke_this_round = true;
                 }
             }
+            rounds.push(order);
+        }
+        rounds
+    }
+
+    #[test]
+    fn cascade_caps_at_one_turn_per_character_per_round() {
+        let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
+        let rounds = simulate(cs, ChatPolicy::RoundRobin, 3, 10, 0);
+        for (i, order) in rounds.iter().enumerate() {
+            let unique: std::collections::HashSet<&String> = order.iter().collect();
+            assert_eq!(unique.len(), order.len(), "round {i}: duplicate speaker");
+        }
+    }
+
+    #[test]
+    fn cascade_orders_by_speed_higher_first() {
+        // Loud character has high SPD (base AV 1), quiet has low (base AV 5).
+        // Both start at AV=0, so first turn ties on AV; round-robin breaks toward loud.
+        // After loud speaks, loud.AV=1, quiet.AV=0, so quiet goes next.
+        let cs = vec![att("loud", 1.0, 0.0), att("quiet", 0.2, 0.0)];
+        let rounds = simulate(cs, ChatPolicy::RoundRobin, 1, 5, 0);
+        assert_eq!(rounds[0], vec!["loud", "quiet"]);
+    }
+
+    #[test]
+    fn cascade_high_speed_dominates_across_many_rounds() {
+        // After the warm-up, loud should overwhelmingly take the first slot each round
+        // because its AV resets to 1.0 (vs. quiet's 5.0); time-advance never lets quiet
+        // catch up unless it has been waiting.
+        let cs = vec![att("loud", 1.0, 0.0), att("quiet", 0.2, 0.0)];
+        let rounds = simulate(cs, ChatPolicy::RoundRobin, 20, 2, 0);
+        let first_slot_loud = rounds.iter().filter(|r| r.first() == Some(&"loud".to_owned())).count();
+        assert!(
+            first_slot_loud >= 18,
+            "expected loud to take the first slot in nearly every round: {first_slot_loud}/20",
+        );
+    }
+
+    /// Drives the full per-user-round cascade: forced first turn, then budget-checked
+    /// subsequent turns; renormalizes AVs between rounds and clears `spoke_this_round`.
+    fn run_cascade(
+        state: &mut [CharacterAttachment],
+        policy: ChatPolicy,
+        rng: &mut StdRng,
+    ) -> Vec<String> {
+        for c in state.iter_mut() {
+            c.spoke_this_round = false;
+        }
+        renormalize_action_values(state);
+        let mut order = Vec::new();
+        let mut budget = DEFAULT_TURN_TIME_BUDGET;
+        let mut first = true;
+        loop {
+            let tb = if first { None } else { Some(budget) };
+            let Some(d) = decide_next_speaker(state, policy, rng, tb) else { break };
+            order.push(d.speaker_slug.clone());
+            budget -= d.time_advanced.max(0.0);
+            for (slug, av) in d.updated_action_points {
+                if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
+                    c.action_points = av;
+                }
+            }
+            if let Some(c) = state.iter_mut().find(|c| c.slug == d.speaker_slug) {
+                c.spoke_this_round = true;
+            }
+            first = false;
         }
         order
     }
 
     #[test]
-    fn round_robin_produces_predictable_alternation_with_equal_talkativeness() {
-        // Starting AP 0.5 each: iter 1 pushes both to 1.0 (tie → a), iter 2 pushes a to 0.5 / b to 1.5 (only b).
-        let cs = vec![att("a", 0.5, 0.5), att("b", 0.5, 0.5)];
-        let order = run_rounds(cs, ChatPolicy::RoundRobin, 8, 0);
-        assert_eq!(order, vec!["a", "b", "a", "b", "a", "b", "a", "b"]);
+    fn cascade_with_budget_keeps_av_magnitudes_bounded() {
+        // Run many user-rounds. With the time-budget gate, slow characters skip rounds
+        // rather than being forced to speak every round; their AVs stay within
+        // base-AV range and don't drift.
+        let cs = vec![att("a", 1.0, 0.0), att("b", 0.5, 0.0), att("c", 0.16667, 0.0)];
+        let mut state = cs;
+        let mut rng = StdRng::seed_from_u64(0);
+        for _ in 0..50 {
+            run_cascade(&mut state, ChatPolicy::RoundRobin, &mut rng);
+        }
+        renormalize_action_values(&mut state);
+        let finite_min = state
+            .iter()
+            .map(|c| c.action_points)
+            .filter(|v| v.is_finite())
+            .fold(f32::INFINITY, f32::min);
+        assert!((finite_min - 0.0).abs() < 1e-3, "min AV after renormalize: {finite_min}");
+        // Max base AV here is 6.0 (talk=1/6). With renormalize between rounds, max AV
+        // stays under (max base AV + 1 time advance).
+        let finite_max = state
+            .iter()
+            .map(|c| c.action_points)
+            .filter(|v| v.is_finite())
+            .fold(0.0_f32, f32::max);
+        assert!(finite_max < 7.5, "unexpected AV magnitude after 50 rounds: {finite_max}");
     }
 
     #[test]
-    fn high_talkativeness_speaks_more_often() {
-        // Starting AP 0.5 each so loud crosses threshold immediately on iter 1.
-        let cs = vec![att("loud", 0.9, 0.5), att("quiet", 0.2, 0.5)];
-        let order = run_rounds(cs, ChatPolicy::RoundRobin, 20, 0);
-        let loud = order.iter().filter(|s| *s == "loud").count();
-        let quiet = order.iter().filter(|s| *s == "quiet").count();
-        assert!(loud > quiet * 2, "loud={loud}, quiet={quiet}");
+    fn cascade_long_run_speaks_proportional_to_speed() {
+        // Each user-round runs the cascade. Over many rounds the per-character turn
+        // count should track the SPD ratio (1.0 : 0.5 : 0.167 ≈ 6 : 3 : 1).
+        let cs = vec![att("a", 1.0, 0.0), att("b", 0.5, 0.0), att("c", 0.16667, 0.0)];
+        let mut state = cs;
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut counts = (0u32, 0u32, 0u32);
+        for _ in 0..120 {
+            let order = run_cascade(&mut state, ChatPolicy::RoundRobin, &mut rng);
+            for slug in order {
+                match slug.as_str() {
+                    "a" => counts.0 += 1,
+                    "b" => counts.1 += 1,
+                    "c" => counts.2 += 1,
+                    other => panic!("unexpected speaker: {other}"),
+                }
+            }
+        }
+        // Each user-round forces one speaker, so a (highest SPD) ≈ 120.
+        // b should be roughly half of a, c roughly a sixth.
+        assert!(counts.0 >= 100, "a underrepresented: {counts:?}");
+        assert!(counts.1 > counts.2 * 2, "expected b > 2*c: {counts:?}");
+        assert!(counts.1 < counts.0, "b should not exceed a: {counts:?}");
+    }
+
+    #[test]
+    fn decide_next_returns_none_when_av_exceeds_budget() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.5, 2.0), att("b", 0.5, 3.0)];
+        // Lowest AV is 2.0, but budget is only 1.0.
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, Some(1.0));
+        assert!(d.is_none(), "AV 2.0 exceeds budget 1.0; should yield");
+    }
+
+    #[test]
+    fn decide_next_unconditional_when_budget_is_none() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let cs = vec![att("a", 0.5, 99.0), att("b", 0.5, 100.0)];
+        let d = decide_next_speaker(&cs, ChatPolicy::RoundRobin, &mut rng, None).unwrap();
+        assert_eq!(d.speaker_slug, "a", "no budget → always picks lowest AV");
+        assert!((d.time_advanced - 99.0).abs() < 1e-3);
     }
 
     #[test]

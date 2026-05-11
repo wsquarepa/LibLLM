@@ -396,6 +396,12 @@ pub(super) struct App<'a> {
     pub(super) group_chat_loop_rng: Option<rand::rngs::StdRng>,
     pub(super) group_chat_consecutive: u32,
     pub(super) group_chat_max_consecutive: u32,
+    /// Per-cascade remaining "conversation time" budget. The first turn of a cascade
+    /// fires unconditionally; subsequent turns must have an action-value that fits
+    /// within what's left of this budget, so slow-talkativeness characters skip rounds
+    /// proportionally to their SPD. Reset to `DEFAULT_TURN_TIME_BUDGET` in
+    /// `start_group_chat_loop`.
+    pub(super) group_chat_remaining_budget: f32,
 }
 
 impl<'a> App<'a> {

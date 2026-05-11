@@ -313,9 +313,24 @@ fn group_session_round_trips_through_database() {
     let session = Session {
         tree: MessageTree::new(),
         characters: vec![
-            CharacterAttachment { slug: "alice".to_owned(), talkativeness: 0.7, action_points: 0.0 },
-            CharacterAttachment { slug: "bob".to_owned(), talkativeness: 0.4, action_points: 0.0 },
-            CharacterAttachment { slug: "charlie".to_owned(), talkativeness: 0.6, action_points: 0.0 },
+            CharacterAttachment {
+                slug: "alice".to_owned(),
+                talkativeness: 0.7,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob".to_owned(),
+                talkativeness: 0.4,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "charlie".to_owned(),
+                talkativeness: 0.6,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
         ],
         chat_policy: ChatPolicy::WeightedRandom,
         card_assembly: CardAssembly::SwapCards,

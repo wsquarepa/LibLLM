@@ -92,46 +92,10 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
     );
 }
 
-fn build_left_spans<'a>(app: &'a App, base_style: Style, max_len: usize) -> Vec<Span<'a>> {
+fn build_left_spans<'a>(_app: &'a App, base_style: Style, max_len: usize) -> Vec<Span<'a>> {
     let version = format!(" {}", crate::version::STATUS_BAR);
-    let mut spans: Vec<Span<'a>> = Vec::new();
-
-    if app.session.characters.len() >= 2 {
-        let policy = match app.session.chat_policy {
-            libllm::group_chat::ChatPolicy::RoundRobin => "RR",
-            libllm::group_chat::ChatPolicy::WeightedRandom => "WR",
-        };
-        let assembly = match app.session.card_assembly {
-            libllm::group_chat::CardAssembly::JoinCards => "join",
-            libllm::group_chat::CardAssembly::SwapCards => "swap",
-        };
-        let n = app.session.characters.len();
-        let group_chip = format!("[{n} chars · {policy} · {assembly}] ");
-        spans.push(Span::styled(group_chip, base_style));
-
-        let broken = app
-            .session
-            .characters
-            .iter()
-            .filter(|c| !app.character_cards_cache.contains_key(&c.slug))
-            .count();
-        if broken > 0 {
-            let badge = format!("[{broken} missing] ");
-            spans.push(Span::styled(
-                badge,
-                Style::default()
-                    .fg(app.theme.missing_character_badge_fg)
-                    .bg(base_style.bg.unwrap_or(Color::Reset)),
-            ));
-        }
-    }
-
-    let used: usize = spans.iter().map(|s| s.content.len()).sum();
-    let version_budget = max_len.saturating_sub(used);
-    let truncated_version = truncate_str(&version, version_budget);
-    spans.push(Span::styled(truncated_version, base_style));
-
-    spans
+    let truncated_version = truncate_str(&version, max_len);
+    vec![Span::styled(truncated_version, base_style)]
 }
 
 fn build_right_spans<'a>(

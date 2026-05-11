@@ -31,7 +31,7 @@ pub(super) async fn handle_slash_command(
         "/quit" => cmd_quit(app),
         "/clear" => cmd_clear(app),
         "/retry" => cmd_retry(app, sender).await,
-        "/continue" => cmd_continue(app, sender).await,
+        "/continue" => cmd_continue(app, arg, sender).await,
         "/system" => cmd_system(app),
         "/config" => cmd_config(app),
         "/branch" => cmd_branch(app),
@@ -150,8 +150,37 @@ async fn try_group_retry(
     Some(())
 }
 
-async fn cmd_continue(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
+async fn cmd_continue(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken>) {
     app.nav_cursor = None;
+
+    let target_speaker = arg.trim();
+    if !target_speaker.is_empty() {
+        if app.session.characters.len() < 2 {
+            app.set_status(
+                "/continue <name> only works in group chats.".to_owned(),
+                StatusLevel::Warning,
+            );
+            return;
+        }
+        let Some(slug) =
+            resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, target_speaker)
+        else {
+            app.set_status(
+                format!("no attached character matches '{target_speaker}'"),
+                StatusLevel::Error,
+            );
+            return;
+        };
+        let Some(target_node) = most_recent_speaker_node(app, &slug) else {
+            app.set_status(
+                format!("no message in this branch from '{target_speaker}'"),
+                StatusLevel::Warning,
+            );
+            return;
+        };
+        app.session.tree.set_head(Some(target_node));
+        app.invalidate_chat_caches();
+    }
 
     let head_is_assistant = app
         .session
@@ -168,7 +197,107 @@ async fn cmd_continue(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
         return;
     }
 
-    start_continuation(app, sender).await;
+    let head_speaker = app
+        .session
+        .tree
+        .head()
+        .and_then(|id| app.session.tree.node(id))
+        .and_then(|n| n.message.speaker.clone());
+    if let Some(slug) = head_speaker {
+        start_group_continuation(app, &slug, sender).await;
+    } else {
+        start_continuation(app, sender).await;
+    }
+}
+
+/// Walks the current branch (head → root) and returns the most recent node whose
+/// assistant message was authored by `slug`, or `None` if no such message exists.
+fn most_recent_speaker_node(app: &App<'_>, slug: &str) -> Option<libllm::session::NodeId> {
+    let branch = app.session.tree.current_branch_ids();
+    for &node_id in branch.iter().rev() {
+        if let Some(node) = app.session.tree.node(node_id)
+            && node.message.role == Role::Assistant
+            && node.message.speaker.as_deref() == Some(slug)
+        {
+            return Some(node_id);
+        }
+    }
+    None
+}
+
+/// Group-chat-aware continuation: rebuilds the speaker-specific system prompt and
+/// nudge using `build_turn_prompt`, then streams onto the existing assistant message
+/// (the head is unchanged; `stream_into_message`'s continuation path appends to its
+/// content). Mirrors `run_one_group_turn` but reuses the existing node rather than
+/// pushing a fresh prefill.
+async fn start_group_continuation(
+    app: &mut App<'_>,
+    speaker_slug: &str,
+    sender: mpsc::Sender<StreamToken>,
+) {
+    if app.model_name.is_none() {
+        app.set_status(
+            "Connecting to API server...".to_owned(),
+            StatusLevel::Warning,
+        );
+        return;
+    }
+    if !app.api_available {
+        app.set_status(
+            "Cannot send: API server is not available".to_owned(),
+            StatusLevel::Error,
+        );
+        return;
+    }
+
+    let tpl_name = app
+        .config
+        .template_preset
+        .as_deref()
+        .unwrap_or("Default")
+        .to_owned();
+    let template = libllm::preset::resolve_template_preset(&tpl_name);
+    let persona = app
+        .session
+        .persona
+        .as_ref()
+        .and_then(|slug| app.db.as_ref().and_then(|db| db.load_persona(slug).ok()));
+    let base_system_prompt = app.session.system_prompt.clone().or_else(|| {
+        app.db
+            .as_ref()
+            .and_then(|db| db.load_prompt(libllm::system_prompt::BUILTIN_ROLEPLAY).ok())
+            .map(|p| p.content)
+            .filter(|s| !s.is_empty())
+    });
+    let nudge_template = app.config.group_chat.nudge_prompt.clone();
+
+    let prompt = match libllm::group_chat::build_turn_prompt(libllm::group_chat::TurnPromptInputs {
+        session: app.session,
+        cards: &app.character_cards_cache,
+        persona: persona.as_ref(),
+        template: Some(&template),
+        speaker_slug,
+        base_system_prompt: base_system_prompt.as_deref(),
+        nudge_template: Some(nudge_template.as_str()),
+    }) {
+        Ok(p) => p,
+        Err(e) => {
+            app.set_status(
+                format!("group continuation prompt build failed: {e}"),
+                StatusLevel::Error,
+            );
+            return;
+        }
+    };
+
+    streaming::stream_into_message(
+        app,
+        prompt.system,
+        prompt.stop_sequences,
+        prompt.nudge,
+        sender,
+    )
+    .await;
 }
 
 async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {

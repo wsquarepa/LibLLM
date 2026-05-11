@@ -73,9 +73,20 @@ where
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
     let mut injected = business::replace_template_vars(app.session, injected, user_name);
 
-    let card_note = app
-        .session
-        .character
+    // Choose which character card's author_note to inject. For solo sessions, use
+    // `session.character`. For group sessions, use the active speaker — the speaker
+    // field on the head assistant message (which `run_one_group_turn` and
+    // `start_group_continuation` set before this code runs).
+    let speaker_for_note: Option<String> = if app.session.characters.len() >= 2 {
+        app.session
+            .tree
+            .head()
+            .and_then(|id| app.session.tree.node(id))
+            .and_then(|n| n.message.speaker.clone())
+    } else {
+        app.session.character.clone()
+    };
+    let card_note = speaker_for_note
         .as_deref()
         .and_then(|slug| {
             let db = app.db.as_ref()?;
@@ -310,6 +321,10 @@ fn stream_preflight(app: &mut App<'_>, content: &str) -> StreamPreflight {
 }
 
 fn push_user_segments(app: &mut App<'_>, content: &str) {
+    for c in app.session.characters.iter_mut() {
+        c.spoke_this_round = false;
+    }
+    libllm::group_chat::renormalize_action_values(&mut app.session.characters);
     let mut parent = app.session.tree.head();
     let segments: Vec<String> = if app.session.character.is_some() {
         libllm::side_character::split_user_input(content)
@@ -390,13 +405,18 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
 /// pre_turn_action_points populated) before calling this. On `Done`, the token
 /// handler appends the streamed completion to the head node's existing content
 /// via the continuation path, preserving the prefill and speaker fields.
-async fn stream_into_message(
+pub(in crate::tui) async fn stream_into_message(
     app: &mut App<'_>,
     system: String,
-    stop_sequences: Vec<String>,
+    mut stop_sequences: Vec<String>,
     nudge: Option<String>,
     sender: mpsc::Sender<StreamToken>,
 ) {
+    for stop in &app.stop_tokens {
+        if !stop_sequences.iter().any(|existing| existing == stop) {
+            stop_sequences.push(stop.clone());
+        }
+    }
     app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_caches();
     app.is_streaming = true;
@@ -472,7 +492,13 @@ pub(super) async fn run_one_group_turn(
         .as_ref()
         .and_then(|slug| app.db.as_ref().and_then(|db| db.load_persona(slug).ok()));
 
-    let base_system_prompt = app.session.system_prompt.clone();
+    let base_system_prompt = app.session.system_prompt.clone().or_else(|| {
+        app.db
+            .as_ref()
+            .and_then(|db| db.load_prompt(libllm::system_prompt::BUILTIN_ROLEPLAY).ok())
+            .map(|p| p.content)
+            .filter(|s| !s.is_empty())
+    });
     let nudge_template = app.config.group_chat.nudge_prompt.clone();
 
     let prompt = match libllm::group_chat::build_turn_prompt(libllm::group_chat::TurnPromptInputs {
@@ -527,6 +553,7 @@ pub(in crate::tui) async fn start_group_chat_loop(
     app.group_chat_loop_rng = Some(rand::make_rng());
     app.group_chat_consecutive = 0;
     app.group_chat_max_consecutive = app.config.group_chat.effective_max_consecutive_turns();
+    app.group_chat_remaining_budget = libllm::group_chat::DEFAULT_TURN_TIME_BUDGET;
     continue_group_chat_loop(app, sender).await;
 }
 
@@ -549,46 +576,45 @@ pub(in crate::tui) async fn continue_group_chat_loop(
         return;
     }
 
-    let (decision, yield_after_turn) = match libllm::group_chat::decide_next_speaker(
+    // First turn of the cascade is unconditional (one character always speaks per user
+    // message); subsequent turns must fit within the remaining time budget so slow
+    // characters don't get forced into every round.
+    let time_budget = if app.group_chat_consecutive == 0 {
+        None
+    } else {
+        Some(app.group_chat_remaining_budget)
+    };
+    let Some(decision) = libllm::group_chat::decide_next_speaker(
         &app.session.characters,
         app.session.chat_policy,
         rng,
-    ) {
-        Some(d) => (d, false),
-        None if app.group_chat_consecutive == 0 => {
-            match libllm::group_chat::pick_random_speaker(&app.session.characters, rng) {
-                Some(d) => {
-                    tracing::debug!(
-                        "group_chat: no speaker over threshold; picking one at random and yielding after"
-                    );
-                    (d, true)
-                }
-                None => {
-                    app.group_chat_loop_rng = None;
-                    return;
-                }
-            }
-        }
-        None => {
-            tracing::debug!("group_chat: no speaker eligible, yielding to user");
-            app.group_chat_loop_rng = None;
-            return;
-        }
+        time_budget,
+    ) else {
+        tracing::debug!("group_chat: cascade complete (no eligible speakers), yielding to user");
+        app.group_chat_loop_rng = None;
+        return;
     };
 
-    for (slug, ap) in &decision.updated_action_points {
+    app.group_chat_remaining_budget -= decision.time_advanced.max(0.0);
+
+    for (slug, av) in &decision.updated_action_points {
         if let Some(c) = app.session.characters.iter_mut().find(|c| &c.slug == slug) {
-            c.action_points = *ap;
+            c.action_points = *av;
         }
+    }
+    if let Some(c) = app
+        .session
+        .characters
+        .iter_mut()
+        .find(|c| c.slug == decision.speaker_slug)
+    {
+        c.spoke_this_round = true;
     }
 
     let snapshot_json = serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
     let speaker_slug = decision.speaker_slug.clone();
 
     app.group_chat_consecutive += 1;
-    if yield_after_turn {
-        app.group_chat_loop_rng = None;
-    }
     run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
 }
 

@@ -442,7 +442,12 @@ pub fn render_chat(
         "You".to_owned()
     };
 
-    let assistant_label = if has_replacements && !char_name.is_empty() {
+    let assistant_label = if app.session.characters.len() >= 2 {
+        match super::business::predict_next_speaker(app) {
+            Some(name) => format!("Next: {name}"),
+            None => "Next: (waiting)".to_owned(),
+        }
+    } else if has_replacements && !char_name.is_empty() {
         char_name.to_owned()
     } else {
         "Assistant".to_owned()

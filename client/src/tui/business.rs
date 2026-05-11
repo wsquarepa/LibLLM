@@ -23,6 +23,57 @@ pub fn non_empty(s: &str) -> Option<String> {
 
 pub use libllm::template::apply_template_vars;
 
+/// Builds a sidebar-style display label for a group session, using card display names
+/// when available and falling back to attachment slugs.
+pub(super) fn group_display_name(app: &App) -> String {
+    let names: Vec<String> = app
+        .session
+        .characters
+        .iter()
+        .map(|c| {
+            app.character_cards_cache
+                .get(&c.slug)
+                .map(|card| card.name.clone())
+                .unwrap_or_else(|| c.slug.clone())
+        })
+        .collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    if refs.len() <= 3 {
+        refs.join(", ")
+    } else {
+        format!(
+            "{}, {}, {}, +{} more",
+            refs[0],
+            refs[1],
+            refs[2],
+            refs.len() - 3,
+        )
+    }
+}
+
+/// Predicts which character would speak next given the current session state. Uses the
+/// HSR-style action-value ordering (lower AV = sooner). Among ties, prefers the lowest
+/// attach index, mirroring `ChatPolicy::RoundRobin` tiebreak.
+pub(super) fn predict_next_speaker(app: &App) -> Option<String> {
+    let chars = &app.session.characters;
+    if chars.len() < 2 {
+        return None;
+    }
+    let (idx, _) = chars
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !c.spoke_this_round)
+        .map(|(i, c)| (i, c.action_points))
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))?;
+    let slug = chars[idx].slug.as_str();
+    let name = app
+        .character_cards_cache
+        .get(slug)
+        .map(|c| c.name.clone())
+        .unwrap_or_else(|| slug.to_owned());
+    Some(name)
+}
+
 /// Assembles the final system prompt from session, builtin defaults, and persona.
 ///
 /// Falls back to the builtin assistant or roleplay prompt when the session has no explicit
@@ -906,7 +957,9 @@ pub(super) fn refresh_sidebar(app: &mut App) {
     if let Some(ref cid) = current_id
         && let Some(current_entry) = sessions.iter_mut().find(|e| e.id == *cid)
     {
-        if let Some(ref character) = app.session.character {
+        if app.session.characters.len() >= 2 {
+            current_entry.display_name = group_display_name(app);
+        } else if let Some(ref character) = app.session.character {
             current_entry.display_name.clone_from(character);
         }
         current_entry.message_count = Some(app.session.tree.node_count());

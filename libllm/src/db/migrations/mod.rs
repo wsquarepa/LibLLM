@@ -13,11 +13,12 @@ mod v4;
 mod v5;
 mod v6;
 mod v7;
+mod v8;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 7;
+pub const CURRENT_VERSION: i64 = 8;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -70,6 +71,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 7 {
             v7::migrate(conn)?;
             stamp_version(conn, 7)?;
+            applied += 1;
+        }
+        if version < 8 {
+            v8::migrate(conn)?;
+            stamp_version(conn, 8)?;
             applied += 1;
         }
 

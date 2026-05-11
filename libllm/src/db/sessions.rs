@@ -28,8 +28,26 @@ pub struct SessionListEntry {
     pub updated_at: String,
 }
 
-fn display_name_from_character(character: Option<&str>) -> String {
-    character.unwrap_or("Assistant").to_owned()
+fn display_name_for_session(session: &Session) -> String {
+    if session.characters.len() <= 1 {
+        return compute_legacy_mirror(session).unwrap_or_else(|| "Assistant".to_owned());
+    }
+    let names: Vec<&str> = session.characters.iter().map(|c| c.slug.as_str()).collect();
+    join_truncated_names(&names)
+}
+
+fn join_truncated_names(names: &[&str]) -> String {
+    if names.len() <= 3 {
+        names.join(", ")
+    } else {
+        format!(
+            "{}, {}, {}, +{} more",
+            names[0],
+            names[1],
+            names[2],
+            names.len() - 3,
+        )
+    }
 }
 
 /// Slug to write into `sessions.character` for back-compat: solo sessions
@@ -65,7 +83,7 @@ fn author_note_columns(session: &Session) -> (Option<&str>, i64, i64) {
 fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
     let legacy_mirror = compute_legacy_mirror(session);
-    let display_name = display_name_from_character(legacy_mirror.as_deref());
+    let display_name = display_name_for_session(session);
     let head_id = session.tree.head().map(|h| h as i64);
     let (note_text, note_depth, note_at_top) = author_note_columns(session);
 
@@ -100,7 +118,7 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
 fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<()> {
     let now = now_iso8601();
     let legacy_mirror = compute_legacy_mirror(session);
-    let display_name = display_name_from_character(legacy_mirror.as_deref());
+    let display_name = display_name_for_session(session);
     let head_id = session.tree.head().map(|h| h as i64);
     let (note_text, note_depth, note_at_top) = author_note_columns(session);
 
@@ -447,6 +465,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         slug,
                         talkativeness: talkativeness as f32,
                         action_points: action_points as f32,
+                        spoke_this_round: false,
                     })
                 })
                 .context("failed to query session_characters")?;
@@ -460,6 +479,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     slug: slug.to_owned(),
                     talkativeness: 1.0,
                     action_points: 0.0,
+                    spoke_this_round: false,
                 });
             }
 
@@ -961,12 +981,23 @@ mod tests {
             system_prompt: None,
             character: None,
             characters: vec![
-                CharacterAttachment { slug: "alice".to_owned(), talkativeness: 0.7, action_points: 0.3 },
-                CharacterAttachment { slug: "bob".to_owned(), talkativeness: 0.4, action_points: 0.0 },
+                CharacterAttachment {
+                    slug: "alice".to_owned(),
+                    talkativeness: 0.7,
+                    action_points: 0.3,
+                    spoke_this_round: false,
+                },
+                CharacterAttachment {
+                    slug: "bob".to_owned(),
+                    talkativeness: 0.4,
+                    action_points: 0.0,
+                    spoke_this_round: false,
+                },
                 CharacterAttachment {
                     slug: "charlie".to_owned(),
                     talkativeness: 0.6,
                     action_points: 0.9,
+                    spoke_this_round: false,
                 },
             ],
             chat_policy: ChatPolicy::WeightedRandom,

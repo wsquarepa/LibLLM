@@ -1298,11 +1298,13 @@ mod tests {
                     slug: "alice".to_owned(),
                     talkativeness: 0.7,
                     action_points: 0.3,
+                    spoke_this_round: false,
                 },
                 crate::group_chat::CharacterAttachment {
                     slug: "bob".to_owned(),
                     talkativeness: 0.4,
                     action_points: 0.0,
+                    spoke_this_round: false,
                 },
             ],
             chat_policy: crate::group_chat::ChatPolicy::WeightedRandom,

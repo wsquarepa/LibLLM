@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 
 use libllm::session::{NodeId, Role};
 
+use super::input::match_next_candidates;
 use super::App;
 
 use super::theme::Theme;
@@ -1135,6 +1136,53 @@ pub fn render_message_queue(f: &mut ratatui::Frame, app: &App, area: Rect) {
         .block(block)
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, area);
+}
+
+pub fn render_next_arg_picker(f: &mut ratatui::Frame, app: &App, arg: &str, chat_area: Rect) {
+    let cast: Vec<(&str, &str)> = app
+        .session
+        .characters
+        .iter()
+        .filter_map(|c| {
+            app.character_cards_cache
+                .get(&c.slug)
+                .map(|card| (c.slug.as_str(), card.name.as_str()))
+        })
+        .collect();
+    let matches = match_next_candidates(arg, &cast);
+    if matches.is_empty() {
+        return;
+    }
+
+    let items: Vec<ListItem> = matches
+        .iter()
+        .map(|name| ListItem::new(name.to_owned().to_owned()))
+        .collect();
+
+    let height = (items.len() as u16 + 2).min(chat_area.height);
+    let picker_area = Rect {
+        x: chat_area.x,
+        y: chat_area.y + chat_area.height - height,
+        width: chat_area.width,
+        height,
+    };
+
+    let selected = app
+        .command_picker_selected
+        .min(matches.len().saturating_sub(1));
+    let mut state = ListState::default();
+    state.select(Some(selected));
+
+    let list = List::new(items)
+        .block(dialog_block(" Characters ", app.theme.command_picker_bg))
+        .highlight_style(
+            Style::default()
+                .fg(app.theme.command_picker_fg)
+                .bg(app.theme.command_picker_bg),
+        );
+
+    f.render_widget(ratatui::widgets::Clear, picker_area);
+    f.render_stateful_widget(list, picker_area, &mut state);
 }
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {

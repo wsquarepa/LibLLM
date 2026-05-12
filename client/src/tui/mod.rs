@@ -685,7 +685,15 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.chat_max_scroll = max_scroll;
     app.last_scroll_state = current_scroll_state;
 
-    if app.focus == Focus::Input && input::input_has_command_picker(app) {
+    if app.focus == Focus::Input && input::input_has_next_arg_picker(app) {
+        {
+            let _span = tracing::trace_span!("picker", phase = "next_arg_picker").entered();
+            let arg = app.textarea.lines()[0]
+                .strip_prefix("/next ")
+                .unwrap_or("");
+            render::render_next_arg_picker(f, app, arg, chat_area);
+        }
+    } else if app.focus == Focus::Input && input::input_has_command_picker(app) {
         {
             let _span = tracing::trace_span!("picker", phase = "command_picker").entered();
             render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);

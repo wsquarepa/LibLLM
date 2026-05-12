@@ -311,7 +311,7 @@ pub async fn run(
         danger_confirm_op: None,
         danger_confirm_selected: None,
         danger_typed_confirm: None,
-        group_settings_selected: 0,
+        chat_settings_dialog: None,
         character_cards_cache: std::collections::HashMap::new(),
         group_chat_loop_rng: None,
         group_chat_consecutive: 0,
@@ -725,7 +725,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::TemplatePromptDialog => Some("template_prompt"),
         Focus::DangerConfirmDialog => Some("danger_confirm"),
         Focus::DangerTypedConfirmDialog => Some("danger_typed_confirm"),
-        Focus::GroupChatSettingsDialog => Some("group_chat_settings"),
+        Focus::ChatSettingsDialog => Some("chat_settings"),
         _ => None,
     };
 
@@ -992,8 +992,10 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
                 );
             }
         }
-        Focus::GroupChatSettingsDialog => {
-            dialogs::group_chat_settings::render(f, app, f.area());
+        Focus::ChatSettingsDialog => {
+            if let Some(ref dlg) = app.chat_settings_dialog {
+                dlg.render(f, f.area(), app.session, &app.theme);
+            }
         }
         _ => {}
     }

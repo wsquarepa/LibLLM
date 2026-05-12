@@ -5,7 +5,7 @@ pub mod auth;
 pub mod branch;
 pub(crate) mod search;
 pub mod character;
-pub mod group_chat_settings;
+pub mod chat_settings;
 pub mod danger_confirm;
 pub mod danger_tab;
 pub mod danger_typed_confirm;

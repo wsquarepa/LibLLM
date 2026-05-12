@@ -189,13 +189,10 @@ pub(super) async fn process_action(
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
-        Action::OpenGroupChatSettings => {
-            app.group_settings_selected = 0;
-            app.focus = Focus::GroupChatSettingsDialog;
-        }
-        Action::SaveGroupChatSettings => {
-            app.mark_session_dirty(SaveTrigger::Debounced, false);
-            return_to_input(app);
+        Action::OpenChatSettings => {
+            app.chat_settings_dialog =
+                Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
+            app.focus = Focus::ChatSettingsDialog;
         }
         Action::JumpToSearchHit(hit) => {
             if let Err(err) = super::business::jump_to_search_hit(app, &hit).await {
@@ -381,7 +378,7 @@ fn handle_key(
             | Focus::TemplatePromptDialog
             | Focus::DangerConfirmDialog
             | Focus::DangerTypedConfirmDialog
-            | Focus::GroupChatSettingsDialog => true,
+            | Focus::ChatSettingsDialog => true,
         };
         debug_assert!(
             invariant_ok,
@@ -610,8 +607,8 @@ fn handle_key(
         }
     }
 
-    if app.focus == Focus::GroupChatSettingsDialog {
-        return dialogs::group_chat_settings::handle_key(key, app);
+    if app.focus == Focus::ChatSettingsDialog {
+        return handle_chat_settings_key(key, app);
     }
 
     if app.is_streaming {
@@ -699,6 +696,32 @@ fn handle_key(
         Focus::Chat => input::handle_chat_key(key, app),
         Focus::Sidebar => input::handle_sidebar_key(key, app),
         _ => None,
+    }
+}
+
+fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    use dialogs::chat_settings::ChatSettingsAction;
+
+    let Some(dlg) = app.chat_settings_dialog.as_mut() else {
+        return_to_input(app);
+        return None;
+    };
+    let mode_locked = app.cli_overrides.chat_mode.is_some();
+    let talkativeness_locked = app.cli_overrides.talkativeness.clone();
+    let mut warning: Option<String> = None;
+    let action = dlg.handle_key(key, app.session, mode_locked, &talkativeness_locked, &mut warning);
+    if let Some(msg) = warning {
+        app.set_status(msg, StatusLevel::Warning);
+    }
+    match action {
+        ChatSettingsAction::Continue => None,
+        ChatSettingsAction::Close => {
+            app.chat_settings_dialog = None;
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+            return_to_input(app);
+            None
+        }
+        ChatSettingsAction::EditScenario => None,
     }
 }
 

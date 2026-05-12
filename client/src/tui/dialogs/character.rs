@@ -180,7 +180,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 );
                 refresh_sidebar(app);
                 return_to_input(app);
-                return Some(Action::OpenGroupChatSettings);
+                return Some(Action::OpenChatSettings);
             }
 
             let single_index = if picked.len() == 1 {

@@ -555,8 +555,9 @@ fn cmd_chat(app: &mut App) {
         );
         return;
     }
-    app.group_settings_selected = 0;
-    app.focus = Focus::GroupChatSettingsDialog;
+    app.chat_settings_dialog =
+        Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
+    app.focus = Focus::ChatSettingsDialog;
 }
 
 fn cmd_passkey(app: &mut App) {

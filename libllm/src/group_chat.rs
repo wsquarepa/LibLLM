@@ -186,9 +186,10 @@ pub struct TurnPromptInputs<'a> {
 ///
 /// Structure mirrors SillyTavern's text-completion flow (see script.js:5073-5145 +
 /// group-chats.js:497-571): the user's roleplay prompt fills the `{{system}}` slot,
-/// the active speaker's card (or all members joined for `JoinCards`) fills
-/// `{{description}}` / `{{personality}}` / `{{scenario}}` / `{{mesExamples}}`, and
-/// the persona text fills `{{persona}}`. A short nudge naming the active speaker is
+/// all members' cards fill `{{description}}` / `{{personality}}` / `{{mesExamples}}`
+/// with `[<Label> for <Name>]` headers, `{{scenario}}` is sourced from
+/// `session.scenario` as a single `[Scenario]` block (empty when absent), and the
+/// persona text fills `{{persona}}`. A short nudge naming the active speaker is
 /// returned separately so the caller can inject it as a system message immediately
 /// before the assistant turn opens. `{{char}}` and `{{user}}` macros are substituted
 /// throughout.
@@ -223,7 +224,10 @@ pub fn build_turn_prompt(inputs: TurnPromptInputs<'_>) -> Result<TurnPrompt> {
     // prefixing inside dialogue lines is the card author's responsibility per TavernAI v2.
     let description = join_field_labeled(&live, "Description", |c| c.description.as_str());
     let personality = join_field_labeled(&live, "Personality", |c| c.personality.as_str());
-    let scenario = join_field_labeled(&live, "Scenario", |c| c.scenario.as_str());
+    let scenario = match inputs.session.scenario.as_deref() {
+        Some(s) if !s.trim().is_empty() => format!("[Scenario]\n{}", s.trim()),
+        _ => String::new(),
+    };
     let mes_examples = join_field_raw(&live, |c| c.mes_example.as_str());
 
     let subst = |s: &str| crate::template::apply_template_vars(s, active_name, user_name);
@@ -1173,10 +1177,11 @@ mod tests {
     #[test]
     fn build_turn_prompt_default_template_renders_persona_and_card_fields() {
         let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
-            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "",          "")),
+            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
+            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "", "")),
         ]);
-        let session = fixture_session(&["alice", "bob"]);
+        let mut session = fixture_session(&["alice", "bob"]);
+        session.scenario = Some("A medieval tavern.".to_owned());
         let persona = crate::persona::PersonaFile {
             name: "Trav".to_owned(),
             persona: "A traveler from the north.".to_owned(),
@@ -1212,7 +1217,8 @@ mod tests {
         assert!(p.system.contains("A traveler from the north."));
         assert!(p.system.contains("Bard."));
         assert!(p.system.contains("Cheerful."));
-        assert!(p.system.contains("A tavern."));
+        assert!(p.system.contains("[Scenario]"));
+        assert!(p.system.contains("A medieval tavern."));
     }
 
     #[test]
@@ -1236,5 +1242,131 @@ mod tests {
         .unwrap();
         assert!(p.system.contains("Alice runs the tavern."), "got: {}", p.system);
         assert!(p.system.contains("Friendly to Trav."), "got: {}", p.system);
+    }
+
+    #[test]
+    fn build_turn_prompt_emits_scenario_block_when_present() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "", "")),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let mut session = fixture_session(&["alice", "bob"]);
+        session.scenario = Some("A medieval tavern at dusk.".to_owned());
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        assert!(p.system.contains("[Scenario]"), "missing [Scenario] block: {}", p.system);
+        assert!(
+            p.system.contains("A medieval tavern at dusk."),
+            "missing scenario text: {}",
+            p.system,
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_omits_scenario_block_when_absent() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "", "")),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let session = fixture_session(&["alice", "bob"]);
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        assert!(!p.system.contains("[Scenario]"), "unexpected [Scenario] block: {}", p.system);
+    }
+
+    #[test]
+    fn build_turn_prompt_omits_scenario_block_when_whitespace_only() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "", "")),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let mut session = fixture_session(&["alice", "bob"]);
+        session.scenario = Some("   ".to_owned());
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        assert!(!p.system.contains("[Scenario]"), "unexpected [Scenario] block: {}", p.system);
+    }
+
+    #[test]
+    fn build_turn_prompt_does_not_emit_per_card_scenarios() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "", "", "alice-card-scenario-text", "")),
+            ("bob", card("Bob", "", "", "bob-card-scenario-text", "")),
+        ]);
+        let mut session = fixture_session(&["alice", "bob"]);
+        session.scenario = Some("session-level scenario text".to_owned());
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        assert!(
+            p.system.contains("session-level scenario text"),
+            "session scenario missing: {}",
+            p.system,
+        );
+        assert!(
+            !p.system.contains("alice-card-scenario-text"),
+            "per-card scenario leaked: {}",
+            p.system,
+        );
+        assert!(
+            !p.system.contains("bob-card-scenario-text"),
+            "per-card scenario leaked: {}",
+            p.system,
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_does_not_emit_first_mes() {
+        let cards = cards_map(&[
+            (
+                "alice",
+                CharacterCard {
+                    name: "Alice".to_owned(),
+                    description: String::new(),
+                    personality: String::new(),
+                    scenario: String::new(),
+                    first_mes: "ALICE_GREETING_INJECTOR".to_owned(),
+                    mes_example: String::new(),
+                    system_prompt: String::new(),
+                    post_history_instructions: String::new(),
+                    alternate_greetings: vec![],
+                    author_note: None,
+                },
+            ),
+            ("bob", card("Bob", "", "", "", "")),
+        ]);
+        let mut session = fixture_session(&["alice", "bob"]);
+        session.scenario = Some("tavern".to_owned());
+        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        assert!(
+            !p.system.contains("ALICE_GREETING_INJECTOR"),
+            "first_mes leaked into system prompt: {}",
+            p.system,
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_foregrounds_active_speaker() {
+        let cards = cards_map(&[
+            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
+            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
+        ]);
+        let mut session = fixture_session(&["alice", "bob"]);
+        session.scenario = Some("tavern".to_owned());
+        let alice = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
+        let bob = build_turn_prompt(inputs(&session, &cards, "bob")).unwrap();
+        assert_eq!(alice.prefill, "Alice: ");
+        assert_eq!(bob.prefill, "Bob: ");
+        assert!(
+            alice.stop_sequences.contains(&"\nBob:".to_owned()),
+            "alice prompt should stop at Bob",
+        );
+        assert!(
+            bob.stop_sequences.contains(&"\nAlice:".to_owned()),
+            "bob prompt should stop at Alice",
+        );
+        assert!(
+            !alice.stop_sequences.iter().any(|s| s == "\nAlice:"),
+            "alice prompt must not stop at its own name",
+        );
+        assert!(
+            !bob.stop_sequences.iter().any(|s| s == "\nBob:"),
+            "bob prompt must not stop at its own name",
+        );
     }
 }

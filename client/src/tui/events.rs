@@ -9,6 +9,7 @@ use tui_textarea::{CursorMove, TextArea};
 
 use libllm::client::StreamToken;
 
+use crate::tui::dialogs::chat_settings::ChatSettingsAction;
 use crate::tui::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
 use crate::tui::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
 use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
@@ -700,8 +701,6 @@ fn handle_key(
 }
 
 fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    use dialogs::chat_settings::ChatSettingsAction;
-
     let Some(dlg) = app.chat_settings_dialog.as_mut() else {
         return_to_input(app);
         return None;

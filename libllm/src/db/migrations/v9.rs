@@ -74,30 +74,23 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
             .collect::<rusqlite::Result<_>>()?;
         drop(rows);
 
-        if entries.iter().all(|(_, s)| s.as_deref().unwrap_or("").is_empty()) {
+        let parts: Vec<String> = entries
+            .iter()
+            .filter_map(|(name, scenario)| {
+                let text = scenario.as_deref().filter(|s| !s.is_empty())?;
+                Some(format!("[Scenario for {name}]\n{text}"))
+            })
+            .collect();
+
+        if parts.is_empty() {
             continue;
         }
 
-        let mut joined = String::new();
-        for (name, scenario) in entries.iter() {
-            let Some(scenario) = scenario.as_deref().filter(|s| !s.is_empty()) else {
-                continue;
-            };
-            if joined.is_empty() {
-                joined.push_str(scenario);
-            } else {
-                joined.push_str("\n\n[Scenario for ");
-                joined.push_str(name);
-                joined.push_str("]\n");
-                joined.push_str(scenario);
-            }
-        }
-        if !joined.is_empty() {
-            conn.execute(
-                "UPDATE sessions SET scenario = ?1 WHERE id = ?2",
-                params![joined, sid],
-            )?;
-        }
+        let joined = parts.join("\n");
+        conn.execute(
+            "UPDATE sessions SET scenario = ?1 WHERE id = ?2",
+            params![joined, sid],
+        )?;
     }
 
     Ok(())
@@ -211,7 +204,7 @@ mod tests {
             [],
             |row| row.get(0),
         )?;
-        let expected = "Alice is hunting.\n\n[Scenario for Bob]\nBob is brewing.";
+        let expected = "[Scenario for Alice]\nAlice is hunting.\n[Scenario for Bob]\nBob is brewing.";
         assert_eq!(scenario.as_deref(), Some(expected));
         Ok(())
     }
@@ -244,7 +237,7 @@ mod tests {
             [],
             |row| row.get(0),
         )?;
-        assert_eq!(scenario.as_deref(), Some("Bob is brewing."));
+        assert_eq!(scenario.as_deref(), Some("[Scenario for Bob]\nBob is brewing."));
         Ok(())
     }
 

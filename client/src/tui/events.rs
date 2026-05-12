@@ -743,10 +743,7 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 if scenario_ok {
                     app.mark_session_dirty(SaveTrigger::Debounced, false);
                 } else {
-                    app.session.tree = libllm::session::MessageTree::new();
-                    app.session.characters.clear();
-                    app.session.chat_mode = libllm::group_chat::ChatMode::default();
-                    app.session.scenario = None;
+                    dialogs::chat_settings::roll_back_provisional_group(app.session);
                     app.set_status(
                         "scenario required for group chat, creation cancelled".to_owned(),
                         StatusLevel::Warning,

@@ -348,3 +348,90 @@ fn group_session_round_trips_through_database() {
     assert_eq!(loaded.characters[2].slug, "charlie");
     assert!(matches!(loaded.chat_mode, ChatMode::WeightedRandom));
 }
+
+#[test]
+fn group_session_scenario_and_chat_mode_round_trip() {
+    let dir = common::temp_dir();
+    let db_path = dir.path().join("data.db");
+    let mut db = Database::open(&db_path, None).expect("open db");
+
+    let session = Session {
+        characters: vec![
+            CharacterAttachment {
+                slug: "alice".to_owned(),
+                talkativeness: 0.4,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob".to_owned(),
+                talkativeness: 0.6,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+        ],
+        chat_mode: ChatMode::ActionValue,
+        scenario: Some("a tavern".to_owned()),
+        ..Default::default()
+    };
+
+    db.insert_session("grp-scenario", &session)
+        .expect("insert session with scenario");
+    let loaded = db
+        .load_session("grp-scenario")
+        .expect("load session with scenario");
+
+    assert_eq!(loaded.scenario.as_deref(), Some("a tavern"));
+    assert!(matches!(loaded.chat_mode, ChatMode::ActionValue));
+    assert!((loaded.characters[0].talkativeness - 0.4_f32).abs() < 1e-6);
+    assert!((loaded.characters[1].talkativeness - 0.6_f32).abs() < 1e-6);
+}
+
+#[test]
+fn session_scenario_is_independent_of_card_scenario_after_save() {
+    let dir = common::temp_dir();
+    let db_path = dir.path().join("data.db");
+    let db = Database::open(&db_path, None).expect("open db");
+
+    let card = common::simple_character("Alice", "An adventurer.");
+    db.insert_character("alice", &card).expect("insert card");
+
+    let mut session = Session {
+        scenario: Some("In a tavern.".to_owned()),
+        characters: vec![CharacterAttachment {
+            slug: "alice".to_owned(),
+            talkativeness: 1.0,
+            action_points: 0.0,
+            spoke_this_round: false,
+        }],
+        ..Default::default()
+    };
+    {
+        let mut db2 = Database::open(&db_path, None).expect("reopen for insert");
+        db2.insert_session("solo-scenario", &session)
+            .expect("insert session");
+    }
+
+    session.scenario = Some("Changed in session.".to_owned());
+    {
+        let mut db3 = Database::open(&db_path, None).expect("reopen for save");
+        db3.save_session("solo-scenario", &session)
+            .expect("save session");
+    }
+
+    let db4 = Database::open(&db_path, None).expect("reopen for verify");
+    let reloaded_card = db4.load_character("alice").expect("load card");
+    assert_eq!(
+        reloaded_card.scenario.as_str(),
+        "",
+        "modifying the session scenario must not mutate the character card"
+    );
+    let reloaded_session = db4
+        .load_session("solo-scenario")
+        .expect("load session after mutation");
+    assert_eq!(
+        reloaded_session.scenario.as_deref(),
+        Some("Changed in session."),
+        "session scenario must reflect the saved change"
+    );
+}

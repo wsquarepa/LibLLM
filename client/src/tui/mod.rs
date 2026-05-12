@@ -40,6 +40,8 @@ use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
 use libllm::session::{SaveMode, Session};
 
+pub use input::match_next_candidates;
+
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
     db: Option<&libllm::db::Database>,

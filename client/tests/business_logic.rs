@@ -6,8 +6,10 @@ mod common;
 
 use client::cli::CliOverrides;
 use client::tui::business;
+use client::tui::dialogs::chat_settings::roll_back_provisional_group;
 use libllm::config::Config;
 use libllm::context::ContextManager;
+use libllm::group_chat::{CharacterAttachment, ChatMode};
 use libllm::session::{Message, MessageTree, Role, Session};
 use libllm::summarize::Summarizer;
 
@@ -387,4 +389,45 @@ fn display_regex_cache_clears_on_invalidate() {
 
     cache.clear();
     assert!(cache.is_empty(), "cache must be empty after clear");
+}
+
+// ---------------------------------------------------------------------------
+// Group chat creation rollback
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rollback_provisional_group_clears_session_state() {
+    let mut session = Session {
+        characters: vec![
+            CharacterAttachment {
+                slug: "alice".into(),
+                talkativeness: 0.5,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob".into(),
+                talkativeness: 0.5,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+        ],
+        chat_mode: ChatMode::WeightedRandom,
+        scenario: Some("partial".into()),
+        ..Session::default()
+    };
+    roll_back_provisional_group(&mut session);
+    assert!(
+        session.characters.is_empty(),
+        "rollback must clear character attachments"
+    );
+    assert_eq!(
+        session.chat_mode,
+        ChatMode::default(),
+        "rollback must reset chat mode to default"
+    );
+    assert_eq!(
+        session.scenario, None,
+        "rollback must clear the scenario"
+    );
 }

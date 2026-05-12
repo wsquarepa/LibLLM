@@ -9,7 +9,7 @@ use libllm::group_chat::{
     ChatMode, TALKATIVENESS_NOTCHES, normalized_talkativeness, notch_to_talkativeness,
     talkativeness_to_notch,
 };
-use libllm::session::Session;
+use libllm::session::{MessageTree, Session};
 
 use crate::tui::theme::Theme;
 
@@ -30,6 +30,18 @@ pub enum ChatSettingsAction {
     Continue,
     Close,
     EditScenario,
+}
+
+/// Reset session fields to their empty defaults, cancelling a provisional group creation.
+///
+/// Called when the user dismisses the chat-settings dialog without providing a scenario.
+/// Clears the character list, chat mode, and scenario so the session is indistinguishable
+/// from a freshly initialised one.
+pub fn roll_back_provisional_group(session: &mut Session) {
+    session.tree = MessageTree::new();
+    session.characters.clear();
+    session.chat_mode = ChatMode::default();
+    session.scenario = None;
 }
 
 impl ChatSettingsDialog {

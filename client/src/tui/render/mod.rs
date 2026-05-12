@@ -683,11 +683,32 @@ pub fn render_chat(
     let mut hover_height_start: Option<u16> = None;
     let mut hover_height_end: Option<u16> = None;
     let mut cumulative_height: u16 = 0;
+
+    if let Some(scenario) = app
+        .session
+        .scenario
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let style = Style::default().fg(app.theme.system_message);
+        lines.push(Line::from(Span::styled("─── Scenario ───", style)));
+        for paragraph in scenario.split('\n') {
+            lines.push(Line::from(Span::styled(
+                format!("  {paragraph}"),
+                style,
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+
+    let banner_height = measure_wrapped_height(&lines, area);
     let static_height = cached
         .entries
         .iter()
         .map(|entry| entry.total_height)
-        .sum::<u16>();
+        .sum::<u16>()
+        + banner_height;
 
     for (entry, &node_id) in cached.entries.iter().zip(branch_ids.iter()) {
         let is_nav_selected = app.nav_cursor == Some(node_id);

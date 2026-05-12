@@ -69,21 +69,21 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
              WHERE sc.session_id = ?1 \
              ORDER BY sc.attach_index",
         )?;
-        let entries: Vec<(String, String)> = rows
+        let entries: Vec<(String, Option<String>)> = rows
             .query_map(params![&sid], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         drop(rows);
 
-        if entries.iter().all(|(_, s)| s.is_empty()) {
+        if entries.iter().all(|(_, s)| s.as_deref().unwrap_or("").is_empty()) {
             continue;
         }
 
         let mut joined = String::new();
-        for (i, (name, scenario)) in entries.iter().enumerate() {
-            if scenario.is_empty() {
+        for (name, scenario) in entries.iter() {
+            let Some(scenario) = scenario.as_deref().filter(|s| !s.is_empty()) else {
                 continue;
-            }
-            if i == 0 {
+            };
+            if joined.is_empty() {
                 joined.push_str(scenario);
             } else {
                 joined.push_str("\n\n[Scenario for ");
@@ -213,6 +213,68 @@ mod tests {
         )?;
         let expected = "Alice is hunting.\n\n[Scenario for Bob]\nBob is brewing.";
         assert_eq!(scenario.as_deref(), Some(expected));
+        Ok(())
+    }
+
+    #[test]
+    fn v9_group_session_handles_null_card_scenario() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        seed_v8(&conn)?;
+        conn.execute(
+            "INSERT INTO characters (slug, name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, created_at, updated_at) VALUES ('alice', 'Alice', '', '', NULL, '', '', '', '', 'now', 'now')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO characters (slug, name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, created_at, updated_at) VALUES ('bob', 'Bob', '', '', 'Bob is brewing.', '', '', '', '', 'now', 'now')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO sessions (id, display_name, created_at, updated_at, head_id, character, chat_policy, card_assembly) VALUES ('g1', 'group', 'now', 'now', NULL, NULL, 'weighted_random', 'join_cards')",
+            [],
+        )?;
+        for (i, slug) in ["alice", "bob"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points) VALUES ('g1', ?1, ?2, 0.5, 0.0)",
+                params![slug, i as i64],
+            )?;
+        }
+        super::migrate(&conn)?;
+        let scenario: Option<String> = conn.query_row(
+            "SELECT scenario FROM sessions WHERE id = 'g1'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(scenario.as_deref(), Some("Bob is brewing."));
+        Ok(())
+    }
+
+    #[test]
+    fn v9_group_session_all_empty_scenarios_leaves_null() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        seed_v8(&conn)?;
+        for slug in ["alice", "bob"] {
+            conn.execute(
+                "INSERT INTO characters (slug, name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, created_at, updated_at) VALUES (?1, ?1, '', '', '', '', '', '', '', 'now', 'now')",
+                params![slug],
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO sessions (id, display_name, created_at, updated_at, head_id, character, chat_policy, card_assembly) VALUES ('g1', 'group', 'now', 'now', NULL, NULL, 'weighted_random', 'join_cards')",
+            [],
+        )?;
+        for (i, slug) in ["alice", "bob"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points) VALUES ('g1', ?1, ?2, 0.5, 0.0)",
+                params![slug, i as i64],
+            )?;
+        }
+        super::migrate(&conn)?;
+        let scenario: Option<String> = conn.query_row(
+            "SELECT scenario FROM sessions WHERE id = 'g1'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(scenario, None);
         Ok(())
     }
 

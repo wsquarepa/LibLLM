@@ -596,7 +596,6 @@ mod tests {
         let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
         let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
             .collect::<Result<Vec<_>, _>>().unwrap();
-        // v5 added chat_policy; v9 renamed it to chat_mode and dropped card_assembly
         assert!(cols.iter().any(|c| c == "chat_mode"), "missing chat_mode in {cols:?}");
         assert!(!cols.iter().any(|c| c == "chat_policy"), "stale chat_policy still present in {cols:?}");
         assert!(!cols.iter().any(|c| c == "card_assembly"), "stale card_assembly still present in {cols:?}");

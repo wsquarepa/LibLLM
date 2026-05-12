@@ -354,16 +354,21 @@ pub struct TurnDecision {
     pub time_advanced: f32,
 }
 
-/// Picks the next speaker using HSR-style turn order. The caller passes the remaining
-/// per-cascade time budget; if the next eligible character's AV exceeds that budget,
-/// returns `None` (the cascade yields to the user). Passing `None` for `time_budget`
-/// disables the check, used for the **forced first turn** of each cascade so at least
-/// one character always speaks per user message.
+/// Picks the next speaker for the given `mode`.
 ///
-/// Returns `None` when every attached character has already spoken this round
-/// (cascade complete). Characters with `talkativeness == 0` have `f32::INFINITY` base
-/// AV and effectively never speak unless they're the only non-spoken candidate and
-/// the budget is unbounded (the forced first turn).
+/// - `ActionValue`: HSR-style turn order. The character(s) with the lowest `action_points`
+///   are candidates; ties are broken with a uniform-random draw. When `time_budget` is
+///   `Some(b)` and the minimum AV exceeds `b`, returns `None` (cascade yields to the user).
+///   Pass `None` for the forced first turn so at least one character always speaks per user
+///   message.
+/// - `RoundRobin`: picks the first character (by attach order) that has not yet spoken this
+///   round, ignoring action values entirely. `time_budget` is ignored.
+/// - `WeightedRandom`: picks uniformly-weighted by `talkativeness` among all eligible
+///   characters. `time_budget` is ignored.
+/// - `Directed`: always returns `None` — the user drives all turns explicitly.
+///
+/// Returns `None` when every attached character has already spoken this round (cascade
+/// complete) or the cascade should yield per the budget check above.
 pub fn decide_next_speaker(
     characters: &[CharacterAttachment],
     mode: ChatMode,
@@ -371,6 +376,9 @@ pub fn decide_next_speaker(
     time_budget: Option<f32>,
 ) -> Option<TurnDecision> {
     if characters.is_empty() {
+        return None;
+    }
+    if mode == ChatMode::Directed {
         return None;
     }
 
@@ -389,38 +397,39 @@ pub fn decide_next_speaker(
         .map(|c| (c.slug.clone(), c.action_points))
         .collect();
 
-    let min_av = eligible
-        .iter()
-        .map(|&i| characters[i].action_points)
-        .fold(f32::INFINITY, f32::min);
-
-    if let Some(budget) = time_budget
-        && min_av > budget
-    {
-        return None;
-    }
-
-    let candidates: Vec<usize> = eligible
-        .iter()
-        .copied()
-        .filter(|&i| (characters[i].action_points - min_av).abs() < 1e-5)
-        .collect();
-
-    if mode == ChatMode::Directed {
-        return None;
-    }
-
-    let chosen_idx = if candidates.len() == 1 {
-        candidates[0]
-    } else {
-        match mode {
-            ChatMode::ActionValue | ChatMode::RoundRobin => candidates[0],
-            ChatMode::WeightedRandom => {
-                let weights = normalized_talkativeness(characters);
-                weighted_pick(&candidates, &weights, rng)
-            }
-            ChatMode::Directed => unreachable!("handled above"),
+    let chosen_idx = match mode {
+        ChatMode::Directed => unreachable!("handled above"),
+        ChatMode::RoundRobin => eligible[0],
+        ChatMode::WeightedRandom => {
+            let weights = normalized_talkativeness(characters);
+            weighted_pick(&eligible, &weights, rng)
         }
+        ChatMode::ActionValue => {
+            let min_av = eligible
+                .iter()
+                .map(|&i| characters[i].action_points)
+                .fold(f32::INFINITY, f32::min);
+            if let Some(budget) = time_budget
+                && min_av > budget
+            {
+                return None;
+            }
+            let tied: Vec<usize> = eligible
+                .iter()
+                .copied()
+                .filter(|&i| (characters[i].action_points - min_av).abs() < 1e-5)
+                .collect();
+            let pick = (rng.random::<f32>() * tied.len() as f32) as usize;
+            tied[pick.min(tied.len() - 1)]
+        }
+    };
+
+    let min_av_for_update = match mode {
+        ChatMode::ActionValue => eligible
+            .iter()
+            .map(|&i| characters[i].action_points)
+            .fold(f32::INFINITY, f32::min),
+        _ => 0.0,
     };
 
     let updated: Vec<(String, f32)> = characters
@@ -430,7 +439,7 @@ pub fn decide_next_speaker(
             let new_av = if i == chosen_idx {
                 base_action_value(c.talkativeness)
             } else {
-                c.action_points - min_av
+                c.action_points - min_av_for_update
             };
             (c.slug.clone(), new_av)
         })
@@ -440,7 +449,7 @@ pub fn decide_next_speaker(
         speaker_slug: characters[chosen_idx].slug.clone(),
         updated_action_points: updated,
         snapshot_before,
-        time_advanced: min_av,
+        time_advanced: min_av_for_update,
     })
 }
 
@@ -725,9 +734,9 @@ mod tests {
     #[test]
     fn decide_next_picks_lowest_av_speaker() {
         let mut rng = StdRng::seed_from_u64(0);
-        // a: AV=2 (waiting), b: AV=0.5 (sooner). b wins.
+        // a: AV=2 (waiting), b: AV=0.5 (sooner). b wins under ActionValue.
         let cs = vec![att("a", 0.5, 2.0), att("b", 0.5, 0.5)];
-        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
+        let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
         assert_eq!(d.speaker_slug, "b");
         // Time advance = 0.5. a: 2 - 0.5 = 1.5. b: reset to base = 1/0.5 = 2.
         let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
@@ -781,10 +790,10 @@ mod tests {
 
     #[test]
     fn decide_next_zero_talkativeness_yields_to_others() {
-        // a is muted (talk=0 -> base AV=inf); b should always be picked.
+        // a is muted (talk=0 -> base AV=inf); b should be picked under ActionValue.
         let mut rng = StdRng::seed_from_u64(0);
         let cs = vec![att("a", 0.0, f32::INFINITY), att("b", 0.5, 1.0)];
-        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
+        let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
         assert_eq!(d.speaker_slug, "b");
     }
 
@@ -923,7 +932,7 @@ mod tests {
     #[test]
     fn cascade_caps_at_one_turn_per_character_per_round() {
         let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
-        let rounds = simulate(cs, ChatMode::RoundRobin, 3, 10, 0);
+        let rounds = simulate(cs, ChatMode::ActionValue, 3, 10, 0);
         for (i, order) in rounds.iter().enumerate() {
             let unique: std::collections::HashSet<&String> = order.iter().collect();
             assert_eq!(unique.len(), order.len(), "round {i}: duplicate speaker");
@@ -933,11 +942,15 @@ mod tests {
     #[test]
     fn cascade_orders_by_speed_higher_first() {
         // Loud character has high SPD (base AV 1), quiet has low (base AV 5).
-        // Both start at AV=0, so first turn ties on AV; round-robin breaks toward loud.
-        // After loud speaks, loud.AV=1, quiet.AV=0, so quiet goes next.
+        // Both start at AV=0, so they tie; after the first speaks, the second always
+        // follows in the same round.
         let cs = vec![att("loud", 1.0, 0.0), att("quiet", 0.2, 0.0)];
-        let rounds = simulate(cs, ChatMode::RoundRobin, 1, 5, 0);
-        assert_eq!(rounds[0], vec!["loud", "quiet"]);
+        let rounds = simulate(cs, ChatMode::ActionValue, 1, 5, 0);
+        assert_eq!(rounds[0].len(), 2, "both should speak in one round");
+        assert!(
+            rounds[0].contains(&"loud".to_owned()) && rounds[0].contains(&"quiet".to_owned()),
+            "expected both speakers to appear: {:?}", rounds[0],
+        );
     }
 
     #[test]
@@ -946,7 +959,7 @@ mod tests {
         // because its AV resets to 1.0 (vs. quiet's 5.0); time-advance never lets quiet
         // catch up unless it has been waiting.
         let cs = vec![att("loud", 1.0, 0.0), att("quiet", 0.2, 0.0)];
-        let rounds = simulate(cs, ChatMode::RoundRobin, 20, 2, 0);
+        let rounds = simulate(cs, ChatMode::ActionValue, 20, 2, 0);
         let first_slot_loud = rounds.iter().filter(|r| r.first() == Some(&"loud".to_owned())).count();
         assert!(
             first_slot_loud >= 18,
@@ -995,7 +1008,7 @@ mod tests {
         let mut state = cs;
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..50 {
-            run_cascade(&mut state, ChatMode::RoundRobin, &mut rng);
+            run_cascade(&mut state, ChatMode::ActionValue, &mut rng);
         }
         renormalize_action_values(&mut state);
         let finite_min = state
@@ -1023,7 +1036,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let mut counts = (0u32, 0u32, 0u32);
         for _ in 0..120 {
-            let order = run_cascade(&mut state, ChatMode::RoundRobin, &mut rng);
+            let order = run_cascade(&mut state, ChatMode::ActionValue, &mut rng);
             for slug in order {
                 match slug.as_str() {
                     "a" => counts.0 += 1,
@@ -1044,8 +1057,8 @@ mod tests {
     fn decide_next_returns_none_when_av_exceeds_budget() {
         let mut rng = StdRng::seed_from_u64(0);
         let cs = vec![att("a", 0.5, 2.0), att("b", 0.5, 3.0)];
-        // Lowest AV is 2.0, but budget is only 1.0.
-        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, Some(1.0));
+        // Lowest AV is 2.0, but budget is only 1.0. ActionValue respects the budget.
+        let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, Some(1.0));
         assert!(d.is_none(), "AV 2.0 exceeds budget 1.0; should yield");
     }
 
@@ -1053,9 +1066,89 @@ mod tests {
     fn decide_next_unconditional_when_budget_is_none() {
         let mut rng = StdRng::seed_from_u64(0);
         let cs = vec![att("a", 0.5, 99.0), att("b", 0.5, 100.0)];
-        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
+        let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
         assert_eq!(d.speaker_slug, "a", "no budget → always picks lowest AV");
         assert!((d.time_advanced - 99.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn action_value_picks_min_ap_with_uniform_random_tiebreak() {
+        let cs = vec![
+            att("alice", 0.5, 1.0),
+            att("bob", 0.5, 1.0),
+            att("carol", 0.5, 2.0),
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..10 {
+            let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
+            assert!(d.speaker_slug == "alice" || d.speaker_slug == "bob");
+            assert_ne!(d.speaker_slug, "carol");
+        }
+    }
+
+    #[test]
+    fn action_value_tiebreak_is_uniformly_random_not_deterministic() {
+        let cs = vec![
+            att("alice", 0.5, 1.0),
+            att("bob", 0.5, 1.0),
+        ];
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut saw_alice = false;
+        let mut saw_bob = false;
+        for _ in 0..100 {
+            let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
+            if d.speaker_slug == "alice" { saw_alice = true; }
+            if d.speaker_slug == "bob" { saw_bob = true; }
+            if saw_alice && saw_bob { break; }
+        }
+        assert!(saw_alice, "alice should appear in at least one of 100 trials");
+        assert!(saw_bob, "bob should appear in at least one of 100 trials");
+    }
+
+    #[test]
+    fn directed_always_returns_none() {
+        let cs = vec![att("alice", 1.0, 0.0)];
+        let mut rng = StdRng::seed_from_u64(0);
+        assert!(decide_next_speaker(&cs, ChatMode::Directed, &mut rng, None).is_none());
+    }
+
+    #[test]
+    fn round_robin_picks_lowest_attach_index_not_spoken() {
+        let cs = vec![
+            CharacterAttachment {
+                slug: "alice".into(),
+                talkativeness: 0.0,
+                action_points: 99.0,
+                spoke_this_round: true,
+            },
+            att("bob", 0.0, 99.0),
+            att("carol", 0.0, 0.0),
+        ];
+        let mut rng = StdRng::seed_from_u64(0);
+        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
+        assert_eq!(d.speaker_slug, "bob");
+    }
+
+    #[test]
+    fn round_robin_ignores_time_budget() {
+        let cs = vec![att("alice", 0.5, 99.0), att("bob", 0.5, 100.0)];
+        let mut rng = StdRng::seed_from_u64(0);
+        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, Some(0.001));
+        assert!(d.is_some(), "RoundRobin ignores time_budget; should still pick alice");
+        assert_eq!(d.unwrap().speaker_slug, "alice");
+    }
+
+    #[test]
+    fn weighted_random_skips_zero_talkativeness() {
+        let cs = vec![
+            att("silent", 0.0, 0.0),
+            att("talker", 1.0, 0.0),
+        ];
+        let mut rng = StdRng::seed_from_u64(7);
+        for _ in 0..50 {
+            let d = decide_next_speaker(&cs, ChatMode::WeightedRandom, &mut rng, None).unwrap();
+            assert_eq!(d.speaker_slug, "talker");
+        }
     }
 
     #[test]

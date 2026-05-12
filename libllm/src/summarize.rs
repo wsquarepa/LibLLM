@@ -67,7 +67,7 @@ impl Summarizer {
         prompt
     }
 
-    /// Shrinks `messages` until `format_prompt(instruction, trimmed)` is ≤ `token_budget`
+    /// Shrinks `messages` until `format_prompt(scenario, instruction, trimmed, file_summaries)` is ≤ `token_budget`
     /// according to `counter`. Binary-searches the smallest `k` such that dropping the `k`
     /// oldest non-Summary messages puts the rendered prompt under budget. Always keeps at
     /// least one message if the input is non-empty.

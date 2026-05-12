@@ -48,6 +48,7 @@ impl ChatSettingsDialog {
         &mut self,
         key: KeyEvent,
         session: &mut Session,
+        scenario_locked: bool,
         mode_locked: bool,
         talkativeness_locked: &std::collections::HashMap<String, f32>,
         set_locked_warning: &mut Option<String>,
@@ -70,7 +71,15 @@ impl ChatSettingsDialog {
                 ChatSettingsAction::Continue
             }
             KeyCode::Enter => match self.rows[self.selected] {
-                Row::Scenario => ChatSettingsAction::EditScenario,
+                Row::Scenario => {
+                    if scenario_locked {
+                        *set_locked_warning =
+                            Some("scenario is locked by --scenario CLI flag".to_owned());
+                        ChatSettingsAction::Continue
+                    } else {
+                        ChatSettingsAction::EditScenario
+                    }
+                }
                 _ => ChatSettingsAction::Continue,
             },
             KeyCode::Esc => ChatSettingsAction::Close,
@@ -131,7 +140,14 @@ impl ChatSettingsDialog {
         }
     }
 
-    pub fn render(&self, f: &mut Frame, area: Rect, session: &Session, theme: &Theme) {
+    pub fn render(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        session: &Session,
+        theme: &Theme,
+        scenario_locked: bool,
+    ) {
         let notches_total = TALKATIVENESS_NOTCHES as usize;
         let dim_sliders = matches!(
             session.chat_mode,
@@ -173,9 +189,14 @@ impl ChatSettingsDialog {
                             }
                         })
                         .unwrap_or_else(|| "(empty \u{2014} press Enter)".to_owned());
+                    let scenario_style = if scenario_locked {
+                        Style::default().fg(Color::Red)
+                    } else {
+                        base_style
+                    };
                     Line::from(vec![
-                        Span::styled("  Scenario: ", base_style),
-                        Span::styled(preview, base_style),
+                        Span::styled("  Scenario: ", scenario_style),
+                        Span::styled(preview, scenario_style),
                     ])
                 }
                 Row::Mode => {

@@ -714,10 +714,11 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         return_to_input(app);
         return None;
     };
+    let scenario_locked = app.cli_overrides.scenario.is_some();
     let mode_locked = app.cli_overrides.chat_mode.is_some();
     let talkativeness_locked = app.cli_overrides.talkativeness.clone();
     let mut warning: Option<String> = None;
-    let action = dlg.handle_key(key, app.session, mode_locked, &talkativeness_locked, &mut warning);
+    let action = dlg.handle_key(key, app.session, scenario_locked, mode_locked, &talkativeness_locked, &mut warning);
     if let Some(msg) = warning {
         app.set_status(msg, StatusLevel::Warning);
     }

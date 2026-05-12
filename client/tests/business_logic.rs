@@ -56,6 +56,7 @@ fn no_overrides() -> CliOverrides {
         persona: None,
         characters: vec![],
         chat_mode: None,
+        scenario: None,
         talkativeness: std::collections::HashMap::new(),
         author_note: None,
         author_note_depth: None,

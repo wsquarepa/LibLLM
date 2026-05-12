@@ -300,6 +300,10 @@ async fn main() -> Result<()> {
             session.characters = characters;
             session.chat_mode = args.chat_mode.into();
         }
+
+        if let Some(ref text) = args.scenario {
+            session.scenario = Some(text.clone());
+        }
     }
 
     if !args.character.is_empty() {

@@ -1005,7 +1005,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::ChatSettingsDialog => {
             if let Some(ref dlg) = app.chat_settings_dialog {
-                dlg.render(f, f.area(), app.session, &app.theme);
+                dlg.render(f, f.area(), app.session, &app.theme, app.cli_overrides.scenario.is_some());
             }
         }
         Focus::ScenarioEditorDialog => {

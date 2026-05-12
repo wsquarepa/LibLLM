@@ -198,6 +198,7 @@ pub struct CliOverrides {
     pub persona: Option<String>,
     pub characters: Vec<String>,
     pub chat_mode: Option<libllm::group_chat::ChatMode>,
+    pub scenario: Option<String>,
     pub talkativeness: std::collections::HashMap<String, f32>,
     pub author_note: Option<String>,
     pub author_note_depth: Option<u32>,
@@ -398,6 +399,10 @@ pub struct Args {
     #[arg(long)]
     pub talkativeness: Option<String>,
 
+    /// Override the session scenario (required to bypass the scenario gate when creating a group chat non-interactively)
+    #[arg(long, value_name = "TEXT")]
+    pub scenario: Option<String>,
+
     /// Skip TLS certificate verification for API connections
     #[arg(long)]
     pub tls_skip_verify: bool,
@@ -471,6 +476,7 @@ impl Args {
             } else {
                 None
             },
+            scenario: self.scenario.clone(),
             talkativeness: self
                 .talkativeness
                 .as_deref()

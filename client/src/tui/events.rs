@@ -350,6 +350,7 @@ fn handle_key(
             Focus::CharacterEditorDialog => app.character_editor.is_some(),
             Focus::SystemPromptEditorDialog => app.system_prompt_editor.is_some(),
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
+            Focus::ScenarioEditorDialog => app.scenario_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::EditConfirmDialog => app.edit_editor.is_some(),
             Focus::FilePickerDialog => app.file_picker.is_some(),
@@ -611,6 +612,9 @@ fn handle_key(
     if app.focus == Focus::ChatSettingsDialog {
         return handle_chat_settings_key(key, app);
     }
+    if app.focus == Focus::ScenarioEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::ScenarioEditor);
+    }
 
     if app.is_streaming {
         return handle_streaming_key(key, app);
@@ -714,13 +718,40 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
     match action {
         ChatSettingsAction::Continue => None,
+        ChatSettingsAction::EditScenario => {
+            let current = app.session.scenario.clone().unwrap_or_default();
+            app.scenario_editor = Some(dialogs::open_scenario_editor(vec![current]));
+            app.focus = Focus::ScenarioEditorDialog;
+            None
+        }
         ChatSettingsAction::Close => {
             app.chat_settings_dialog = None;
-            app.mark_session_dirty(SaveTrigger::Debounced, false);
+            if app.is_group_chat_creation_pending {
+                app.is_group_chat_creation_pending = false;
+                let scenario_ok = app
+                    .session
+                    .scenario
+                    .as_deref()
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
+                if scenario_ok {
+                    app.mark_session_dirty(SaveTrigger::Debounced, false);
+                } else {
+                    app.session.tree = libllm::session::MessageTree::new();
+                    app.session.characters.clear();
+                    app.session.chat_mode = libllm::group_chat::ChatMode::default();
+                    app.session.scenario = None;
+                    app.set_status(
+                        "scenario required for group chat, creation cancelled".to_owned(),
+                        StatusLevel::Warning,
+                    );
+                }
+            } else {
+                app.mark_session_dirty(SaveTrigger::Debounced, false);
+            }
             return_to_input(app);
             None
         }
-        ChatSettingsAction::EditScenario => None,
     }
 }
 
@@ -1049,6 +1080,11 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
                 return d.scroll_editor_by(rows);
             }
         }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref mut d) = app.scenario_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
         Focus::ConfigDialog => {
             if let Some(ref mut d) = app.config_dialog {
                 return d.scroll_editor_by(rows);
@@ -1097,6 +1133,11 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
         }
         Focus::WorldbookEntryEditorDialog => {
             if let Some(ref mut d) = app.worldbook_entry_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref mut d) = app.scenario_editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }

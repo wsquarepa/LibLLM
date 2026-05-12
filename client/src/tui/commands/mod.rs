@@ -548,13 +548,6 @@ fn cmd_character(app: &mut App) {
 }
 
 fn cmd_chat(app: &mut App) {
-    if app.session.characters.len() < 2 {
-        app.set_status(
-            "/chat requires 2 or more attached characters".to_owned(),
-            StatusLevel::Warning,
-        );
-        return;
-    }
     app.chat_settings_dialog =
         Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
     app.focus = Focus::ChatSettingsDialog;

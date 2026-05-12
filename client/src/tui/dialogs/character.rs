@@ -1,4 +1,4 @@
-//! Character card picker and editor dialog with session greeting injection.
+//! Character card picker and editor dialog.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
@@ -157,15 +157,6 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     .collect();
                 app.session.chat_mode = libllm::group_chat::ChatMode::default();
 
-                for (slug, card) in slugs.iter().zip(cards.iter()) {
-                    if !card.first_mes.is_empty() {
-                        let parent = app.session.tree.head();
-                        let mut msg = Message::new(Role::Assistant, card.first_mes.clone());
-                        msg.speaker = Some(slug.clone());
-                        app.session.tree.push(parent, msg);
-                    }
-                }
-
                 crate::tui::business::rebuild_character_cards_cache(app);
                 app.invalidate_chat_caches();
                 app.invalidate_worldbook_cache();
@@ -173,11 +164,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 app.auto_scroll = true;
                 let new_id = session::generate_session_id();
                 app.save_mode.set_id(new_id);
-                app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
-                app.set_status(
-                    format!("Started group chat with {} characters", slugs.len()),
-                    super::super::StatusLevel::Info,
-                );
+                app.is_group_chat_creation_pending = true;
                 refresh_sidebar(app);
                 return_to_input(app);
                 return Some(Action::OpenChatSettings);

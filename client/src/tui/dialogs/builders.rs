@@ -277,6 +277,13 @@ pub fn open_reasoning_editor(values: Vec<String>) -> FieldDialog<'static> {
     .with_validated_fields(vec![(0, FieldValidation::MaxLen(super::MAX_NAME_LENGTH))])
 }
 
+const SCENARIO_FIELDS: &[&str] = &["Scenario"];
+const SCENARIO_MULTILINE: &[usize] = &[0];
+
+pub fn open_scenario_editor(values: Vec<String>) -> FieldDialog<'static> {
+    FieldDialog::new(" Edit Scenario ", SCENARIO_FIELDS, values, SCENARIO_MULTILINE)
+}
+
 pub fn open_system_prompt_editor(values: Vec<String>) -> FieldDialog<'static> {
     FieldDialog::new(
         " Edit System Prompt ",

@@ -718,10 +718,11 @@ pub(super) fn handle_field_dialog_key(
                     .take()
                     .and_then(|d| d.values.into_iter().next())
                     .unwrap_or_default();
-                app.session.scenario = if value.trim().is_empty() {
+                let trimmed = value.trim();
+                app.session.scenario = if trimmed.is_empty() {
                     None
                 } else {
-                    Some(value)
+                    Some(trimmed.to_owned())
                 };
                 app.mark_session_dirty(SaveTrigger::Debounced, false);
                 app.invalidate_chat_caches();

@@ -1156,7 +1156,7 @@ pub fn render_next_arg_picker(f: &mut ratatui::Frame, app: &App, arg: &str, chat
 
     let items: Vec<ListItem> = matches
         .iter()
-        .map(|name| ListItem::new(name.to_owned().to_owned()))
+        .map(|name| ListItem::new((*name).to_owned()))
         .collect();
 
     let height = (items.len() as u16 + 2).min(chat_area.height);

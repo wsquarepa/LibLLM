@@ -14,6 +14,48 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         return None;
     }
 
+    if input_has_next_arg_picker(app) {
+        let line = app.textarea.lines()[0].as_str();
+        let arg = line.strip_prefix("/next ").unwrap_or("");
+        let cast: Vec<(&str, &str)> = app
+            .session
+            .characters
+            .iter()
+            .filter_map(|c| {
+                app.character_cards_cache
+                    .get(&c.slug)
+                    .map(|card| (c.slug.as_str(), card.name.as_str()))
+            })
+            .collect();
+        let matches = match_next_candidates(arg, &cast);
+
+        match key.code {
+            KeyCode::Up => {
+                app.command_picker_selected = app.command_picker_selected.saturating_sub(1);
+                return None;
+            }
+            KeyCode::Down => {
+                app.command_picker_selected =
+                    (app.command_picker_selected + 1).min(matches.len().saturating_sub(1));
+                return None;
+            }
+            KeyCode::Tab if !matches.is_empty() => {
+                let pick = matches[app.command_picker_selected.min(matches.len() - 1)];
+                app.textarea = TextArea::from(vec![format!("/next {pick}")]);
+                super::dialog_handler::configure_textarea_at_end(&mut app.textarea);
+                return None;
+            }
+            KeyCode::Enter if !matches.is_empty() => {
+                let pick = matches[app.command_picker_selected.min(matches.len() - 1)];
+                app.textarea = TextArea::default();
+                super::dialog_handler::configure_textarea(&mut app.textarea);
+                app.command_picker_selected = 0;
+                return Some(Action::SlashCommand("/next".into(), pick.to_string()));
+            }
+            _ => {}
+        }
+    }
+
     let picker_active = input_has_command_picker(app);
 
     if picker_active {
@@ -358,6 +400,31 @@ pub fn input_has_command_picker(app: &App) -> bool {
     lines.len() == 1 && lines[0].starts_with('/') && !lines[0].contains(' ')
 }
 
+pub fn input_has_next_arg_picker(app: &App) -> bool {
+    if app.is_streaming {
+        return false;
+    }
+    let lines = app.textarea.lines();
+    lines.len() == 1 && lines[0].starts_with("/next ")
+}
+
+/// Case-insensitive substring match across attached character display names.
+/// `query` is the entire argument string after `/next ` (may contain spaces).
+pub fn match_next_candidates<'a>(query: &str, cast: &'a [(&'a str, &'a str)]) -> Vec<&'a str> {
+    let q = query.to_lowercase();
+    let q_terms: Vec<&str> = q.split_whitespace().collect();
+    if q_terms.is_empty() {
+        return cast.iter().map(|(_, name)| *name).collect();
+    }
+    cast.iter()
+        .filter(|(_, name)| {
+            let name_lower = name.to_lowercase();
+            q_terms.iter().all(|t| name_lower.contains(t))
+        })
+        .map(|(_, name)| *name)
+        .collect()
+}
+
 fn textarea_is_empty(app: &App) -> bool {
     app.textarea.lines().iter().all(|l| l.trim().is_empty())
 }
@@ -617,6 +684,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         return;
     }
     app.nav_cursor = None;
+    app.is_group_chat_creation_pending = false;
     let (is_new_chat, session_id) = {
         let entry = &app.sidebar_sessions[selected];
         (entry.is_new_chat, entry.id.clone())
@@ -682,6 +750,45 @@ fn chat_message_preview(content: &str) -> String {
     }
     let take: String = trimmed.chars().take(MAX_LEN).collect();
     format!("{take}...")
+}
+
+#[cfg(test)]
+mod next_autocomplete_tests {
+    use super::match_next_candidates;
+
+    #[test]
+    fn matches_multi_word_substrings() {
+        let cast = vec![
+            ("alice-the-wise", "Alice the Wise"),
+            ("bob-the-knight", "Bob the Knight"),
+        ];
+        let matches = match_next_candidates("ali wi", &cast);
+        assert_eq!(matches, vec!["Alice the Wise"]);
+    }
+
+    #[test]
+    fn case_insensitive() {
+        let cast = vec![("alice", "Alice the Wise")];
+        let matches = match_next_candidates("ALICE", &cast);
+        assert_eq!(matches, vec!["Alice the Wise"]);
+    }
+
+    #[test]
+    fn empty_when_no_match() {
+        let cast = vec![("alice", "Alice the Wise")];
+        let matches = match_next_candidates("zelda", &cast);
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn empty_query_returns_all_candidates() {
+        let cast = vec![
+            ("alice", "Alice the Wise"),
+            ("bob", "Bob the Knight"),
+        ];
+        let matches = match_next_candidates("", &cast);
+        assert_eq!(matches, vec!["Alice the Wise", "Bob the Knight"]);
+    }
 }
 
 #[cfg(test)]

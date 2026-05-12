@@ -9,6 +9,7 @@ use tui_textarea::{CursorMove, TextArea};
 
 use libllm::client::StreamToken;
 
+use crate::tui::dialogs::chat_settings::ChatSettingsAction;
 use crate::tui::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
 use crate::tui::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
 use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
@@ -118,6 +119,11 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
                 d.insert_into_active_editor(&text);
             }
         }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref mut d) = app.scenario_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
         _ => {}
     }
     None
@@ -189,13 +195,10 @@ pub(super) async fn process_action(
         Action::SlashCommand(cmd, arg) => {
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
-        Action::OpenGroupChatSettings => {
-            app.group_settings_selected = 0;
-            app.focus = Focus::GroupChatSettingsDialog;
-        }
-        Action::SaveGroupChatSettings => {
-            app.mark_session_dirty(SaveTrigger::Debounced, false);
-            return_to_input(app);
+        Action::OpenChatSettings => {
+            app.chat_settings_dialog =
+                Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
+            app.focus = Focus::ChatSettingsDialog;
         }
         Action::JumpToSearchHit(hit) => {
             if let Err(err) = super::business::jump_to_search_hit(app, &hit).await {
@@ -352,6 +355,7 @@ fn handle_key(
             Focus::CharacterEditorDialog => app.character_editor.is_some(),
             Focus::SystemPromptEditorDialog => app.system_prompt_editor.is_some(),
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
+            Focus::ScenarioEditorDialog => app.scenario_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::EditConfirmDialog => app.edit_editor.is_some(),
             Focus::FilePickerDialog => app.file_picker.is_some(),
@@ -381,7 +385,7 @@ fn handle_key(
             | Focus::TemplatePromptDialog
             | Focus::DangerConfirmDialog
             | Focus::DangerTypedConfirmDialog
-            | Focus::GroupChatSettingsDialog => true,
+            | Focus::ChatSettingsDialog => true,
         };
         debug_assert!(
             invariant_ok,
@@ -610,8 +614,11 @@ fn handle_key(
         }
     }
 
-    if app.focus == Focus::GroupChatSettingsDialog {
-        return dialogs::group_chat_settings::handle_key(key, app);
+    if app.focus == Focus::ChatSettingsDialog {
+        return handle_chat_settings_key(key, app);
+    }
+    if app.focus == Focus::ScenarioEditorDialog {
+        return handle_field_dialog_key(key, app, DialogKind::ScenarioEditor);
     }
 
     if app.is_streaming {
@@ -699,6 +706,55 @@ fn handle_key(
         Focus::Chat => input::handle_chat_key(key, app),
         Focus::Sidebar => input::handle_sidebar_key(key, app),
         _ => None,
+    }
+}
+
+fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    let Some(dlg) = app.chat_settings_dialog.as_mut() else {
+        return_to_input(app);
+        return None;
+    };
+    let scenario_locked = app.cli_overrides.scenario.is_some();
+    let mode_locked = app.cli_overrides.chat_mode.is_some();
+    let talkativeness_locked = app.cli_overrides.talkativeness.clone();
+    let mut warning: Option<String> = None;
+    let action = dlg.handle_key(key, app.session, scenario_locked, mode_locked, &talkativeness_locked, &mut warning);
+    if let Some(msg) = warning {
+        app.set_status(msg, StatusLevel::Warning);
+    }
+    match action {
+        ChatSettingsAction::Continue => None,
+        ChatSettingsAction::EditScenario => {
+            let current = app.session.scenario.clone().unwrap_or_default();
+            app.scenario_editor = Some(dialogs::open_scenario_editor(vec![current]));
+            app.focus = Focus::ScenarioEditorDialog;
+            None
+        }
+        ChatSettingsAction::Close => {
+            app.chat_settings_dialog = None;
+            if app.is_group_chat_creation_pending {
+                app.is_group_chat_creation_pending = false;
+                let scenario_ok = app
+                    .session
+                    .scenario
+                    .as_deref()
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
+                if scenario_ok {
+                    app.mark_session_dirty(SaveTrigger::Debounced, false);
+                } else {
+                    dialogs::chat_settings::roll_back_provisional_group(app.session);
+                    app.set_status(
+                        "scenario required for group chat, creation cancelled".to_owned(),
+                        StatusLevel::Warning,
+                    );
+                }
+            } else {
+                app.mark_session_dirty(SaveTrigger::Debounced, false);
+            }
+            return_to_input(app);
+            None
+        }
     }
 }
 
@@ -1027,6 +1083,11 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
                 return d.scroll_editor_by(rows);
             }
         }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref mut d) = app.scenario_editor {
+                return d.scroll_editor_by(rows);
+            }
+        }
         Focus::ConfigDialog => {
             if let Some(ref mut d) = app.config_dialog {
                 return d.scroll_editor_by(rows);
@@ -1075,6 +1136,11 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
         }
         Focus::WorldbookEntryEditorDialog => {
             if let Some(ref mut d) = app.worldbook_entry_editor {
+                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
+            }
+        }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref mut d) = app.scenario_editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }

@@ -6,8 +6,10 @@ mod common;
 
 use client::cli::CliOverrides;
 use client::tui::business;
+use client::tui::dialogs::chat_settings::roll_back_provisional_group;
 use libllm::config::Config;
 use libllm::context::ContextManager;
+use libllm::group_chat::{CharacterAttachment, ChatMode};
 use libllm::session::{Message, MessageTree, Role, Session};
 use libllm::summarize::Summarizer;
 
@@ -22,7 +24,7 @@ fn summarizer_includes_prior_summary_as_context() {
         Message::new(Role::User, "New message".to_owned()),
     ];
     let refs: Vec<&_> = msgs.iter().collect();
-    let prompt = Summarizer::format_prompt("Instruction", &refs, &libllm::files::NullFileSummaryLookup);
+    let prompt = Summarizer::format_prompt(None, "Instruction", &refs, &libllm::files::NullFileSummaryLookup);
     assert!(prompt.contains("Previous summary: Prior summary content"));
     assert!(prompt.contains("User: New message"));
 }
@@ -55,8 +57,8 @@ fn no_overrides() -> CliOverrides {
         system_prompt: None,
         persona: None,
         characters: vec![],
-        chat_policy: None,
-        card_assembly: None,
+        chat_mode: None,
+        scenario: None,
         talkativeness: std::collections::HashMap::new(),
         author_note: None,
         author_note_depth: None,
@@ -82,9 +84,9 @@ fn empty_session() -> Session {
         character: None,
         worldbooks: vec![],
         persona: None,
+        scenario: None,
         characters: Vec::new(),
-        chat_policy: libllm::group_chat::ChatPolicy::default(),
-        card_assembly: libllm::group_chat::CardAssembly::default(),
+        chat_mode: libllm::group_chat::ChatMode::default(),
         author_note: None,
     }
 }
@@ -387,4 +389,56 @@ fn display_regex_cache_clears_on_invalidate() {
 
     cache.clear();
     assert!(cache.is_empty(), "cache must be empty after clear");
+}
+
+// ---------------------------------------------------------------------------
+// Group chat creation rollback
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rollback_provisional_group_clears_session_state() {
+    let mut session = Session {
+        characters: vec![
+            CharacterAttachment {
+                slug: "alice".into(),
+                talkativeness: 0.5,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob".into(),
+                talkativeness: 0.5,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+        ],
+        chat_mode: ChatMode::WeightedRandom,
+        scenario: Some("partial".into()),
+        ..Session::default()
+    };
+    session
+        .tree
+        .push(None, Message::new(Role::User, "hello".to_owned()));
+    assert!(
+        session.tree.head().is_some(),
+        "precondition: tree must be non-empty before rollback"
+    );
+    roll_back_provisional_group(&mut session);
+    assert!(
+        session.characters.is_empty(),
+        "rollback must clear character attachments"
+    );
+    assert_eq!(
+        session.chat_mode,
+        ChatMode::default(),
+        "rollback must reset chat mode to default"
+    );
+    assert_eq!(
+        session.scenario, None,
+        "rollback must clear the scenario"
+    );
+    assert!(
+        session.tree.head().is_none(),
+        "rollback must clear the message tree"
+    );
 }

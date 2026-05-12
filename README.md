@@ -78,6 +78,49 @@ You may find the following documentation useful:
 - [ST - Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/)
 - [ST - Personas](https://docs.sillytavern.app/usage/core-concepts/personas/)
 
+### Group chat
+
+Group chat lets two or more character cards participate in the same conversation, with the session steering who speaks next.
+
+#### Starting a group chat
+
+Attach two or more character cards with `-c` (repeatable). After the TUI opens, a `/chat` dialog prompts you for a scenario -- a short description of the shared scene. The scenario is required to complete group-chat creation; pressing Esc with an empty scenario rolls back the creation and returns to a solo session.
+
+To start a group chat non-interactively (e.g. from a script), supply `--scenario <TEXT>` on the command line. This bypasses the interactive prompt and sets the scenario immediately.
+
+```sh
+libllm -c alice -c bob -p me --scenario "Alice and Bob are debating the merits of Rust"
+```
+
+#### Chat modes
+
+Select the turn-order engine with `--chat-mode` (default: `action-value`):
+
+| Mode | Behaviour |
+|---|---|
+| `action-value` | Action-value cascade engine. Each character accumulates action-points; the character(s) with the fewest points speak next. Ties are broken by uniform random selection among the tied candidates. |
+| `round-robin` | One speaker per user message, cycling through attached characters in attach order. |
+| `weighted-random` | One speaker per user message, drawn by talkativeness weight. |
+| `directed` | Characters stay silent until you explicitly invoke `/next <name>`. |
+
+The mode and per-character talkativeness sliders can also be adjusted live from the `/chat` dialog.
+
+#### `/chat` dialog
+
+`/chat` opens the chat-settings dialog. In a group-chat session it shows the scenario row, the mode selector, and a talkativeness slider for each character. In a solo session it shows only the scenario row.
+
+Navigate rows with Up/Down, adjust mode and talkativeness with Left/Right, and press Enter on the scenario row to edit it.
+
+#### `/next <name>`
+
+In `directed` mode, type `/next <name>` to trigger a response from that character. Tab-completion cycles through matching character names while you type; a partial name is sufficient.
+
+```
+/next ali        # Tab-completes to /next alice if alice is the only match
+```
+
+`/next` works in any chat mode -- it forces a single response from the named character regardless of whose turn it would ordinarily be.
+
 ### Side characters
 
 When a character card is attached to the session, a single user input can introduce one or more ad-hoc side characters by appending bracketed headers after a blank line:
@@ -297,7 +340,9 @@ The bare `libllm recover` opens an action menu on a TTY. In non-interactive shel
 | `-m`, `--message` | Send a single message and exit (`-` for stdin) |
 | `-r`, `--system-prompt` | Override the system prompt (forces read-only `/system` in TUI) |
 | `-p`, `--persona` | User persona to use (requires `-c`) |
-| `-c`, `--character` | Character card name or path to `.json`/`.png` file (requires `-p`) |
+| `-c`, `--character` | Character card name or path to `.json`/`.png` file (requires `-p`; repeatable for group chats) |
+| `--chat-mode` | Turn-order mode for group chats (≥ 2 characters): `action-value` (default), `round-robin`, `weighted-random`, `directed` |
+| `--scenario` | Set the session scenario text (bypasses the interactive `/chat` dialog for group-chat creation) |
 | `-t`, `--template` | Instruct preset: `Mistral V3-Tekken`, `Llama 3 Instruct`, `ChatML`, `Phi`, `Alpaca`, `Raw` |
 | `--api-url` | API base URL (env: `LIBLLM_API_URL`) |
 | `--no-encrypt` | Disable session encryption (requires `-d`) |
@@ -408,6 +453,8 @@ Type `/` in the input to open the command picker.
 | `/passkey` | `/password`, `/pass`, `/auth` | Set or change encryption passkey |
 | `/config` | | Open configuration dialog (CLI-overridden fields shown in red) |
 | `/theme` | | Switch color theme (`dark`, `light`) |
+| `/chat` | | Open chat-settings dialog (scenario, mode, talkativeness sliders; solo mode shows scenario row only) |
+| `/next <name>` | | Trigger a response from the named character (Tab-completes name; works in any chat mode) |
 | `/export` | | Export current branch to file (`html`, `md`, `jsonl`) |
 | `/search [query]` | `/find` | Full-text search across all sessions (see [Search](#search)) |
 | `/macro` | `/m` | Run a user-defined macro (see [Macros](#macros)) |

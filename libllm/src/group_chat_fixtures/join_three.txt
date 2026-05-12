@@ -10,8 +10,4 @@ Cheerful.
 Stoic.
 [Personality for Charlie]
 Curious.
-[Scenario for Alice]
-A tavern.
-[Scenario for Charlie]
-A tavern.
 A traveler from the north.

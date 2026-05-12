@@ -6,7 +6,5 @@ A grumpy dwarf.
 Cheerful.
 [Personality for Bob]
 Stoic.
-[Scenario for Alice]
-A tavern.
 Hi!
 Good evening.

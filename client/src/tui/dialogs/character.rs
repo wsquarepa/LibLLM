@@ -1,4 +1,4 @@
-//! Character card picker and editor dialog with session greeting injection.
+//! Character card picker and editor dialog.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
@@ -155,17 +155,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     .iter()
                     .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
                     .collect();
-                app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
-                app.session.card_assembly = libllm::group_chat::CardAssembly::default();
-
-                for (slug, card) in slugs.iter().zip(cards.iter()) {
-                    if !card.first_mes.is_empty() {
-                        let parent = app.session.tree.head();
-                        let mut msg = Message::new(Role::Assistant, card.first_mes.clone());
-                        msg.speaker = Some(slug.clone());
-                        app.session.tree.push(parent, msg);
-                    }
-                }
+                app.session.chat_mode = libllm::group_chat::ChatMode::default();
 
                 crate::tui::business::rebuild_character_cards_cache(app);
                 app.invalidate_chat_caches();
@@ -174,14 +164,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 app.auto_scroll = true;
                 let new_id = session::generate_session_id();
                 app.save_mode.set_id(new_id);
-                app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
-                app.set_status(
-                    format!("Started group chat with {} characters", slugs.len()),
-                    super::super::StatusLevel::Info,
-                );
+                app.is_group_chat_creation_pending = true;
                 refresh_sidebar(app);
                 return_to_input(app);
-                return Some(Action::OpenGroupChatSettings);
+                return Some(Action::OpenChatSettings);
             }
 
             let single_index = if picked.len() == 1 {
@@ -207,6 +193,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
                     app.session.characters = vec![libllm::group_chat::CharacterAttachment::new(slug)];
+                    app.session.scenario = libllm::group_chat::inherit_card_scenario(&card.scenario);
                     app.active_card_author_note = card.author_note.clone();
                     app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();

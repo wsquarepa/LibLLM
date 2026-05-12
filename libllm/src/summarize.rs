@@ -35,11 +35,20 @@ impl Summarizer {
     /// `Role::Summary` messages are rendered as `Previous summary:` blocks so a rolling
     /// summary can build on the prior one instead of starting from scratch each time.
     pub fn format_prompt(
+        scenario: Option<&str>,
         instruction: &str,
         messages: &[&Message],
         file_summaries: &dyn crate::files::FileSummaryLookup,
     ) -> String {
-        let mut prompt = String::from("--- CONVERSATION ---\n");
+        let mut prompt = String::new();
+        if let Some(s) = scenario
+            && !s.trim().is_empty()
+        {
+            prompt.push_str("Scenario:\n");
+            prompt.push_str(s.trim());
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str("--- CONVERSATION ---\n");
         for msg in messages {
             let label = match msg.role {
                 Role::User => "User",
@@ -58,11 +67,12 @@ impl Summarizer {
         prompt
     }
 
-    /// Shrinks `messages` until `format_prompt(instruction, trimmed)` is ≤ `token_budget`
+    /// Shrinks `messages` until `format_prompt(scenario, instruction, trimmed, file_summaries)` is ≤ `token_budget`
     /// according to `counter`. Binary-searches the smallest `k` such that dropping the `k`
     /// oldest non-Summary messages puts the rendered prompt under budget. Always keeps at
     /// least one message if the input is non-empty.
     pub async fn shed_to_fit<'a>(
+        scenario: Option<&str>,
         instruction: &str,
         messages: &[&'a Message],
         token_budget: usize,
@@ -78,7 +88,7 @@ impl Summarizer {
 
         let render_at = |k: usize| -> String {
             let subset = crate::context::drop_oldest_non_summary(messages, k);
-            Self::format_prompt(instruction, &subset, file_summaries)
+            Self::format_prompt(scenario, instruction, &subset, file_summaries)
         };
 
         let full = render_at(0);
@@ -109,6 +119,7 @@ impl Summarizer {
 
     pub async fn summarize(
         &self,
+        scenario: Option<&str>,
         messages: &[&Message],
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
@@ -123,6 +134,7 @@ impl Summarizer {
         );
 
         let trimmed = Self::shed_to_fit(
+            scenario,
             &self.prompt_instruction,
             messages,
             token_budget,
@@ -139,7 +151,7 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let prompt = Self::format_prompt(&self.prompt_instruction, &trimmed, file_summaries);
+        let prompt = Self::format_prompt(scenario, &self.prompt_instruction, &trimmed, file_summaries);
         tracing::info!(
             phase = "prompt",
             prompt_bytes = prompt.len(),
@@ -234,7 +246,7 @@ mod tests {
             Message::new(Role::User, "How are you?".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarize this.", &refs, &NullFileSummaryLookup);
+        let prompt = Summarizer::format_prompt(None, "Summarize this.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("Summarize this."));
         assert!(prompt.contains("User: Hello"));
         assert!(prompt.contains("Assistant: Hi there!"));
@@ -246,7 +258,7 @@ mod tests {
     fn format_prompt_places_conversation_before_instruction() {
         let msgs = [Message::new(Role::User, "Hi".to_owned())];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("DO_SUMMARIZE", &refs, &NullFileSummaryLookup);
+        let prompt = Summarizer::format_prompt(None, "DO_SUMMARIZE", &refs, &NullFileSummaryLookup);
         let conversation_idx = prompt.find("User: Hi").expect("conversation body");
         let instruction_idx = prompt.find("DO_SUMMARIZE").expect("instruction");
         assert!(
@@ -262,7 +274,7 @@ mod tests {
             Message::new(Role::User, "New message".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarize.", &refs, &NullFileSummaryLookup);
+        let prompt = Summarizer::format_prompt(None, "Summarize.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("Previous summary: Old summary"));
         assert!(prompt.contains("User: New message"));
     }
@@ -274,7 +286,7 @@ mod tests {
             Message::new(Role::User, "Hi".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarize.", &refs, &NullFileSummaryLookup);
+        let prompt = Summarizer::format_prompt(None, "Summarize.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("System: You are helpful."));
     }
 
@@ -293,11 +305,11 @@ mod tests {
         let refs: Vec<&Message> = vec![&m1, &m2, &m3];
 
         let instruction = "Summarize.";
-        let trimmed = Summarizer::shed_to_fit(instruction, &refs, 150, &counter, &NullFileSummaryLookup)
+        let trimmed = Summarizer::shed_to_fit(None, instruction, &refs, 150, &counter, &NullFileSummaryLookup)
             .await
             .expect("shed_to_fit");
 
-        let rendered = Summarizer::format_prompt(instruction, &trimmed, &NullFileSummaryLookup);
+        let rendered = Summarizer::format_prompt(None, instruction, &trimmed, &NullFileSummaryLookup);
         let final_count = counter.count_authoritative(&rendered).await.unwrap();
         assert!(
             final_count <= 150,
@@ -340,7 +352,7 @@ mod tests {
         );
         let lookup = MapLookup(map);
 
-        let prompt = Summarizer::format_prompt("Summarise.", &refs, &lookup);
+        let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &lookup);
         assert!(prompt.contains("Cached summary of notes.md."));
         assert!(!prompt.contains("raw file content"));
         assert!(prompt.contains("User: hi"));
@@ -353,7 +365,7 @@ mod tests {
         let msgs = [Message::new(Role::System, snapshot_body)];
         let refs: Vec<&Message> = msgs.iter().collect();
 
-        let prompt = Summarizer::format_prompt("Summarise.", &refs, &NullFileSummaryLookup);
+        let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("summary unavailable"));
         assert!(!prompt.contains("raw file content"));
     }
@@ -362,7 +374,7 @@ mod tests {
     fn format_prompt_leaves_non_snapshot_system_messages_alone() {
         let msgs = [Message::new(Role::System, "You are helpful.".to_owned())];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt("Summarise.", &refs, &NullFileSummaryLookup);
+        let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("System: You are helpful."));
     }
 
@@ -385,7 +397,38 @@ mod tests {
         );
         let lookup = MapLookup(map);
 
-        let prompt = Summarizer::format_prompt("Summarise.", &refs, &lookup);
+        let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &lookup);
         assert!(prompt.contains("summary unavailable"));
+    }
+
+    #[test]
+    fn format_prompt_emits_scenario_block_when_set() {
+        let refs: Vec<&Message> = vec![];
+        let prompt = Summarizer::format_prompt(
+            Some("A medieval tavern at dusk."),
+            "Summarize.",
+            &refs,
+            &NullFileSummaryLookup,
+        );
+        assert!(prompt.starts_with("Scenario:\nA medieval tavern at dusk.\n\n"));
+    }
+
+    #[test]
+    fn format_prompt_omits_scenario_block_when_absent() {
+        let refs: Vec<&Message> = vec![];
+        let prompt = Summarizer::format_prompt(None, "Summarize.", &refs, &NullFileSummaryLookup);
+        assert!(!prompt.contains("Scenario:"));
+    }
+
+    #[test]
+    fn format_prompt_omits_scenario_block_when_whitespace_only() {
+        let refs: Vec<&Message> = vec![];
+        let prompt = Summarizer::format_prompt(
+            Some("   \n  "),
+            "Summarize.",
+            &refs,
+            &NullFileSummaryLookup,
+        );
+        assert!(!prompt.contains("Scenario:"));
     }
 }

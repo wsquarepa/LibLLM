@@ -68,8 +68,7 @@ fn cmd_clear(app: &mut App) {
     app.session.worldbooks.clear();
     app.session.persona = None;
     app.session.characters = vec![];
-    app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
-    app.session.card_assembly = libllm::group_chat::CardAssembly::default();
+    app.session.chat_mode = libllm::group_chat::ChatMode::default();
     app.character_cards_cache.clear();
     app.session.author_note = None;
     app.active_persona_name = None;
@@ -549,15 +548,9 @@ fn cmd_character(app: &mut App) {
 }
 
 fn cmd_chat(app: &mut App) {
-    if app.session.characters.len() < 2 {
-        app.set_status(
-            "/chat requires 2 or more attached characters".to_owned(),
-            StatusLevel::Warning,
-        );
-        return;
-    }
-    app.group_settings_selected = 0;
-    app.focus = Focus::GroupChatSettingsDialog;
+    app.chat_settings_dialog =
+        Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
+    app.focus = Focus::ChatSettingsDialog;
 }
 
 fn cmd_passkey(app: &mut App) {
@@ -703,6 +696,13 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
 
     let needle = arg.trim();
     if needle.is_empty() {
+        if matches!(app.session.chat_mode, libllm::group_chat::ChatMode::Directed) {
+            app.set_status(
+                "directed mode: use /next <name>".to_owned(),
+                StatusLevel::Warning,
+            );
+            return;
+        }
         start_group_chat_loop(app, &sender).await;
         return;
     }
@@ -732,15 +732,25 @@ fn resolve_speaker_by_name(
     card_cache: &std::collections::HashMap<String, libllm::character::CharacterCard>,
     needle: &str,
 ) -> Option<String> {
-    let needle_lower = needle.to_lowercase();
-    for c in chars {
-        if let Some(card) = card_cache.get(&c.slug)
-            && card.name.to_lowercase() == needle_lower
-        {
-            return Some(c.slug.clone());
-        }
-    }
-    None
+    let cast: Vec<(&str, &str)> = chars
+        .iter()
+        .filter_map(|c| {
+            card_cache
+                .get(&c.slug)
+                .map(|card| (c.slug.as_str(), card.name.as_str()))
+        })
+        .collect();
+    let matched_name = crate::tui::match_next_candidates(needle, &cast)
+        .into_iter()
+        .next()?;
+    chars
+        .iter()
+        .find(|c| {
+            card_cache
+                .get(&c.slug)
+                .is_some_and(|card| card.name == matched_name)
+        })
+        .map(|c| c.slug.clone())
 }
 
 fn cmd_report(app: &mut App) {
@@ -792,5 +802,65 @@ fn cmd_report(app: &mut App) {
                 StatusLevel::Error,
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use libllm::character::CharacterCard;
+    use libllm::group_chat::CharacterAttachment;
+
+    use super::resolve_speaker_by_name;
+
+    fn make_card(name: &str) -> CharacterCard {
+        CharacterCard {
+            name: name.to_owned(),
+            description: String::new(),
+            personality: String::new(),
+            scenario: String::new(),
+            first_mes: String::new(),
+            mes_example: String::new(),
+            system_prompt: String::new(),
+            post_history_instructions: String::new(),
+            alternate_greetings: vec![],
+            author_note: None,
+        }
+    }
+
+    #[test]
+    fn resolve_speaker_substring_match() {
+        let chars = vec![
+            CharacterAttachment {
+                slug: "alice-slug".to_owned(),
+                talkativeness: 1.0,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob-slug".to_owned(),
+                talkativeness: 1.0,
+                action_points: 0.0,
+                spoke_this_round: false,
+            },
+        ];
+        let mut cache = HashMap::new();
+        cache.insert("alice-slug".to_owned(), make_card("Alice the Wise"));
+        cache.insert("bob-slug".to_owned(), make_card("Bob the Knight"));
+
+        assert_eq!(
+            resolve_speaker_by_name(&chars, &cache, "ali"),
+            Some("alice-slug".to_owned()),
+        );
+        assert_eq!(
+            resolve_speaker_by_name(&chars, &cache, "ali wi"),
+            Some("alice-slug".to_owned()),
+        );
+        assert_eq!(
+            resolve_speaker_by_name(&chars, &cache, "bob kni"),
+            Some("bob-slug".to_owned()),
+        );
+        assert_eq!(resolve_speaker_by_name(&chars, &cache, "zelda"), None);
     }
 }

@@ -6,6 +6,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
+use libllm::group_chat::ChatMode;
 use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
 
@@ -527,7 +528,7 @@ pub(super) async fn run_one_group_turn(
     let _span = tracing::info_span!(
         "group_turn",
         speaker = %speaker_slug,
-        policy = ?app.session.chat_policy
+        mode = ?app.session.chat_mode
     )
     .entered();
 
@@ -550,8 +551,8 @@ pub(super) async fn run_one_group_turn(
     .await;
 }
 
-/// Initializes the group-chat action-point loop state and starts the first turn.
-/// Subsequent turns are triggered by `handle_stream_token` after each `Done` event.
+/// Initializes group-chat loop state and starts the first turn. Subsequent turns are
+/// triggered by `handle_stream_token` after each `Done` event.
 pub(in crate::tui) async fn start_group_chat_loop(
     app: &mut App<'_>,
     sender: &mpsc::Sender<StreamToken>,
@@ -563,15 +564,20 @@ pub(in crate::tui) async fn start_group_chat_loop(
     continue_group_chat_loop(app, sender).await;
 }
 
-/// Runs the next turn of the active group-chat loop, or ends the loop if no speaker is eligible
-/// or the consecutive-turn cap has been reached.
+/// Runs the next turn of the active group-chat loop, or ends the loop if no speaker is
+/// eligible or the consecutive-turn cap has been reached.
+///
+/// Dispatch per mode:
+/// - `Directed`: no auto-speak; loop exits immediately.
+/// - `RoundRobin` / `WeightedRandom`: pick once with no budget, run one turn, then exit.
+/// - `ActionValue`: cascade with forced first turn (no budget) then budget-gated turns.
 pub(in crate::tui) async fn continue_group_chat_loop(
     app: &mut App<'_>,
     sender: &mpsc::Sender<StreamToken>,
 ) {
-    let Some(ref mut rng) = app.group_chat_loop_rng else {
+    if app.group_chat_loop_rng.is_none() {
         return;
-    };
+    }
 
     if app.group_chat_consecutive >= app.group_chat_max_consecutive {
         tracing::warn!(
@@ -582,27 +588,74 @@ pub(in crate::tui) async fn continue_group_chat_loop(
         return;
     }
 
-    // First turn of the cascade is unconditional (one character always speaks per user
-    // message); subsequent turns must fit within the remaining time budget so slow
-    // characters don't get forced into every round.
-    let time_budget = if app.group_chat_consecutive == 0 {
-        None
-    } else {
-        Some(app.group_chat_remaining_budget)
-    };
-    let Some(decision) = libllm::group_chat::decide_next_speaker(
-        &app.session.characters,
-        app.session.chat_policy,
-        rng,
-        time_budget,
-    ) else {
-        tracing::debug!("group_chat: cascade complete (no eligible speakers), yielding to user");
-        app.group_chat_loop_rng = None;
-        return;
-    };
+    match app.session.chat_mode {
+        ChatMode::Directed => {
+            app.group_chat_loop_rng = None;
+        }
+        ChatMode::RoundRobin | ChatMode::WeightedRandom => {
+            if app.group_chat_consecutive > 0 {
+                app.group_chat_loop_rng = None;
+                return;
+            }
+            let mode = app.session.chat_mode;
+            let decision = {
+                let rng = app.group_chat_loop_rng.as_mut().unwrap();
+                libllm::group_chat::decide_next_speaker(
+                    &app.session.characters,
+                    mode,
+                    rng,
+                    None,
+                )
+            };
+            let Some(decision) = decision else {
+                tracing::debug!(
+                    mode = app.session.chat_mode.as_str(),
+                    "group_chat: no eligible speaker, yielding to user"
+                );
+                app.group_chat_loop_rng = None;
+                return;
+            };
+            apply_decision(app, &decision);
+            let snapshot_json =
+                serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
+            let speaker_slug = decision.speaker_slug.clone();
+            app.group_chat_consecutive += 1;
+            app.group_chat_loop_rng = None;
+            run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
+        }
+        ChatMode::ActionValue => {
+            let time_budget = if app.group_chat_consecutive == 0 {
+                None
+            } else {
+                Some(app.group_chat_remaining_budget)
+            };
+            let mode = app.session.chat_mode;
+            let decision = {
+                let rng = app.group_chat_loop_rng.as_mut().unwrap();
+                libllm::group_chat::decide_next_speaker(
+                    &app.session.characters,
+                    mode,
+                    rng,
+                    time_budget,
+                )
+            };
+            let Some(decision) = decision else {
+                tracing::debug!("group_chat: cascade complete (no eligible speakers), yielding to user");
+                app.group_chat_loop_rng = None;
+                return;
+            };
+            app.group_chat_remaining_budget -= decision.time_advanced.max(0.0);
+            apply_decision(app, &decision);
+            let snapshot_json =
+                serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
+            let speaker_slug = decision.speaker_slug.clone();
+            app.group_chat_consecutive += 1;
+            run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
+        }
+    }
+}
 
-    app.group_chat_remaining_budget -= decision.time_advanced.max(0.0);
-
+fn apply_decision(app: &mut App<'_>, decision: &libllm::group_chat::TurnDecision) {
     for (slug, av) in &decision.updated_action_points {
         if let Some(c) = app.session.characters.iter_mut().find(|c| &c.slug == slug) {
             c.action_points = *av;
@@ -616,12 +669,6 @@ pub(in crate::tui) async fn continue_group_chat_loop(
     {
         c.spoke_this_round = true;
     }
-
-    let snapshot_json = serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
-    let speaker_slug = decision.speaker_slug.clone();
-
-    app.group_chat_consecutive += 1;
-    run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
 }
 
 pub(in crate::tui) async fn start_streaming(
@@ -1003,6 +1050,7 @@ pub(in crate::tui) async fn handle_stream_token(
                         );
                         let token_budget = app.context_mgr.token_limit();
                         let current_head = app.session.tree.head();
+                        let scenario = app.session.scenario.clone();
 
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         app.summary_receiver = Some(rx);
@@ -1015,7 +1063,7 @@ pub(in crate::tui) async fn handle_stream_token(
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
                             let lookup = SnapshotFileSummaryLookup(summaries_snapshot);
                             let result = summarizer
-                                .summarize(&refs, token_budget, &summary_counter, &lookup)
+                                .summarize(scenario.as_deref(), &refs, token_budget, &summary_counter, &lookup)
                                 .await;
                             let _ = tx.send(result.map_err(|e| e.to_string()));
                         });

@@ -40,6 +40,8 @@ use libllm::preset::InstructPreset;
 use libllm::sampling::SamplingParams;
 use libllm::session::{SaveMode, Session};
 
+pub use input::match_next_candidates;
+
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
     db: Option<&libllm::db::Database>,
@@ -312,7 +314,9 @@ pub async fn run(
         danger_confirm_op: None,
         danger_confirm_selected: None,
         danger_typed_confirm: None,
-        group_settings_selected: 0,
+        chat_settings_dialog: None,
+        scenario_editor: None,
+        is_group_chat_creation_pending: false,
         character_cards_cache: std::collections::HashMap::new(),
         group_chat_loop_rng: None,
         group_chat_consecutive: 0,
@@ -566,14 +570,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         };
         input_block = input_block.title_bottom(Line::from(hint).centered());
     } else if app.session.characters.len() >= 2 {
-        let policy = match app.session.chat_policy {
-            libllm::group_chat::ChatPolicy::RoundRobin => "round-robin order",
-            libllm::group_chat::ChatPolicy::WeightedRandom => "weighted-random order",
-        };
-        let assembly = match app.session.card_assembly {
-            libllm::group_chat::CardAssembly::JoinCards => "joined cards",
-            libllm::group_chat::CardAssembly::SwapCards => "swapped cards",
-        };
         let n = app.session.characters.len();
         let broken = app
             .session
@@ -581,7 +577,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             .iter()
             .filter(|c| !app.character_cards_cache.contains_key(&c.slug))
             .count();
-        let chip = format!(" {n} chars · {policy} · {assembly} ");
+        let chip = format!(" {n} chars · {} ", app.session.chat_mode.as_str());
         let mut spans = vec![Span::styled(chip, Style::default().fg(app.theme.dimmed))];
         if broken > 0 {
             spans.push(Span::styled(
@@ -692,7 +688,15 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.chat_max_scroll = max_scroll;
     app.last_scroll_state = current_scroll_state;
 
-    if app.focus == Focus::Input && input::input_has_command_picker(app) {
+    if app.focus == Focus::Input && input::input_has_next_arg_picker(app) {
+        {
+            let _span = tracing::trace_span!("picker", phase = "next_arg_picker").entered();
+            let arg = app.textarea.lines()[0]
+                .strip_prefix("/next ")
+                .unwrap_or("");
+            render::render_next_arg_picker(f, app, arg, chat_area);
+        }
+    } else if app.focus == Focus::Input && input::input_has_command_picker(app) {
         {
             let _span = tracing::trace_span!("picker", phase = "command_picker").entered();
             render::render_command_picker(f, app, &app.textarea.lines()[0], chat_area);
@@ -734,7 +738,8 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::TemplatePromptDialog => Some("template_prompt"),
         Focus::DangerConfirmDialog => Some("danger_confirm"),
         Focus::DangerTypedConfirmDialog => Some("danger_typed_confirm"),
-        Focus::GroupChatSettingsDialog => Some("group_chat_settings"),
+        Focus::ChatSettingsDialog => Some("chat_settings"),
+        Focus::ScenarioEditorDialog => Some("scenario_editor"),
         _ => None,
     };
 
@@ -1001,8 +1006,15 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
                 );
             }
         }
-        Focus::GroupChatSettingsDialog => {
-            dialogs::group_chat_settings::render(f, app, f.area());
+        Focus::ChatSettingsDialog => {
+            if let Some(ref dlg) = app.chat_settings_dialog {
+                dlg.render(f, f.area(), app.session, &app.theme, app.cli_overrides.scenario.is_some());
+            }
+        }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref dialog) = app.scenario_editor {
+                dialog.render(f, f.area());
+            }
         }
         _ => {}
     }

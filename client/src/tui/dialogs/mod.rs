@@ -5,7 +5,7 @@ pub mod auth;
 pub mod branch;
 pub(crate) mod search;
 pub mod character;
-pub mod group_chat_settings;
+pub mod chat_settings;
 pub mod danger_confirm;
 pub mod danger_tab;
 pub mod danger_typed_confirm;
@@ -36,7 +36,8 @@ pub(in crate::tui) use builders::{
 pub use builders::{
     open_author_note_editor, open_character_editor, open_config_editor, open_entry_editor,
     open_entry_editor_non_selective, open_instruct_editor, open_persona_editor,
-    open_reasoning_editor, open_system_prompt_editor, open_template_editor, open_theme_editor,
+    open_reasoning_editor, open_scenario_editor, open_system_prompt_editor, open_template_editor,
+    open_theme_editor,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;

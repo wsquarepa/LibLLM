@@ -298,8 +298,11 @@ async fn main() -> Result<()> {
                 characters.push(attachment);
             }
             session.characters = characters;
-            session.chat_policy = args.chat_policy.into();
-            session.card_assembly = args.card_assembly.into();
+            session.chat_mode = args.chat_mode.into();
+        }
+
+        if let Some(ref text) = args.scenario {
+            session.scenario = Some(text.clone());
         }
     }
 

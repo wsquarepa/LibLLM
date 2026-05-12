@@ -14,11 +14,12 @@ mod v5;
 mod v6;
 mod v7;
 mod v8;
+mod v9;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 8;
+pub const CURRENT_VERSION: i64 = 9;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -76,6 +77,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 8 {
             v8::migrate(conn)?;
             stamp_version(conn, 8)?;
+            applied += 1;
+        }
+        if version < 9 {
+            v9::migrate(conn)?;
+            stamp_version(conn, 9)?;
             applied += 1;
         }
 
@@ -583,15 +589,17 @@ mod tests {
     }
 
     #[test]
-    fn v5_adds_chat_policy_and_card_assembly_to_sessions() {
+    fn v5_adds_chat_mode_to_sessions() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
 
         let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
         let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
             .collect::<Result<Vec<_>, _>>().unwrap();
-        assert!(cols.iter().any(|c| c == "chat_policy"), "missing chat_policy in {cols:?}");
-        assert!(cols.iter().any(|c| c == "card_assembly"), "missing card_assembly in {cols:?}");
+        // v5 added chat_policy; v9 renamed it to chat_mode and dropped card_assembly
+        assert!(cols.iter().any(|c| c == "chat_mode"), "missing chat_mode in {cols:?}");
+        assert!(!cols.iter().any(|c| c == "chat_policy"), "stale chat_policy still present in {cols:?}");
+        assert!(!cols.iter().any(|c| c == "card_assembly"), "stale card_assembly still present in {cols:?}");
     }
 
     #[test]

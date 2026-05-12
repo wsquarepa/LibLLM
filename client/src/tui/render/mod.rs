@@ -426,11 +426,36 @@ pub fn render_chat(
     } = token_display;
     let char_name = app.session.character.as_deref().unwrap_or("");
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
-    let has_replacements = app.session.character.is_some();
+    let in_group = app.session.characters.len() >= 2;
+    let has_replacements = app.session.character.is_some() || !app.session.characters.is_empty();
+    let fallback_group_char_name: String = app
+        .session
+        .characters
+        .first()
+        .and_then(|c| {
+            app.character_cards_cache
+                .get(&c.slug)
+                .map(|card| card.name.clone())
+                .or_else(|| Some(c.slug.clone()))
+        })
+        .unwrap_or_default();
 
-    let replace_vars = |text: &str| -> String {
+    let resolve_char_name = |speaker: Option<&str>| -> &str {
+        if let Some(slug) = speaker
+            && let Some(card) = app.character_cards_cache.get(slug)
+        {
+            return card.name.as_str();
+        }
+        if in_group {
+            fallback_group_char_name.as_str()
+        } else {
+            char_name
+        }
+    };
+
+    let replace_vars = |text: &str, speaker: Option<&str>| -> String {
         if has_replacements {
-            super::business::apply_template_vars(text, char_name, user_name)
+            super::business::apply_template_vars(text, resolve_char_name(speaker), user_name)
         } else {
             text.to_owned()
         }
@@ -601,13 +626,14 @@ pub fn render_chat(
                         })
                         .collect()
                 } else {
+                    let speaker = msg.speaker.as_deref();
                     let content: String = match &side {
-                        Some((_, body)) => replace_vars(body.as_str()),
+                        Some((_, body)) => replace_vars(body.as_str(), speaker),
                         None => {
                             let raw = app
                                 .display_content_for(node_id)
                                 .unwrap_or(&msg.content);
-                            replace_vars(raw)
+                            replace_vars(raw, speaker)
                         }
                     };
                     if msg.role == Role::Assistant {
@@ -746,7 +772,13 @@ pub fn render_chat(
             libllm::session::Role::Assistant,
             &app.streaming_buffer,
         );
-        let raw_buffer = replace_vars(&buffer_after_regex);
+        let streaming_speaker: Option<String> = app
+            .session
+            .tree
+            .head()
+            .and_then(|id| app.session.tree.node(id))
+            .and_then(|n| n.message.speaker.clone());
+        let raw_buffer = replace_vars(&buffer_after_regex, streaming_speaker.as_deref());
         let buffer = if app.is_continuation {
             raw_buffer
         } else {
@@ -1029,7 +1061,8 @@ fn truncate_with_ellipsis(text: &str, max_chars: usize) -> String {
 }
 
 fn queue_user_label(app: &App) -> String {
-    let has_replacements = app.session.character.is_some();
+    let has_replacements =
+        app.session.character.is_some() || !app.session.characters.is_empty();
     if has_replacements && app.active_persona_name.is_some() {
         app.active_persona_name
             .as_deref()

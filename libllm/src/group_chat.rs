@@ -29,9 +29,9 @@ pub const DEFAULT_TALKATIVENESS: f32 = 0.5;
 /// our (talkativeness ∈ [0, 1]) range: with `numerator = 1`, a character at
 /// talkativeness 1.0 (the cap) has base AV 1.0; at 0.5, base AV 2.0; at 1/6, base AV 6.
 pub const BASE_ACTION_VALUE_NUMERATOR: f32 = 1.0;
-/// Talkativeness slider granularity. Six notches, mapping to talkativeness values
-/// 1/6, 2/6, ..., 6/6 (notch 0 mutes the character entirely).
-pub const TALKATIVENESS_NOTCHES: u8 = 6;
+/// Talkativeness slider granularity. Thirty notches, mapping to talkativeness values
+/// 1/30, 2/30, ..., 30/30 (notch 0 mutes the character entirely).
+pub const TALKATIVENESS_NOTCHES: u8 = 30;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterAttachment {

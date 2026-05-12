@@ -187,6 +187,7 @@ pub async fn run(
         streaming_buffer: String::new(),
         is_streaming: false,
         is_continuation: false,
+        streaming_prefill: None,
         stream_started_at: None,
         stream_first_think_closed_at: None,
         message_queue: Vec::new(),

@@ -250,6 +250,12 @@ pub(super) struct App<'a> {
     pub(super) streaming_buffer: String,
     pub(super) is_streaming: bool,
     pub(super) is_continuation: bool,
+    /// Set to `Some(prefill)` immediately before a fresh group-chat turn starts streaming.
+    /// On stream completion, the prefill prefix is stripped from the combined message
+    /// content so storage holds just the assistant body — without it, the renderer's
+    /// prefix-strip leaves the LLM's leading whitespace visible as phantom blank lines.
+    /// Cleared on `Done` and on error.
+    pub(super) streaming_prefill: Option<String>,
     pub(super) stream_started_at: Option<std::time::Instant>,
     pub(super) stream_first_think_closed_at: Option<std::time::Instant>,
     pub(super) message_queue: Vec<String>,

@@ -16,7 +16,10 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let total_rows = assembly_idx + 1;
 
     let content_height = total_rows as u16 + 2;
-    let width = (area.width as f32 * 0.55) as u16;
+    let notches_total_u16 = libllm::group_chat::TALKATIVENESS_NOTCHES as u16;
+    let row_width = notches_total_u16 + 35;
+    let preferred = (area.width as f32 * 0.7) as u16;
+    let width = preferred.max(row_width).min(area.width);
     let dialog = super::clear_centered(f, width, content_height, area);
 
     let mut lines: Vec<Line> = vec![Line::from("")];

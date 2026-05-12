@@ -232,25 +232,38 @@ pub fn inject_loaded_worldbook_entries(
     result
 }
 
-pub fn replace_template_vars(
+pub fn replace_template_vars<F>(
     session: &Session,
     messages: Vec<Message>,
     user_name: &str,
-) -> Vec<Message> {
+    resolve_speaker_name: F,
+) -> Vec<Message>
+where
+    F: Fn(&str) -> Option<String>,
+{
     if session.character.is_none() && session.characters.is_empty() {
         return messages;
     }
 
-    let char_name = session
+    let default_char_name: String = session
         .character
-        .as_deref()
-        .or_else(|| session.characters.first().map(|c| c.slug.as_str()))
-        .unwrap_or("");
+        .clone()
+        .or_else(|| {
+            session
+                .characters
+                .first()
+                .map(|c| resolve_speaker_name(&c.slug).unwrap_or_else(|| c.slug.clone()))
+        })
+        .unwrap_or_default();
 
     messages
         .into_iter()
         .map(|mut msg| {
-            msg.content = apply_template_vars(&msg.content, char_name, user_name);
+            let char_name = match msg.speaker.as_deref() {
+                Some(slug) => resolve_speaker_name(slug).unwrap_or_else(|| slug.to_owned()),
+                None => default_char_name.clone(),
+            };
+            msg.content = apply_template_vars(&msg.content, &char_name, user_name);
             msg
         })
         .collect()

@@ -71,7 +71,11 @@ where
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected =
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
-    let mut injected = business::replace_template_vars(app.session, injected, user_name);
+    let mut injected = business::replace_template_vars(app.session, injected, user_name, |slug| {
+        app.character_cards_cache
+            .get(slug)
+            .map(|c| c.name.clone())
+    });
 
     // Choose which character card's author_note to inject. For solo sessions, use
     // `session.character`. For group sessions, use the active speaker — the speaker
@@ -534,6 +538,8 @@ pub(super) async fn run_one_group_turn(
     let parent_id = app.session.tree.head();
     app.session.tree.push(parent_id, assistant_msg);
 
+    app.streaming_prefill = Some(prompt.prefill.clone());
+
     stream_into_message(
         app,
         prompt.system,
@@ -784,8 +790,14 @@ pub(in crate::tui) async fn handle_stream_token(
                 app.stream_first_think_closed_at,
             );
             if app.is_continuation {
-                let existing = app.session.tree.node(head).unwrap().message.content.clone();
-                let combined = format!("{}{}", existing, full_response);
+                let combined = match app.streaming_prefill.take() {
+                    Some(_prefill) => full_response.trim_start().to_owned(),
+                    None => {
+                        let existing =
+                            app.session.tree.node(head).unwrap().message.content.clone();
+                        format!("{}{}", existing, full_response)
+                    }
+                };
                 let combined = libllm::regex_rules::apply(
                     &app.compiled_regex,
                     libllm::regex_rules::Scope::PromptRecv,
@@ -1025,6 +1037,7 @@ pub(in crate::tui) async fn handle_stream_token(
             app.streaming_buffer.clear();
             app.is_streaming = false;
             app.is_continuation = false;
+            app.streaming_prefill = None;
             app.stream_started_at = None;
             app.stream_first_think_closed_at = None;
             app.message_queue.clear();

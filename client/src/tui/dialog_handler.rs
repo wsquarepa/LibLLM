@@ -22,8 +22,20 @@ pub(super) fn cancel_generation(app: &mut App) {
                 tracing::debug!("tui.cancel_generation.no_head");
                 return;
             };
-            let existing = app.session.tree.node(head).expect("head id resolves to message node").message.content.clone();
-            let combined = format!("{}{}", existing, app.streaming_buffer);
+            let combined = match app.streaming_prefill.take() {
+                Some(_prefill) => app.streaming_buffer.trim_start().to_owned(),
+                None => {
+                    let existing = app
+                        .session
+                        .tree
+                        .node(head)
+                        .expect("head id resolves to message node")
+                        .message
+                        .content
+                        .clone();
+                    format!("{}{}", existing, app.streaming_buffer)
+                }
+            };
             let combined = libllm::regex_rules::apply(
                 &app.compiled_regex,
                 libllm::regex_rules::Scope::PromptRecv,
@@ -85,6 +97,7 @@ pub(super) fn cancel_generation(app: &mut App) {
     }
 
     app.streaming_buffer.clear();
+    app.streaming_prefill = None;
     app.is_streaming = false;
     app.stream_started_at = None;
     app.stream_first_think_closed_at = None;

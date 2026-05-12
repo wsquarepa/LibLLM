@@ -523,7 +523,7 @@ pub(super) async fn run_one_group_turn(
     let _span = tracing::info_span!(
         "group_turn",
         speaker = %speaker_slug,
-        policy = ?app.session.chat_policy
+        mode = ?app.session.chat_mode
     )
     .entered();
 
@@ -586,7 +586,7 @@ pub(in crate::tui) async fn continue_group_chat_loop(
     };
     let Some(decision) = libllm::group_chat::decide_next_speaker(
         &app.session.characters,
-        app.session.chat_policy,
+        app.session.chat_mode,
         rng,
         time_budget,
     ) else {

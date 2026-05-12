@@ -6,7 +6,7 @@ mod common;
 
 use libllm::crypto;
 use libllm::db::Database;
-use libllm::group_chat::{CardAssembly, ChatPolicy, CharacterAttachment};
+use libllm::group_chat::{ChatMode, CharacterAttachment};
 use libllm::session::{MessageTree, Role, Session};
 
 #[test]
@@ -130,9 +130,9 @@ fn session_metadata_fields_survive_round_trip() {
         character: Some("TestChar".to_string()),
         worldbooks: vec!["lore-a".to_string(), "lore-b".to_string()],
         persona: Some("Alice".to_string()),
+        scenario: None,
         characters: Vec::new(),
-        chat_policy: libllm::group_chat::ChatPolicy::default(),
-        card_assembly: libllm::group_chat::CardAssembly::default(),
+        chat_mode: libllm::group_chat::ChatMode::default(),
         author_note: None,
     };
     db.insert_session("meta-1", &session).expect("insert meta");
@@ -332,8 +332,7 @@ fn group_session_round_trips_through_database() {
                 spoke_this_round: false,
             },
         ],
-        chat_policy: ChatPolicy::WeightedRandom,
-        card_assembly: CardAssembly::SwapCards,
+        chat_mode: ChatMode::WeightedRandom,
         ..Default::default()
     };
 
@@ -347,6 +346,5 @@ fn group_session_round_trips_through_database() {
     assert_eq!(loaded.characters[0].slug, "alice");
     assert_eq!(loaded.characters[1].slug, "bob");
     assert_eq!(loaded.characters[2].slug, "charlie");
-    assert!(matches!(loaded.chat_policy, ChatPolicy::WeightedRandom));
-    assert!(matches!(loaded.card_assembly, CardAssembly::SwapCards));
+    assert!(matches!(loaded.chat_mode, ChatMode::WeightedRandom));
 }

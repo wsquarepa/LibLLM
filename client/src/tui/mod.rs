@@ -565,14 +565,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         };
         input_block = input_block.title_bottom(Line::from(hint).centered());
     } else if app.session.characters.len() >= 2 {
-        let policy = match app.session.chat_policy {
-            libllm::group_chat::ChatPolicy::RoundRobin => "round-robin order",
-            libllm::group_chat::ChatPolicy::WeightedRandom => "weighted-random order",
-        };
-        let assembly = match app.session.card_assembly {
-            libllm::group_chat::CardAssembly::JoinCards => "joined cards",
-            libllm::group_chat::CardAssembly::SwapCards => "swapped cards",
-        };
         let n = app.session.characters.len();
         let broken = app
             .session
@@ -580,7 +572,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             .iter()
             .filter(|c| !app.character_cards_cache.contains_key(&c.slug))
             .count();
-        let chip = format!(" {n} chars · {policy} · {assembly} ");
+        let chip = format!(" {n} chars · {} ", app.session.chat_mode.as_str());
         let mut spans = vec![Span::styled(chip, Style::default().fg(app.theme.dimmed))];
         if broken > 0 {
             spans.push(Span::styled(

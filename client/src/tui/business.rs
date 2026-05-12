@@ -53,7 +53,7 @@ pub(super) fn group_display_name(app: &App) -> String {
 
 /// Predicts which character would speak next given the current session state. Uses the
 /// HSR-style action-value ordering (lower AV = sooner). Among ties, prefers the lowest
-/// attach index, mirroring `ChatPolicy::RoundRobin` tiebreak.
+/// attach index.
 pub(super) fn predict_next_speaker(app: &App) -> Option<String> {
     let chars = &app.session.characters;
     if chars.len() < 2 {
@@ -1222,8 +1222,7 @@ mod tests {
             system_prompt: None,
             persona: None,
             characters: vec![],
-            chat_policy: None,
-            card_assembly: None,
+            chat_mode: None,
             talkativeness: std::collections::HashMap::new(),
             author_note: None,
             author_note_depth: None,
@@ -1264,8 +1263,7 @@ mod tests {
             system_prompt: None,
             persona: None,
             characters: vec![],
-            chat_policy: None,
-            card_assembly: None,
+            chat_mode: None,
             talkativeness: std::collections::HashMap::new(),
             author_note: None,
             author_note_depth: None,
@@ -1310,8 +1308,7 @@ mod tests {
             system_prompt: None,
             persona: None,
             characters: vec![],
-            chat_policy: None,
-            card_assembly: None,
+            chat_mode: None,
             talkativeness: std::collections::HashMap::new(),
             author_note: None,
             author_note_depth: None,

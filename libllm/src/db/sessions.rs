@@ -14,8 +14,8 @@ type SessionRow = (
     Option<String>, // character
     Option<String>, // persona
     Option<i64>,    // head_id
-    Option<String>, // chat_policy
-    Option<String>, // card_assembly
+    Option<String>, // chat_mode
+    Option<String>, // scenario
     Option<String>, // author_note
     i64,            // author_note_depth
     i64,            // author_note_at_top
@@ -88,7 +88,7 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
     let (note_text, note_depth, note_at_top) = author_note_columns(session);
 
     conn.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_mode, scenario, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             id,
@@ -99,8 +99,8 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             legacy_mirror,
             session.persona,
             head_id,
-            session.chat_policy.as_db_str(),
-            session.card_assembly.as_db_str(),
+            session.chat_mode.as_db_str(),
+            session.scenario,
             now,
             now,
             note_text,
@@ -123,7 +123,7 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
     let (note_text, note_depth, note_at_top) = author_note_columns(session);
 
     conn.execute(
-        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_policy, card_assembly, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
+        "INSERT INTO sessions (id, display_name, model, template, system_prompt, character, persona, head_id, chat_mode, scenario, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?13, ?14)
          ON CONFLICT(id) DO UPDATE SET
             display_name = excluded.display_name,
@@ -133,8 +133,8 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             character = excluded.character,
             persona = excluded.persona,
             head_id = excluded.head_id,
-            chat_policy = excluded.chat_policy,
-            card_assembly = excluded.card_assembly,
+            chat_mode = excluded.chat_mode,
+            scenario = excluded.scenario,
             updated_at = excluded.updated_at,
             author_note = excluded.author_note,
             author_note_depth = excluded.author_note_depth,
@@ -148,8 +148,8 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             legacy_mirror,
             session.persona,
             head_id,
-            session.chat_policy.as_db_str(),
-            session.card_assembly.as_db_str(),
+            session.chat_mode.as_db_str(),
+            session.scenario,
             now,
             note_text,
             note_depth,
@@ -312,15 +312,15 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 character,
                 persona,
                 head_id,
-                chat_policy_str,
-                card_assembly_str,
+                chat_mode_str,
+                scenario,
                 author_note_text,
                 author_note_depth,
                 author_note_at_top,
             ): SessionRow = conn
                 .query_row(
                     "SELECT model, template, system_prompt, character, persona, head_id,
-                            chat_policy, card_assembly,
+                            chat_mode, scenario,
                             author_note, author_note_depth, author_note_at_top
                      FROM sessions WHERE id = ?1",
                     params![id],
@@ -342,12 +342,8 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 )
                 .with_context(|| format!("session not found: {id}"))?;
 
-            let chat_policy = crate::group_chat::ChatPolicy::from_db_str(
-                chat_policy_str.as_deref().unwrap_or(""),
-            )
-            .unwrap_or_default();
-            let card_assembly = crate::group_chat::CardAssembly::from_db_str(
-                card_assembly_str.as_deref().unwrap_or(""),
+            let chat_mode = crate::group_chat::ChatMode::from_db_str(
+                chat_mode_str.as_deref().unwrap_or(""),
             )
             .unwrap_or_default();
 
@@ -506,9 +502,9 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 character,
                 worldbooks,
                 persona,
+                scenario,
                 characters,
-                chat_policy,
-                card_assembly,
+                chat_mode,
                 author_note,
             })
     })
@@ -714,9 +710,9 @@ mod tests {
             character: Some("TestChar".to_owned()),
             worldbooks: vec!["book1".to_owned(), "book2".to_owned()],
             persona: Some("TestUser".to_owned()),
+            scenario: None,
             characters: Vec::new(),
-            chat_policy: crate::group_chat::ChatPolicy::default(),
-            card_assembly: crate::group_chat::CardAssembly::default(),
+            chat_mode: crate::group_chat::ChatMode::default(),
             author_note: None,
         }
     }
@@ -839,9 +835,9 @@ mod tests {
             character: None,
             worldbooks: vec![],
             persona: None,
+            scenario: None,
             characters: Vec::new(),
-            chat_policy: crate::group_chat::ChatPolicy::default(),
-            card_assembly: crate::group_chat::CardAssembly::default(),
+            chat_mode: crate::group_chat::ChatMode::default(),
             author_note: None,
         };
 
@@ -878,9 +874,9 @@ mod tests {
             character: None,
             worldbooks: vec![],
             persona: None,
+            scenario: None,
             characters: Vec::new(),
-            chat_policy: crate::group_chat::ChatPolicy::default(),
-            card_assembly: crate::group_chat::CardAssembly::default(),
+            chat_mode: crate::group_chat::ChatMode::default(),
             author_note: None,
         };
         insert_session(&mut conn, "sess-2", &session2).unwrap();
@@ -968,7 +964,7 @@ mod tests {
 
     #[test]
     fn save_and_load_group_session_round_trips_attachments_and_settings() {
-        use crate::group_chat::{CardAssembly, ChatPolicy, CharacterAttachment};
+        use crate::group_chat::{ChatMode, CharacterAttachment};
         use crate::session::{MessageTree, Session};
 
         let mut conn = Connection::open_in_memory().unwrap();
@@ -1000,8 +996,8 @@ mod tests {
                     spoke_this_round: false,
                 },
             ],
-            chat_policy: ChatPolicy::WeightedRandom,
-            card_assembly: CardAssembly::SwapCards,
+            chat_mode: ChatMode::WeightedRandom,
+            scenario: None,
             worldbooks: vec![],
             persona: None,
             author_note: None,
@@ -1016,8 +1012,7 @@ mod tests {
         assert!((loaded.characters[0].action_points - 0.3).abs() < 1e-6);
         assert_eq!(loaded.characters[2].slug, "charlie");
         assert!((loaded.characters[2].action_points - 0.9).abs() < 1e-6);
-        assert!(matches!(loaded.chat_policy, ChatPolicy::WeightedRandom));
-        assert!(matches!(loaded.card_assembly, CardAssembly::SwapCards));
+        assert!(matches!(loaded.chat_mode, ChatMode::WeightedRandom));
     }
 
     #[test]

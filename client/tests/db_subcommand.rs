@@ -723,7 +723,7 @@ fn sql_rejects_query_only_pragma_in_read_only_mode() {
 
 #[test]
 fn db_dump_import_round_trips_group_session() {
-    use libllm::group_chat::{CardAssembly, CharacterAttachment, ChatPolicy};
+    use libllm::group_chat::{CharacterAttachment, ChatMode};
 
     let src = common::temp_dir();
     let src_data = src.path();
@@ -736,8 +736,7 @@ fn db_dump_import_round_trips_group_session() {
                     CharacterAttachment::new("alice"),
                     CharacterAttachment::new("bob"),
                 ],
-                card_assembly: CardAssembly::SwapCards,
-                chat_policy: ChatPolicy::RoundRobin,
+                chat_mode: ChatMode::WeightedRandom,
                 ..Default::default()
             },
         )
@@ -784,26 +783,26 @@ fn db_dump_import_round_trips_group_session() {
         String::from_utf8_lossy(&import.stderr),
     );
 
-    let assembly_out = Command::new(client_bin())
+    let mode_out = Command::new(client_bin())
         .args([
             "-d",
             dst_data.to_str().unwrap(),
             "--no-encrypt",
             "db",
             "sql",
-            "SELECT card_assembly FROM sessions WHERE id = 'g1';",
+            "SELECT chat_mode FROM sessions WHERE id = 'g1';",
         ])
         .output()
-        .expect("spawn db sql card_assembly");
+        .expect("spawn db sql chat_mode");
     assert!(
-        assembly_out.status.success(),
-        "db sql card_assembly failed: {}",
-        String::from_utf8_lossy(&assembly_out.stderr)
+        mode_out.status.success(),
+        "db sql chat_mode failed: {}",
+        String::from_utf8_lossy(&mode_out.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&assembly_out.stdout).contains("swap_cards"),
-        "card_assembly round-trip failed: {}",
-        String::from_utf8_lossy(&assembly_out.stdout),
+        String::from_utf8_lossy(&mode_out.stdout).contains("weighted_random"),
+        "chat_mode round-trip failed: {}",
+        String::from_utf8_lossy(&mode_out.stdout),
     );
 
     let chars_out = Command::new(client_bin())

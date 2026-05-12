@@ -155,8 +155,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     .iter()
                     .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
                     .collect();
-                app.session.chat_policy = libllm::group_chat::ChatPolicy::default();
-                app.session.card_assembly = libllm::group_chat::CardAssembly::default();
+                app.session.chat_mode = libllm::group_chat::ChatMode::default();
 
                 for (slug, card) in slugs.iter().zip(cards.iter()) {
                     if !card.first_mes.is_empty() {

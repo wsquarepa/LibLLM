@@ -4,7 +4,7 @@ mod common;
 use std::process::Command;
 
 use common::{client_bin, import_card, import_persona, temp_dir};
-use libllm::group_chat::{CardAssembly, ChatPolicy};
+use libllm::group_chat::ChatMode;
 
 fn workspace_with(chars: &[(&str, &str)], persona: Option<(&str, &str)>) -> tempfile::TempDir {
     let ws = temp_dir();
@@ -94,22 +94,18 @@ fn legacy_v4_solo_session_loads_with_v5_backfill() {
     let dir = temp_dir();
     let db_path = dir.path().join("sessions.db");
 
-    // Open via Database::open, which runs all migrations through v5 and creates
-    // the v5 schema (session_characters table, chat_policy/card_assembly columns).
+    // Open via Database::open, which runs all migrations and creates the current schema.
     let db = libllm::db::Database::open(&db_path, None).unwrap();
 
-    // Insert a solo session using only the v4-era columns. The v5 columns
-    // (chat_policy, card_assembly) get their DEFAULT values from the schema.
-    // No session_characters row is written — this emulates a session that was
-    // written by a v4 binary before the v5 migration ran.
+    // Insert a solo session using only the legacy columns. No session_characters row is
+    // written — this emulates a session written by an older binary before migrations ran.
     db.execute_statement(
         "INSERT INTO sessions (id, character, created_at, updated_at) \
          VALUES ('legacy-solo', 'alice', 'now', 'now')",
     )
     .unwrap();
 
-    // v5 migration would have backfilled this row, but v4 binaries never wrote it.
-    // Confirm it's absent so load_session exercises the synthesis path.
+    // Confirm no session_characters row so load_session exercises the synthesis path.
     db.execute_statement(
         "DELETE FROM session_characters WHERE session_id = 'legacy-solo'",
     )
@@ -129,7 +125,7 @@ fn legacy_v4_solo_session_loads_with_v5_backfill() {
     );
     // sessions.character is preserved as the legacy mirror column.
     assert_eq!(loaded.character.as_deref(), Some("alice"));
-    // v5 schema defaults: round_robin and join_cards.
-    assert!(matches!(loaded.chat_policy, ChatPolicy::RoundRobin));
-    assert!(matches!(loaded.card_assembly, CardAssembly::JoinCards));
+    // The column was originally added in v5 with DEFAULT 'round_robin'; v9 renames it but
+    // preserves the default, so legacy sessions without an explicit value load as RoundRobin.
+    assert!(matches!(loaded.chat_mode, ChatMode::RoundRobin));
 }

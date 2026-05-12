@@ -35,33 +35,24 @@ impl From<AuthKindArg> for libllm::config::AuthKind {
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum ChatPolicyArg {
+pub enum ChatModeArg {
+    #[value(name = "action-value")]
+    ActionValue,
     #[value(name = "round-robin")]
     RoundRobin,
     #[value(name = "weighted-random")]
     WeightedRandom,
+    #[value(name = "directed")]
+    Directed,
 }
 
-impl From<ChatPolicyArg> for libllm::group_chat::ChatPolicy {
-    fn from(v: ChatPolicyArg) -> Self {
+impl From<ChatModeArg> for libllm::group_chat::ChatMode {
+    fn from(v: ChatModeArg) -> Self {
         match v {
-            ChatPolicyArg::RoundRobin => Self::RoundRobin,
-            ChatPolicyArg::WeightedRandom => Self::WeightedRandom,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum CardAssemblyArg {
-    Join,
-    Swap,
-}
-
-impl From<CardAssemblyArg> for libllm::group_chat::CardAssembly {
-    fn from(v: CardAssemblyArg) -> Self {
-        match v {
-            CardAssemblyArg::Join => Self::JoinCards,
-            CardAssemblyArg::Swap => Self::SwapCards,
+            ChatModeArg::ActionValue => Self::ActionValue,
+            ChatModeArg::RoundRobin => Self::RoundRobin,
+            ChatModeArg::WeightedRandom => Self::WeightedRandom,
+            ChatModeArg::Directed => Self::Directed,
         }
     }
 }
@@ -206,8 +197,7 @@ pub struct CliOverrides {
     pub system_prompt: Option<String>,
     pub persona: Option<String>,
     pub characters: Vec<String>,
-    pub chat_policy: Option<libllm::group_chat::ChatPolicy>,
-    pub card_assembly: Option<libllm::group_chat::CardAssembly>,
+    pub chat_mode: Option<libllm::group_chat::ChatMode>,
     pub talkativeness: std::collections::HashMap<String, f32>,
     pub author_note: Option<String>,
     pub author_note_depth: Option<u32>,
@@ -400,13 +390,9 @@ pub struct Args {
     #[arg(short = 'c', long, requires = "persona", num_args = 1)]
     pub character: Vec<String>,
 
-    /// Turn-order policy for group chats (>= 2 characters)
-    #[arg(long, value_enum, default_value_t = ChatPolicyArg::RoundRobin)]
-    pub chat_policy: ChatPolicyArg,
-
-    /// Card assembly mode for group chats (>= 2 characters)
-    #[arg(long, value_enum, default_value_t = CardAssemblyArg::Join)]
-    pub card_assembly: CardAssemblyArg,
+    /// Turn-order mode for group chats (>= 2 characters)
+    #[arg(long, value_enum, default_value_t = ChatModeArg::ActionValue)]
+    pub chat_mode: ChatModeArg,
 
     /// Per-character talkativeness override (e.g. "alice=0.7,bob=0.3")
     #[arg(long)]
@@ -480,13 +466,8 @@ impl Args {
             system_prompt: self.system_prompt.clone(),
             persona: self.persona.as_deref().map(libllm::character::slugify),
             characters: self.character.clone(),
-            chat_policy: if self.character.len() >= 2 {
-                Some(self.chat_policy.into())
-            } else {
-                None
-            },
-            card_assembly: if self.character.len() >= 2 {
-                Some(self.card_assembly.into())
+            chat_mode: if self.character.len() >= 2 {
+                Some(self.chat_mode.into())
             } else {
                 None
             },
@@ -634,20 +615,20 @@ mod tests {
     }
 
     #[test]
-    fn chat_policy_default_round_robin() {
+    fn chat_mode_default_action_value() {
         let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me"]).unwrap();
-        assert!(matches!(args.chat_policy, ChatPolicyArg::RoundRobin));
+        assert!(matches!(args.chat_mode, ChatModeArg::ActionValue));
     }
 
     #[test]
-    fn chat_policy_weighted_random_parses() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-policy", "weighted-random"]).unwrap();
-        assert!(matches!(args.chat_policy, ChatPolicyArg::WeightedRandom));
+    fn chat_mode_weighted_random_parses() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-mode", "weighted-random"]).unwrap();
+        assert!(matches!(args.chat_mode, ChatModeArg::WeightedRandom));
     }
 
     #[test]
-    fn card_assembly_swap_parses() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--card-assembly", "swap"]).unwrap();
-        assert!(matches!(args.card_assembly, CardAssemblyArg::Swap));
+    fn chat_mode_directed_parses() {
+        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-mode", "directed"]).unwrap();
+        assert!(matches!(args.chat_mode, ChatModeArg::Directed));
     }
 }

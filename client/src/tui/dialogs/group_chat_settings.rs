@@ -1,4 +1,4 @@
-//! Group-chat settings sheet: per-character talkativeness sliders, policy, card-assembly.
+//! Group-chat settings sheet: per-character talkativeness sliders and chat mode.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
@@ -11,9 +11,8 @@ use crate::tui::App;
 
 pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let chars = &app.session.characters;
-    let policy_idx = chars.len();
-    let assembly_idx = policy_idx + 1;
-    let total_rows = assembly_idx + 1;
+    let mode_idx = chars.len();
+    let total_rows = mode_idx + 1;
 
     let content_height = total_rows as u16 + 2;
     let width = (area.width as f32 * 0.55) as u16;
@@ -41,23 +40,7 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
         lines.push(Line::from(Span::styled(row, style)));
     }
 
-    let policy_str = match app.session.chat_policy {
-        libllm::group_chat::ChatPolicy::RoundRobin => "round-robin",
-        libllm::group_chat::ChatPolicy::WeightedRandom => "weighted-random",
-    };
-    let assembly_str = match app.session.card_assembly {
-        libllm::group_chat::CardAssembly::JoinCards => "join",
-        libllm::group_chat::CardAssembly::SwapCards => "swap",
-    };
-
-    let policy_style = if app.group_settings_selected == policy_idx {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let assembly_style = if app.group_settings_selected == assembly_idx {
+    let mode_style = if app.group_settings_selected == mode_idx {
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD)
@@ -66,12 +49,8 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
     };
 
     lines.push(Line::from(Span::styled(
-        format!("  policy:   {policy_str}"),
-        policy_style,
-    )));
-    lines.push(Line::from(Span::styled(
-        format!("  assembly: {assembly_str}"),
-        assembly_style,
+        format!("  mode:     {}", app.session.chat_mode.as_str()),
+        mode_style,
     )));
 
     let paragraph = Paragraph::new(lines)
@@ -90,9 +69,8 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
 
 pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let char_count = app.session.characters.len();
-    let policy_idx = char_count;
-    let assembly_idx = policy_idx + 1;
-    let total_rows = assembly_idx + 1;
+    let mode_idx = char_count;
+    let total_rows = mode_idx + 1;
 
     match key.code {
         KeyCode::Esc => {
@@ -126,11 +104,10 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
 
 fn adjust(app: &mut App, notch_delta: i32) {
     let char_count = app.session.characters.len();
-    let policy_idx = char_count;
-    let assembly_idx = policy_idx + 1;
+    let mode_idx = char_count;
     let i = app.group_settings_selected;
 
-    if i < policy_idx {
+    if i < mode_idx {
         let slug = app.session.characters[i].slug.clone();
         if app.cli_overrides.talkativeness.contains_key(&slug) {
             app.set_status(
@@ -148,37 +125,24 @@ fn adjust(app: &mut App, notch_delta: i32) {
         app.session.characters[i].talkativeness = new_talk;
         app.session.characters[i].action_points =
             libllm::group_chat::base_action_value(new_talk);
-    } else if i == policy_idx {
-        if app.cli_overrides.chat_policy.is_some() {
+    } else if i == mode_idx {
+        if app.cli_overrides.chat_mode.is_some() {
             app.set_status(
-                "chat policy is locked by --chat-policy CLI flag".to_owned(),
+                "chat mode is locked by --chat-mode CLI flag".to_owned(),
                 crate::tui::StatusLevel::Warning,
             );
             return;
         }
-        app.session.chat_policy = match app.session.chat_policy {
-            libllm::group_chat::ChatPolicy::RoundRobin => {
-                libllm::group_chat::ChatPolicy::WeightedRandom
-            }
-            libllm::group_chat::ChatPolicy::WeightedRandom => {
-                libllm::group_chat::ChatPolicy::RoundRobin
-            }
-        };
-    } else if i == assembly_idx {
-        if app.cli_overrides.card_assembly.is_some() {
-            app.set_status(
-                "card assembly is locked by --card-assembly CLI flag".to_owned(),
-                crate::tui::StatusLevel::Warning,
-            );
-            return;
-        }
-        app.session.card_assembly = match app.session.card_assembly {
-            libllm::group_chat::CardAssembly::JoinCards => {
-                libllm::group_chat::CardAssembly::SwapCards
-            }
-            libllm::group_chat::CardAssembly::SwapCards => {
-                libllm::group_chat::CardAssembly::JoinCards
-            }
+        use libllm::group_chat::ChatMode;
+        app.session.chat_mode = match (app.session.chat_mode, notch_delta > 0) {
+            (ChatMode::ActionValue, true) => ChatMode::RoundRobin,
+            (ChatMode::RoundRobin, true) => ChatMode::WeightedRandom,
+            (ChatMode::WeightedRandom, true) => ChatMode::Directed,
+            (ChatMode::Directed, true) => ChatMode::ActionValue,
+            (ChatMode::Directed, false) => ChatMode::WeightedRandom,
+            (ChatMode::WeightedRandom, false) => ChatMode::RoundRobin,
+            (ChatMode::RoundRobin, false) => ChatMode::ActionValue,
+            (ChatMode::ActionValue, false) => ChatMode::Directed,
         };
     }
 }

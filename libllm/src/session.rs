@@ -711,12 +711,12 @@ pub struct Session {
     pub worldbooks: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub persona: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scenario: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub characters: Vec<crate::group_chat::CharacterAttachment>,
     #[serde(default)]
-    pub chat_policy: crate::group_chat::ChatPolicy,
-    #[serde(default)]
-    pub card_assembly: crate::group_chat::CardAssembly,
+    pub chat_mode: crate::group_chat::ChatMode,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub author_note: Option<crate::author_note::AuthorNote>,
 }
@@ -1277,17 +1277,14 @@ mod tests {
     }
 
     #[test]
-    fn session_default_has_empty_characters_and_round_robin() {
+    fn session_default_has_empty_characters_and_action_value_mode() {
         let s = super::Session::default();
         assert!(s.characters.is_empty());
         assert!(matches!(
-            s.chat_policy,
-            crate::group_chat::ChatPolicy::RoundRobin
+            s.chat_mode,
+            crate::group_chat::ChatMode::ActionValue
         ));
-        assert!(matches!(
-            s.card_assembly,
-            crate::group_chat::CardAssembly::JoinCards
-        ));
+        assert!(s.scenario.is_none());
     }
 
     #[test]
@@ -1307,8 +1304,7 @@ mod tests {
                     spoke_this_round: false,
                 },
             ],
-            chat_policy: crate::group_chat::ChatPolicy::WeightedRandom,
-            card_assembly: crate::group_chat::CardAssembly::SwapCards,
+            chat_mode: crate::group_chat::ChatMode::WeightedRandom,
             ..Default::default()
         };
         let json = serde_json::to_string(&s).unwrap();
@@ -1318,12 +1314,8 @@ mod tests {
         assert!((back.characters[0].talkativeness - 0.7).abs() < f32::EPSILON);
         assert!((back.characters[0].action_points - 0.3).abs() < f32::EPSILON);
         assert!(matches!(
-            back.chat_policy,
-            crate::group_chat::ChatPolicy::WeightedRandom
-        ));
-        assert!(matches!(
-            back.card_assembly,
-            crate::group_chat::CardAssembly::SwapCards
+            back.chat_mode,
+            crate::group_chat::ChatMode::WeightedRandom
         ));
     }
 
@@ -1333,13 +1325,10 @@ mod tests {
         let s: super::Session = serde_json::from_str(json).unwrap();
         assert!(s.characters.is_empty());
         assert!(matches!(
-            s.chat_policy,
-            crate::group_chat::ChatPolicy::RoundRobin
+            s.chat_mode,
+            crate::group_chat::ChatMode::ActionValue
         ));
-        assert!(matches!(
-            s.card_assembly,
-            crate::group_chat::CardAssembly::JoinCards
-        ));
+        assert!(s.scenario.is_none());
     }
 
     #[test]

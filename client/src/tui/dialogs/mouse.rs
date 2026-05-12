@@ -325,6 +325,9 @@ pub(in crate::tui) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut cra
                 app.focus = crate::tui::Focus::WorldbookEditorDialog;
             }
         }
+        crate::tui::Focus::ScenarioEditorDialog => {
+            crate::tui::dialogs::scenario::handle_mouse_click(app, mouse.column, mouse.row);
+        }
         crate::tui::Focus::WorldbookEditorDialog => {
             let entry_labels: Vec<String> = app
                 .worldbook_editor_entries

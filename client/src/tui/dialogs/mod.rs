@@ -17,6 +17,7 @@ pub mod passkey;
 pub mod persona;
 pub mod preset;
 pub mod regex;
+pub mod scenario;
 pub mod set_passkey;
 pub mod system_prompt;
 pub mod template_prompt;
@@ -36,7 +37,7 @@ pub(in crate::tui) use builders::{
 pub use builders::{
     open_author_note_editor, open_character_editor, open_config_editor, open_entry_editor,
     open_entry_editor_non_selective, open_instruct_editor, open_persona_editor,
-    open_reasoning_editor, open_scenario_editor, open_system_prompt_editor, open_template_editor,
+    open_reasoning_editor, open_system_prompt_editor, open_template_editor,
     open_theme_editor,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;

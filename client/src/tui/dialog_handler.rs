@@ -163,7 +163,6 @@ pub(super) enum DialogKind {
     CharacterEditor,
     SystemPromptEditor,
     WorldbookEntryEditor,
-    ScenarioEditor,
 }
 
 pub(super) fn handle_field_dialog_key(
@@ -352,7 +351,6 @@ pub(super) fn handle_field_dialog_key(
         DialogKind::CharacterEditor => app.character_editor.as_mut(),
         DialogKind::SystemPromptEditor => app.system_prompt_editor.as_mut(),
         DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
-        DialogKind::ScenarioEditor => app.scenario_editor.as_mut(),
     };
 
     let dialog = dialog?;
@@ -723,23 +721,6 @@ pub(super) fn handle_field_dialog_key(
                 }
                 app.worldbook_entry_editor = None;
                 app.focus = Focus::WorldbookEditorDialog;
-                None
-            }
-            DialogKind::ScenarioEditor => {
-                let value = app
-                    .scenario_editor
-                    .take()
-                    .and_then(|d| d.values.into_iter().next())
-                    .unwrap_or_default();
-                let trimmed = value.trim();
-                app.session.scenario = if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_owned())
-                };
-                app.mark_session_dirty(SaveTrigger::Debounced, false);
-                app.invalidate_chat_caches();
-                app.focus = Focus::ChatSettingsDialog;
                 None
             }
         },

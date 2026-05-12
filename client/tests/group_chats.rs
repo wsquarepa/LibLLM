@@ -183,8 +183,9 @@ fn chat_settings_solo_shows_only_scenario_row() {
         ..Session::default()
     };
     let dialog = ChatSettingsDialog::for_session(&session);
-    assert_eq!(dialog.rows.len(), 1);
+    assert_eq!(dialog.rows.len(), 2);
     assert!(matches!(dialog.rows[0], Row::Scenario));
+    assert!(matches!(dialog.rows[1], Row::Buttons));
 }
 
 #[test]
@@ -207,11 +208,12 @@ fn chat_settings_group_shows_mode_and_sliders() {
         ..Session::default()
     };
     let dialog = ChatSettingsDialog::for_session(&session);
-    assert_eq!(dialog.rows.len(), 4);
+    assert_eq!(dialog.rows.len(), 5);
     assert!(matches!(dialog.rows[0], Row::Scenario));
     assert!(matches!(dialog.rows[1], Row::Mode));
     assert!(matches!(dialog.rows[2], Row::Talkativeness { index: 0 }));
     assert!(matches!(dialog.rows[3], Row::Talkativeness { index: 1 }));
+    assert!(matches!(dialog.rows[4], Row::Buttons));
 }
 
 fn seed_v8_file(path: &std::path::Path) {

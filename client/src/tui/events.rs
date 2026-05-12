@@ -120,9 +120,7 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
             }
         }
         Focus::ScenarioEditorDialog => {
-            if let Some(ref mut d) = app.scenario_editor {
-                d.insert_into_active_editor(&text);
-            }
+            dialogs::scenario::insert_text(app, &text);
         }
         _ => {}
     }
@@ -618,7 +616,7 @@ fn handle_key(
         return handle_chat_settings_key(key, app);
     }
     if app.focus == Focus::ScenarioEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::ScenarioEditor);
+        return dialogs::scenario::handle_key(key, app);
     }
 
     if app.is_streaming {
@@ -725,31 +723,42 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match action {
         ChatSettingsAction::Continue => None,
         ChatSettingsAction::EditScenario => {
-            let current = app.session.scenario.clone().unwrap_or_default();
-            app.scenario_editor = Some(dialogs::open_scenario_editor(vec![current]));
-            app.focus = Focus::ScenarioEditorDialog;
+            dialogs::scenario::open(app);
             None
         }
-        ChatSettingsAction::Close => {
-            app.chat_settings_dialog = None;
+        ChatSettingsAction::Save => {
             if app.is_group_chat_creation_pending {
-                app.is_group_chat_creation_pending = false;
                 let scenario_ok = app
                     .session
                     .scenario
                     .as_deref()
                     .map(|s| !s.trim().is_empty())
                     .unwrap_or(false);
-                if scenario_ok {
-                    app.mark_session_dirty(SaveTrigger::Debounced, false);
-                } else {
-                    dialogs::chat_settings::roll_back_provisional_group(app.session);
+                if !scenario_ok {
                     app.set_status(
-                        "scenario required for group chat, creation cancelled".to_owned(),
+                        "scenario required to save group chat".to_owned(),
                         StatusLevel::Warning,
                     );
+                    return None;
                 }
-            } else {
+                app.is_group_chat_creation_pending = false;
+            }
+            app.chat_settings_dialog = None;
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+            return_to_input(app);
+            None
+        }
+        ChatSettingsAction::Cancel => {
+            let dialog = app.chat_settings_dialog.take();
+            if app.is_group_chat_creation_pending {
+                app.is_group_chat_creation_pending = false;
+                dialogs::chat_settings::roll_back_provisional_group(app.session);
+                app.set_status(
+                    "group chat creation cancelled".to_owned(),
+                    StatusLevel::Warning,
+                );
+            } else if let Some(dlg) = dialog {
+                dlg.restore_snapshot(app.session);
                 app.mark_session_dirty(SaveTrigger::Debounced, false);
             }
             return_to_input(app);
@@ -1084,9 +1093,7 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
             }
         }
         Focus::ScenarioEditorDialog => {
-            if let Some(ref mut d) = app.scenario_editor {
-                return d.scroll_editor_by(rows);
-            }
+            return dialogs::scenario::scroll_by(app, rows);
         }
         Focus::ConfigDialog => {
             if let Some(ref mut d) = app.config_dialog {
@@ -1140,9 +1147,7 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
             }
         }
         Focus::ScenarioEditorDialog => {
-            if let Some(ref mut d) = app.scenario_editor {
-                d.handle_mouse_drag(terminal_area, screen_col, screen_row);
-            }
+            dialogs::scenario::handle_mouse_drag(app, screen_col, screen_row);
         }
         Focus::ConfigDialog => {
             if let Some(ref mut d) = app.config_dialog {

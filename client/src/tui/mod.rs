@@ -316,6 +316,7 @@ pub async fn run(
         danger_typed_confirm: None,
         chat_settings_dialog: None,
         scenario_editor: None,
+        scenario_scroll_top: 0,
         is_group_chat_creation_pending: false,
         character_cards_cache: std::collections::HashMap::new(),
         group_chat_loop_rng: None,
@@ -1012,9 +1013,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             }
         }
         Focus::ScenarioEditorDialog => {
-            if let Some(ref dialog) = app.scenario_editor {
-                dialog.render(f, f.area());
-            }
+            dialogs::scenario::render(f, app, f.area());
         }
         _ => {}
     }

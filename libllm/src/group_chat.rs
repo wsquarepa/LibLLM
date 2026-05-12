@@ -397,12 +397,12 @@ pub fn decide_next_speaker(
         .map(|c| (c.slug.clone(), c.action_points))
         .collect();
 
-    let chosen_idx = match mode {
+    let (chosen_idx, min_av_for_update): (usize, f32) = match mode {
         ChatMode::Directed => unreachable!("handled above"),
-        ChatMode::RoundRobin => eligible[0],
+        ChatMode::RoundRobin => (eligible[0], 0.0),
         ChatMode::WeightedRandom => {
             let weights = normalized_talkativeness(characters);
-            weighted_pick(&eligible, &weights, rng)
+            (weighted_pick(&eligible, &weights, rng), 0.0)
         }
         ChatMode::ActionValue => {
             let min_av = eligible
@@ -420,16 +420,8 @@ pub fn decide_next_speaker(
                 .filter(|&i| (characters[i].action_points - min_av).abs() < 1e-5)
                 .collect();
             let pick = (rng.random::<f32>() * tied.len() as f32) as usize;
-            tied[pick.min(tied.len() - 1)]
+            (tied[pick.min(tied.len() - 1)], min_av)
         }
-    };
-
-    let min_av_for_update = match mode {
-        ChatMode::ActionValue => eligible
-            .iter()
-            .map(|&i| characters[i].action_points)
-            .fold(f32::INFINITY, f32::min),
-        _ => 0.0,
     };
 
     let updated: Vec<(String, f32)> = characters

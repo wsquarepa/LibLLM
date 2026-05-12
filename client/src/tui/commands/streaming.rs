@@ -6,6 +6,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use libllm::client::StreamToken;
+use libllm::group_chat::ChatMode;
 use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
 
@@ -568,8 +569,6 @@ pub(in crate::tui) async fn continue_group_chat_loop(
     app: &mut App<'_>,
     sender: &mpsc::Sender<StreamToken>,
 ) {
-    use libllm::group_chat::ChatMode;
-
     if app.group_chat_loop_rng.is_none() {
         return;
     }

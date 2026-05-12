@@ -416,6 +416,13 @@ fn rollback_provisional_group_clears_session_state() {
         scenario: Some("partial".into()),
         ..Session::default()
     };
+    session
+        .tree
+        .push(None, Message::new(Role::User, "hello".to_owned()));
+    assert!(
+        session.tree.head().is_some(),
+        "precondition: tree must be non-empty before rollback"
+    );
     roll_back_provisional_group(&mut session);
     assert!(
         session.characters.is_empty(),
@@ -429,5 +436,9 @@ fn rollback_provisional_group_clears_session_state() {
     assert_eq!(
         session.scenario, None,
         "rollback must clear the scenario"
+    );
+    assert!(
+        session.tree.head().is_none(),
+        "rollback must clear the message tree"
     );
 }

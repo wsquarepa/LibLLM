@@ -465,6 +465,19 @@ fn weighted_pick(candidates: &[usize], weights: &[f32], rng: &mut impl Rng) -> u
     *candidates.last().expect("non-empty by guard")
 }
 
+/// Converts a character card's scenario string into a session-owned `Option<String>`.
+///
+/// Returns `None` when `scenario` is empty or whitespace-only, matching the session's
+/// convention that `scenario = None` means "no scenario set". The caller owns the
+/// returned string; subsequent edits to the card do not affect the session.
+pub fn inherit_card_scenario(scenario: &str) -> Option<String> {
+    if scenario.trim().is_empty() {
+        None
+    } else {
+        Some(scenario.to_owned())
+    }
+}
+
 /// Renormalizes action values so the minimum across all characters is zero. Called when
 /// a new user message arrives (the start of a fresh cascade), to keep AV magnitudes
 /// bounded across many rounds. Preserves relative ordering exactly.
@@ -1368,5 +1381,23 @@ mod tests {
             !bob.stop_sequences.iter().any(|s| s == "\nBob:"),
             "bob prompt must not stop at its own name",
         );
+    }
+
+    #[test]
+    fn inherit_card_scenario_returns_some_for_non_empty() {
+        assert_eq!(
+            inherit_card_scenario("Templated."),
+            Some("Templated.".to_owned())
+        );
+    }
+
+    #[test]
+    fn inherit_card_scenario_returns_none_for_empty() {
+        assert_eq!(inherit_card_scenario(""), None);
+    }
+
+    #[test]
+    fn inherit_card_scenario_returns_none_for_whitespace_only() {
+        assert_eq!(inherit_card_scenario("   \n  "), None);
     }
 }

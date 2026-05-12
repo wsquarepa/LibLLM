@@ -193,6 +193,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
                     app.session.characters = vec![libllm::group_chat::CharacterAttachment::new(slug)];
+                    app.session.scenario = libllm::group_chat::inherit_card_scenario(&card.scenario);
                     app.active_card_author_note = card.author_note.clone();
                     app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();

@@ -1038,6 +1038,7 @@ pub(in crate::tui) async fn handle_stream_token(
                         );
                         let token_budget = app.context_mgr.token_limit();
                         let current_head = app.session.tree.head();
+                        let scenario = app.session.scenario.clone();
 
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         app.summary_receiver = Some(rx);
@@ -1050,7 +1051,7 @@ pub(in crate::tui) async fn handle_stream_token(
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
                             let lookup = SnapshotFileSummaryLookup(summaries_snapshot);
                             let result = summarizer
-                                .summarize(&refs, token_budget, &summary_counter, &lookup)
+                                .summarize(scenario.as_deref(), &refs, token_budget, &summary_counter, &lookup)
                                 .await;
                             let _ = tx.send(result.map_err(|e| e.to_string()));
                         });

@@ -156,7 +156,7 @@ async fn summary_substitution_in_summarize_prompt_hides_raw_body() {
         session_id: "s1",
         resolver: &summarizer,
     };
-    let prompt = Summarizer::format_prompt("Summarise.", &refs, &lookup);
+    let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &lookup);
     assert!(prompt.contains("FILE_SUMMARY"));
     assert!(!prompt.contains("SECRET_RAW_CONTENT"));
 }
@@ -193,7 +193,7 @@ async fn failed_summary_produces_placeholder_in_prompt() {
         session_id: "s1",
         resolver: &summarizer,
     };
-    let prompt = Summarizer::format_prompt("Summarise.", &refs, &lookup);
+    let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &lookup);
     assert!(prompt.contains("summary unavailable"));
     assert!(!prompt.contains("SECRET_RAW_CONTENT"));
 }
@@ -227,7 +227,7 @@ async fn null_lookup_renders_placeholder() {
     let snapshot_body = build_snapshot_body("doc.md", "RAW_BODY_PRESENT");
     let msgs = [Message::new(Role::System, snapshot_body)];
     let refs: Vec<&Message> = msgs.iter().collect();
-    let prompt = Summarizer::format_prompt("Summarise.", &refs, &NullFileSummaryLookup);
+    let prompt = Summarizer::format_prompt(None, "Summarise.", &refs, &NullFileSummaryLookup);
     assert!(prompt.contains("summary unavailable"));
     assert!(!prompt.contains("RAW_BODY_PRESENT"));
 }

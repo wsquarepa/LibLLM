@@ -218,6 +218,7 @@ pub struct ChatContentCache {
     user_name: String,
     width: u16,
     entries: Vec<CachedMessageLines>,
+    pub(super) banner_height: u16,
 }
 
 pub struct ChatRenderState<'a> {
@@ -692,6 +693,7 @@ pub fn render_chat(
             user_name: user_name.to_owned(),
             width: area.width,
             entries,
+            banner_height: 0,
         });
     } else {
         tracing::trace!(
@@ -702,14 +704,11 @@ pub fn render_chat(
         );
     }
 
-    let cached = cache.as_ref().unwrap();
-
     let mut lines: Vec<Line> = Vec::new();
     let mut nav_cursor_line: Option<usize> = None;
     let mut nav_cursor_end: Option<usize> = None;
     let mut hover_height_start: Option<u16> = None;
     let mut hover_height_end: Option<u16> = None;
-    let mut cumulative_height: u16 = 0;
 
     if let Some(scenario) = app
         .session
@@ -730,6 +729,10 @@ pub fn render_chat(
     }
 
     let banner_height = measure_wrapped_height(&lines, area);
+    cache.as_mut().unwrap().banner_height = banner_height;
+    let cached = cache.as_ref().unwrap();
+    let mut cumulative_height: u16 = banner_height;
+
     let static_height = cached
         .entries
         .iter()

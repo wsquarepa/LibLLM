@@ -49,7 +49,10 @@ pub fn hit_test_chat_message(
         return None;
     }
     let content_row = (screen_row - inner_top) as u32 + chat_scroll as u32;
-    let mut cumulative: u32 = 0;
+    let mut cumulative: u32 = cache.banner_height as u32;
+    if content_row < cumulative {
+        return None;
+    }
     for (i, entry) in cache.entries.iter().enumerate() {
         cumulative += entry.total_height as u32;
         if content_row < cumulative {

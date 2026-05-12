@@ -491,8 +491,9 @@ pub fn renormalize_action_values(characters: &mut [CharacterAttachment]) {
 mod tests {
     use super::*;
 
-    use rand::SeedableRng;
+    use crate::session::Session;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     fn card(
         name: &str,
@@ -850,7 +851,6 @@ mod tests {
 
     #[test]
     fn session_scenario_serde_round_trip() {
-        use crate::session::Session;
         let s = Session {
             scenario: Some("a tavern at dusk".into()),
             ..Session::default()

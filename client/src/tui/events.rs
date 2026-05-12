@@ -119,6 +119,11 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
                 d.insert_into_active_editor(&text);
             }
         }
+        Focus::ScenarioEditorDialog => {
+            if let Some(ref mut d) = app.scenario_editor {
+                d.insert_into_active_editor(&text);
+            }
+        }
         _ => {}
     }
     None

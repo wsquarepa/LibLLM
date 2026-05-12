@@ -617,6 +617,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         return;
     }
     app.nav_cursor = None;
+    app.is_group_chat_creation_pending = false;
     let (is_new_chat, session_id) = {
         let entry = &app.sidebar_sessions[selected];
         (entry.is_new_chat, entry.id.clone())

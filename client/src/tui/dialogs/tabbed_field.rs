@@ -308,42 +308,42 @@ impl<'a> TabbedFieldDialog<'a> {
         }
     }
 
+    /// Commit any active multi-line editor's content back to the section values.
+    ///
+    /// Drops the editor (sets `self.editor = None`), updates the focused field's
+    /// value if the buffer differs, and sets `value_changed` accordingly. No-op
+    /// when there is no active editor.
+    fn commit_editor(&mut self) {
+        let Some(editor) = self.editor.take() else { return; };
+        let content = editor.lines().join("\n");
+        let tab = self.current_tab;
+        let idx = self.sections[tab].selected;
+        if self.sections[tab].values[idx] != content {
+            self.sections[tab].values[idx] = content;
+            self.value_changed = true;
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> TabbedFieldAction {
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
         {
-            if let Some(editor) = self.editor.take() {
-                let content = editor.lines().join("\n");
-                let tab = self.current_tab;
-                let idx = self.sections[tab].selected;
-                if self.sections[tab].values[idx] != content {
-                    self.sections[tab].values[idx] = content;
-                    self.value_changed = true;
-                }
-            }
+            self.commit_editor();
             self.editing = false;
             return TabbedFieldAction::SaveAndClose;
         }
 
-        if let Some(ref mut editor) = self.editor {
-            match key.code {
-                KeyCode::Esc => {
-                    let content = editor.lines().join("\n");
-                    let tab = self.current_tab;
-                    let idx = self.sections[tab].selected;
-                    if self.sections[tab].values[idx] != content {
-                        self.sections[tab].values[idx] = content;
-                        self.value_changed = true;
-                    }
-                    self.editor = None;
-                }
-                _ => {
-                    let (consumed, warning) =
-                        crate::tui::clipboard::handle_clipboard_key(&key, editor);
-                    self.clipboard_warning = warning;
-                    if !consumed {
-                        crate::tui::dialog_handler::input_with_eof_jump(editor, key);
-                    }
+        if self.editor.is_some() {
+            if key.code == KeyCode::Esc {
+                self.commit_editor();
+                return TabbedFieldAction::Continue;
+            }
+            if let Some(ref mut editor) = self.editor {
+                let (consumed, warning) =
+                    crate::tui::clipboard::handle_clipboard_key(&key, editor);
+                self.clipboard_warning = warning;
+                if !consumed {
+                    crate::tui::dialog_handler::input_with_eof_jump(editor, key);
                 }
             }
             return TabbedFieldAction::Continue;
@@ -1104,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_s_in_single_line_edit_mode_commits_then_save_and_close() {
+    fn ctrl_s_in_single_line_edit_mode_exits_editing_and_returns_save_and_close() {
         let mut d = TabbedFieldDialog::new(
             "test",
             vec![TabSection::new("S", &["a"], vec!["v".into()])],
@@ -1116,6 +1116,30 @@ mod tests {
         ));
         assert!(matches!(action, TabbedFieldAction::SaveAndClose));
         assert!(!d.is_editing());
+    }
+
+    #[test]
+    fn ctrl_s_in_multiline_editor_commits_buffer_and_returns_save_and_close() {
+        let mut d = TabbedFieldDialog::new(
+            "test",
+            vec![
+                TabSection::new("S", &["a"], vec![String::new()])
+                    .with_multiline_fields(&[0]),
+            ],
+        );
+        d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        d.insert_into_active_editor("edited");
+        let action = d.handle_key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        ));
+        assert!(matches!(action, TabbedFieldAction::SaveAndClose));
+        assert!(!d.is_editing(), "multi-line editor must be closed after Ctrl+S");
+        assert_eq!(
+            d.sections()[0].values[0],
+            "edited",
+            "Ctrl+S must commit the in-flight TextArea buffer back to the value"
+        );
     }
 
     #[test]

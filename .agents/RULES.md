@@ -147,3 +147,35 @@ Migrations run exactly once per process: `Database::open` (in `libllm/src/db/mod
 - Schema-version compatibility is gated on `libllm::db::CURRENT_VERSION` (re-exported from `db::migrations`). If you add a new migration, both the import gate and the migration runner read the same constant — see the "Database migrations" section above.
 - Standard exit codes shared across the group: `1` generic, `2` user declined, `3` schema-version mismatch, `4` WAL-liveness failure (constants in `cli/db/mod.rs::exit`).
 - The shell uses `rustyline` with a `DotCommandOutcome::{Continue, Quit}` enum (NOT `std::process::exit`) so `save_history` runs on clean exit. A statement whose first input line begins with whitespace is excluded from both on-disk and in-memory history (bash `HISTCONTROL=ignorespace`).
+
+## TUI dialog keybindings
+
+Every dialog handler under `client/src/tui/dialogs/` MUST follow this contract.
+Diverging is a review-blocking issue; if a dialog genuinely cannot conform, document
+the exception in this section.
+
+| Key             | Action                                                          |
+|-----------------|-----------------------------------------------------------------|
+| `Up` / `Down`   | Move field focus. Never alias to anything else.                 |
+| `Left` / `Right`| Adjust the focused field value (toggle, slider, radio cycle).   |
+| `Tab` / `BackTab` | Switch dialog tabs only (when the dialog has tabs). Never alias Down, never alias Enter. |
+| `Enter`         | Activate the focused field (open editor / picker / commit row). |
+| `Space`         | Toggle a boolean field, or pick a row in multi-select lists.    |
+| `Ctrl+S`        | Save the dialog. Equivalent to focusing and pressing `[Save]`.  |
+| `Esc`           | Close the dialog. If the dialog is dirty, push `UnsavedWarning` instead of closing directly. |
+
+### Exceptions (documented intentional divergences)
+
+- `file_picker.rs`: `Tab` descends into the selected folder or accepts the file
+  (matches shell tab-complete UX). `Up/Down/Esc` still follow the contract.
+- `paged_list.rs` (inside an active search): `Tab` commits the filter (equivalent
+  to `Enter`). Outside search mode the contract applies.
+- `set_passkey.rs`: `Tab` toggles between the two password fields (no other
+  navigation possible in a 2-field dialog).
+
+### Dirty-check / unsaved-changes warning
+
+Editor dialogs that mutate persistent data MUST track a dirty bit and route Esc
+through `client/src/tui/dialogs/unsaved_warning.rs` when dirty. The warning
+offers `[Save & Close] [Discard] [Cancel]` and is the only place where an
+ambiguous "Esc on a modified dialog" decision is made.

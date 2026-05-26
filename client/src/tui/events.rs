@@ -232,6 +232,13 @@ pub(super) async fn process_action(
                 (Focus::EditDialog, UnsavedButton::Discard) => {
                     dialogs::edit::discard_edit_dialog(app);
                 }
+                (Focus::RegexEditorDialog, UnsavedButton::SaveAndClose) => {
+                    dialogs::regex::commit_editor_and_close(app);
+                }
+                (Focus::RegexEditorDialog, UnsavedButton::Discard) => {
+                    app.regex_editor = None;
+                    app.focus = Focus::RegexDialog;
+                }
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
                 }

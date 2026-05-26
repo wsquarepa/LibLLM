@@ -978,6 +978,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
                     Focus::EditDialog => {
                         dialogs::edit::render_edit_dialog(f, app, f.area());
                     }
+                    Focus::RegexEditorDialog => {
+                        dialogs::regex::render_regex_editor_dialog(f, app, f.area());
+                    }
                     _ => {}
                 }
                 if let Some(state) = app.unsaved_warning.as_ref() {

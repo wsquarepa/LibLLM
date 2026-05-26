@@ -42,7 +42,7 @@ fn default_enabled() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegexRule {
     pub name: String,
     pub pattern: String,

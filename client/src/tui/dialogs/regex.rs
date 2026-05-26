@@ -33,6 +33,7 @@ const TARGET_LABELS: [&str; 4] = ["user", "asst", "sys", "sum"];
 
 pub struct RegexEditorState {
     pub original_index: Option<usize>,
+    pub original_draft: RegexRule,
     pub draft: RegexRule,
     pub sample_input: String,
     pub field: EditorField,
@@ -40,6 +41,12 @@ pub struct RegexEditorState {
     pub target_cursor: usize,
     pub editing: bool,
     pub error: Option<String>,
+}
+
+impl RegexEditorState {
+    pub fn is_dirty(&self) -> bool {
+        self.draft != self.original_draft
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -182,11 +189,11 @@ pub(in crate::tui) fn render_regex_editor_dialog(f: &mut ratatui::Frame, app: &A
         vec![Line::from("Type to edit  Enter/Esc: stop editing")]
     } else if matches!(ed.field, EditorField::ScopeToggles | EditorField::TargetToggles) {
         vec![Line::from(
-            "Left/Right: option  Space/Enter: toggle  Up/Down: field  Ctrl+S/Esc: save & close",
+            "Left/Right: option  Space/Enter: toggle  Up/Down: field  Ctrl+S: save & close  Esc: close",
         )]
     } else {
         vec![Line::from(
-            "Up/Down: field  Enter: edit/toggle  Space: toggle  Esc: save & close",
+            "Up/Down: field  Enter: edit/toggle  Space: toggle  Ctrl+S: save & close  Esc: close",
         )]
     };
     render_hints_below_dialog(f, dialog, area, &hints);
@@ -456,8 +463,7 @@ pub(in crate::tui) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> O
         if let Some(ed) = app.regex_editor.as_mut() {
             ed.editing = false;
         }
-        commit_editor(app);
-        app.focus = Focus::RegexDialog;
+        commit_editor_and_close(app);
         return None;
     }
 
@@ -482,8 +488,22 @@ pub(in crate::tui) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> O
 
     match key.code {
         KeyCode::Esc => {
-            commit_editor(app);
-            app.focus = Focus::RegexDialog;
+            let dirty = app
+                .regex_editor
+                .as_ref()
+                .map(RegexEditorState::is_dirty)
+                .unwrap_or(false);
+            if dirty {
+                app.unsaved_warning = Some(
+                    crate::tui::dialogs::unsaved_warning::UnsavedWarningState::new(
+                        Focus::RegexEditorDialog,
+                    ),
+                );
+                app.focus = Focus::UnsavedWarningDialog;
+            } else {
+                app.regex_editor = None;
+                app.focus = Focus::RegexDialog;
+            }
         }
         KeyCode::Up => {
             if let Some(ed) = app.regex_editor.as_mut() {
@@ -606,6 +626,11 @@ fn validate_pattern(rule: &mut RegexRule) -> Option<String> {
     None
 }
 
+pub(in crate::tui) fn commit_editor_and_close(app: &mut App) {
+    commit_editor(app);
+    app.focus = Focus::RegexDialog;
+}
+
 fn commit_editor(app: &mut App) {
     let Some(mut ed) = app.regex_editor.take() else {
         return;
@@ -627,6 +652,7 @@ fn open_editor_for_existing(app: &mut App, index: usize) {
     let draft = app.config.regex[index].clone();
     app.regex_editor = Some(RegexEditorState {
         original_index: Some(index),
+        original_draft: draft.clone(),
         draft,
         sample_input: String::new(),
         field: EditorField::Name,
@@ -639,17 +665,19 @@ fn open_editor_for_existing(app: &mut App, index: usize) {
 }
 
 fn open_editor_for_new(app: &mut App) {
+    let draft = RegexRule {
+        name: String::new(),
+        pattern: String::new(),
+        replacement: String::new(),
+        scope: vec![Scope::Display],
+        target: vec![Target::Assistant],
+        enabled: true,
+        compile_error: None,
+    };
     app.regex_editor = Some(RegexEditorState {
         original_index: None,
-        draft: RegexRule {
-            name: String::new(),
-            pattern: String::new(),
-            replacement: String::new(),
-            scope: vec![Scope::Display],
-            target: vec![Target::Assistant],
-            enabled: true,
-            compile_error: None,
-        },
+        original_draft: draft.clone(),
+        draft,
         sample_input: String::new(),
         field: EditorField::Name,
         scope_cursor: 0,
@@ -743,17 +771,19 @@ mod tests {
 
     #[test]
     fn toggle_scope_at_cursor_only_toggles_pointed_item() {
+        let draft = RegexRule {
+            name: "x".to_owned(),
+            pattern: "x".to_owned(),
+            replacement: "y".to_owned(),
+            scope: Vec::new(),
+            target: vec![Target::Assistant],
+            enabled: true,
+            compile_error: None,
+        };
         let mut state = RegexEditorState {
             original_index: None,
-            draft: RegexRule {
-                name: "x".to_owned(),
-                pattern: "x".to_owned(),
-                replacement: "y".to_owned(),
-                scope: Vec::new(),
-                target: vec![Target::Assistant],
-                enabled: true,
-                compile_error: None,
-            },
+            original_draft: draft.clone(),
+            draft,
             sample_input: String::new(),
             field: EditorField::ScopeToggles,
             scope_cursor: 2,
@@ -769,17 +799,19 @@ mod tests {
 
     #[test]
     fn toggle_target_at_cursor_only_toggles_pointed_item() {
+        let draft = RegexRule {
+            name: "x".to_owned(),
+            pattern: "x".to_owned(),
+            replacement: "y".to_owned(),
+            scope: vec![Scope::Display],
+            target: Vec::new(),
+            enabled: true,
+            compile_error: None,
+        };
         let mut state = RegexEditorState {
             original_index: None,
-            draft: RegexRule {
-                name: "x".to_owned(),
-                pattern: "x".to_owned(),
-                replacement: "y".to_owned(),
-                scope: vec![Scope::Display],
-                target: Vec::new(),
-                enabled: true,
-                compile_error: None,
-            },
+            original_draft: draft.clone(),
+            draft,
             sample_input: String::new(),
             field: EditorField::TargetToggles,
             scope_cursor: 0,
@@ -789,5 +821,56 @@ mod tests {
         };
         toggle_target_at_cursor(&mut state);
         assert_eq!(state.draft.target, vec![Target::Assistant]);
+    }
+
+    #[test]
+    fn fresh_editor_is_clean() {
+        let draft = RegexRule {
+            name: String::new(),
+            pattern: String::new(),
+            replacement: String::new(),
+            scope: vec![Scope::Display],
+            target: vec![Target::Assistant],
+            enabled: true,
+            compile_error: None,
+        };
+        let state = RegexEditorState {
+            original_index: None,
+            original_draft: draft.clone(),
+            draft,
+            sample_input: String::new(),
+            field: EditorField::Name,
+            scope_cursor: 0,
+            target_cursor: 0,
+            editing: false,
+            error: None,
+        };
+        assert!(!state.is_dirty());
+    }
+
+    #[test]
+    fn modified_draft_is_dirty() {
+        let original = RegexRule {
+            name: "a".into(),
+            pattern: String::new(),
+            replacement: String::new(),
+            scope: vec![Scope::Display],
+            target: vec![Target::Assistant],
+            enabled: true,
+            compile_error: None,
+        };
+        let mut state = RegexEditorState {
+            original_index: Some(0),
+            original_draft: original.clone(),
+            draft: original,
+            sample_input: String::new(),
+            field: EditorField::Name,
+            scope_cursor: 0,
+            target_cursor: 0,
+            editing: false,
+            error: None,
+        };
+        state.draft.name = "b".into();
+        assert!(state.is_dirty());
     }
 }

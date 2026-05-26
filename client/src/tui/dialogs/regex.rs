@@ -42,7 +42,7 @@ pub struct RegexEditorState {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditorField {
     Name,
     Pattern,
@@ -182,7 +182,7 @@ pub(in crate::tui) fn render_regex_editor_dialog(f: &mut ratatui::Frame, app: &A
         vec![Line::from("Type to edit  Enter/Esc: stop editing")]
     } else if matches!(ed.field, EditorField::ScopeToggles | EditorField::TargetToggles) {
         vec![Line::from(
-            "Left/Right: option  Space/Enter: toggle  Up/Down/Tab: field  Esc: save & close",
+            "Left/Right: option  Space/Enter: toggle  Up/Down: field  Esc: save & close",
         )]
     } else {
         vec![Line::from(
@@ -473,12 +473,12 @@ pub(in crate::tui) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> O
         }
         KeyCode::Up => {
             if let Some(ed) = app.regex_editor.as_mut() {
-                ed.field = ed.field.prev();
+                step_field_up(ed);
             }
         }
-        KeyCode::Down | KeyCode::Tab => {
+        KeyCode::Down => {
             if let Some(ed) = app.regex_editor.as_mut() {
-                ed.field = ed.field.next();
+                step_field_down(ed);
             }
         }
         KeyCode::Left => {
@@ -579,6 +579,14 @@ fn toggle_target_at_cursor(ed: &mut RegexEditorState) {
     } else {
         ed.draft.target.push(target);
     }
+}
+
+fn step_field_up(ed: &mut RegexEditorState) {
+    ed.field = ed.field.prev();
+}
+
+fn step_field_down(ed: &mut RegexEditorState) {
+    ed.field = ed.field.next();
 }
 
 fn validate_pattern(rule: &mut RegexRule) -> Option<String> {
@@ -732,6 +740,45 @@ mod tests {
         assert_eq!(state.draft.scope, vec![Scope::PromptRecv]);
         toggle_scope_at_cursor(&mut state);
         assert!(state.draft.scope.is_empty());
+    }
+
+    fn editor_state_at(field: EditorField) -> RegexEditorState {
+        RegexEditorState {
+            original_index: None,
+            draft: RegexRule {
+                name: "x".to_owned(),
+                pattern: "x".to_owned(),
+                replacement: "y".to_owned(),
+                scope: vec![Scope::Display],
+                target: vec![Target::Assistant],
+                enabled: true,
+                compile_error: None,
+            },
+            sample_input: String::new(),
+            field,
+            scope_cursor: 0,
+            target_cursor: 0,
+            editing: false,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn step_field_down_advances_and_wraps() {
+        let mut ed = editor_state_at(EditorField::Name);
+        step_field_down(&mut ed);
+        assert_eq!(ed.field, EditorField::Pattern);
+        step_field_down(&mut ed);
+        assert_eq!(ed.field, EditorField::Replacement);
+    }
+
+    #[test]
+    fn step_field_up_retreats_and_wraps() {
+        let mut ed = editor_state_at(EditorField::Pattern);
+        step_field_up(&mut ed);
+        assert_eq!(ed.field, EditorField::Name);
+        step_field_up(&mut ed);
+        assert_eq!(ed.field, EditorField::SampleInput, "Up from Name wraps to SampleInput");
     }
 
     #[test]

@@ -32,14 +32,20 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &mut App, 
         f,
         dialog,
         area,
-        &[Line::from("Alt+Enter: save edit  Esc: cancel")],
+        &[Line::from("Alt+Enter or Ctrl+S: save edit  Esc: cancel")],
     );
+}
+
+pub(super) fn is_commit_key(key: &KeyEvent) -> bool {
+    (key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::ALT))
+        || (key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')))
 }
 
 pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let editor = app.edit_editor.as_mut()?;
 
-    let is_confirm = key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::ALT);
+    let is_confirm = is_commit_key(&key);
 
     if key.code == KeyCode::Esc {
         let current_content = editor.lines().join("\n");
@@ -165,4 +171,41 @@ pub(in crate::tui) fn handle_edit_confirm_key(key: KeyEvent, app: &mut App) -> O
         _ => {}
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn alt_enter_is_commit() {
+        assert!(is_commit_key(&key(KeyCode::Enter, KeyModifiers::ALT)));
+    }
+
+    #[test]
+    fn ctrl_s_is_commit() {
+        assert!(is_commit_key(&key(KeyCode::Char('s'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn ctrl_shift_s_is_commit() {
+        assert!(is_commit_key(&key(
+            KeyCode::Char('S'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )));
+    }
+
+    #[test]
+    fn plain_enter_is_not_commit() {
+        assert!(!is_commit_key(&key(KeyCode::Enter, KeyModifiers::NONE)));
+    }
+
+    #[test]
+    fn plain_s_is_not_commit() {
+        assert!(!is_commit_key(&key(KeyCode::Char('s'), KeyModifiers::NONE)));
+    }
 }

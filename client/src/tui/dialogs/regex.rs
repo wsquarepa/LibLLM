@@ -182,7 +182,7 @@ pub(in crate::tui) fn render_regex_editor_dialog(f: &mut ratatui::Frame, app: &A
         vec![Line::from("Type to edit  Enter/Esc: stop editing")]
     } else if matches!(ed.field, EditorField::ScopeToggles | EditorField::TargetToggles) {
         vec![Line::from(
-            "Left/Right: option  Space/Enter: toggle  Up/Down: field  Esc: save & close",
+            "Left/Right: option  Space/Enter: toggle  Up/Down: field  Ctrl+S/Esc: save & close",
         )]
     } else {
         vec![Line::from(
@@ -387,6 +387,11 @@ fn format_rule_summary(rule: &RegexRule) -> String {
     )
 }
 
+fn is_save_shortcut(key: &KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
+}
+
 pub(in crate::tui) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let len = app.config.regex.len();
     match key.code {
@@ -447,6 +452,15 @@ pub(in crate::tui) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> O
 }
 
 pub(in crate::tui) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if is_save_shortcut(&key) {
+        if let Some(ed) = app.regex_editor.as_mut() {
+            ed.editing = false;
+        }
+        commit_editor(app);
+        app.focus = Focus::RegexDialog;
+        return None;
+    }
+
     let Some(ed) = app.regex_editor.as_mut() else {
         app.focus = Focus::RegexDialog;
         return None;
@@ -673,6 +687,25 @@ pub(in crate::tui) fn save_and_recompile(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn ctrl_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn ctrl_shift_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&key(KeyCode::Char('S'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn plain_s_is_not_save_shortcut() {
+        assert!(!is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::NONE)));
+    }
 
     #[test]
     fn validate_pattern_marks_invalid_rule_disabled() {

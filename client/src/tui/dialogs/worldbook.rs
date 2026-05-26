@@ -10,6 +10,11 @@ use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::dialog_handler::return_to_input;
 use crate::tui::{Action, App, DeleteContext, Focus};
 
+fn is_save_shortcut(key: &KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
+}
+
 enum WorldbookState {
     Off,
     Session,
@@ -314,13 +319,20 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Esc: save & close"),
+            Line::from("Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Ctrl+S/Esc: save & close"),
         ]
     };
     render_hints_below_dialog(f, dialog, area, &hints);
 }
 
 pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if is_save_shortcut(&key) {
+        app.worldbook_editor_name_editing = false;
+        app.dialog_search.deactivate_and_clear();
+        save_worldbook_editor(app);
+        app.focus = Focus::WorldbookDialog;
+        return None;
+    }
     let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
     if app.dialog_search.active || is_ctrl_f {
         let labels: Vec<String> = app
@@ -771,4 +783,29 @@ pub(in crate::tui) fn handle_worldbook_paste(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn ctrl_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn ctrl_shift_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&key(KeyCode::Char('S'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn plain_s_is_not_save_shortcut() {
+        assert!(!is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::NONE)));
+    }
 }

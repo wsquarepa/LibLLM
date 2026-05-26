@@ -1,6 +1,6 @@
 //! Authentication sub-dialog: type + per-variant field editor for `/config`.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -323,15 +323,25 @@ pub(in crate::tui) fn render_auth_dialog(f: &mut ratatui::Frame, app: &App, area
         dialog,
         area,
         &[Line::from(
-            "Up/Down: navigate  Enter: edit/select  Esc: close",
+            "Up/Down: navigate  Enter: edit/select  Ctrl+S: save  Esc: close",
         )],
     );
+}
+
+fn is_save_shortcut(key: &KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
 }
 
 pub(in crate::tui) fn handle_auth_dialog_key(key: KeyEvent, app: &mut App) -> AuthDialogAction {
     let Some(state) = app.auth_dialog.as_mut() else {
         return AuthDialogAction::Close;
     };
+
+    if is_save_shortcut(&key) {
+        state.editing = false;
+        return AuthDialogAction::Close;
+    }
 
     if state.editing {
         return handle_editing_key(state, key);
@@ -543,4 +553,47 @@ pub(in crate::tui) fn handle_type_picker_key(
         _ => {}
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::is_save_shortcut;
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[test]
+    fn ctrl_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn ctrl_shift_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&key(
+            KeyCode::Char('S'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn plain_s_is_not_save_shortcut() {
+        assert!(!is_save_shortcut(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::NONE
+        )));
+    }
+
+    #[test]
+    fn ctrl_other_char_is_not_save_shortcut() {
+        assert!(!is_save_shortcut(&key(
+            KeyCode::Char('a'),
+            KeyModifiers::CONTROL
+        )));
+    }
 }

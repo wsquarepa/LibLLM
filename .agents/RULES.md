@@ -150,15 +150,13 @@ Migrations run exactly once per process: `Database::open` (in `libllm/src/db/mod
 
 ## TUI dialog keybindings
 
-Every dialog handler under `client/src/tui/dialogs/` MUST follow this contract.
-Diverging is a review-blocking issue; if a dialog genuinely cannot conform, document
-the exception in this section.
+Every dialog handler under `client/src/tui/dialogs/` MUST follow this contract. Diverging is a review-blocking issue; if a dialog cannot conform, document the exception in this section.
 
 | Key             | Action                                                          |
 |-----------------|-----------------------------------------------------------------|
 | `Up` / `Down`   | Move field focus. Never alias to anything else.                 |
 | `Left` / `Right`| Adjust the focused field value (toggle, slider, radio cycle).   |
-| `Tab` / `BackTab` | Switch dialog tabs only (when the dialog has tabs). Never alias Down, never alias Enter. |
+| `Tab` / `BackTab`  | Switch dialog tabs (when present). Never alias Down or Enter.   |
 | `Enter`         | Activate the focused field (open editor / picker / commit row). |
 | `Space`         | Toggle a boolean field, or pick a row in multi-select lists.    |
 | `Ctrl+S`        | Save the dialog. Equivalent to focusing and pressing `[Save]`.  |

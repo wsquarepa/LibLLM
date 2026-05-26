@@ -37,7 +37,6 @@ pub(in crate::tui) struct UnsavedWarningState {
 }
 
 impl UnsavedWarningState {
-    #[expect(dead_code, reason = "API surface for per-editor callers not yet committed")]
     pub(in crate::tui) fn new(return_focus: Focus) -> Self {
         Self {
             focused: UnsavedButton::SaveAndClose,

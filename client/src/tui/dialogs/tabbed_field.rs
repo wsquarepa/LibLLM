@@ -129,6 +129,7 @@ pub enum TabbedFieldAction {
     Continue,
     Close,
     SaveAndClose,
+    RequestUnsavedWarning,
     OpenSelector { section: usize, field: usize },
     InvokeAction { section: usize, field: usize },
 }
@@ -469,6 +470,9 @@ impl<'a> TabbedFieldDialog<'a> {
                 }
             }
             KeyCode::Esc => {
+                if self.has_changes() {
+                    return TabbedFieldAction::RequestUnsavedWarning;
+                }
                 return TabbedFieldAction::Close;
             }
             _ => {}
@@ -537,13 +541,13 @@ impl<'a> TabbedFieldDialog<'a> {
         let tab = self.current_tab;
         let idx = self.sections[tab].selected;
         if self.is_boolean(tab, idx) {
-            "Tab/Shift-Tab: section  ↑/↓: field  Enter: toggle  Esc: save & close"
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: toggle  Ctrl+S: save  Esc: close"
         } else if self.is_selector(tab, idx) {
-            "Tab/Shift-Tab: section  ↑/↓: field  Enter: select  Esc: save & close"
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: select  Ctrl+S: save  Esc: close"
         } else if self.is_action(tab, idx) {
-            "Tab/Shift-Tab: section  ↑/↓: field  Enter: invoke  Esc: save & close"
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: invoke  Ctrl+S: save  Esc: close"
         } else {
-            "Tab/Shift-Tab: section  ↑/↓: field  Enter: edit  Esc: save & close"
+            "Tab/Shift-Tab: section  ↑/↓: field  Enter: edit  Ctrl+S: save  Esc: close"
         }
     }
 
@@ -1021,6 +1025,28 @@ mod tests {
         let mut d = TabbedFieldDialog::new(" test ", sections);
         let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(action, TabbedFieldAction::Close));
+    }
+
+    #[test]
+    fn esc_when_clean_returns_close() {
+        let mut d = TabbedFieldDialog::new(
+            "test",
+            vec![TabSection::new("S", &["a"], vec!["v".into()])],
+        );
+        let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(matches!(action, TabbedFieldAction::Close));
+    }
+
+    #[test]
+    fn esc_when_dirty_returns_request_unsaved_warning() {
+        let mut d = TabbedFieldDialog::new(
+            "test",
+            vec![TabSection::new("S", &["a"], vec!["v".into()])],
+        );
+        d.set_value(0, 0, "changed".into());
+        assert!(d.has_changes());
+        let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(matches!(action, TabbedFieldAction::RequestUnsavedWarning));
     }
 
     #[test]

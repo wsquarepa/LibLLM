@@ -213,30 +213,15 @@ pub(super) fn handle_field_dialog_key(
         match action {
             dialogs::TabbedFieldAction::Continue => {}
             dialogs::TabbedFieldAction::Close | dialogs::TabbedFieldAction::SaveAndClose => {
-                let (has_changes, sections) = {
-                    let dialog = app.config_dialog.as_ref().unwrap();
-                    let has_changes = dialog.has_changes();
-                    let sections: Vec<Vec<String>> =
-                        dialog.sections().iter().map(|s| s.values.clone()).collect();
-                    (has_changes, sections)
-                };
-                if !has_changes {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                } else {
-                    let existing = libllm::config::load();
-                    if let Err(e) = business::apply_tabbed_config_fields(
-                        &sections,
-                        existing,
-                        &app.cli_overrides,
-                    ) {
-                        app.set_status(format!("Failed to save config: {e}"), StatusLevel::Error);
-                    } else {
-                        business::apply_config(app);
-                        app.set_status("Config saved.".to_owned(), StatusLevel::Info);
-                    }
-                }
-                app.config_dialog = None;
-                return_to_input(app);
+                commit_config_dialog(app);
+            }
+            dialogs::TabbedFieldAction::RequestUnsavedWarning => {
+                app.unsaved_warning = Some(
+                    crate::tui::dialogs::unsaved_warning::UnsavedWarningState::new(
+                        Focus::ConfigDialog,
+                    ),
+                );
+                app.focus = Focus::UnsavedWarningDialog;
             }
             dialogs::TabbedFieldAction::OpenSelector {
                 section: 0,
@@ -287,24 +272,15 @@ pub(super) fn handle_field_dialog_key(
         match action {
             dialogs::TabbedFieldAction::Continue => {}
             dialogs::TabbedFieldAction::Close | dialogs::TabbedFieldAction::SaveAndClose => {
-                let sections: Vec<Vec<String>> = app
-                    .theme_dialog
-                    .as_ref()
-                    .unwrap()
-                    .sections()
-                    .iter()
-                    .map(|s| s.values.clone())
-                    .collect();
-                let existing = libllm::config::load();
-                if let Err(e) = business::apply_theme_color_sections(&sections, existing) {
-                    app.set_status(format!("Failed to save theme: {e}"), StatusLevel::Error);
-                } else {
-                    app.config = libllm::config::load();
-                    app.theme = crate::tui::theme::resolve_theme(&app.config);
-                    app.invalidate_chat_render_cache();
-                }
-                app.theme_dialog = None;
-                return_to_input(app);
+                commit_theme_dialog(app);
+            }
+            dialogs::TabbedFieldAction::RequestUnsavedWarning => {
+                app.unsaved_warning = Some(
+                    crate::tui::dialogs::unsaved_warning::UnsavedWarningState::new(
+                        Focus::ThemeDialog,
+                    ),
+                );
+                app.focus = Focus::UnsavedWarningDialog;
             }
             dialogs::TabbedFieldAction::OpenSelector {
                 section: 0,
@@ -725,6 +701,63 @@ pub(super) fn handle_field_dialog_key(
             }
         },
     }
+}
+
+pub(super) fn commit_config_dialog(app: &mut App) {
+    let (has_changes, sections) = {
+        let Some(dialog) = app.config_dialog.as_ref() else {
+            return;
+        };
+        let has_changes = dialog.has_changes();
+        let sections: Vec<Vec<String>> =
+            dialog.sections().iter().map(|s| s.values.clone()).collect();
+        (has_changes, sections)
+    };
+    if !has_changes {
+        app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+    } else {
+        let existing = libllm::config::load();
+        if let Err(e) =
+            business::apply_tabbed_config_fields(&sections, existing, &app.cli_overrides)
+        {
+            app.set_status(format!("Failed to save config: {e}"), StatusLevel::Error);
+        } else {
+            business::apply_config(app);
+            app.set_status("Config saved.".to_owned(), StatusLevel::Info);
+        }
+    }
+    app.config_dialog = None;
+    return_to_input(app);
+}
+
+pub(super) fn discard_config_dialog(app: &mut App) {
+    app.config_dialog = None;
+    return_to_input(app);
+}
+
+pub(super) fn commit_theme_dialog(app: &mut App) {
+    let sections: Vec<Vec<String>> = match app.theme_dialog.as_ref() {
+        Some(d) => d.sections().iter().map(|s| s.values.clone()).collect(),
+        None => return,
+    };
+    let existing = libllm::config::load();
+    if let Err(e) = business::apply_theme_color_sections(&sections, existing) {
+        app.set_status(format!("Failed to save theme: {e}"), StatusLevel::Error);
+    } else {
+        app.config = libllm::config::load();
+        app.theme = crate::tui::theme::resolve_theme(&app.config);
+        app.invalidate_chat_render_cache();
+    }
+    app.theme_dialog = None;
+    return_to_input(app);
+}
+
+pub(super) fn discard_theme_dialog(app: &mut App) {
+    app.config = libllm::config::load();
+    app.theme = crate::tui::theme::resolve_theme(&app.config);
+    app.invalidate_chat_render_cache();
+    app.theme_dialog = None;
+    return_to_input(app);
 }
 
 pub(in crate::tui) fn live_apply_theme_dialog(app: &mut App) {

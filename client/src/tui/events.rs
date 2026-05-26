@@ -214,6 +214,18 @@ pub(super) async fn process_action(
                 .take()
                 .unwrap_or(Focus::Input);
             match (return_focus, button) {
+                (Focus::ConfigDialog, UnsavedButton::SaveAndClose) => {
+                    crate::tui::dialog_handler::commit_config_dialog(app);
+                }
+                (Focus::ConfigDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_config_dialog(app);
+                }
+                (Focus::ThemeDialog, UnsavedButton::SaveAndClose) => {
+                    crate::tui::dialog_handler::commit_theme_dialog(app);
+                }
+                (Focus::ThemeDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_theme_dialog(app);
+                }
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
                 }

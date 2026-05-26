@@ -969,6 +969,19 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::UnsavedWarningDialog => {
             if let Some(state) = app.unsaved_warning.as_ref() {
+                match state.return_focus {
+                    Focus::ConfigDialog => {
+                        if let Some(ref dialog) = app.config_dialog {
+                            dialog.render(f, f.area(), &app.theme);
+                        }
+                    }
+                    Focus::ThemeDialog => {
+                        if let Some(ref dialog) = app.theme_dialog {
+                            dialog.render(f, f.area(), &app.theme);
+                        }
+                    }
+                    _ => {}
+                }
                 dialogs::unsaved_warning::render(f, f.area(), state, &app.theme);
             }
         }

@@ -128,6 +128,7 @@ impl TabSection {
 pub enum TabbedFieldAction {
     Continue,
     Close,
+    SaveAndClose,
     OpenSelector { section: usize, field: usize },
     InvokeAction { section: usize, field: usize },
 }
@@ -308,6 +309,22 @@ impl<'a> TabbedFieldDialog<'a> {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> TabbedFieldAction {
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
+        {
+            if let Some(editor) = self.editor.take() {
+                let content = editor.lines().join("\n");
+                let tab = self.current_tab;
+                let idx = self.sections[tab].selected;
+                if self.sections[tab].values[idx] != content {
+                    self.sections[tab].values[idx] = content;
+                    self.value_changed = true;
+                }
+            }
+            self.editing = false;
+            return TabbedFieldAction::SaveAndClose;
+        }
+
         if let Some(ref mut editor) = self.editor {
             match key.code {
                 KeyCode::Esc => {
@@ -1071,5 +1088,46 @@ mod tests {
         let handled = d.handle_mouse_click(area, dialog_x + 5, fields_start_y + 1);
         assert!(handled);
         assert_eq!(d.sections[0].selected, 1);
+    }
+
+    #[test]
+    fn ctrl_s_in_nav_mode_returns_save_and_close() {
+        let mut d = TabbedFieldDialog::new(
+            "test",
+            vec![TabSection::new("S", &["a"], vec!["v".into()])],
+        );
+        let action = d.handle_key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        ));
+        assert!(matches!(action, TabbedFieldAction::SaveAndClose));
+    }
+
+    #[test]
+    fn ctrl_s_in_single_line_edit_mode_commits_then_save_and_close() {
+        let mut d = TabbedFieldDialog::new(
+            "test",
+            vec![TabSection::new("S", &["a"], vec!["v".into()])],
+        );
+        d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let action = d.handle_key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        ));
+        assert!(matches!(action, TabbedFieldAction::SaveAndClose));
+        assert!(!d.is_editing());
+    }
+
+    #[test]
+    fn ctrl_shift_s_also_returns_save_and_close() {
+        let mut d = TabbedFieldDialog::new(
+            "test",
+            vec![TabSection::new("S", &["a"], vec!["v".into()])],
+        );
+        let action = d.handle_key(KeyEvent::new(
+            KeyCode::Char('S'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ));
+        assert!(matches!(action, TabbedFieldAction::SaveAndClose));
     }
 }

@@ -212,7 +212,7 @@ pub(super) fn handle_field_dialog_key(
         }
         match action {
             dialogs::TabbedFieldAction::Continue => {}
-            dialogs::TabbedFieldAction::Close => {
+            dialogs::TabbedFieldAction::Close | dialogs::TabbedFieldAction::SaveAndClose => {
                 let (has_changes, sections) = {
                     let dialog = app.config_dialog.as_ref().unwrap();
                     let has_changes = dialog.has_changes();
@@ -286,7 +286,7 @@ pub(super) fn handle_field_dialog_key(
         }
         match action {
             dialogs::TabbedFieldAction::Continue => {}
-            dialogs::TabbedFieldAction::Close => {
+            dialogs::TabbedFieldAction::Close | dialogs::TabbedFieldAction::SaveAndClose => {
                 let sections: Vec<Vec<String>> = app
                     .theme_dialog
                     .as_ref()

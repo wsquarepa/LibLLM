@@ -319,7 +319,7 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Ctrl+S/Esc: save & close"),
+            Line::from("Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Ctrl+S: save  Esc: close"),
         ]
     };
     render_hints_below_dialog(f, dialog, area, &hints);
@@ -405,10 +405,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
                 app.worldbook_editor_name_selected = false;
                 add_new_entry(app);
             }
-            KeyCode::Esc => {
-                save_worldbook_editor(app);
-                app.focus = Focus::WorldbookDialog;
-            }
+            KeyCode::Esc => close_worldbook_editor(app),
             _ => {}
         }
         return None;
@@ -419,10 +416,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             KeyCode::Up => {
                 app.worldbook_editor_name_selected = true;
             }
-            KeyCode::Esc => {
-                save_worldbook_editor(app);
-                app.focus = Focus::WorldbookDialog;
-            }
+            KeyCode::Esc => close_worldbook_editor(app),
             KeyCode::Char('a') => {
                 add_new_entry(app);
             }
@@ -497,10 +491,7 @@ pub(in crate::tui) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) 
             app.delete_confirm_selected = 0;
             app.focus = Focus::WorldbookEntryDeleteDialog;
         }
-        KeyCode::Esc => {
-            save_worldbook_editor(app);
-            app.focus = Focus::WorldbookDialog;
-        }
+        KeyCode::Esc => close_worldbook_editor(app),
         _ => {}
     }
     None
@@ -630,6 +621,46 @@ pub(in crate::tui) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> O
         super::delete_confirm::ConfirmResult::Pending => {}
     }
     None
+}
+
+fn worldbook_editor_is_dirty_inner(
+    original_name: &str,
+    current_name: &str,
+    original_entries: &[libllm::worldinfo::Entry],
+    current_entries: &[libllm::worldinfo::Entry],
+) -> bool {
+    original_name != current_name || original_entries != current_entries
+}
+
+fn worldbook_editor_is_dirty(app: &App) -> bool {
+    worldbook_editor_is_dirty_inner(
+        &app.worldbook_editor_original_name,
+        &app.worldbook_editor_name,
+        &app.worldbook_editor_original_entries,
+        &app.worldbook_editor_entries,
+    )
+}
+
+fn close_worldbook_editor(app: &mut App) {
+    if worldbook_editor_is_dirty(app) {
+        app.worldbook_editor_name_editing = false;
+        app.dialog_search.deactivate_and_clear();
+        app.unsaved_warning = Some(
+            crate::tui::dialogs::unsaved_warning::UnsavedWarningState::new(
+                Focus::WorldbookEditorDialog,
+            ),
+        );
+        app.focus = Focus::UnsavedWarningDialog;
+    } else {
+        app.worldbook_editor_name_editing = false;
+        app.dialog_search.deactivate_and_clear();
+        app.focus = Focus::WorldbookDialog;
+    }
+}
+
+pub(in crate::tui) fn commit_editor_and_close(app: &mut App) {
+    save_worldbook_editor(app);
+    app.focus = Focus::WorldbookDialog;
 }
 
 fn save_worldbook_editor(app: &mut App) {
@@ -789,6 +820,53 @@ pub(in crate::tui) fn handle_worldbook_paste(
 mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn make_entry(keys: Vec<&str>) -> libllm::worldinfo::Entry {
+        libllm::worldinfo::Entry {
+            keys: keys.into_iter().map(String::from).collect(),
+            secondary_keys: Vec::new(),
+            selective: false,
+            content: String::new(),
+            constant: false,
+            enabled: true,
+            order: 10,
+            depth: 4,
+            case_sensitive: false,
+        }
+    }
+
+    #[test]
+    fn worldbook_editor_dirty_when_name_changes() {
+        assert!(worldbook_editor_is_dirty_inner(
+            "original",
+            "renamed",
+            &[],
+            &[],
+        ));
+    }
+
+    #[test]
+    fn worldbook_editor_clean_when_name_and_entries_match() {
+        let entry = make_entry(vec!["key"]);
+        assert!(!worldbook_editor_is_dirty_inner(
+            "same",
+            "same",
+            std::slice::from_ref(&entry),
+            std::slice::from_ref(&entry),
+        ));
+    }
+
+    #[test]
+    fn worldbook_editor_dirty_when_entries_differ() {
+        let entry_a = make_entry(vec!["key-a"]);
+        let entry_b = make_entry(vec!["key-b"]);
+        assert!(worldbook_editor_is_dirty_inner(
+            "same",
+            "same",
+            &[entry_a],
+            &[entry_b],
+        ));
+    }
 
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, modifiers)

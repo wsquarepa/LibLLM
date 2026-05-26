@@ -239,6 +239,12 @@ pub(super) async fn process_action(
                     app.regex_editor = None;
                     app.focus = Focus::RegexDialog;
                 }
+                (Focus::WorldbookEditorDialog, UnsavedButton::SaveAndClose) => {
+                    crate::tui::dialogs::worldbook::commit_editor_and_close(app);
+                }
+                (Focus::WorldbookEditorDialog, UnsavedButton::Discard) => {
+                    app.focus = Focus::WorldbookDialog;
+                }
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
                 }

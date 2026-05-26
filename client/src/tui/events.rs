@@ -243,13 +243,26 @@ pub(super) async fn process_action(
                     crate::tui::dialogs::worldbook::commit_editor_and_close(app);
                 }
                 (Focus::WorldbookEditorDialog, UnsavedButton::Discard) => {
+                    app.worldbook_editor_name_editing = false;
+                    app.dialog_search.deactivate_and_clear();
                     app.focus = Focus::WorldbookDialog;
                 }
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
                 }
-                _ => {
-                    app.focus = return_focus;
+                (focus, button) => {
+                    debug_assert!(
+                        false,
+                        "UnsavedWarningResolved fell through with focus={focus:?} button={button:?} \
+                         — missing resolver arm. SaveAndClose/Discard for this focus must be wired explicitly.",
+                    );
+                    tracing::error!(
+                        ?focus,
+                        ?button,
+                        "UnsavedWarningResolved fell through; SaveAndClose/Discard was not handled. \
+                         The dialog appears closed but no save/discard occurred. Add the missing arm.",
+                    );
+                    app.focus = focus;
                 }
             }
         }

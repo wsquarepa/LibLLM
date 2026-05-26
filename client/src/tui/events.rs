@@ -226,6 +226,12 @@ pub(super) async fn process_action(
                 (Focus::ThemeDialog, UnsavedButton::Discard) => {
                     crate::tui::dialog_handler::discard_theme_dialog(app);
                 }
+                (Focus::EditDialog, UnsavedButton::SaveAndClose) => {
+                    dialogs::edit::commit_edit_dialog(app);
+                }
+                (Focus::EditDialog, UnsavedButton::Discard) => {
+                    dialogs::edit::discard_edit_dialog(app);
+                }
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
                 }
@@ -245,7 +251,7 @@ fn file_ref_paths(raw: &str) -> Vec<String> {
         .collect()
 }
 
-fn handle_edit_message(
+pub(in crate::tui) fn handle_edit_message(
     app: &mut App<'_>,
     node_id: libllm::session::NodeId,
     content: String,
@@ -382,7 +388,6 @@ fn handle_key(
             Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
             Focus::ScenarioEditorDialog => app.scenario_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
-            Focus::EditConfirmDialog => app.edit_editor.is_some(),
             Focus::UnsavedWarningDialog => app.unsaved_warning.is_some(),
             Focus::FilePickerDialog => app.file_picker.is_some(),
             Focus::InjectionWarningDialog => app.injection_warning.is_some(),
@@ -491,9 +496,6 @@ fn handle_key(
     }
     if app.focus == Focus::EditDialog {
         return dialogs::edit::handle_edit_key(key, app);
-    }
-    if app.focus == Focus::EditConfirmDialog {
-        return dialogs::edit::handle_edit_confirm_key(key, app);
     }
     if app.focus == Focus::UnsavedWarningDialog {
         if let Some(state) = app.unsaved_warning.as_mut() {

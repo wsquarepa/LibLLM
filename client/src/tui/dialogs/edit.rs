@@ -2,9 +2,8 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::Paragraph;
+use ratatui::style::Color;
+use ratatui::text::Line;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::{Action, App, Focus};
@@ -54,8 +53,10 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
             app.raw_edit_node = None;
             app.focus = Focus::Chat;
         } else {
-            app.edit_confirm_selected = 0;
-            app.focus = Focus::EditConfirmDialog;
+            app.unsaved_warning = Some(
+                crate::tui::dialogs::unsaved_warning::UnsavedWarningState::new(Focus::EditDialog),
+            );
+            app.focus = Focus::UnsavedWarningDialog;
         }
         return None;
     }
@@ -86,91 +87,27 @@ pub(in crate::tui) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Ac
     None
 }
 
-pub(in crate::tui) fn render_edit_confirm_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, 6, area);
-
-    let save_style = if app.edit_confirm_selected == 0 {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
+pub(in crate::tui) fn commit_edit_dialog(app: &mut App) {
+    let Some(ref editor) = app.edit_editor else {
+        crate::tui::dialog_handler::return_to_input(app);
+        return;
     };
-
-    let discard_style = if app.edit_confirm_selected == 1 {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Red)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-
-    let lines = vec![
-        Line::from(""),
-        Line::from("  You have unsaved changes."),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("    "),
-            Span::styled(" Save & Exit ", save_style),
-            Span::raw("   "),
-            Span::styled(" Discard ", discard_style),
-        ]),
-        Line::from(""),
-    ];
-
-    let paragraph =
-        Paragraph::new(Text::from(lines)).block(dialog_block(" Unsaved Changes ", Color::Yellow));
-
-    f.render_widget(paragraph, dialog);
-
-    render_hints_below_dialog(
-        f,
-        dialog,
-        area,
-        &[Line::from(
-            "Left/Right: navigate  Enter: confirm  Esc: back",
-        )],
-    );
+    let content = editor.lines().join("\n").trim().to_owned();
+    let node_id = app.raw_edit_node.take();
+    app.edit_editor = None;
+    app.focus = Focus::Chat;
+    if content.is_empty() {
+        return;
+    }
+    if let Some(id) = node_id {
+        crate::tui::events::handle_edit_message(app, id, content);
+    }
 }
 
-pub(in crate::tui) fn handle_edit_confirm_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    match key.code {
-        KeyCode::Left | KeyCode::Right => {
-            app.edit_confirm_selected = 1 - app.edit_confirm_selected;
-        }
-        KeyCode::Enter => {
-            if app.edit_confirm_selected == 0 {
-                let Some(ref editor) = app.edit_editor else {
-                    app.focus = Focus::Chat;
-                    return None;
-                };
-                let content = editor.lines().join("\n").trim().to_owned();
-                let node_id = app.raw_edit_node.take();
-                app.edit_editor = None;
-                app.focus = Focus::Chat;
-
-                if content.is_empty() {
-                    return None;
-                }
-
-                return node_id.map(|id| Action::EditMessage {
-                    node_id: id,
-                    content,
-                });
-            } else {
-                app.edit_editor = None;
-                app.raw_edit_node = None;
-                app.focus = Focus::Chat;
-            }
-        }
-        KeyCode::Esc => {
-            app.focus = Focus::EditDialog;
-        }
-        _ => {}
-    }
-    None
+pub(in crate::tui) fn discard_edit_dialog(app: &mut App) {
+    app.edit_editor = None;
+    app.raw_edit_node = None;
+    app.focus = Focus::Chat;
 }
 
 #[cfg(test)]

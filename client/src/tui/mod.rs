@@ -272,7 +272,6 @@ pub async fn run(
         sidebar_age_refresh_at: std::time::Instant::now() + SIDEBAR_AGE_REFRESH_INTERVAL,
         raw_edit_node: None,
         edit_original_content: String::new(),
-        edit_confirm_selected: 0,
         nav_cursor: None,
         branch_dialog_items: Vec::new(),
         branch_dialog_selected: 0,
@@ -728,7 +727,6 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::SystemPromptDialog => Some("system_prompt"),
         Focus::SystemPromptEditorDialog => Some("system_prompt_editor"),
         Focus::EditDialog => Some("edit"),
-        Focus::EditConfirmDialog => Some("edit_confirm"),
         Focus::UnsavedWarningDialog => Some("unsaved_warning"),
         Focus::BranchDialog => Some("branch"),
         Focus::SearchDialog => Some("search"),
@@ -963,13 +961,10 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditDialog => {
             dialogs::edit::render_edit_dialog(f, app, f.area());
         }
-        Focus::EditConfirmDialog => {
-            dialogs::edit::render_edit_dialog(f, app, f.area());
-            dialogs::edit::render_edit_confirm_dialog(f, app, f.area());
-        }
         Focus::UnsavedWarningDialog => {
-            if let Some(state) = app.unsaved_warning.as_ref() {
-                match state.return_focus {
+            let return_focus = app.unsaved_warning.as_ref().map(|s| s.return_focus);
+            if let Some(ret) = return_focus {
+                match ret {
                     Focus::ConfigDialog => {
                         if let Some(ref dialog) = app.config_dialog {
                             dialog.render(f, f.area(), &app.theme);
@@ -980,9 +975,14 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
                             dialog.render(f, f.area(), &app.theme);
                         }
                     }
+                    Focus::EditDialog => {
+                        dialogs::edit::render_edit_dialog(f, app, f.area());
+                    }
                     _ => {}
                 }
-                dialogs::unsaved_warning::render(f, f.area(), state, &app.theme);
+                if let Some(state) = app.unsaved_warning.as_ref() {
+                    dialogs::unsaved_warning::render(f, f.area(), state, &app.theme);
+                }
             }
         }
         Focus::BranchDialog => {

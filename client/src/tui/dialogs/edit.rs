@@ -36,7 +36,7 @@ pub(in crate::tui) fn render_edit_dialog(f: &mut ratatui::Frame, app: &mut App, 
     );
 }
 
-pub(super) fn is_commit_key(key: &KeyEvent) -> bool {
+fn is_commit_key(key: &KeyEvent) -> bool {
     (key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::ALT))
         || (key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')))

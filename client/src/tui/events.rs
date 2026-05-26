@@ -207,6 +207,22 @@ pub(super) async fn process_action(
                 );
             }
         }
+        Action::UnsavedWarningResolved(button) => {
+            use crate::tui::dialogs::unsaved_warning::UnsavedButton;
+            let return_focus = app
+                .last_unsaved_warning_return_focus
+                .take()
+                .unwrap_or(Focus::Input);
+            match (return_focus, button) {
+                // Tasks 3.2-3.5 add specific (focus, Save & Close / Discard) arms here.
+                (focus, UnsavedButton::Cancel) => {
+                    app.focus = focus;
+                }
+                _ => {
+                    app.focus = return_focus;
+                }
+            }
+        }
     }
 }
 
@@ -356,6 +372,7 @@ fn handle_key(
             Focus::ScenarioEditorDialog => app.scenario_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::EditConfirmDialog => app.edit_editor.is_some(),
+            Focus::UnsavedWarningDialog => app.unsaved_warning.is_some(),
             Focus::FilePickerDialog => app.file_picker.is_some(),
             Focus::InjectionWarningDialog => app.injection_warning.is_some(),
             Focus::Input
@@ -466,6 +483,17 @@ fn handle_key(
     }
     if app.focus == Focus::EditConfirmDialog {
         return dialogs::edit::handle_edit_confirm_key(key, app);
+    }
+    if app.focus == Focus::UnsavedWarningDialog {
+        if let Some(state) = app.unsaved_warning.as_mut() {
+            let outcome = dialogs::unsaved_warning::handle_key(state, key);
+            if let dialogs::unsaved_warning::UnsavedOutcome::Chosen(button) = outcome {
+                app.last_unsaved_warning_return_focus = Some(state.return_focus);
+                app.unsaved_warning = None;
+                return Some(Action::UnsavedWarningResolved(button));
+            }
+        }
+        return None;
     }
     if app.focus == Focus::BranchDialog {
         return dialogs::branch::handle_branch_dialog_key(key, app);

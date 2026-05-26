@@ -233,6 +233,8 @@ pub async fn run(
         system_prompt_list: Vec::new(),
         system_prompt_selected: 0,
         edit_editor: None,
+        unsaved_warning: None,
+        last_unsaved_warning_return_focus: None,
         preset_picker_kind: dialogs::preset::PresetKind::Instruct,
         preset_picker_names: Vec::new(),
         preset_picker_selected: 0,
@@ -727,6 +729,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::SystemPromptEditorDialog => Some("system_prompt_editor"),
         Focus::EditDialog => Some("edit"),
         Focus::EditConfirmDialog => Some("edit_confirm"),
+        Focus::UnsavedWarningDialog => Some("unsaved_warning"),
         Focus::BranchDialog => Some("branch"),
         Focus::SearchDialog => Some("search"),
         Focus::RegexDialog => Some("regex"),
@@ -963,6 +966,11 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         Focus::EditConfirmDialog => {
             dialogs::edit::render_edit_dialog(f, app, f.area());
             dialogs::edit::render_edit_confirm_dialog(f, app, f.area());
+        }
+        Focus::UnsavedWarningDialog => {
+            if let Some(state) = app.unsaved_warning.as_ref() {
+                dialogs::unsaved_warning::render(f, f.area(), state, &app.theme);
+            }
         }
         Focus::BranchDialog => {
             dialogs::branch::render_branch_dialog(f, app, f.area());

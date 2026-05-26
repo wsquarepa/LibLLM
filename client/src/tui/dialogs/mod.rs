@@ -21,6 +21,7 @@ pub mod scenario;
 pub mod set_passkey;
 pub mod system_prompt;
 pub mod template_prompt;
+pub mod unsaved_warning;
 pub mod worldbook;
 
 mod builders;

@@ -46,6 +46,7 @@ pub(super) enum Focus {
     SearchDialog,
     DeleteConfirmDialog,
     EditConfirmDialog,
+    UnsavedWarningDialog,
     ApiErrorDialog,
     FilePickerDialog,
     InjectionWarningDialog,
@@ -69,6 +70,7 @@ pub(super) enum Action {
     JumpToSearchHit(libllm::search::SearchHit),
     Quit,
     OpenChatSettings,
+    UnsavedWarningResolved(crate::tui::dialogs::unsaved_warning::UnsavedButton),
 }
 
 pub(super) enum DeleteContext {
@@ -303,6 +305,8 @@ pub(super) struct App<'a> {
     pub(super) system_prompt_list: Vec<String>,
     pub(super) system_prompt_selected: usize,
     pub(super) edit_editor: Option<TextArea<'a>>,
+    pub(super) unsaved_warning: Option<dialogs::unsaved_warning::UnsavedWarningState>,
+    pub(super) last_unsaved_warning_return_focus: Option<Focus>,
 
     pub(super) preset_picker_kind: dialogs::preset::PresetKind,
     pub(super) preset_picker_names: Vec<String>,

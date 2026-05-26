@@ -13,6 +13,7 @@ use crate::tui::dialogs::chat_settings::ChatSettingsAction;
 use crate::tui::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
 use crate::tui::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
 use crate::tui::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
+use crate::tui::dialogs::unsaved_warning::{UnsavedButton, UnsavedOutcome};
 
 use super::dialog_handler::{
     DialogKind, cancel_generation, configure_textarea, handle_field_dialog_key,
@@ -208,13 +209,11 @@ pub(super) async fn process_action(
             }
         }
         Action::UnsavedWarningResolved(button) => {
-            use crate::tui::dialogs::unsaved_warning::UnsavedButton;
             let return_focus = app
                 .last_unsaved_warning_return_focus
                 .take()
                 .unwrap_or(Focus::Input);
             match (return_focus, button) {
-                // Tasks 3.2-3.5 add specific (focus, Save & Close / Discard) arms here.
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
                 }
@@ -487,7 +486,7 @@ fn handle_key(
     if app.focus == Focus::UnsavedWarningDialog {
         if let Some(state) = app.unsaved_warning.as_mut() {
             let outcome = dialogs::unsaved_warning::handle_key(state, key);
-            if let dialogs::unsaved_warning::UnsavedOutcome::Chosen(button) = outcome {
+            if let UnsavedOutcome::Chosen(button) = outcome {
                 app.last_unsaved_warning_return_focus = Some(state.return_focus);
                 app.unsaved_warning = None;
                 return Some(Action::UnsavedWarningResolved(button));

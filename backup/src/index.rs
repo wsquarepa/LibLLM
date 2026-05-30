@@ -17,8 +17,25 @@ mod base64_bytes {
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-        let raw = String::deserialize(d)?;
-        STANDARD.decode(&raw).map_err(D::Error::custom)
+        let value = serde_json::Value::deserialize(d)?;
+        match value {
+            serde_json::Value::String(s) => {
+                STANDARD.decode(&s).map_err(D::Error::custom)
+            }
+            serde_json::Value::Array(arr) => {
+                arr.iter()
+                    .map(|v| {
+                        v.as_u64()
+                            .and_then(|n| u8::try_from(n).ok())
+                            .ok_or_else(|| D::Error::custom("blob array element is not a valid byte"))
+                    })
+                    .collect()
+            }
+            other => Err(D::Error::custom(format!(
+                "blob must be a base64 string or byte array, got: {}",
+                other
+            ))),
+        }
     }
 }
 
@@ -655,6 +672,31 @@ mod wrapped_dek_tests {
         let w = WrappedDek { blob: vec![0xde, 0xad, 0xbe, 0xef] };
         let json = serde_json::to_string(&w).unwrap();
         assert!(json.contains("\"blob\":\"3q2+7w==\""), "unexpected encoding: {json}");
+    }
+
+    #[test]
+    fn deserializes_old_byte_array_format() {
+        // Older builds serialized WrappedDek.blob as a JSON byte array (serde's
+        // default Vec<u8> encoding). This test proves the backward-compatible
+        // deserializer accepts that legacy format.
+        let json = r#"{"blob":[222,173,190,239]}"#;
+        let result: Result<WrappedDek, _> = serde_json::from_str(json);
+        let w = result.expect("legacy byte-array format must deserialize without error");
+        assert_eq!(w.blob, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn deserializes_new_base64_format() {
+        let json = r#"{"blob":"3q2+7w=="}"#;
+        let w: WrappedDek = serde_json::from_str(json).expect("base64 format must deserialize");
+        assert_eq!(w.blob, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn rejects_invalid_blob_type() {
+        let json = r#"{"blob":42}"#;
+        let result: Result<WrappedDek, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "numeric blob must be rejected");
     }
 }
 

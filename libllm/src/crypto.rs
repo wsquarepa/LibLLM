@@ -67,6 +67,18 @@ fn create_restricted(path: &Path, data: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Opens `path` exclusively for writing.
+///
+/// Uses `O_CREAT|O_EXCL` semantics: fails with `AlreadyExists` if any file or
+/// symlink already exists at `path`, preventing symlink-substitution and
+/// overwrite attacks on paths in shared directories. The returned `File` is
+/// ready for streaming writes.
+pub fn create_file_restricted(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    opts.open(path)
+}
+
 /// A 32-byte encryption key derived from a passkey via Argon2id, automatically zeroed on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct DerivedKey {

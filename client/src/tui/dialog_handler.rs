@@ -4,8 +4,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::style::Style;
 use tui_textarea::TextArea;
 
-use chrono::Utc;
-
 use libllm::session::{Message, Role};
 
 use super::types::*;
@@ -183,10 +181,8 @@ pub(super) fn handle_field_dialog_key(
                     if matches!(op, crate::tui::types::DangerOp::DestroyAll) {
                         let challenge =
                             crate::tui::dialogs::danger_typed_confirm::generate_challenge();
-                        let snapshot_path = std::env::temp_dir().join(format!(
-                            "libllm-{}.tar.zst",
-                            Utc::now().format("%Y%m%d-%H%M%S")
-                        ));
+                        let snapshot_path = std::env::temp_dir()
+                            .join(format!("libllm-{}.tar.zst", uuid::Uuid::new_v4()));
                         app.danger_typed_confirm = Some(TypedConfirmState {
                             challenge,
                             input: String::new(),

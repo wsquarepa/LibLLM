@@ -14,7 +14,7 @@ const ZSTD_LEVEL: i32 = 3;
 /// `output_path`. Skips any path whose first component within `data_dir` matches
 /// `exclude_subdir`. Returns the number of bytes written to `output_path`.
 pub fn snapshot_data_dir(data_dir: &Path, output_path: &Path, exclude_subdir: &str) -> Result<u64> {
-    let file = File::create(output_path)
+    let file = crate::crypto::create_file_restricted(output_path)
         .with_context(|| format!("failed to create snapshot file: {}", output_path.display()))?;
     let zstd_encoder = zstd::Encoder::new(file, ZSTD_LEVEL)
         .context("failed to initialize zstd encoder")?;
@@ -131,5 +131,47 @@ mod tests {
 
         let extracted = std::fs::read(extract_dir.path().join("data.bin")).unwrap();
         assert_eq!(&extracted, b"original-bytes");
+    }
+
+    #[test]
+    fn snapshot_create_new_rejects_existing_path() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
+        let existing = dir.path().join("existing.tar.zst");
+        std::fs::write(&existing, b"already here").unwrap();
+
+        let err = snapshot_data_dir(dir.path(), &existing, "backups")
+            .expect_err("must refuse to overwrite existing path");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("failed to create snapshot file"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_create_new_rejects_symlink() {
+        use std::os::unix::fs;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
+        let victim = dir.path().join("victim.txt");
+        std::fs::write(&victim, b"DO_NOT_TOUCH").unwrap();
+        let link = dir.path().join("libllm-attack.tar.zst");
+        fs::symlink(&victim, &link).unwrap();
+
+        let err = snapshot_data_dir(dir.path(), &link, "backups")
+            .expect_err("must refuse to open a symlink");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("failed to create snapshot file"),
+            "unexpected error: {msg}"
+        );
+        assert_eq!(
+            std::fs::read(&victim).unwrap(),
+            b"DO_NOT_TOUCH",
+            "victim file must be untouched"
+        );
     }
 }

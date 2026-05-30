@@ -151,6 +151,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn snapshot_output_mode_is_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("data.bin"), b"content").unwrap();
+        let archive = dir.path().join("snap_mode.tar.zst");
+
+        snapshot_data_dir(dir.path(), &archive, "backups").unwrap();
+
+        let mode = std::fs::metadata(&archive).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "snapshot archive must be owner read/write only"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn snapshot_create_new_rejects_symlink() {
         use std::os::unix::fs;
 

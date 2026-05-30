@@ -67,15 +67,21 @@ fn create_restricted(path: &Path, data: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Opens `path` exclusively for writing.
+/// Opens `path` exclusively for writing with owner-only mode 0600 on Unix.
 ///
 /// Uses `O_CREAT|O_EXCL` semantics: fails with `AlreadyExists` if any file or
 /// symlink already exists at `path`, preventing symlink-substitution and
-/// overwrite attacks on paths in shared directories. The returned `File` is
-/// ready for streaming writes.
+/// overwrite attacks on paths in shared directories. On Unix the file is created
+/// with mode 0600 so other local users cannot read snapshot contents. The
+/// returned `File` is ready for streaming writes.
 pub fn create_file_restricted(path: &Path) -> std::io::Result<std::fs::File> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
     opts.open(path)
 }
 

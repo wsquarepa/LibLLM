@@ -686,6 +686,66 @@ mod tests {
     }
 
     #[test]
+    fn v6_migration_is_idempotent_when_author_note_columns_already_exist() {
+        // Simulate a database from the old intermediate build where author_note
+        // columns were added as schema version 5. Run v6 again; it must succeed.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
+        )
+        .unwrap();
+        // Run v1-v5 to get the full base schema including session_characters,
+        // which v8 requires when it later runs UPDATE session_characters.
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        super::v5::migrate(&conn).unwrap();
+        // Stamp versions 1-5 as if the old intermediate build ran v5=author_note.
+        for v in 1..=5i64 {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![v],
+            )
+            .unwrap();
+        }
+        // Add the author_note columns manually (as the old build did under v5).
+        conn.execute_batch(
+            "ALTER TABLE sessions ADD COLUMN author_note TEXT;
+             ALTER TABLE sessions ADD COLUMN author_note_depth INTEGER NOT NULL DEFAULT 4;
+             ALTER TABLE sessions ADD COLUMN author_note_at_top INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE characters ADD COLUMN author_note TEXT;
+             ALTER TABLE characters ADD COLUMN author_note_depth INTEGER NOT NULL DEFAULT 4;
+             ALTER TABLE characters ADD COLUMN author_note_at_top INTEGER NOT NULL DEFAULT 0;",
+        )
+        .unwrap();
+
+        // run_migrations must succeed even though v6 columns already exist.
+        run_migrations(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, super::CURRENT_VERSION);
+
+        // Columns must still be present.
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        for expected in ["author_note", "author_note_depth", "author_note_at_top"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "column '{expected}' missing after idempotent v6; got {cols:?}"
+            );
+        }
+    }
+
+    #[test]
     fn v7_migration_is_idempotent_when_fts_already_exists() {
         // Simulate a database from the old intermediate build where FTS was
         // stamped as schema version 5. The table and triggers already exist;

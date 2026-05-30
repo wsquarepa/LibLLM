@@ -15,11 +15,12 @@ mod v6;
 mod v7;
 mod v8;
 mod v9;
+mod v10;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 9;
+pub const CURRENT_VERSION: i64 = 10;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -82,6 +83,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version < 9 {
             v9::migrate(conn)?;
             stamp_version(conn, 9)?;
+            applied += 1;
+        }
+        if version < 10 {
+            v10::migrate(conn)?;
+            stamp_version(conn, 10)?;
             applied += 1;
         }
 
@@ -743,6 +749,114 @@ mod tests {
                 "column '{expected}' missing after idempotent v6; got {cols:?}"
             );
         }
+    }
+
+    #[test]
+    fn v10_dismissed_template_prompts_rejects_null_hash() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let result = conn.execute(
+            "INSERT INTO dismissed_template_prompts (template_hash, dismissed_at) VALUES (NULL, 1)",
+            [],
+        );
+        assert!(
+            result.is_err(),
+            "NULL template_hash must be rejected after v10"
+        );
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dismissed_template_prompts",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn v10_preserves_existing_non_null_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
+        )
+        .unwrap();
+        for v in 1..=9i64 {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![v],
+            )
+            .unwrap();
+        }
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        super::v5::migrate(&conn).unwrap();
+        super::v6::migrate(&conn).unwrap();
+        super::v7::migrate(&conn).unwrap();
+        super::v8::migrate(&conn).unwrap();
+        super::v9::migrate(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO dismissed_template_prompts (template_hash, dismissed_at) VALUES ('abc', 1)",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dismissed_template_prompts WHERE template_hash = 'abc'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "non-NULL row must survive v10");
+    }
+
+    #[test]
+    fn v10_drops_null_keyed_rows_from_buggy_v4_window() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
+        )
+        .unwrap();
+        for v in 1..=9i64 {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![v],
+            )
+            .unwrap();
+        }
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        super::v5::migrate(&conn).unwrap();
+        super::v6::migrate(&conn).unwrap();
+        super::v7::migrate(&conn).unwrap();
+        super::v8::migrate(&conn).unwrap();
+        super::v9::migrate(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO dismissed_template_prompts (template_hash, dismissed_at) VALUES (NULL, 1)",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dismissed_template_prompts",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "NULL-keyed row must be dropped by v10 copy step");
     }
 
     #[test]

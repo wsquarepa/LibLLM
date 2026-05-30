@@ -5,7 +5,7 @@ use std::io::{self, IsTerminal, Write};
 use anyhow::{Context, Result};
 use libllm::crypto;
 use libllm::db::Database;
-use libllm::search::{self, query as search_query};
+use libllm::search::{self, query as search_query, strip_terminal_controls};
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::Args;
@@ -64,10 +64,11 @@ fn write_text(hits: &[search::SearchHit], full: bool) -> Result<()> {
     let tty = handle.is_terminal();
 
     for hit in hits {
+        let name = strip_terminal_controls(&hit.session_display_name);
         writeln!(
             handle,
             "[{} | {} | {}]",
-            hit.session_display_name,
+            name,
             hit.role,
             hit.timestamp.format(&Rfc3339).expect("RFC 3339 format")
         )?;
@@ -84,8 +85,9 @@ fn write_text(hits: &[search::SearchHit], full: bool) -> Result<()> {
 }
 
 fn render_hl(input: &str, tty: bool) -> String {
-    let mut out = String::with_capacity(input.len());
-    for c in input.chars() {
+    let sanitized = strip_terminal_controls(input);
+    let mut out = String::with_capacity(sanitized.len());
+    for c in sanitized.chars() {
         match c {
             HIGHLIGHT_OPEN => {
                 if tty {
@@ -105,6 +107,36 @@ fn render_hl(input: &str, tty: bool) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_hl;
+
+    #[test]
+    fn render_hl_strips_csi_escape_sequences() {
+        assert_eq!(render_hl("\x1b[1mhello\x1b[0m", false), "hello");
+    }
+
+    #[test]
+    fn render_hl_strips_csi_and_preserves_fts_markers_non_tty() {
+        // U+0001 and U+0002 must survive strip and be rendered as ** markers
+        assert_eq!(render_hl("\x1b[1m\u{1}hi\u{2}\x1b[0m", false), "**hi**");
+    }
+
+    #[test]
+    fn render_hl_strips_csi_and_preserves_fts_markers_tty() {
+        // Attacker injects \x1b[1m before the FTS open-marker; after sanitization the
+        // injected sequence is gone and the renderer emits its own bold code exactly once.
+        let result = render_hl("\x1b[1m\u{1}hi\u{2}\x1b[0m", true);
+        assert_eq!(result, "\x1b[1mhi\x1b[0m", "attacker-supplied sequences must not appear; renderer codes must appear once");
+    }
+
+    #[test]
+    fn render_hl_strips_osc52_from_input() {
+        let result = render_hl("before\x1b]52;c;U0VDUkVU\x07after", false);
+        assert_eq!(result, "beforeafter");
+    }
 }
 
 fn write_json(hits: &[search::SearchHit]) -> Result<()> {

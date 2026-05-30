@@ -121,8 +121,7 @@ pub fn compute_prunable_entries(index: &BackupIndex, config: &BackupConfig) -> V
 /// aligned. Missing files (NotFound) are treated as already deleted and the entry is still
 /// removed from the index.
 ///
-/// On `Err`, the in-memory index may contain entries whose disk files were already deleted
-/// before the error — callers must discard the in-memory index on error to avoid divergence.
+/// On `Err`, the in-memory index reflects all deletions that completed before the failure.
 pub fn apply_prune(
     index: &mut BackupIndex,
     prunable_ids: &[String],
@@ -139,17 +138,29 @@ pub fn apply_prune(
         .collect();
 
     let mut removed_indices: HashSet<usize> = HashSet::new();
+
     for (idx, filename) in prunable_entries {
         let file_path = backups_dir.join(&filename);
         match std::fs::remove_file(&file_path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(()) => {
+                removed_indices.insert(idx);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                removed_indices.insert(idx);
+            }
             Err(err) => {
+                // Flush already-deleted entries into the in-memory index before
+                // returning so the index is consistent with the disk state.
+                let mut i = 0;
+                index.entries.retain(|_| {
+                    let keep = !removed_indices.contains(&i);
+                    i += 1;
+                    keep
+                });
                 return Err(err)
                     .with_context(|| format!("delete pruned backup {}", file_path.display()));
             }
         }
-        removed_indices.insert(idx);
     }
 
     let mut i = 0;
@@ -454,6 +465,53 @@ mod tests {
         assert!(
             remaining_ids.contains(&"new_base"),
             "new_base must remain in index"
+        );
+    }
+
+    #[test]
+    fn apply_prune_partial_failure_removes_succeeded_entries_from_index() {
+        let dir = TempDir::new().unwrap();
+        let backups_dir = dir.path();
+        let now = Utc::now();
+        let old_time = now - Duration::days(200);
+
+        let mut index = BackupIndex::new();
+        index.entries.push(make_entry("first", BackupType::Base, None, old_time));
+        index.entries.push(make_entry("fails", BackupType::Base, None, old_time + Duration::hours(1)));
+        index.entries.push(make_entry("third", BackupType::Base, None, old_time + Duration::hours(2)));
+
+        // Write "first" as a normal file that will be successfully deleted.
+        std::fs::write(backups_dir.join("first-base.bak"), b"data").unwrap();
+        // Write "fails" as a directory so remove_file returns EISDIR, not NotFound.
+        std::fs::create_dir(backups_dir.join("fails-base.bak")).unwrap();
+        // Write "third" as a normal file.
+        std::fs::write(backups_dir.join("third-base.bak"), b"data").unwrap();
+
+        let prunable = vec![
+            "first".to_string(),
+            "fails".to_string(),
+            "third".to_string(),
+        ];
+
+        let result = apply_prune(&mut index, &prunable, backups_dir);
+
+        assert!(result.is_err(), "apply_prune must return Err when a deletion fails");
+
+        // The first file was successfully deleted before the error.
+        assert!(
+            !backups_dir.join("first-base.bak").exists(),
+            "first file must be gone from disk"
+        );
+        // The in-memory index must not contain the entry whose file was already deleted.
+        let remaining_ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+        assert!(
+            !remaining_ids.contains(&"first"),
+            "first entry must be removed from index after its file was deleted; remaining: {remaining_ids:?}"
+        );
+        // The entry that caused the error and anything after it must remain in the index.
+        assert!(
+            remaining_ids.contains(&"fails"),
+            "fails entry must remain in index; remaining: {remaining_ids:?}"
         );
     }
 

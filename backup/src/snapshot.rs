@@ -110,8 +110,15 @@ pub fn create_snapshot(
     };
 
     index.entries.push(entry);
-    crate::retention::run_retention(&mut index, config, &backups_dir)?;
-    save_index(&index_path, &index)?;
+    let retention_result = crate::retention::run_retention(&mut index, config, &backups_dir);
+    save_index(&index_path, &index).or_else(|e| {
+        if retention_result.is_err() {
+            Ok(())
+        } else {
+            Err(e)
+        }
+    })?;
+    retention_result?;
 
     Ok(())
 }

@@ -165,8 +165,8 @@ impl Database {
         sessions::delete_session(&self.conn, id)
     }
 
-    pub fn upsert_message(&self, session_id: &str, node: &Node) -> Result<()> {
-        sessions::upsert_message(&self.conn, session_id, node)
+    pub fn upsert_message(&mut self, session_id: &str, node: &Node) -> Result<()> {
+        sessions::upsert_message(&mut self.conn, session_id, node)
     }
 
     pub fn update_head(&self, session_id: &str, head_id: Option<NodeId>) -> Result<()> {

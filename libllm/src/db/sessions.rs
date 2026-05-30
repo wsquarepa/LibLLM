@@ -560,7 +560,7 @@ pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
     })
 }
 
-pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Result<()> {
+pub fn upsert_message(conn: &mut Connection, session_id: &str, node: &Node) -> Result<()> {
     let node_id = node.id;
     let role = node.message.role.to_string();
     let content_bytes = node.message.content.len();
@@ -572,8 +572,14 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
         role = role,
         content_bytes = content_bytes
         ; {
-            conn.execute(
-                "INSERT OR REPLACE INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
+            let sp = conn.savepoint().context("failed to open savepoint for upsert_message")?;
+            sp.execute(
+                "DELETE FROM messages WHERE session_id = ?1 AND id = ?2",
+                params![session_id, node.id as i64],
+            )
+            .context("failed to delete message before upsert")?;
+            sp.execute(
+                "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     node.id as i64,
@@ -588,7 +594,8 @@ pub fn upsert_message(conn: &Connection, session_id: &str, node: &Node) -> Resul
                     node.message.pre_turn_action_points,
                 ],
             )
-            .context("failed to upsert message")?;
+            .context("failed to insert message during upsert")?;
+            sp.commit().context("failed to commit upsert_message savepoint")?;
             Ok(())
         }
     )
@@ -658,7 +665,7 @@ pub fn update_preferred_child(
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
+    use rusqlite::{Connection, params};
 
     use crate::db::migrations::run_migrations;
     use crate::session::{Message, MessageTree, Node, Role, Session};
@@ -1166,7 +1173,7 @@ mod tests {
             },
         };
 
-        upsert_message(&conn, "sess-upsert", &new_node).unwrap();
+        upsert_message(&mut conn, "sess-upsert", &new_node).unwrap();
         update_head(&conn, "sess-upsert", Some(2)).unwrap();
 
         let loaded = load_session(&conn, "sess-upsert").unwrap();
@@ -1221,5 +1228,83 @@ mod tests {
 
         let loaded = load_session(&conn, "sess-edit").unwrap();
         assert_eq!(loaded.author_note, session.author_note);
+    }
+
+    #[test]
+    fn upsert_message_replace_does_not_leave_stale_fts_terms() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        super::upsert_message(
+            &mut conn,
+            "s1",
+            &crate::session::Node {
+                id: 0,
+                parent: None,
+                children: vec![],
+                message: crate::session::Message {
+                    role: crate::session::Role::User,
+                    content: "uniqueold".to_owned(),
+                    timestamp: "now".to_owned(),
+                    thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
+                },
+            },
+        )
+        .unwrap();
+
+        let before: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'uniqueold'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(before, 1, "first upsert should index term");
+
+        super::upsert_message(
+            &mut conn,
+            "s1",
+            &crate::session::Node {
+                id: 0,
+                parent: None,
+                children: vec![],
+                message: crate::session::Message {
+                    role: crate::session::Role::User,
+                    content: "uniquenew".to_owned(),
+                    timestamp: "now".to_owned(),
+                    thought_seconds: None,
+                    speaker: None,
+                    pre_turn_action_points: None,
+                },
+            },
+        )
+        .unwrap();
+
+        let stale: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'uniqueold'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stale, 0, "stale FTS term should be removed after replace");
+
+        let fresh: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'uniquenew'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fresh, 1, "new FTS term should be indexed after replace");
     }
 }

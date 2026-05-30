@@ -167,6 +167,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify tag commit is on master
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tag commit $GITHUB_SHA is not reachable from origin/master — only commits merged to master may be tagged for stable release"
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v8
         with:
           path: artifacts

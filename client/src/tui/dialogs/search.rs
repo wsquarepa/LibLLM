@@ -21,6 +21,7 @@ const SEARCH_DIALOG_HEIGHT_PERCENT: f32 = 0.8;
 pub(crate) const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 pub(crate) const MIN_QUERY_CHARS: usize = 3;
 pub(crate) const PAGE_SIZE: usize = 10;
+const PREVIEW_LINE_CAP: usize = 2000;
 
 pub(crate) struct SearchDialogState {
     pub input: String,
@@ -304,22 +305,22 @@ fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme
         return;
     }
 
-    let all_lines: Vec<Line<'static>> = hit
-        .preview_text
-        .lines()
-        .map(|line_text| Line::from(highlight_spans(line_text, theme)))
-        .collect();
-    let total = all_lines.len();
+    let total = hit.preview_text.lines().take(PREVIEW_LINE_CAP + 1).count();
     let visible_rows = body_area.height as usize;
 
-    let truncated = total > visible_rows;
+    let truncated = total > visible_rows || total > PREVIEW_LINE_CAP;
     let body_rows = if truncated {
-        visible_rows.saturating_sub(1)
+        visible_rows.saturating_sub(1).min(PREVIEW_LINE_CAP)
     } else {
         visible_rows
     };
 
-    let body_lines: Vec<Line<'static>> = all_lines.into_iter().take(body_rows).collect();
+    let body_lines: Vec<Line<'static>> = hit
+        .preview_text
+        .lines()
+        .take(body_rows)
+        .map(|line_text| Line::from(highlight_spans(line_text, theme)))
+        .collect();
     Paragraph::new(ratatui::text::Text::from(body_lines)).render(
         Rect {
             x: body_area.x,
@@ -331,7 +332,7 @@ fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme
     );
 
     if truncated {
-        let remaining = total - body_rows;
+        let remaining = total.saturating_sub(body_rows);
         let noun = if remaining == 1 { "line" } else { "lines" };
         let footer = format!("... +{remaining} more {noun}");
         Paragraph::new(footer)
@@ -780,6 +781,50 @@ mod tests {
         state.hits = (0..5).map(|_| dummy_hit()).collect();
         handle_key(&mut state, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
         assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn render_preview_caps_at_preview_line_cap() {
+        let theme = crate::tui::theme::Theme::dark();
+        // Build a preview with PREVIEW_LINE_CAP + 500 lines, each just "x"
+        let many_lines: String = std::iter::repeat("x")
+            .take(PREVIEW_LINE_CAP + 500)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.preview_text = many_lines;
+            hit
+        }];
+        // Use a tall area so body_rows is large enough to expose the cap
+        let area = ratatui::layout::Rect::new(0, 0, 80, 60);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        // Must complete without panicking or OOMing
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("more lines"), "expected truncation footer when lines exceed cap");
+    }
+
+    #[test]
+    fn render_preview_does_not_allocate_all_lines_eagerly() {
+        let theme = crate::tui::theme::Theme::dark();
+        // PREVIEW_LINE_CAP * 10 short lines — should complete quickly without OOM
+        let huge: String = std::iter::repeat("x")
+            .take(PREVIEW_LINE_CAP * 10)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.preview_text = huge;
+            hit
+        }];
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(rendered.contains("more lines"));
     }
 
     #[test]

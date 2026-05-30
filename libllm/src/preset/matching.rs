@@ -98,12 +98,24 @@ impl CanonicalContext {
     }
 }
 
+const RENDER_FUEL: u64 = 1_000_000;
+
+// minijinja's fuel cap counts VM instructions, not allocated bytes. String-repeat
+// (`{{ 'A' * N }}`) is a single Mul instruction regardless of N, so fuel alone does not
+// bound output size. MAX_RENDER_BYTES catches that specific vector.
+const MAX_RENDER_BYTES: usize = 1024 * 1024;
+
 /// Render a server-supplied Jinja `chat_template` string against the canonical context.
 /// Uses `UndefinedBehavior::Lenient` so missing variables (`tools`, `documents`, etc.)
 /// render as empty rather than raising.
+///
+/// Fuel cap of `RENDER_FUEL` instructions blocks crafted templates that expand
+/// unboundedly (e.g. `{{ 'A' * 50000000 }}`). Real templates consume under 5 000
+/// instructions; 1 000 000 is a 200x safety margin.
 pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Lenient);
+    env.set_fuel(Some(RENDER_FUEL));
     env.add_template("chat", template)
         .context("failed to parse server chat_template")?;
     let tmpl = env.get_template("chat").expect("just added");
@@ -113,8 +125,15 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
         "eos_token": ctx.eos_token,
         "add_generation_prompt": ctx.add_generation_prompt,
     }));
-    tmpl.render(value)
-        .context("failed to render server chat_template")
+    let rendered = tmpl
+        .render(value)
+        .context("failed to render server chat_template")?;
+    anyhow::ensure!(
+        rendered.len() <= MAX_RENDER_BYTES,
+        "rendered chat_template output exceeds {} bytes",
+        MAX_RENDER_BYTES
+    );
+    Ok(rendered)
 }
 
 /// Render a preset over the scoring conversation (single user turn, no system).
@@ -524,5 +543,21 @@ mod tests {
     #[test]
     fn template_hash_strips_trailing_nul() {
         assert_eq!(template_hash("hello"), template_hash("hello\0"));
+    }
+
+    #[test]
+    fn render_jinja_fuel_exhaustion_returns_err() {
+        let result = render_jinja("{{ 'A' * 50000000 }}", &CanonicalContext::fixed());
+        assert!(result.is_err(), "expected fuel exhaustion error, got Ok");
+    }
+
+    #[test]
+    fn pick_best_match_dos_template_returns_no_match() {
+        let presets = all_builtin_presets();
+        let outcome = pick_best_match("{{ 'A' * 50000000 }}", &presets, "");
+        assert!(
+            matches!(outcome, MatchOutcome::NoMatch { .. }),
+            "expected NoMatch from DoS template, got {outcome:?}"
+        );
     }
 }

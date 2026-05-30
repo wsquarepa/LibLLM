@@ -363,7 +363,7 @@ impl ApiClient {
                 return None;
             }
         };
-        let resp = match builder.send().await {
+        let resp = match builder.timeout(std::time::Duration::from_secs(10)).send().await {
             Ok(resp) => resp,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -445,7 +445,7 @@ impl ApiClient {
                 return None;
             }
         };
-        let resp = match builder.send().await {
+        let resp = match builder.timeout(std::time::Duration::from_secs(10)).send().await {
             Ok(resp) => resp,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;

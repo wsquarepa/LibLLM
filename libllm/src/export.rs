@@ -195,9 +195,6 @@ pub fn render_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title_escaped} — Transcript</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,30..100;1,9..144,300..700,30..100&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=JetBrains+Mono:wght@400;600&display=swap">
   <style>
     :root {{
       --paper: #f3ead4;
@@ -232,7 +229,7 @@ pub fn render_html(
     body {{
       background: var(--paper);
       color: var(--ink);
-      font-family: 'Newsreader', Iowan Old Style, Georgia, 'Times New Roman', serif;
+      font-family: Iowan Old Style, Georgia, 'Times New Roman', serif;
       font-size: 1.0625rem;
       line-height: 1.65;
       font-feature-settings: 'kern', 'liga', 'onum';
@@ -254,7 +251,7 @@ pub fn render_html(
     }}
 
     .overline {{
-      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       text-transform: uppercase;
       letter-spacing: 0.45em;
       font-size: 0.68rem;
@@ -264,12 +261,11 @@ pub fn render_html(
     }}
 
     .masthead h1 {{
-      font-family: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+      font-family: 'Iowan Old Style', Georgia, serif;
       font-weight: 380;
       font-size: clamp(2.4rem, 7.5vw, 4.75rem);
       line-height: 1.02;
       letter-spacing: -0.02em;
-      font-variation-settings: 'opsz' 144, 'SOFT' 50;
     }}
 
     .masthead h1 .ampersand {{
@@ -278,13 +274,12 @@ pub fn render_html(
       font-weight: 300;
       font-style: italic;
       color: var(--accent);
-      font-variation-settings: 'opsz' 144, 'SOFT' 100;
       transform: translateY(-0.04em);
     }}
 
     .dateline {{
       margin-top: 1.5rem;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: ui-monospace, monospace;
       font-size: 0.72rem;
       letter-spacing: 0.22em;
       text-transform: uppercase;
@@ -303,7 +298,7 @@ pub fn render_html(
     .dossier .field {{ display: flex; flex-direction: column; gap: 0.35rem; }}
 
     .dossier dt {{
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: ui-monospace, monospace;
       text-transform: uppercase;
       letter-spacing: 0.18em;
       font-size: 0.62rem;
@@ -311,7 +306,7 @@ pub fn render_html(
     }}
 
     .dossier dd {{
-      font-family: 'Newsreader', serif;
+      font-family: Georgia, serif;
       font-size: 1rem;
       font-weight: 500;
       color: var(--ink);
@@ -344,7 +339,7 @@ pub fn render_html(
     }}
 
     .speaker {{
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: ui-monospace, monospace;
       font-size: 0.72rem;
       font-weight: 600;
       text-transform: uppercase;
@@ -394,7 +389,7 @@ pub fn render_html(
     time {{
       display: block;
       margin-top: 1rem;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: ui-monospace, monospace;
       font-size: 0.68rem;
       letter-spacing: 0.14em;
       color: var(--ink-faint);
@@ -412,7 +407,7 @@ pub fn render_html(
     details.thought summary {{
       cursor: pointer;
       list-style: none;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: ui-monospace, monospace;
       font-size: 0.68rem;
       font-weight: 600;
       text-transform: uppercase;
@@ -445,7 +440,7 @@ pub fn render_html(
       padding-top: 2rem;
       border-top: 1px solid var(--rule);
       text-align: center;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: ui-monospace, monospace;
       font-size: 0.68rem;
       letter-spacing: 0.3em;
       text-transform: uppercase;
@@ -454,13 +449,12 @@ pub fn render_html(
 
     .colophon .mark {{
       display: block;
-      font-family: 'Fraunces', serif;
+      font-family: Georgia, serif;
       font-style: italic;
       font-size: 1.5rem;
       letter-spacing: 0;
       color: var(--accent);
       margin-bottom: 0.75rem;
-      font-variation-settings: 'opsz' 144, 'SOFT' 100;
     }}
 
     @media (max-width: 760px) {{
@@ -1194,5 +1188,17 @@ mod tests {
         let result = render_html(&refs, &meta, Some(&preset));
         assert!(!result.contains("<details"));
         assert!(result.contains("Just an answer"));
+    }
+
+    #[test]
+    fn html_has_no_external_links() {
+        let msgs = test_messages();
+        let refs: Vec<&Message> = msgs.iter().collect();
+        let meta = meta_with("Alice", "Bob");
+        let result = render_html(&refs, &meta, None);
+        assert!(!result.contains("fonts.googleapis.com"));
+        assert!(!result.contains("fonts.gstatic.com"));
+        assert!(!result.contains("preconnect"));
+        assert!(!result.contains("<link"));
     }
 }

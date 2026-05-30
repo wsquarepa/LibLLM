@@ -196,13 +196,12 @@ fn build_payload(
 /// emitted via `tracing::warn!` for debug-log subscribers.
 ///
 /// For unencrypted data dirs, the rebuilt index carries accurate
-/// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs, the
-/// per-chain DEK data is stored only inside the index (not in the `.bak`
-/// files), so a rebuilt index loses all DEK metadata: chain roots are stamped
-/// with `FingerprintField::Unknown` and `wrapped_dek: None`, and
-/// `plaintext_hash` is filled with a sentinel. Restoring from a rebuilt
-/// encrypted index requires the originating passkey via
-/// `--archived-passkey` and will skip hash verification.
+/// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs where
+/// backup files were encrypted directly with the KEK (pre-v2 format), this
+/// function decrypts each base file with the KEK, generates a fresh DEK,
+/// re-encrypts the file under the new DEK, and stores the wrapped DEK in the
+/// rebuilt index entry. When `passkey` is `None` or decryption fails, the
+/// affected entry is skipped and a warning is appended to the return value.
 pub fn rebuild_index(
     backups_dir: &Path,
     passkey: Option<&str>,
@@ -212,7 +211,7 @@ pub fn rebuild_index(
         .with_context(|| format!("backups_dir has no parent: {}", backups_dir.display()))?;
 
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
-    let encrypted = backup_key.is_some();
+    let dir_is_encrypted = data_dir.join(".salt").exists();
 
     let mut file_entries: Vec<(std::time::SystemTime, String, String, BackupType)> = Vec::new();
 
@@ -271,11 +270,89 @@ pub fn rebuild_index(
 
         match entry_type {
             BackupType::Base => {
-                let (plaintext_hash, plaintext_size, kek_fingerprint) = if encrypted {
+                let (plaintext_hash, plaintext_size, kek_fingerprint, wrapped_dek) = if dir_is_encrypted {
+                    if backup_key.is_none() {
+                        let msg = format!(
+                            "skipping {filename}: encrypted backup requires a passkey to rebuild DEK"
+                        );
+                        tracing::warn!(
+                            result = "error",
+                            filename = %filename,
+                            "backup.rebuild_index.encrypted_no_kek"
+                        );
+                        warnings.push(msg);
+                        continue;
+                    }
+                    let kek = backup_key
+                        .as_ref()
+                        .expect("backup_key is Some: None case continued above");
+
+                    let plaintext = match crate::crypto::decrypt_payload(&file_bytes, kek) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let msg = format!("skipping {filename}: decryption failed: {e}");
+                            tracing::warn!(
+                                result = "error",
+                                filename = %filename,
+                                error = %e,
+                                "backup.rebuild_index.decrypt_failed"
+                            );
+                            warnings.push(msg);
+                            continue;
+                        }
+                    };
+
+                    let dek = crate::crypto::generate_dek();
+                    let new_blob = match crate::crypto::encrypt_payload(&plaintext, &dek) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            let msg = format!("skipping {filename}: re-encryption failed: {e}");
+                            tracing::warn!(
+                                result = "error",
+                                filename = %filename,
+                                error = %e,
+                                "backup.rebuild_index.reencrypt_failed"
+                            );
+                            warnings.push(msg);
+                            continue;
+                        }
+                    };
+
+                    if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
+                        let msg = format!(
+                            "skipping {filename}: failed to persist re-encrypted file: {e}"
+                        );
+                        tracing::warn!(
+                            result = "error",
+                            filename = %filename,
+                            error = %e,
+                            "backup.rebuild_index.write_failed"
+                        );
+                        warnings.push(msg);
+                        continue;
+                    }
+
+                    let wrapped = match crate::crypto::wrap_dek(&dek, kek) {
+                        Ok(w) => w,
+                        Err(e) => {
+                            let msg = format!("skipping {filename}: DEK wrap failed: {e}");
+                            tracing::warn!(
+                                result = "error",
+                                filename = %filename,
+                                error = %e,
+                                "backup.rebuild_index.wrap_dek_failed"
+                            );
+                            warnings.push(msg);
+                            continue;
+                        }
+                    };
+
+                    let fp = crate::crypto::compute_kek_fingerprint(kek);
                     (
                         "unknown".to_string(),
                         stored_size,
-                        Some(FingerprintField::Unknown),
+                        Some(FingerprintField::Known(fp)),
+                        Some(wrapped),
                     )
                 } else {
                     let plaintext = match crate::diff::decompress(&file_bytes) {
@@ -291,6 +368,7 @@ pub fn rebuild_index(
                         crate::hash::hash_bytes(&plaintext),
                         plaintext.len() as u64,
                         None,
+                        None,
                     )
                 };
 
@@ -303,9 +381,9 @@ pub fn rebuild_index(
                     file_hash,
                     plaintext_size,
                     stored_size,
-                    encrypted,
+                    encrypted: dir_is_encrypted,
                     created_at,
-                    wrapped_dek: None,
+                    wrapped_dek,
                     kek_fingerprint,
                 });
             }
@@ -323,7 +401,7 @@ pub fn rebuild_index(
 
                 let base_id = base_entry.id.clone();
 
-                let (plaintext_hash, plaintext_size) = if encrypted {
+                let (plaintext_hash, plaintext_size) = if dir_is_encrypted {
                     ("unknown".to_string(), stored_size)
                 } else {
                     let chain = match index.chain_to(&base_id) {
@@ -383,7 +461,7 @@ pub fn rebuild_index(
                     file_hash,
                     plaintext_size,
                     stored_size,
-                    encrypted,
+                    encrypted: dir_is_encrypted,
                     created_at,
                     wrapped_dek: None,
                     kek_fingerprint: None,
@@ -414,6 +492,20 @@ mod tests {
     fn setup_test_db(dir: &std::path::Path) -> std::path::PathBuf {
         let db_path = dir.join("data.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);")
+            .unwrap();
+        conn.execute("INSERT INTO test (value) VALUES (?1)", ["hello"])
+            .unwrap();
+        drop(conn);
+        db_path
+    }
+
+    fn setup_encrypted_test_db(dir: &std::path::Path, passkey: &str) -> std::path::PathBuf {
+        let salt = libllm::crypto::load_or_create_salt(&dir.join(".salt")).unwrap();
+        let key = libllm::crypto::derive_key(passkey, &salt).unwrap();
+        let db_path = dir.join("data.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(&key.key_pragma()).unwrap();
         conn.execute_batch("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);")
             .unwrap();
         conn.execute("INSERT INTO test (value) VALUES (?1)", ["hello"])
@@ -609,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_index_marks_encrypted_chains_as_unknown() {
+    fn rebuild_index_encrypted_base_without_valid_ciphertext_produces_warning() {
         let tmp = tempfile::TempDir::new().unwrap();
         let data_dir = tmp.path();
         let backups_dir = data_dir.join("backups");
@@ -619,20 +711,108 @@ mod tests {
         let _ = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap();
 
         // Drop an encrypted-looking base file with no corresponding index.
+        // The 128 bytes of zeros are not valid XChaCha20-Poly1305 ciphertext.
         let id = "20260421T040000.000Z".to_string();
         let filename = crate::index::backup_filename(&id, BackupType::Base);
         libllm::crypto::write_atomic(&backups_dir.join(&filename), &[0u8; 128]).unwrap();
 
-        let (idx, _warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
+        let (idx, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
 
         assert_eq!(idx.version, crate::index::SCHEMA_VERSION);
-        let base = idx.entries.iter().find(|e| e.id == id).unwrap();
         assert!(
-            matches!(base.kek_fingerprint, Some(crate::index::FingerprintField::Unknown)),
-            "expected Unknown fingerprint, got {:?}",
+            idx.entries.is_empty(),
+            "undecodable encrypted file must be skipped, not added as Unknown"
+        );
+        assert!(
+            !warnings.is_empty(),
+            "a warning must be emitted for the undecodable file"
+        );
+    }
+
+    #[test]
+    fn rebuild_index_encrypted_chain_gets_wrapped_dek() {
+        use crate::index::backup_filename;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        // Files created with create_snapshot are DEK-encrypted and cannot be decrypted with the
+        // KEK alone. rebuild_index is designed for the pre-v2 (v1) format where files were
+        // encrypted directly with the KEK — the same scenario v2 migration handles. We
+        // simulate that here by encrypting files directly with the KEK.
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw"))
+            .unwrap()
+            .unwrap();
+
+        let base_id = "20260530T000000.000Z".to_string();
+        let diff_id = "20260530T000001.000Z".to_string();
+        let base_filename = backup_filename(&base_id, BackupType::Base);
+        let diff_filename = backup_filename(&diff_id, BackupType::Diff);
+
+        let base_blob = crate::crypto::encrypt_payload(b"db-snapshot-base-content", &kek).unwrap();
+        let diff_blob = crate::crypto::encrypt_payload(b"db-snapshot-diff-content", &kek).unwrap();
+        let base_path = backups_dir.join(&base_filename);
+        let diff_path = backups_dir.join(&diff_filename);
+        libllm::crypto::write_atomic(&base_path, &base_blob).unwrap();
+        libllm::crypto::write_atomic(&diff_path, &diff_blob).unwrap();
+
+        // Set the base file's mtime earlier than the diff so that rebuild_index processes
+        // the base before the diff (it sorts by mtime).
+        let base_mtime = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(60))
+            .unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&base_path)
+            .unwrap()
+            .set_modified(base_mtime)
+            .unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
+
+        assert!(warnings.is_empty(), "expected no warnings, got: {warnings:?}");
+        assert_eq!(rebuilt.entries.len(), 2, "both entries must be in the rebuilt index");
+
+        let base = rebuilt
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Base)
+            .expect("base entry must be present");
+        assert!(
+            base.wrapped_dek.is_some(),
+            "rebuilt encrypted base must have a wrapped_dek"
+        );
+        assert!(
+            matches!(base.kek_fingerprint, Some(crate::index::FingerprintField::Known(_))),
+            "rebuilt encrypted base must have a Known kek_fingerprint, got {:?}",
             base.kek_fingerprint
         );
-        assert!(base.wrapped_dek.is_none());
+    }
+
+    #[test]
+    fn rebuild_index_encrypted_without_passkey_adds_warning() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        setup_encrypted_test_db(data_dir, "pw");
+        let config = BackupConfig::default();
+
+        create_snapshot(data_dir, Some("pw"), &config).unwrap();
+
+        let backups_dir = data_dir.join("backups");
+        std::fs::remove_file(backups_dir.join("index.json")).unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, None).unwrap();
+
+        assert!(
+            !warnings.is_empty(),
+            "expected a warning for encrypted entry without passkey"
+        );
+        assert!(
+            rebuilt.entries.is_empty(),
+            "encrypted entries without KEK must not appear in rebuilt index"
+        );
     }
 
     #[test]

@@ -452,12 +452,16 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             bail!("backups directory does not exist: {}", backups_dir.display());
         }
 
-        let rebuilt = libllm::timed_result!(
+        let (rebuilt, warnings) = libllm::timed_result!(
             tracing::Level::INFO,
             "recover.resolve_backup_index",
             has_passkey = passkey.is_some() ;
             { rebuild_index(&backups_dir, passkey) }
         )?;
+
+        for warning in &warnings {
+            eprintln!("Warning: {warning}");
+        }
 
         let base_count = rebuilt
             .entries

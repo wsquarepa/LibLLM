@@ -190,6 +190,11 @@ fn build_payload(
 
 /// Reconstructs `backups/index.json` from the on-disk backup files.
 ///
+/// Returns the rebuilt index and a (possibly empty) list of human-readable
+/// warning strings for files that were skipped due to read/decompression/patch
+/// failures. Callers should surface these warnings to the user; they are also
+/// emitted via `tracing::warn!` for debug-log subscribers.
+///
 /// For unencrypted data dirs, the rebuilt index carries accurate
 /// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs, the
 /// per-chain DEK data is stored only inside the index (not in the `.bak`
@@ -198,7 +203,10 @@ fn build_payload(
 /// `plaintext_hash` is filled with a sentinel. Restoring from a rebuilt
 /// encrypted index requires the originating passkey via
 /// `--archived-passkey` and will skip hash verification.
-pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<BackupIndex> {
+pub fn rebuild_index(
+    backups_dir: &Path,
+    passkey: Option<&str>,
+) -> Result<(BackupIndex, Vec<String>)> {
     let data_dir = backups_dir
         .parent()
         .with_context(|| format!("backups_dir has no parent: {}", backups_dir.display()))?;
@@ -242,13 +250,16 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
     file_entries.sort_by_key(|(mtime, _, _, _)| *mtime);
 
     let mut index = BackupIndex::new();
+    let mut warnings: Vec<String> = Vec::new();
 
     for (mtime, filename, id, entry_type) in file_entries {
         let file_path = backups_dir.join(&filename);
         let file_bytes = match std::fs::read(&file_path) {
             Ok(b) => b,
             Err(e) => {
+                let msg = format!("skipping {filename}: failed to read file: {e}");
                 tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.read_failed");
+                warnings.push(msg);
                 continue;
             }
         };
@@ -270,7 +281,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let plaintext = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
+                            let msg = format!("skipping {filename}: decompression failed: {e}");
                             tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
+                            warnings.push(msg);
                             continue;
                         }
                     };
@@ -301,7 +314,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                 let base_entry = match index.latest_base() {
                     Some(e) => e.clone(),
                     None => {
+                        let msg = format!("skipping {filename}: no base entry in rebuilt index yet");
                         tracing::warn!(result = "error", filename = %filename, "backup.rebuild_index.missing_base");
+                        warnings.push(msg);
                         continue;
                     }
                 };
@@ -314,7 +329,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let chain = match index.chain_to(&base_id) {
                         Ok(c) => c.into_iter().cloned().collect::<Vec<_>>(),
                         Err(e) => {
+                            let msg = format!("skipping {filename}: failed to build chain: {e}");
                             tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_build_failed");
+                            warnings.push(msg);
                             continue;
                         }
                     };
@@ -324,7 +341,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                         match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
                             Ok(p) => p,
                             Err(e) => {
+                                let msg = format!("skipping {filename}: chain replay failed: {e}");
                                 tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_replay_failed");
+                                warnings.push(msg);
                                 continue;
                             }
                         };
@@ -332,7 +351,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let patch = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
+                            let msg = format!("skipping {filename}: diff decompression failed: {e}");
                             tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.diff_decompress_failed");
+                            warnings.push(msg);
                             continue;
                         }
                     };
@@ -340,7 +361,9 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
                     let plaintext = match crate::diff::apply_patch(&base_plaintext, &patch) {
                         Ok(p) => p,
                         Err(e) => {
+                            let msg = format!("skipping {filename}: patch apply failed: {e}");
                             tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.patch_apply_failed");
+                            warnings.push(msg);
                             continue;
                         }
                     };
@@ -369,7 +392,7 @@ pub fn rebuild_index(backups_dir: &Path, passkey: Option<&str>) -> Result<Backup
         }
     }
 
-    Ok(index)
+    Ok((index, warnings))
 }
 
 fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {
@@ -559,7 +582,7 @@ mod tests {
         let expected_size = diff_original.plaintext_size;
 
         let backups_dir = dir.path().join("backups");
-        let rebuilt = rebuild_index(&backups_dir, None).unwrap();
+        let (rebuilt, _warnings) = rebuild_index(&backups_dir, None).unwrap();
 
         let diff_rebuilt = rebuilt
             .entries
@@ -600,7 +623,7 @@ mod tests {
         let filename = crate::index::backup_filename(&id, BackupType::Base);
         libllm::crypto::write_atomic(&backups_dir.join(&filename), &[0u8; 128]).unwrap();
 
-        let idx = rebuild_index(&backups_dir, Some("pw")).unwrap();
+        let (idx, _warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
 
         assert_eq!(idx.version, crate::index::SCHEMA_VERSION);
         let base = idx.entries.iter().find(|e| e.id == id).unwrap();
@@ -640,7 +663,7 @@ mod tests {
                 .unwrap();
         }
 
-        let rebuilt = rebuild_index(&backups_dir, None).unwrap();
+        let (rebuilt, _warnings) = rebuild_index(&backups_dir, None).unwrap();
 
         let now = Utc::now();
         let expected_mtime: chrono::DateTime<Utc> = past.into();
@@ -694,6 +717,40 @@ mod tests {
             unique_filenames.len(),
             filenames.len(),
             "all snapshot filenames must be unique"
+        );
+    }
+
+    #[test]
+    fn rebuild_index_reports_warnings_for_corrupt_base() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let backups_dir = dir.path().join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        // Write a valid base snapshot.
+        let data_dir = dir.path();
+        setup_test_db(data_dir);
+        let config = BackupConfig::default();
+        create_snapshot(data_dir, None, &config).unwrap();
+
+        // Write a truncated (undecompressable) base file that will fail decompression.
+        let corrupt_id = "19700101T000000.001Z".to_string();
+        let corrupt_filename = crate::index::backup_filename(&corrupt_id, BackupType::Base);
+        std::fs::write(backups_dir.join(&corrupt_filename), b"not-valid-zstd").unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, None).unwrap();
+
+        assert!(
+            !warnings.is_empty(),
+            "expected at least one warning for the corrupt file, got none"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains(&corrupt_filename)),
+            "warning must mention the corrupt filename; warnings: {warnings:?}"
+        );
+        assert_eq!(
+            rebuilt.entries.len(),
+            1,
+            "only the valid entry should be in the rebuilt index"
         );
     }
 }

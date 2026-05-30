@@ -465,4 +465,42 @@ mod tests {
         let err = compile("session:nonexistent x", &db).unwrap_err();
         assert_eq!(err, QueryError::UnknownSession("nonexistent".into()));
     }
+
+    #[test]
+    fn session_filter_literal_percent_matches_only_session_with_percent_in_name() {
+        let (db, _file) = seed_db_with_sessions(&[
+            ("a", "100% done"),
+            ("b", "something else"),
+        ]);
+        let compiled = compile("session:% done", &db).unwrap();
+        assert_eq!(
+            compiled.session_ids.unwrap(),
+            vec!["a".to_string()],
+            "session:% should match only the session whose name contains a literal '%'"
+        );
+    }
+
+    #[test]
+    fn session_filter_literal_underscore_matches_only_session_with_underscore_in_name() {
+        let (db, _file) = seed_db_with_sessions(&[
+            ("a", "feature_x"),
+            ("b", "plain"),
+        ]);
+        let compiled = compile("session:feature_x x", &db).unwrap();
+        assert_eq!(
+            compiled.session_ids.unwrap(),
+            vec!["a".to_string()],
+            "session:feature_x should match only the session whose name contains a literal '_'"
+        );
+    }
+
+    #[test]
+    fn session_filter_literal_backslash_in_name() {
+        let (db, _file) = seed_db_with_sessions(&[("a", "foo\\bar")]);
+        let compiled = compile("session:foo\\bar x", &db).unwrap();
+        assert_eq!(
+            compiled.session_ids.unwrap(),
+            vec!["a".to_string()]
+        );
+    }
 }

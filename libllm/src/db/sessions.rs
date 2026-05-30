@@ -271,16 +271,20 @@ pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Resul
 }
 
 pub fn ids_matching_display_name(conn: &Connection, substring: &str) -> Result<Vec<String>> {
+    let escaped = substring
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
     let mut stmt = conn
         .prepare(
             "SELECT id FROM sessions \
              WHERE display_name IS NOT NULL \
-               AND display_name LIKE '%' || ?1 || '%' COLLATE NOCASE \
+               AND display_name LIKE '%' || ?1 || '%' ESCAPE '\\' COLLATE NOCASE \
              ORDER BY id",
         )
         .context("failed to prepare session lookup")?;
     let rows = stmt
-        .query_map(params![substring], |row| row.get::<_, String>(0))
+        .query_map(params![escaped], |row| row.get::<_, String>(0))
         .context("failed to execute session lookup")?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|e| anyhow::anyhow!(e))

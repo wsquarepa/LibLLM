@@ -367,12 +367,24 @@ impl Database {
         self.conn
             .execute_batch("BEGIN IMMEDIATE")
             .with_context(|| format!("{table_name}: begin txn"))?;
-        let affected = self.conn.execute(sql, []).with_context(|| format!("failed to purge {table_name}"));
+        let affected = self
+            .conn
+            .execute(sql, [])
+            .with_context(|| format!("failed to purge {table_name}"));
         match affected {
             Ok(n) => {
-                self.conn
-                    .execute_batch("COMMIT")
-                    .with_context(|| format!("{table_name}: commit txn"))?;
+                if let Err(commit_err) = self.conn.execute_batch("COMMIT") {
+                    if let Err(rollback_err) = self.conn.execute_batch("ROLLBACK") {
+                        tracing::warn!(
+                            result = "error",
+                            table = table_name,
+                            error = %rollback_err,
+                            "db.purge.rollback_failed"
+                        );
+                    }
+                    return Err(commit_err)
+                        .with_context(|| format!("{table_name}: commit txn"));
+                }
                 Ok(n as u64)
             }
             Err(err) => {
@@ -569,6 +581,59 @@ mod tests {
             mode & 0o777,
             0o600,
             "database file must be owner read/write only"
+        );
+    }
+
+    #[test]
+    fn purge_table_in_txn_rollback_on_commit_failure() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path, None).unwrap();
+
+        // Add a deferred FK that makes COMMIT fail when personas rows are deleted
+        // (FK is DEFERRABLE INITIALLY DEFERRED so it passes at DELETE time but
+        // fires at COMMIT).
+        db.conn()
+            .execute_batch(
+                "CREATE TABLE blocker (
+                    id INTEGER PRIMARY KEY,
+                    persona_slug TEXT NOT NULL
+                        REFERENCES personas(slug)
+                        DEFERRABLE INITIALLY DEFERRED
+                );",
+            )
+            .unwrap();
+
+        db.execute_statement(
+            "INSERT INTO personas (slug, name, persona, created_at, updated_at) \
+             VALUES ('alice', 'Alice', 'curious', 'now', 'now')",
+        )
+        .unwrap();
+        db.conn()
+            .execute_batch("INSERT INTO blocker (id, persona_slug) VALUES (1, 'alice')")
+            .unwrap();
+
+        // purge_personas issues BEGIN IMMEDIATE + DELETE FROM personas + COMMIT.
+        // The COMMIT will fail due to the deferred FK from blocker.
+        let result = db.purge_personas();
+        assert!(result.is_err(), "expected COMMIT failure to surface as Err");
+
+        // The connection must be usable after the failed purge — no open transaction.
+        let count: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM personas", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "personas row must still exist after rolled-back purge");
+
+        // A subsequent purge call must not fail with 'cannot start a transaction
+        // within a transaction'.
+        let result2 = db.purge_personas();
+        let err_msg = result2.unwrap_err().to_string();
+        assert!(
+            !err_msg.contains("within a transaction"),
+            "connection left in open transaction: {err_msg}"
         );
     }
 

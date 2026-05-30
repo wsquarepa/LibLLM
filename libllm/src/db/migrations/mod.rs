@@ -684,4 +684,73 @@ mod tests {
             .unwrap();
         assert_eq!(count, 0);
     }
+
+    #[test]
+    fn v7_migration_is_idempotent_when_fts_already_exists() {
+        // Simulate a database from the old intermediate build where FTS was
+        // stamped as schema version 5. The table and triggers already exist;
+        // the current runner must apply v6/v7/v8/v9 without failing.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
+        )
+        .unwrap();
+        // Run v1-v5 to get the full base schema including session_characters,
+        // which v8 requires when it later runs UPDATE session_characters.
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        super::v5::migrate(&conn).unwrap();
+        // Stamp versions 1-5 as if the old intermediate build ran v5=FTS.
+        for v in 1..=5i64 {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![v],
+            )
+            .unwrap();
+        }
+        // Create the FTS table and triggers manually (as the old build did under v5).
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE messages_fts USING fts5(
+                 content,
+                 content='messages',
+                 content_rowid='rowid',
+                 tokenize='unicode61 remove_diacritics 2'
+             );
+             CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
+                 INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+             END;
+             CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
+                 INSERT INTO messages_fts(messages_fts, rowid, content)
+                 VALUES('delete', old.rowid, old.content);
+             END;
+             CREATE TRIGGER messages_fts_au AFTER UPDATE OF content ON messages BEGIN
+                 INSERT INTO messages_fts(messages_fts, rowid, content)
+                 VALUES('delete', old.rowid, old.content);
+                 INSERT INTO messages_fts(rowid, content)
+                 VALUES (new.rowid, new.content);
+             END;",
+        )
+        .unwrap();
+
+        // run_migrations must succeed even though v7 DDL already exists.
+        run_migrations(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, super::CURRENT_VERSION);
+
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='messages_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(table_exists);
+    }
 }

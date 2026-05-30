@@ -243,6 +243,11 @@ pub fn parse_talkativeness(raw: &str) -> anyhow::Result<HashMap<String, f32>> {
         let parsed: f32 = value
             .parse()
             .with_context(|| format!("invalid talkativeness value: {value}"))?;
+        if !parsed.is_finite() {
+            return Err(anyhow!(
+                "talkativeness must be a finite number in [0, 1], got: {value}"
+            ));
+        }
         out.insert(slug.to_owned(), parsed.clamp(0.0, 1.0));
     }
     Ok(out)
@@ -636,5 +641,36 @@ mod tests {
     fn chat_mode_directed_parses() {
         let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-mode", "directed"]).unwrap();
         assert!(matches!(args.chat_mode, ChatModeArg::Directed));
+    }
+
+    #[test]
+    fn parse_talkativeness_rejects_nan() {
+        let err = parse_talkativeness("alice=NaN").unwrap_err();
+        assert!(
+            err.to_string().contains("finite"),
+            "expected 'finite' in error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_talkativeness_rejects_inf() {
+        assert!(parse_talkativeness("alice=inf").is_err());
+    }
+
+    #[test]
+    fn parse_talkativeness_rejects_neg_inf() {
+        assert!(parse_talkativeness("alice=-inf").is_err());
+    }
+
+    #[test]
+    fn parse_talkativeness_accepts_valid_range() {
+        let m = parse_talkativeness("alice=0.7").unwrap();
+        assert!((m["alice"] - 0.7_f32).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_talkativeness_clamps_above_one() {
+        let m = parse_talkativeness("alice=1.5").unwrap();
+        assert!((m["alice"] - 1.0_f32).abs() < 1e-6);
     }
 }

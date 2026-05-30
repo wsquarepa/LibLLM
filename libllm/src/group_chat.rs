@@ -418,6 +418,9 @@ pub fn decide_next_speaker(
             {
                 return None;
             }
+            if !min_av.is_finite() {
+                return None;
+            }
             let tied: Vec<usize> = eligible
                 .iter()
                 .copied()
@@ -1399,5 +1402,51 @@ mod tests {
     #[test]
     fn inherit_card_scenario_returns_none_for_whitespace_only() {
         assert_eq!(inherit_card_scenario("   \n  "), None);
+    }
+
+    #[test]
+    fn decide_next_all_muted_returns_none() {
+        let characters = vec![
+            CharacterAttachment {
+                slug: "alice".to_owned(),
+                talkativeness: 0.0,
+                action_points: base_action_value(0.0), // f32::INFINITY
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob".to_owned(),
+                talkativeness: 0.0,
+                action_points: base_action_value(0.0), // f32::INFINITY
+                spoke_this_round: false,
+            },
+        ];
+        let mut rng = StdRng::seed_from_u64(0);
+        assert!(
+            decide_next_speaker(&characters, ChatMode::ActionValue, &mut rng, None).is_none(),
+            "all-muted ActionValue group must return None instead of panicking"
+        );
+    }
+
+    #[test]
+    fn decide_next_all_muted_round_robin_still_picks() {
+        let characters = vec![
+            CharacterAttachment {
+                slug: "alice".to_owned(),
+                talkativeness: 0.0,
+                action_points: base_action_value(0.0),
+                spoke_this_round: false,
+            },
+            CharacterAttachment {
+                slug: "bob".to_owned(),
+                talkativeness: 0.0,
+                action_points: base_action_value(0.0),
+                spoke_this_round: false,
+            },
+        ];
+        let mut rng = StdRng::seed_from_u64(0);
+        assert!(
+            decide_next_speaker(&characters, ChatMode::RoundRobin, &mut rng, None).is_some(),
+            "RoundRobin must still pick a speaker regardless of muted action values"
+        );
     }
 }

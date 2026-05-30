@@ -403,7 +403,7 @@ mod sanitizer_tests {
     #[test]
     fn strip_controls_removes_c1_range() {
         // U+0080 through U+009F are C1 controls
-        let input = format!("a\u{0080}b\u{009f}c");
+        let input = "a\u{0080}b\u{009f}c".to_string();
         assert_eq!(strip_terminal_controls(&input), "abc");
     }
 

@@ -109,6 +109,29 @@ fn render_hl(input: &str, tty: bool) -> String {
     out
 }
 
+fn write_json(hits: &[search::SearchHit]) -> Result<()> {
+    let entries: Vec<serde_json::Value> = hits
+        .iter()
+        .map(|h| {
+            serde_json::json!({
+                "session_id": h.session_id,
+                "session_display_name": h.session_display_name,
+                "message_id": h.message_id,
+                "role": h.role.to_string(),
+                "timestamp": h.timestamp.format(&Rfc3339).expect("RFC 3339 format"),
+                "snippet": h.snippet,
+                "preview_text": h.preview_text,
+                "score": h.score,
+            })
+        })
+        .collect();
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    serde_json::to_writer(&mut handle, &entries).context("failed to write JSON")?;
+    handle.write_all(b"\n").context("failed to flush newline")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::render_hl;
@@ -137,27 +160,4 @@ mod tests {
         let result = render_hl("before\x1b]52;c;U0VDUkVU\x07after", false);
         assert_eq!(result, "beforeafter");
     }
-}
-
-fn write_json(hits: &[search::SearchHit]) -> Result<()> {
-    let entries: Vec<serde_json::Value> = hits
-        .iter()
-        .map(|h| {
-            serde_json::json!({
-                "session_id": h.session_id,
-                "session_display_name": h.session_display_name,
-                "message_id": h.message_id,
-                "role": h.role.to_string(),
-                "timestamp": h.timestamp.format(&Rfc3339).expect("RFC 3339 format"),
-                "snippet": h.snippet,
-                "preview_text": h.preview_text,
-                "score": h.score,
-            })
-        })
-        .collect();
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-    serde_json::to_writer(&mut handle, &entries).context("failed to write JSON")?;
-    handle.write_all(b"\n").context("failed to flush newline")?;
-    Ok(())
 }

@@ -787,8 +787,7 @@ mod tests {
     fn render_preview_caps_at_preview_line_cap() {
         let theme = crate::tui::theme::Theme::dark();
         // Build a preview with PREVIEW_LINE_CAP + 500 lines, each just "x"
-        let many_lines: String = std::iter::repeat("x")
-            .take(PREVIEW_LINE_CAP + 500)
+        let many_lines: String = std::iter::repeat_n("x", PREVIEW_LINE_CAP + 500)
             .collect::<Vec<_>>()
             .join("\n");
         let mut state = SearchDialogState::new();
@@ -810,8 +809,7 @@ mod tests {
     fn render_preview_does_not_allocate_all_lines_eagerly() {
         let theme = crate::tui::theme::Theme::dark();
         // PREVIEW_LINE_CAP * 10 short lines — should complete quickly without OOM
-        let huge: String = std::iter::repeat("x")
-            .take(PREVIEW_LINE_CAP * 10)
+        let huge: String = std::iter::repeat_n("x", PREVIEW_LINE_CAP * 10)
             .collect::<Vec<_>>()
             .join("\n");
         let mut state = SearchDialogState::new();

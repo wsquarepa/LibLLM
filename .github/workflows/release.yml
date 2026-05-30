@@ -9,12 +9,14 @@ env:
   CARGO_TERM_COLOR: always
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     name: test
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -25,6 +27,8 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     name: clippy
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -55,6 +59,8 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.target }}
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v6

@@ -156,6 +156,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
                     .collect();
                 app.session.chat_mode = libllm::group_chat::ChatMode::default();
+                app.session.scenario = None;
 
                 crate::tui::business::rebuild_character_cards_cache(app);
                 app.invalidate_chat_caches();
@@ -394,4 +395,35 @@ pub(in crate::tui) fn handle_character_paste(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use libllm::session::Session;
+
+    // Mirrors the field reset performed inline when a new group chat is created
+    // from the character picker (see `handle_character_dialog_key`). Guards the
+    // regression that `scenario` must be among the cleared fields so a prior
+    // session's scenario cannot leak into the new group chat's prompt.
+    #[test]
+    fn group_chat_creation_reset_clears_scenario() {
+        let mut session = Session {
+            scenario: Some("prior secret scenario".to_owned()),
+            ..Session::default()
+        };
+
+        session.tree.clear();
+        session.worldbooks.clear();
+        session.system_prompt = None;
+        session.author_note = None;
+        session.character = None;
+        session.characters.clear();
+        session.chat_mode = libllm::group_chat::ChatMode::default();
+        session.scenario = None;
+
+        assert!(
+            session.scenario.is_none(),
+            "group chat creation must clear the prior session scenario"
+        );
+    }
 }

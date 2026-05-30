@@ -76,11 +76,7 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
     match app.focus {
         Focus::Input => {
             if let Some(token) = paste_as_file_reference(&text, &app.config.files) {
-                app.textarea.insert_str(&token);
-                app.set_status(
-                    format!("Paste converted to file reference: {token}"),
-                    StatusLevel::Info,
-                );
+                dialogs::file_reference_confirm::open(app, token, text.clone());
             } else {
                 app.textarea.input(raw_event);
             }
@@ -416,6 +412,7 @@ fn handle_key(
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::UnsavedWarningDialog => app.unsaved_warning.is_some(),
             Focus::FilePickerDialog => app.file_picker.is_some(),
+            Focus::FileReferenceConfirmDialog => app.file_reference_confirm.is_some(),
             Focus::InjectionWarningDialog => app.injection_warning.is_some(),
             Focus::Input
             | Focus::Chat
@@ -551,6 +548,9 @@ fn handle_key(
     }
     if app.focus == Focus::FilePickerDialog {
         return dialogs::file_picker::handle_key(key, app);
+    }
+    if app.focus == Focus::FileReferenceConfirmDialog {
+        return dialogs::file_reference_confirm::handle_key(key, app);
     }
     if app.focus == Focus::InjectionWarningDialog {
         return dialogs::injection_warning::handle_key(key, app);

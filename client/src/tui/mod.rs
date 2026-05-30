@@ -203,6 +203,7 @@ pub async fn run(
         api_available: true,
         api_error: String::new(),
         file_picker: None,
+        file_reference_confirm: None,
         injection_warning: None,
         status_message: None,
         should_quit: false,
@@ -735,6 +736,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         Focus::DeleteConfirmDialog => Some("delete_confirm"),
         Focus::ApiErrorDialog => Some("api_error"),
         Focus::FilePickerDialog => Some("file_picker"),
+        Focus::FileReferenceConfirmDialog => Some("file_reference_confirm"),
         Focus::InjectionWarningDialog => Some("injection_warning"),
         Focus::LoadingDialog => Some("loading"),
         Focus::TemplatePromptDialog => Some("template_prompt"),
@@ -1007,6 +1009,9 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::FilePickerDialog => {
             dialogs::file_picker::render(f, app, f.area());
+        }
+        Focus::FileReferenceConfirmDialog => {
+            dialogs::file_reference_confirm::render(f, app, f.area());
         }
         Focus::InjectionWarningDialog => {
             dialogs::injection_warning::render(f, app, f.area());

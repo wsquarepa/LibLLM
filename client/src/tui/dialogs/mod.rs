@@ -12,6 +12,7 @@ pub mod danger_typed_confirm;
 pub mod delete_confirm;
 pub mod edit;
 pub mod file_picker;
+pub mod file_reference_confirm;
 pub mod injection_warning;
 pub mod passkey;
 pub mod persona;

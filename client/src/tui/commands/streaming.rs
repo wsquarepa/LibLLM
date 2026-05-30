@@ -119,6 +119,12 @@ where
     let injected: Vec<libllm::session::Message> = injected
         .into_iter()
         .map(|m| {
+            // File-snapshot system messages have their delimiter structure validated
+            // at attach time. Applying PromptSend rules to them can transform escaped
+            // content into exact delimiter lines, bypassing that validation.
+            if libllm::files::is_snapshot(&m.content) {
+                return m;
+            }
             let new_content = libllm::regex_rules::apply(
                 &app.compiled_regex,
                 libllm::regex_rules::Scope::PromptSend,
@@ -127,12 +133,8 @@ where
             )
             .into_owned();
             libllm::session::Message {
-                role: m.role,
                 content: new_content,
-                timestamp: m.timestamp,
-                thought_seconds: m.thought_seconds,
-                speaker: m.speaker,
-                pre_turn_action_points: m.pre_turn_action_points,
+                ..m
             }
         })
         .map(|m| match m.role {

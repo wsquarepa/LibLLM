@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use libllm::db::Database;
-use libllm::search::{self, SearchHit};
+use libllm::search::{self, strip_terminal_controls, SearchHit};
 use libllm::search::query as search_query;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -275,9 +275,10 @@ fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme
         return;
     };
 
+    let safe_name = strip_terminal_controls(&hit.session_display_name);
     let header = format!(
         "{}  {}  {}",
-        hit.session_display_name,
+        safe_name,
         hit.role,
         hit.timestamp.format(&Rfc3339).expect("RFC 3339 format")
     );
@@ -350,10 +351,11 @@ fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme
 fn highlight_spans(input: &str, theme: &Theme) -> Vec<Span<'static>> {
     const OPEN: char = '\u{1}';
     const CLOSE: char = '\u{2}';
+    let sanitized = strip_terminal_controls(input);
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut buffer = String::new();
     let mut highlighted = false;
-    for c in input.chars() {
+    for c in sanitized.chars() {
         match c {
             OPEN => {
                 if !buffer.is_empty() {
@@ -778,5 +780,41 @@ mod tests {
         state.hits = (0..5).map(|_| dummy_hit()).collect();
         handle_key(&mut state, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
         assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn highlight_spans_strips_csi_in_normal_text() {
+        let theme = crate::tui::theme::Theme::dark();
+        let spans = highlight_spans("\x1b[31mred\x1b[0m", &theme);
+        let joined: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "red");
+        assert!(!joined.contains('\x1b'));
+    }
+
+    #[test]
+    fn highlight_spans_strips_osc_in_highlighted_text() {
+        let theme = crate::tui::theme::Theme::dark();
+        let spans = highlight_spans("\u{1}hi\x1b]52;c;AA\x07\u{2}", &theme);
+        let joined: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "hi");
+        assert!(!joined.contains('\x1b'));
+    }
+
+    #[test]
+    fn render_preview_header_strips_escape_in_session_name() {
+        let theme = crate::tui::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.session_display_name = "name\x1b[31m\x1b[0m".into();
+            hit.preview_text = "content".into();
+            hit
+        }];
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(!rendered.contains('\x1b'), "ESC byte must not appear in rendered output");
+        assert!(rendered.contains("name"));
     }
 }

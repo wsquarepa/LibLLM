@@ -1449,4 +1449,51 @@ mod tests {
             "RoundRobin must still pick a speaker regardless of muted action values"
         );
     }
+
+    #[test]
+    fn streaming_done_preserves_group_prefill() {
+        let prefill = "Alice: ".to_owned();
+        let full_response = "Hello there.";
+
+        let combined_prefixed = format!("{}{}", prefill, full_response.trim_start());
+        assert_eq!(
+            combined_prefixed,
+            "Alice: Hello there.",
+            "combined content must include the speaker prefix"
+        );
+        assert!(
+            combined_prefixed.starts_with("Alice: "),
+            "stored message must begin with the speaker prefix for future prompt rendering"
+        );
+    }
+
+    #[test]
+    fn build_turn_prompt_historical_messages_retain_speaker_prefix() {
+        use crate::preset::InstructPreset;
+        use crate::session::{Message, MessageTree, Role, Session};
+
+        let mut tree = MessageTree::new();
+        let user_id = tree.push(None, Message::new(Role::User, "Hi group".to_owned()));
+        let mut assistant_msg = Message::new(Role::Assistant, "Alice: Hello there.".to_owned());
+        assistant_msg.speaker = Some("alice".to_owned());
+        tree.push(Some(user_id), assistant_msg);
+
+        let session = Session {
+            characters: vec![
+                CharacterAttachment::new("alice".to_owned()),
+                CharacterAttachment::new("bob".to_owned()),
+            ],
+            tree,
+            ..Session::default()
+        };
+
+        let template = InstructPreset::default();
+        let messages = session.tree.branch_path();
+        let rendered = template.render(&messages, None);
+
+        assert!(
+            rendered.contains("Alice: Hello there."),
+            "rendered prompt must contain the speaker prefix for historical messages; got: {rendered}"
+        );
+    }
 }

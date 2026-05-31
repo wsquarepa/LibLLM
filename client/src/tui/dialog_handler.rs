@@ -21,7 +21,7 @@ pub(super) fn cancel_generation(app: &mut App) {
                 return;
             };
             let combined = match app.streaming_prefill.take() {
-                Some(_prefill) => app.streaming_buffer.trim_start().to_owned(),
+                Some(prefill) => format!("{}{}", prefill, app.streaming_buffer.trim_start()),
                 None => {
                     let existing = app
                         .session

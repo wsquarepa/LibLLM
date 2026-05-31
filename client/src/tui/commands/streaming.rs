@@ -840,7 +840,7 @@ pub(in crate::tui) async fn handle_stream_token(
             );
             if app.is_continuation {
                 let combined = match app.streaming_prefill.take() {
-                    Some(_prefill) => full_response.trim_start().to_owned(),
+                    Some(prefill) => format!("{}{}", prefill, full_response.trim_start()),
                     None => {
                         let existing =
                             app.session.tree.node(head).unwrap().message.content.clone();

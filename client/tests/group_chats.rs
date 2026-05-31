@@ -1,4 +1,7 @@
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use std::process::Command;
@@ -74,10 +77,11 @@ fn talkativeness_with_unknown_slug_fails() {
 
 #[test]
 fn over_cap_characters_fail() {
-    let chars: Vec<(String, String)> = (0..9)
-        .map(|i| (format!("c{i}"), format!("C{i}")))
+    let chars: Vec<(String, String)> = (0..9).map(|i| (format!("c{i}"), format!("C{i}"))).collect();
+    let pairs: Vec<(&str, &str)> = chars
+        .iter()
+        .map(|(s, n)| (s.as_str(), n.as_str()))
         .collect();
-    let pairs: Vec<(&str, &str)> = chars.iter().map(|(s, n)| (s.as_str(), n.as_str())).collect();
     let ws = workspace_with(&pairs, Some(("me", "Trav")));
 
     let mut cmd = Command::new(client_bin());
@@ -112,10 +116,8 @@ fn legacy_v4_solo_session_loads_with_v5_backfill() {
     .unwrap();
 
     // Confirm no session_characters row so load_session exercises the synthesis path.
-    db.execute_statement(
-        "DELETE FROM session_characters WHERE session_id = 'legacy-solo'",
-    )
-    .unwrap();
+    db.execute_statement("DELETE FROM session_characters WHERE session_id = 'legacy-solo'")
+        .unwrap();
 
     let loaded = db.load_session("legacy-solo").unwrap();
 

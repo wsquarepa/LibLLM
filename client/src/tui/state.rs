@@ -116,8 +116,7 @@ impl App<'_> {
         if self.compiled_regex.is_empty() {
             return;
         }
-        let ids: Vec<libllm::session::NodeId> =
-            self.session.tree.current_branch_ids().to_vec();
+        let ids: Vec<libllm::session::NodeId> = self.session.tree.current_branch_ids().to_vec();
         for id in ids {
             if self.display_regex_cache.contains_key(&id) {
                 continue;
@@ -137,10 +136,7 @@ impl App<'_> {
         }
     }
 
-    pub(super) fn display_content_for(
-        &self,
-        node_id: libllm::session::NodeId,
-    ) -> Option<&str> {
+    pub(super) fn display_content_for(&self, node_id: libllm::session::NodeId) -> Option<&str> {
         if self.compiled_regex.is_empty() {
             return None;
         }

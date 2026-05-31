@@ -23,9 +23,7 @@ impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
     }
 }
 
-pub(in crate::tui) fn loaded_worldbooks(
-    app: &mut App,
-) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
+pub(in crate::tui) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
     let enabled_names = business::enabled_worldbook_names(app.session, &app.config);
     let cache_stale = app
         .worldbook_cache
@@ -60,7 +58,11 @@ pub(in crate::tui) fn loaded_worldbooks(
     app.worldbook_cache.as_ref().unwrap().books.clone()
 }
 
-fn build_rendered_prompt_common<F>(app: &crate::tui::App, dropped: usize, render: F) -> (String, usize)
+fn build_rendered_prompt_common<F>(
+    app: &crate::tui::App,
+    dropped: usize,
+    render: F,
+) -> (String, usize)
 where
     F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
 {
@@ -73,9 +75,7 @@ where
     let injected =
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
     let mut injected = business::replace_template_vars(app.session, injected, user_name, |slug| {
-        app.character_cards_cache
-            .get(slug)
-            .map(|c| c.name.clone())
+        app.character_cards_cache.get(slug).map(|c| c.name.clone())
     });
 
     // Choose which character card's author_note to inject. For solo sessions, use
@@ -166,7 +166,10 @@ where
 /// Returns the rendered prompt and the number of messages that composed it (after
 /// summary-aware trim, drop, worldbook injection, and template rewrite). Callers that
 /// only need the string can `.0` the tuple.
-pub(in crate::tui) fn build_rendered_prompt(app: &crate::tui::App, dropped: usize) -> (String, usize) {
+pub(in crate::tui) fn build_rendered_prompt(
+    app: &crate::tui::App,
+    dropped: usize,
+) -> (String, usize) {
     let (prompt, message_count) =
         build_rendered_prompt_common(app, dropped, |preset, refs, sys| preset.render(refs, sys));
     let final_prompt = match app.reasoning_preset.as_ref() {
@@ -229,10 +232,8 @@ where
         let Some(nudge_text) = nudge.as_deref() else {
             return render(preset, refs, sys);
         };
-        let nudge_msg = libllm::session::Message::new(
-            libllm::session::Role::System,
-            nudge_text.to_owned(),
-        );
+        let nudge_msg =
+            libllm::session::Message::new(libllm::session::Role::System, nudge_text.to_owned());
         let mut with_nudge: Vec<&libllm::session::Message> = refs.to_vec();
         if with_nudge.is_empty() {
             with_nudge.push(&nudge_msg);
@@ -492,7 +493,12 @@ pub(super) async fn run_one_group_turn(
     snapshot_json: &str,
     sender: &mpsc::Sender<StreamToken>,
 ) {
-    let tpl_name = app.config.template_preset.as_deref().unwrap_or("Default").to_owned();
+    let tpl_name = app
+        .config
+        .template_preset
+        .as_deref()
+        .unwrap_or("Default")
+        .to_owned();
     let template = libllm::preset::resolve_template_preset(&tpl_name);
 
     let persona = app
@@ -604,12 +610,7 @@ pub(in crate::tui) async fn continue_group_chat_loop(
             let mode = app.session.chat_mode;
             let decision = {
                 let rng = app.group_chat_loop_rng.as_mut().unwrap();
-                libllm::group_chat::decide_next_speaker(
-                    &app.session.characters,
-                    mode,
-                    rng,
-                    None,
-                )
+                libllm::group_chat::decide_next_speaker(&app.session.characters, mode, rng, None)
             };
             let Some(decision) = decision else {
                 tracing::debug!(
@@ -644,7 +645,9 @@ pub(in crate::tui) async fn continue_group_chat_loop(
                 )
             };
             let Some(decision) = decision else {
-                tracing::debug!("group_chat: cascade complete (no eligible speakers), yielding to user");
+                tracing::debug!(
+                    "group_chat: cascade complete (no eligible speakers), yielding to user"
+                );
                 app.group_chat_loop_rng = None;
                 return;
             };
@@ -688,7 +691,10 @@ pub(in crate::tui) async fn start_streaming(
         }
         StreamPreflight::Blocked => return,
     }
-    debug_assert!(!content.trim().is_empty(), "start_streaming called with blank content");
+    debug_assert!(
+        !content.trim().is_empty(),
+        "start_streaming called with blank content"
+    );
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let resolved = match libllm::files::resolve_all_resolved(content, &cwd, &app.config.files) {
         Ok(v) => v,
@@ -734,10 +740,9 @@ pub(in crate::tui) async fn start_streaming(
         app.save_mode.id(),
         app.file_summarizer.as_ref(),
     ) {
-        (false, _, _, _) => tracing::debug!(
-            reason = "mode_lazy",
-            "files.summary.eager_schedule.skipped"
-        ),
+        (false, _, _, _) => {
+            tracing::debug!(reason = "mode_lazy", "files.summary.eager_schedule.skipped")
+        }
         (_, false, _, _) => tracing::debug!(
             reason = "summarization_disabled",
             "files.summary.eager_schedule.skipped"
@@ -844,8 +849,7 @@ pub(in crate::tui) async fn handle_stream_token(
                 let combined = match app.streaming_prefill.take() {
                     Some(prefill) => format!("{}{}", prefill, full_response.trim_start()),
                     None => {
-                        let existing =
-                            app.session.tree.node(head).unwrap().message.content.clone();
+                        let existing = app.session.tree.node(head).unwrap().message.content.clone();
                         format!("{}{}", existing, full_response)
                     }
                 };
@@ -868,7 +872,9 @@ pub(in crate::tui) async fn handle_stream_token(
                     measured_seconds,
                     app.reasoning_preset.as_ref(),
                 );
-                app.session.tree.set_message_thought_seconds(head, final_seconds);
+                app.session
+                    .tree
+                    .set_message_thought_seconds(head, final_seconds);
                 app.is_continuation = false;
             } else {
                 let stored_content = libllm::thought::normalize_assistant_content(
@@ -889,13 +895,11 @@ pub(in crate::tui) async fn handle_stream_token(
                     measured_seconds,
                     app.reasoning_preset.as_ref(),
                 );
-                app.session
-                    .tree
-                    .push(
-                        Some(head),
-                        Message::new(Role::Assistant, stored_content)
-                            .with_thought_seconds(final_seconds),
-                    );
+                app.session.tree.push(
+                    Some(head),
+                    Message::new(Role::Assistant, stored_content)
+                        .with_thought_seconds(final_seconds),
+                );
             }
             tracing::info!(
                 result = "ok",
@@ -921,10 +925,7 @@ pub(in crate::tui) async fn handle_stream_token(
                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                 let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
                 let (full_prompt, _) = build_rendered_prompt(app, 0);
-                let actual_tokens = match app
-                    .token_counter
-                    .count_authoritative(&full_prompt)
-                    .await
+                let actual_tokens = match app.token_counter.count_authoritative(&full_prompt).await
                 {
                     Ok(n) => n,
                     Err(err) => {
@@ -1067,7 +1068,13 @@ pub(in crate::tui) async fn handle_stream_token(
                             let refs: Vec<&Message> = messages_to_summarize.iter().collect();
                             let lookup = SnapshotFileSummaryLookup(summaries_snapshot);
                             let result = summarizer
-                                .summarize(scenario.as_deref(), &refs, token_budget, &summary_counter, &lookup)
+                                .summarize(
+                                    scenario.as_deref(),
+                                    &refs,
+                                    token_budget,
+                                    &summary_counter,
+                                    &lookup,
+                                )
                                 .await;
                             let _ = tx.send(result.map_err(|e| e.to_string()));
                         });

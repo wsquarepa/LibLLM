@@ -198,13 +198,12 @@ async fn main() -> Result<()> {
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode, mut db, summarizer_db_path, summarizer_key) =
-        libllm::timed_result!(
-            tracing::Level::INFO,
-            "startup.phase",
-            phase = "resolve_session" ;
-            { resolve_session(&args) }
-        )?;
+    let (mut session, mut save_mode, mut db, summarizer_db_path, summarizer_key) = libllm::timed_result!(
+        tracing::Level::INFO,
+        "startup.phase",
+        phase = "resolve_session" ;
+        { resolve_session(&args) }
+    )?;
 
     session.template = Some(instruct_preset.name.clone());
 
@@ -232,7 +231,9 @@ async fn main() -> Result<()> {
             } else {
                 session.author_note = Some(libllm::author_note::AuthorNote {
                     text: text.clone(),
-                    depth: args.note_depth.unwrap_or(libllm::author_note::DEFAULT_DEPTH),
+                    depth: args
+                        .note_depth
+                        .unwrap_or(libllm::author_note::DEFAULT_DEPTH),
                     at_top: args.note_top,
                 });
             }
@@ -268,10 +269,8 @@ async fn main() -> Result<()> {
 
             if args.character.len() == 1 {
                 let (_, card) = &loaded_cards[0];
-                session.system_prompt = Some(character::build_system_prompt(
-                    card,
-                    Some(&template_preset),
-                ));
+                session.system_prompt =
+                    Some(character::build_system_prompt(card, Some(&template_preset)));
                 session.character = Some(card.name.clone());
                 if session.tree.head().is_none() && !card.first_mes.is_empty() {
                     session
@@ -344,10 +343,7 @@ async fn main() -> Result<()> {
         let cwd = std::env::current_dir().context("read current working directory")?;
         let prepended = stdin_attachment.into_iter().collect::<Vec<_>>();
         let resolved_files = match libllm::files::resolve_with_prepended_resolved(
-            prepended,
-            &text,
-            &cwd,
-            &cfg.files,
+            prepended, &text, &cwd, &cfg.files,
         ) {
             Ok(v) => v,
             Err(err) => {
@@ -375,16 +371,14 @@ async fn main() -> Result<()> {
             }
         }
 
-        let system_messages = match libllm::files::assemble_snapshot_messages(
-            resolved_files,
-            &cfg.files,
-        ) {
-            Ok(v) => v,
-            Err(err) => {
-                eprintln!("{err}");
-                std::process::exit(1);
-            }
-        };
+        let system_messages =
+            match libllm::files::assemble_snapshot_messages(resolved_files, &cfg.files) {
+                Ok(v) => v,
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            };
 
         let effective_prompt = tui::build_effective_system_prompt_standalone(&session, db.as_ref());
 
@@ -500,7 +494,13 @@ type ResolvedSession = (
 
 fn resolve_session(args: &Args) -> Result<ResolvedSession> {
     if args.message.is_some() && args.data.is_none() {
-        return Ok((session::Session::default(), SaveMode::None, None, None, None));
+        return Ok((
+            session::Session::default(),
+            SaveMode::None,
+            None,
+            None,
+            None,
+        ));
     }
 
     let db_path = config::data_dir().join("data.db");

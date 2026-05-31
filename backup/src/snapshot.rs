@@ -48,8 +48,13 @@ pub fn create_snapshot(
     let plaintext = crate::export::export_plaintext_db(&db_path, db_key.as_ref())?;
     let plaintext_hash = crate::hash::hash_bytes(&plaintext);
 
-    let (backup_type, compressed) =
-        build_payload(&plaintext, &index, &backups_dir, &existing_chain_dek, config)?;
+    let (backup_type, compressed) = build_payload(
+        &plaintext,
+        &index,
+        &backups_dir,
+        &existing_chain_dek,
+        config,
+    )?;
 
     let (dek_for_this_entry, wrapped_dek_for_base, fingerprint_for_base): (
         Option<[u8; 32]>,
@@ -62,11 +67,7 @@ pub fn create_snapshot(
             let fp = kek_fingerprint
                 .clone()
                 .expect("kek present => fingerprint present");
-            (
-                Some(dek),
-                Some(wrapped),
-                Some(FingerprintField::Known(fp)),
-            )
+            (Some(dek), Some(wrapped), Some(FingerprintField::Known(fp)))
         }
         (Some(_), BackupType::Diff) => {
             let dek = existing_chain_dek.expect(
@@ -277,110 +278,111 @@ pub fn rebuild_index(
 
         match entry_type {
             BackupType::Base => {
-                let (plaintext_hash, plaintext_size, kek_fingerprint, wrapped_dek) = if dir_is_encrypted {
-                    if backup_key.is_none() {
-                        let msg = format!(
-                            "skipping {filename}: encrypted backup requires a passkey to rebuild DEK"
-                        );
-                        tracing::warn!(
-                            result = "error",
-                            filename = %filename,
-                            "backup.rebuild_index.encrypted_no_kek"
-                        );
-                        warnings.push(msg);
-                        continue;
-                    }
-                    let kek = backup_key
-                        .as_ref()
-                        .expect("backup_key is Some: None case continued above");
-
-                    let plaintext = match crate::crypto::decrypt_payload(&file_bytes, kek) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            let msg = format!("skipping {filename}: decryption failed: {e}");
+                let (plaintext_hash, plaintext_size, kek_fingerprint, wrapped_dek) =
+                    if dir_is_encrypted {
+                        if backup_key.is_none() {
+                            let msg = format!(
+                                "skipping {filename}: encrypted backup requires a passkey to rebuild DEK"
+                            );
                             tracing::warn!(
                                 result = "error",
                                 filename = %filename,
-                                error = %e,
-                                "backup.rebuild_index.decrypt_failed"
+                                "backup.rebuild_index.encrypted_no_kek"
                             );
                             warnings.push(msg);
                             continue;
                         }
-                    };
+                        let kek = backup_key
+                            .as_ref()
+                            .expect("backup_key is Some: None case continued above");
 
-                    let dek = crate::crypto::generate_dek();
-                    let new_blob = match crate::crypto::encrypt_payload(&plaintext, &dek) {
-                        Ok(b) => b,
-                        Err(e) => {
-                            let msg = format!("skipping {filename}: re-encryption failed: {e}");
+                        let plaintext = match crate::crypto::decrypt_payload(&file_bytes, kek) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                let msg = format!("skipping {filename}: decryption failed: {e}");
+                                tracing::warn!(
+                                    result = "error",
+                                    filename = %filename,
+                                    error = %e,
+                                    "backup.rebuild_index.decrypt_failed"
+                                );
+                                warnings.push(msg);
+                                continue;
+                            }
+                        };
+
+                        let dek = crate::crypto::generate_dek();
+                        let new_blob = match crate::crypto::encrypt_payload(&plaintext, &dek) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                let msg = format!("skipping {filename}: re-encryption failed: {e}");
+                                tracing::warn!(
+                                    result = "error",
+                                    filename = %filename,
+                                    error = %e,
+                                    "backup.rebuild_index.reencrypt_failed"
+                                );
+                                warnings.push(msg);
+                                continue;
+                            }
+                        };
+
+                        // Wrap the DEK before overwriting the on-disk file: if the wrap
+                        // fails after the file is re-encrypted, the fresh DEK exists only
+                        // in this stack frame and is lost, leaving the backup unrecoverable.
+                        let wrapped = match crate::crypto::wrap_dek(&dek, kek) {
+                            Ok(w) => w,
+                            Err(e) => {
+                                let msg = format!("skipping {filename}: DEK wrap failed: {e}");
+                                tracing::warn!(
+                                    result = "error",
+                                    filename = %filename,
+                                    error = %e,
+                                    "backup.rebuild_index.wrap_dek_failed"
+                                );
+                                warnings.push(msg);
+                                continue;
+                            }
+                        };
+
+                        if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
+                            let msg = format!(
+                                "skipping {filename}: failed to persist re-encrypted file: {e}"
+                            );
                             tracing::warn!(
                                 result = "error",
                                 filename = %filename,
                                 error = %e,
-                                "backup.rebuild_index.reencrypt_failed"
+                                "backup.rebuild_index.write_failed"
                             );
                             warnings.push(msg);
                             continue;
                         }
-                    };
 
-                    // Wrap the DEK before overwriting the on-disk file: if the wrap
-                    // fails after the file is re-encrypted, the fresh DEK exists only
-                    // in this stack frame and is lost, leaving the backup unrecoverable.
-                    let wrapped = match crate::crypto::wrap_dek(&dek, kek) {
-                        Ok(w) => w,
-                        Err(e) => {
-                            let msg = format!("skipping {filename}: DEK wrap failed: {e}");
-                            tracing::warn!(
-                                result = "error",
-                                filename = %filename,
-                                error = %e,
-                                "backup.rebuild_index.wrap_dek_failed"
-                            );
-                            warnings.push(msg);
-                            continue;
-                        }
+                        let fp = crate::crypto::compute_kek_fingerprint(kek);
+                        (
+                            "unknown".to_string(),
+                            stored_size,
+                            Some(FingerprintField::Known(fp)),
+                            Some(wrapped),
+                        )
+                    } else {
+                        let plaintext = match crate::diff::decompress(&file_bytes) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                let msg = format!("skipping {filename}: decompression failed: {e}");
+                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
+                                warnings.push(msg);
+                                continue;
+                            }
+                        };
+                        (
+                            crate::hash::hash_bytes(&plaintext),
+                            plaintext.len() as u64,
+                            None,
+                            None,
+                        )
                     };
-
-                    if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
-                        let msg = format!(
-                            "skipping {filename}: failed to persist re-encrypted file: {e}"
-                        );
-                        tracing::warn!(
-                            result = "error",
-                            filename = %filename,
-                            error = %e,
-                            "backup.rebuild_index.write_failed"
-                        );
-                        warnings.push(msg);
-                        continue;
-                    }
-
-                    let fp = crate::crypto::compute_kek_fingerprint(kek);
-                    (
-                        "unknown".to_string(),
-                        stored_size,
-                        Some(FingerprintField::Known(fp)),
-                        Some(wrapped),
-                    )
-                } else {
-                    let plaintext = match crate::diff::decompress(&file_bytes) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            let msg = format!("skipping {filename}: decompression failed: {e}");
-                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
-                            warnings.push(msg);
-                            continue;
-                        }
-                    };
-                    (
-                        crate::hash::hash_bytes(&plaintext),
-                        plaintext.len() as u64,
-                        None,
-                        None,
-                    )
-                };
 
                 index.entries.push(BackupEntry {
                     id,
@@ -402,7 +404,8 @@ pub fn rebuild_index(
                 let base_entry = match index.latest_base() {
                     Some(e) => e.clone(),
                     None => {
-                        let msg = format!("skipping {filename}: no base entry in rebuilt index yet");
+                        let msg =
+                            format!("skipping {filename}: no base entry in rebuilt index yet");
                         tracing::warn!(result = "error", filename = %filename, "backup.rebuild_index.missing_base");
                         warnings.push(msg);
                         continue;
@@ -425,21 +428,25 @@ pub fn rebuild_index(
                     };
 
                     let chain_refs: Vec<&BackupEntry> = chain.iter().collect();
-                    let base_plaintext =
-                        match crate::restore::replay_chain(backups_dir, &chain_refs, &backup_key) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                let msg = format!("skipping {filename}: chain replay failed: {e}");
-                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_replay_failed");
-                                warnings.push(msg);
-                                continue;
-                            }
-                        };
+                    let base_plaintext = match crate::restore::replay_chain(
+                        backups_dir,
+                        &chain_refs,
+                        &backup_key,
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let msg = format!("skipping {filename}: chain replay failed: {e}");
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_replay_failed");
+                            warnings.push(msg);
+                            continue;
+                        }
+                    };
 
                     let patch = match crate::diff::decompress(&file_bytes) {
                         Ok(p) => p,
                         Err(e) => {
-                            let msg = format!("skipping {filename}: diff decompression failed: {e}");
+                            let msg =
+                                format!("skipping {filename}: diff decompression failed: {e}");
                             tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.diff_decompress_failed");
                             warnings.push(msg);
                             continue;
@@ -456,10 +463,7 @@ pub fn rebuild_index(
                         }
                     };
 
-                    (
-                        crate::hash::hash_bytes(&plaintext),
-                        plaintext.len() as u64,
-                    )
+                    (crate::hash::hash_bytes(&plaintext), plaintext.len() as u64)
                 };
 
                 index.entries.push(BackupEntry {
@@ -782,8 +786,15 @@ mod tests {
 
         let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
 
-        assert!(warnings.is_empty(), "expected no warnings, got: {warnings:?}");
-        assert_eq!(rebuilt.entries.len(), 2, "both entries must be in the rebuilt index");
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {warnings:?}"
+        );
+        assert_eq!(
+            rebuilt.entries.len(),
+            2,
+            "both entries must be in the rebuilt index"
+        );
 
         let base = rebuilt
             .entries
@@ -795,7 +806,10 @@ mod tests {
             "rebuilt encrypted base must have a wrapped_dek"
         );
         assert!(
-            matches!(base.kek_fingerprint, Some(crate::index::FingerprintField::Known(_))),
+            matches!(
+                base.kek_fingerprint,
+                Some(crate::index::FingerprintField::Known(_))
+            ),
             "rebuilt encrypted base must have a Known kek_fingerprint, got {:?}",
             base.kek_fingerprint
         );
@@ -859,9 +873,7 @@ mod tests {
         let expected_mtime: chrono::DateTime<Utc> = past.into();
 
         for entry in &rebuilt.entries {
-            let delta_from_mtime = (entry.created_at - expected_mtime)
-                .abs()
-                .num_seconds();
+            let delta_from_mtime = (entry.created_at - expected_mtime).abs().num_seconds();
             let delta_from_now = (entry.created_at - now).abs().num_seconds();
 
             assert!(

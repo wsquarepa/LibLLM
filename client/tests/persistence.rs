@@ -6,7 +6,7 @@ mod common;
 
 use libllm::crypto;
 use libllm::db::Database;
-use libllm::group_chat::{ChatMode, CharacterAttachment};
+use libllm::group_chat::{CharacterAttachment, ChatMode};
 use libllm::session::{MessageTree, Role, Session};
 
 #[test]
@@ -336,7 +336,8 @@ fn group_session_round_trips_through_database() {
         ..Default::default()
     };
 
-    db.insert_session("g3", &session).expect("insert group session");
+    db.insert_session("g3", &session)
+        .expect("insert group session");
     let loaded = db.load_session("g3").expect("load group session");
 
     assert_eq!(loaded.characters.len(), 3);

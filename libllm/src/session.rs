@@ -336,7 +336,11 @@ impl MessageTree {
         true
     }
 
-    pub fn set_message_thought_seconds(&mut self, id: NodeId, thought_seconds: Option<u32>) -> bool {
+    pub fn set_message_thought_seconds(
+        &mut self,
+        id: NodeId,
+        thought_seconds: Option<u32>,
+    ) -> bool {
         let Some(node) = self.nodes.get_mut(id) else {
             return false;
         };
@@ -929,10 +933,8 @@ mod tests {
         let m5 = tree.push(Some(m4), Message::new(Role::User, "m5".to_owned()));
         let m6 = tree.push(Some(m5), Message::new(Role::Assistant, "m6".to_owned()));
 
-        let summary_id = tree.splice_between(
-            m3,
-            Message::new(Role::Summary, "prefix summary".to_owned()),
-        );
+        let summary_id =
+            tree.splice_between(m3, Message::new(Role::Summary, "prefix summary".to_owned()));
 
         assert_eq!(tree.head(), Some(m6), "head must remain the original leaf");
         assert_eq!(
@@ -952,10 +954,8 @@ mod tests {
         let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
         let _m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
 
-        let summary_id = tree.splice_between(
-            m1,
-            Message::new(Role::Summary, "sole summary".to_owned()),
-        );
+        let summary_id =
+            tree.splice_between(m1, Message::new(Role::Summary, "sole summary".to_owned()));
 
         let (_, total) = tree.sibling_info(summary_id);
         assert_eq!(
@@ -978,8 +978,7 @@ mod tests {
         );
         tree.set_head(Some(alt_a));
 
-        let summary_id =
-            tree.splice_between(root, Message::new(Role::Summary, "sum".to_owned()));
+        let summary_id = tree.splice_between(root, Message::new(Role::Summary, "sum".to_owned()));
 
         assert_eq!(tree.node(root).unwrap().children, vec![summary_id]);
         assert_eq!(
@@ -1034,7 +1033,10 @@ mod tests {
     fn remove_node_on_root_with_single_child_promotes_child() {
         let mut tree = MessageTree::new();
         let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
-        let child = tree.push(Some(root), Message::new(Role::Assistant, "child".to_owned()));
+        let child = tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "child".to_owned()),
+        );
 
         let removed = tree.remove_node(root);
         assert!(removed);
@@ -1050,8 +1052,14 @@ mod tests {
     fn remove_node_on_root_with_multiple_children_leaves_multiple_roots() {
         let mut tree = MessageTree::new();
         let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
-        let alt_a = tree.push(Some(root), Message::new(Role::Assistant, "alt_a".to_owned()));
-        let _alt_b = tree.push(Some(root), Message::new(Role::Assistant, "alt_b".to_owned()));
+        let alt_a = tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "alt_a".to_owned()),
+        );
+        let _alt_b = tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "alt_b".to_owned()),
+        );
         tree.set_head(Some(alt_a));
 
         let removed = tree.remove_node(root);
@@ -1229,7 +1237,10 @@ mod tests {
         // snapshot parenting the user message. The retry branch must share the
         // File node so the [N/M] sibling indicator lands on User, not File.
         let mut tree = MessageTree::new();
-        let file = tree.push(None, Message::new(Role::System, "<file>README</file>".into()));
+        let file = tree.push(
+            None,
+            Message::new(Role::System, "<file>README</file>".into()),
+        );
         let user1 = tree.push(Some(file), Message::new(Role::User, "hi".into()));
         let assistant1 = tree.push(Some(user1), Message::new(Role::Assistant, "hello".into()));
 
@@ -1346,7 +1357,10 @@ mod tests {
         let json = serde_json::to_string(&m).unwrap();
         let back: super::Message = serde_json::from_str(&json).unwrap();
         assert_eq!(back.speaker.as_deref(), Some("alice"));
-        assert_eq!(back.pre_turn_action_points.as_deref(), Some(r#"{"alice":0.2,"bob":0.5}"#));
+        assert_eq!(
+            back.pre_turn_action_points.as_deref(),
+            Some(r#"{"alice":0.2,"bob":0.5}"#)
+        );
     }
 
     #[test]

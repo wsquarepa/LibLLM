@@ -12,8 +12,11 @@ pub struct AuthorNote {
 
 impl AuthorNote {
     pub fn from_row_parts(text: Option<String>, depth: u32, at_top: bool) -> Option<Self> {
-        text.filter(|t| !t.trim().is_empty())
-            .map(|text| Self { text, depth, at_top })
+        text.filter(|t| !t.trim().is_empty()).map(|text| Self {
+            text,
+            depth,
+            at_top,
+        })
     }
 
     pub fn position(&self, message_count: usize) -> usize {
@@ -64,7 +67,11 @@ mod tests {
     }
 
     fn note(text: &str, depth: u32, at_top: bool) -> AuthorNote {
-        AuthorNote { text: text.to_owned(), depth, at_top }
+        AuthorNote {
+            text: text.to_owned(),
+            depth,
+            at_top,
+        }
     }
 
     #[test]
@@ -148,7 +155,10 @@ mod tests {
 
     #[test]
     fn from_row_parts_none_when_text_is_empty() {
-        assert_eq!(AuthorNote::from_row_parts(Some(String::new()), 4, false), None);
+        assert_eq!(
+            AuthorNote::from_row_parts(Some(String::new()), 4, false),
+            None
+        );
     }
 
     #[test]
@@ -174,49 +184,81 @@ mod tests {
 
     #[test]
     fn position_at_top_is_zero() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 99, at_top: true };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 99,
+            at_top: true,
+        };
         assert_eq!(note.position(10), 0);
     }
 
     #[test]
     fn position_zero_depth_clamps_to_zero() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 0, at_top: false };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 0,
+            at_top: false,
+        };
         assert_eq!(note.position(10), 0);
     }
 
     #[test]
     fn position_depth_equals_len_clamps_to_zero() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 10, at_top: false };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 10,
+            at_top: false,
+        };
         assert_eq!(note.position(10), 0);
     }
 
     #[test]
     fn position_depth_exceeds_len_clamps_to_zero() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 99, at_top: false };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 99,
+            at_top: false,
+        };
         assert_eq!(note.position(10), 0);
     }
 
     #[test]
     fn position_depth_one_is_len_minus_one() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 1, at_top: false };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 1,
+            at_top: false,
+        };
         assert_eq!(note.position(10), 9);
     }
 
     #[test]
     fn position_depth_four_is_len_minus_four() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 4, at_top: false };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 4,
+            at_top: false,
+        };
         assert_eq!(note.position(10), 6);
     }
 
     #[test]
     fn position_empty_messages_clamps_to_zero() {
-        let note = AuthorNote { text: "x".to_owned(), depth: 4, at_top: false };
+        let note = AuthorNote {
+            text: "x".to_owned(),
+            depth: 4,
+            at_top: false,
+        };
         assert_eq!(note.position(0), 0);
     }
 
     #[test]
     fn serde_round_trip() {
-        let note = AuthorNote { text: "hi".to_owned(), depth: 3, at_top: true };
+        let note = AuthorNote {
+            text: "hi".to_owned(),
+            depth: 3,
+            at_top: true,
+        };
         let json = serde_json::to_string(&note).unwrap();
         let back: AuthorNote = serde_json::from_str(&json).unwrap();
         assert_eq!(note, back);

@@ -17,7 +17,9 @@ pub(in crate::tui) fn spawn_destroy_all(
         let snapshot_path_for_task = snapshot_path.clone();
         let result = tokio::task::spawn_blocking(move || {
             libllm::archive::snapshot_data_dir(&data_dir, &snapshot_path_for_task, "backups")
-                .map(|_bytes| crate::tui::types::DangerSummary::SnapshotPath(snapshot_path_for_task))
+                .map(|_bytes| {
+                    crate::tui::types::DangerSummary::SnapshotPath(snapshot_path_for_task)
+                })
                 .map_err(|e| e.to_string())
         })
         .await
@@ -75,10 +77,7 @@ fn destroy_all_finalize(app: &mut App, snapshot_path: std::path::PathBuf) {
     }
 
     let _ = crossterm::terminal::disable_raw_mode();
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        crossterm::terminal::LeaveAlternateScreen
-    );
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
     eprintln!(
         "LibLLM data destroyed. Snapshot saved to: {}",
         snapshot_path.display()

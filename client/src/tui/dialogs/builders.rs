@@ -129,8 +129,14 @@ pub fn open_config_editor(
     sections: Vec<Vec<String>>,
     locked: Vec<Vec<usize>>,
 ) -> TabbedFieldDialog<'static> {
-    let [general_vals, sampling_vals, backup_vals, summarization_vals, files_vals, _danger_vals]: [Vec<String>; 6] =
-        sections.try_into().expect("expected 6 section vectors");
+    let [
+        general_vals,
+        sampling_vals,
+        backup_vals,
+        summarization_vals,
+        files_vals,
+        _danger_vals,
+    ]: [Vec<String>; 6] = sections.try_into().expect("expected 6 section vectors");
     let [
         general_locked,
         sampling_locked,
@@ -202,8 +208,20 @@ pub fn open_config_editor(
         .with_multiline_fields(FILES_MULTILINE)
         .with_locked_fields(files_locked)
         .with_validated_fields(vec![
-            (1, FieldValidation::Int { min: 0, max: 134217728 }),
-            (2, FieldValidation::Int { min: 0, max: 134217728 }),
+            (
+                1,
+                FieldValidation::Int {
+                    min: 0,
+                    max: 134217728,
+                },
+            ),
+            (
+                2,
+                FieldValidation::Int {
+                    min: 0,
+                    max: 134217728,
+                },
+            ),
         ]);
 
     let danger = TabSection::new("Danger", &[], vec![])
@@ -504,7 +522,14 @@ pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'
 
     TabbedFieldDialog::new(
         " Theme ",
-        vec![theme_tab, messages, borders_status, ui_tab, indicators, group_chars],
+        vec![
+            theme_tab,
+            messages,
+            borders_status,
+            ui_tab,
+            indicators,
+            group_chars,
+        ],
     )
 }
 

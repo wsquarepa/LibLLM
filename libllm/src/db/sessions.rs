@@ -975,7 +975,7 @@ mod tests {
 
     #[test]
     fn save_and_load_group_session_round_trips_attachments_and_settings() {
-        use crate::group_chat::{ChatMode, CharacterAttachment};
+        use crate::group_chat::{CharacterAttachment, ChatMode};
         use crate::session::{MessageTree, Session};
 
         let mut conn = Connection::open_in_memory().unwrap();
@@ -1042,7 +1042,11 @@ mod tests {
         insert_session(&mut conn, "s1", &session).unwrap();
 
         let mirror: Option<String> = conn
-            .query_row("SELECT character FROM sessions WHERE id = 's1'", [], |row| row.get(0))
+            .query_row(
+                "SELECT character FROM sessions WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(mirror.as_deref(), Some("alice"));
 
@@ -1061,15 +1065,25 @@ mod tests {
 
         let session = Session {
             tree: MessageTree::new(),
-            characters: vec![CharacterAttachment::new("alice"), CharacterAttachment::new("bob")],
+            characters: vec![
+                CharacterAttachment::new("alice"),
+                CharacterAttachment::new("bob"),
+            ],
             ..Default::default()
         };
         insert_session(&mut conn, "g2", &session).unwrap();
 
         let mirror: Option<String> = conn
-            .query_row("SELECT character FROM sessions WHERE id = 'g2'", [], |row| row.get(0))
+            .query_row(
+                "SELECT character FROM sessions WHERE id = 'g2'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert!(mirror.is_none(), "character column should be NULL for group sessions");
+        assert!(
+            mirror.is_none(),
+            "character column should be NULL for group sessions"
+        );
     }
 
     #[test]
@@ -1082,7 +1096,10 @@ mod tests {
 
         let mut session = Session {
             tree: MessageTree::new(),
-            characters: vec![CharacterAttachment::new("alice"), CharacterAttachment::new("bob")],
+            characters: vec![
+                CharacterAttachment::new("alice"),
+                CharacterAttachment::new("bob"),
+            ],
             ..Default::default()
         };
         insert_session(&mut conn, "g3", &session).unwrap();
@@ -1140,19 +1157,28 @@ mod tests {
         alice_msg.pre_turn_action_points = Some(r#"{"alice":0.2,"bob":0.5}"#.to_owned());
         tree.push(Some(user_id), alice_msg);
 
-        let session = Session { tree, ..Default::default() };
+        let session = Session {
+            tree,
+            ..Default::default()
+        };
         insert_session(&mut conn, "m1", &session).unwrap();
 
         let loaded = super::load_session(&conn, "m1").unwrap();
         let nodes = loaded.tree.nodes();
-        let assistant = nodes.iter().find(|n| matches!(n.message.role, Role::Assistant)).unwrap();
+        let assistant = nodes
+            .iter()
+            .find(|n| matches!(n.message.role, Role::Assistant))
+            .unwrap();
         assert_eq!(assistant.message.speaker.as_deref(), Some("alice"));
         assert_eq!(
             assistant.message.pre_turn_action_points.as_deref(),
             Some(r#"{"alice":0.2,"bob":0.5}"#)
         );
 
-        let user = nodes.iter().find(|n| matches!(n.message.role, Role::User)).unwrap();
+        let user = nodes
+            .iter()
+            .find(|n| matches!(n.message.role, Role::User))
+            .unwrap();
         assert!(user.message.speaker.is_none());
         assert!(user.message.pre_turn_action_points.is_none());
     }

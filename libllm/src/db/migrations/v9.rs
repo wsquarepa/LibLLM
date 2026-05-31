@@ -166,11 +166,10 @@ mod tests {
             [],
         )?;
         super::migrate(&conn)?;
-        let scenario: Option<String> = conn.query_row(
-            "SELECT scenario FROM sessions WHERE id = 's1'",
-            [],
-            |row| row.get(0),
-        )?;
+        let scenario: Option<String> =
+            conn.query_row("SELECT scenario FROM sessions WHERE id = 's1'", [], |row| {
+                row.get(0)
+            })?;
         assert_eq!(scenario.as_deref(), Some("A medieval tavern."));
         Ok(())
     }
@@ -199,12 +198,12 @@ mod tests {
             )?;
         }
         super::migrate(&conn)?;
-        let scenario: Option<String> = conn.query_row(
-            "SELECT scenario FROM sessions WHERE id = 'g1'",
-            [],
-            |row| row.get(0),
-        )?;
-        let expected = "[Scenario for Alice]\nAlice is hunting.\n[Scenario for Bob]\nBob is brewing.";
+        let scenario: Option<String> =
+            conn.query_row("SELECT scenario FROM sessions WHERE id = 'g1'", [], |row| {
+                row.get(0)
+            })?;
+        let expected =
+            "[Scenario for Alice]\nAlice is hunting.\n[Scenario for Bob]\nBob is brewing.";
         assert_eq!(scenario.as_deref(), Some(expected));
         Ok(())
     }
@@ -232,12 +231,14 @@ mod tests {
             )?;
         }
         super::migrate(&conn)?;
-        let scenario: Option<String> = conn.query_row(
-            "SELECT scenario FROM sessions WHERE id = 'g1'",
-            [],
-            |row| row.get(0),
-        )?;
-        assert_eq!(scenario.as_deref(), Some("[Scenario for Bob]\nBob is brewing."));
+        let scenario: Option<String> =
+            conn.query_row("SELECT scenario FROM sessions WHERE id = 'g1'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(
+            scenario.as_deref(),
+            Some("[Scenario for Bob]\nBob is brewing.")
+        );
         Ok(())
     }
 
@@ -262,11 +263,10 @@ mod tests {
             )?;
         }
         super::migrate(&conn)?;
-        let scenario: Option<String> = conn.query_row(
-            "SELECT scenario FROM sessions WHERE id = 'g1'",
-            [],
-            |row| row.get(0),
-        )?;
+        let scenario: Option<String> =
+            conn.query_row("SELECT scenario FROM sessions WHERE id = 'g1'", [], |row| {
+                row.get(0)
+            })?;
         assert_eq!(scenario, None);
         Ok(())
     }
@@ -284,11 +284,10 @@ mod tests {
             [],
         )?;
         super::migrate(&conn)?;
-        let scenario: Option<String> = conn.query_row(
-            "SELECT scenario FROM sessions WHERE id = 's1'",
-            [],
-            |row| row.get(0),
-        )?;
+        let scenario: Option<String> =
+            conn.query_row("SELECT scenario FROM sessions WHERE id = 's1'", [], |row| {
+                row.get(0)
+            })?;
         assert_eq!(scenario, None);
         Ok(())
     }

@@ -151,7 +151,8 @@ impl Summarizer {
             "summarize.run"
         );
 
-        let prompt = Self::format_prompt(scenario, &self.prompt_instruction, &trimmed, file_summaries);
+        let prompt =
+            Self::format_prompt(scenario, &self.prompt_instruction, &trimmed, file_summaries);
         tracing::info!(
             phase = "prompt",
             prompt_bytes = prompt.len(),
@@ -189,10 +190,7 @@ impl Summarizer {
     }
 }
 
-fn render_message_content(
-    msg: &Message,
-    lookup: &dyn crate::files::FileSummaryLookup,
-) -> String {
+fn render_message_content(msg: &Message, lookup: &dyn crate::files::FileSummaryLookup) -> String {
     if msg.role != Role::System {
         return msg.content.clone();
     }
@@ -203,9 +201,7 @@ fn render_message_content(
     let hash = crate::files::content_hash_hex(inner.as_bytes());
     let lookup_result = lookup.lookup(&hash);
     let branch = match &lookup_result {
-        Some(s)
-            if s.status == crate::files::FileSummaryStatus::Done && !s.summary.is_empty() =>
-        {
+        Some(s) if s.status == crate::files::FileSummaryStatus::Done && !s.summary.is_empty() => {
             "substituted"
         }
         Some(s) if s.status == crate::files::FileSummaryStatus::Done => "placeholder_empty",
@@ -246,7 +242,8 @@ mod tests {
             Message::new(Role::User, "How are you?".to_owned()),
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt(None, "Summarize this.", &refs, &NullFileSummaryLookup);
+        let prompt =
+            Summarizer::format_prompt(None, "Summarize this.", &refs, &NullFileSummaryLookup);
         assert!(prompt.contains("Summarize this."));
         assert!(prompt.contains("User: Hello"));
         assert!(prompt.contains("Assistant: Hi there!"));
@@ -305,11 +302,19 @@ mod tests {
         let refs: Vec<&Message> = vec![&m1, &m2, &m3];
 
         let instruction = "Summarize.";
-        let trimmed = Summarizer::shed_to_fit(None, instruction, &refs, 150, &counter, &NullFileSummaryLookup)
-            .await
-            .expect("shed_to_fit");
+        let trimmed = Summarizer::shed_to_fit(
+            None,
+            instruction,
+            &refs,
+            150,
+            &counter,
+            &NullFileSummaryLookup,
+        )
+        .await
+        .expect("shed_to_fit");
 
-        let rendered = Summarizer::format_prompt(None, instruction, &trimmed, &NullFileSummaryLookup);
+        let rendered =
+            Summarizer::format_prompt(None, instruction, &trimmed, &NullFileSummaryLookup);
         let final_count = counter.count_authoritative(&rendered).await.unwrap();
         assert!(
             final_count <= 150,
@@ -423,12 +428,8 @@ mod tests {
     #[test]
     fn format_prompt_omits_scenario_block_when_whitespace_only() {
         let refs: Vec<&Message> = vec![];
-        let prompt = Summarizer::format_prompt(
-            Some("   \n  "),
-            "Summarize.",
-            &refs,
-            &NullFileSummaryLookup,
-        );
+        let prompt =
+            Summarizer::format_prompt(Some("   \n  "), "Summarize.", &refs, &NullFileSummaryLookup);
         assert!(!prompt.contains("Scenario:"));
     }
 }

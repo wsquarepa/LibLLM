@@ -32,7 +32,10 @@ fn session_and_card_layered_with_different_depths() {
     inject_author_notes(&mut messages, Some(&card), Some(&session));
 
     let card_idx = messages.iter().position(|m| m.content == "CARD").unwrap();
-    let session_idx = messages.iter().position(|m| m.content == "SESSION").unwrap();
+    let session_idx = messages
+        .iter()
+        .position(|m| m.content == "SESSION")
+        .unwrap();
     assert!(
         session_idx > card_idx,
         "session must end up at a higher index; got card={card_idx}, session={session_idx}"
@@ -97,12 +100,6 @@ fn card_author_note_loaded_when_session_character_is_display_name() {
 
 #[test]
 fn slugify_is_idempotent_on_slug() {
-    assert_eq!(
-        libllm::character::slugify("alice-example"),
-        "alice-example"
-    );
-    assert_eq!(
-        libllm::character::slugify("Alice Example"),
-        "alice-example"
-    );
+    assert_eq!(libllm::character::slugify("alice-example"), "alice-example");
+    assert_eq!(libllm::character::slugify("Alice Example"), "alice-example");
 }

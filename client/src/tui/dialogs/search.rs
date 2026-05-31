@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use libllm::db::Database;
-use libllm::search::{self, strip_terminal_controls, SearchHit};
 use libllm::search::query as search_query;
+use libllm::search::{self, SearchHit, strip_terminal_controls};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -245,7 +245,10 @@ fn render_hits(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &
                 Style::default().fg(theme.status_bar_fg),
             ),
             Span::raw("  ".to_owned()),
-            Span::styled(format!("{role:<6}"), Style::default().fg(theme.status_bar_fg)),
+            Span::styled(
+                format!("{role:<6}"),
+                Style::default().fg(theme.status_bar_fg),
+            ),
             Span::raw("  ".to_owned()),
         ];
         line.extend(snippet_spans);
@@ -467,7 +470,10 @@ mod tests {
         handle_key(&mut state, key(KeyCode::Down));
         assert_eq!(state.selected, 2);
         handle_key(&mut state, key(KeyCode::Down));
-        assert_eq!(state.selected, 2, "selection should clamp at hits.len() - 1");
+        assert_eq!(
+            state.selected, 2,
+            "selection should clamp at hits.len() - 1"
+        );
         handle_key(&mut state, key(KeyCode::Up));
         assert_eq!(state.selected, 1);
     }
@@ -495,13 +501,16 @@ mod tests {
         }
     }
 
-    fn seed_db_for_tests(rows: &[(&str, &str, &str)]) -> (libllm::db::Database, tempfile::NamedTempFile) {
+    fn seed_db_for_tests(
+        rows: &[(&str, &str, &str)],
+    ) -> (libllm::db::Database, tempfile::NamedTempFile) {
         let file = tempfile::NamedTempFile::new().unwrap();
         {
             let _db = libllm::db::Database::open(file.path(), None).unwrap();
         }
         let conn = rusqlite::Connection::open(file.path()).unwrap();
-        let mut session_ids: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        let mut session_ids: std::collections::BTreeMap<String, i64> =
+            std::collections::BTreeMap::new();
         for (display, role, content) in rows {
             let session_id = format!("sess-{display}");
             let display_owned = (*display).to_owned();
@@ -536,16 +545,26 @@ mod tests {
         ]);
         let mut state = SearchDialogState::new();
         for c in "red".chars() {
-            handle_key(&mut state, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+            handle_key(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+            );
         }
         let now = Instant::now();
         state.last_keystroke = Some(now - std::time::Duration::from_millis(200));
 
         maybe_run_query(&mut state, &db, now);
 
-        assert!(!state.hits.is_empty(), "expected hits, error={:?}", state.error);
+        assert!(
+            !state.hits.is_empty(),
+            "expected hits, error={:?}",
+            state.error
+        );
         assert_eq!(state.last_compiled.as_deref(), Some("red"));
-        assert!(state.last_keystroke.is_none(), "last_keystroke should be cleared");
+        assert!(
+            state.last_keystroke.is_none(),
+            "last_keystroke should be cleared"
+        );
     }
 
     #[test]
@@ -573,8 +592,14 @@ mod tests {
 
         maybe_run_query(&mut state, &db, now);
 
-        assert!(state.hits.is_empty(), "should not run within debounce window");
-        assert!(state.last_keystroke.is_some(), "last_keystroke must NOT be cleared");
+        assert!(
+            state.hits.is_empty(),
+            "should not run within debounce window"
+        );
+        assert!(
+            state.last_keystroke.is_some(),
+            "last_keystroke must NOT be cleared"
+        );
     }
 
     #[test]
@@ -588,7 +613,10 @@ mod tests {
 
         maybe_run_query(&mut state, &db, now);
 
-        assert!(state.hits.is_empty(), "should not run when input matches last_compiled");
+        assert!(
+            state.hits.is_empty(),
+            "should not run when input matches last_compiled"
+        );
     }
 
     fn buffer_to_string(buf: &ratatui::buffer::Buffer) -> String {
@@ -624,7 +652,10 @@ mod tests {
         assert!(rendered.contains("user"));
         assert!(rendered.contains("remember to"));
         assert!(rendered.contains("redact"));
-        assert!(!rendered.contains('\u{1}'), "raw delimiter leaked into rendered buffer");
+        assert!(
+            !rendered.contains('\u{1}'),
+            "raw delimiter leaked into rendered buffer"
+        );
     }
 
     #[test]
@@ -635,7 +666,10 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
-        assert!(rendered.contains("type at least 3"), "expected hint, got: {rendered}");
+        assert!(
+            rendered.contains("type at least 3"),
+            "expected hint, got: {rendered}"
+        );
     }
 
     #[test]
@@ -646,7 +680,8 @@ mod tests {
             let mut hit = dummy_hit();
             hit.session_display_name = "alpha".into();
             hit.role = libllm::session::Role::Assistant;
-            hit.preview_text = "remember to \u{1}redact\u{2} PII before sending and document why".into();
+            hit.preview_text =
+                "remember to \u{1}redact\u{2} PII before sending and document why".into();
             hit
         }];
 
@@ -663,7 +698,10 @@ mod tests {
     #[test]
     fn preview_truncates_long_messages() {
         let theme = crate::tui::theme::Theme::dark();
-        let many_lines: String = (0..200).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let many_lines: String = (0..200)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut state = SearchDialogState::new();
         state.hits = vec![{
             let mut hit = dummy_hit();
@@ -700,7 +738,10 @@ mod tests {
     #[test]
     fn preview_truncates_pluralisation_for_many_extra_lines() {
         let theme = crate::tui::theme::Theme::dark();
-        let lines: String = (0..30).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let lines: String = (0..30)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut state = SearchDialogState::new();
         state.hits = vec![{
             let mut hit = dummy_hit();
@@ -711,7 +752,10 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
-        assert!(rendered.contains("more lines"), "expected 'more lines' for plural");
+        assert!(
+            rendered.contains("more lines"),
+            "expected 'more lines' for plural"
+        );
     }
 
     #[test]
@@ -727,7 +771,10 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
-        assert!(!rendered.contains("more line"), "expected no truncation footer");
+        assert!(
+            !rendered.contains("more line"),
+            "expected no truncation footer"
+        );
     }
 
     #[test]
@@ -735,7 +782,10 @@ mod tests {
         let mut state = SearchDialogState::new();
         state.input = "redact".into();
         state.cursor = state.input.chars().count();
-        handle_key(&mut state, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        handle_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL),
+        );
         assert_eq!(state.input, "m:redact");
         assert_eq!(state.cursor, "m:redact".chars().count());
     }
@@ -745,7 +795,10 @@ mod tests {
         let mut state = SearchDialogState::new();
         state.input = "m:redact".into();
         state.cursor = state.input.chars().count();
-        handle_key(&mut state, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        handle_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL),
+        );
         assert_eq!(state.input, "redact");
         assert_eq!(state.cursor, "redact".chars().count());
     }
@@ -754,7 +807,10 @@ mod tests {
     fn page_down_advances_by_page_size() {
         let mut state = SearchDialogState::new();
         state.hits = (0..50).map(|_| dummy_hit()).collect();
-        handle_key(&mut state, KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        handle_key(
+            &mut state,
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+        );
         assert_eq!(state.selected, PAGE_SIZE);
     }
 
@@ -762,7 +818,10 @@ mod tests {
     fn page_down_clamps_at_last_hit() {
         let mut state = SearchDialogState::new();
         state.hits = (0..5).map(|_| dummy_hit()).collect();
-        handle_key(&mut state, KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        handle_key(
+            &mut state,
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+        );
         assert_eq!(state.selected, 4);
     }
 
@@ -771,7 +830,10 @@ mod tests {
         let mut state = SearchDialogState::new();
         state.hits = (0..50).map(|_| dummy_hit()).collect();
         state.selected = 25;
-        handle_key(&mut state, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        handle_key(
+            &mut state,
+            KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+        );
         assert_eq!(state.selected, 25 - PAGE_SIZE);
     }
 
@@ -779,7 +841,10 @@ mod tests {
     fn page_up_saturates_at_zero() {
         let mut state = SearchDialogState::new();
         state.hits = (0..5).map(|_| dummy_hit()).collect();
-        handle_key(&mut state, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        handle_key(
+            &mut state,
+            KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+        );
         assert_eq!(state.selected, 0);
     }
 
@@ -802,7 +867,10 @@ mod tests {
         // Must complete without panicking or OOMing
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
-        assert!(rendered.contains("more lines"), "expected truncation footer when lines exceed cap");
+        assert!(
+            rendered.contains("more lines"),
+            "expected truncation footer when lines exceed cap"
+        );
     }
 
     #[test]
@@ -857,7 +925,10 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(area);
         render(&state, area, &mut buf, &theme);
         let rendered = buffer_to_string(&buf);
-        assert!(!rendered.contains('\x1b'), "ESC byte must not appear in rendered output");
+        assert!(
+            !rendered.contains('\x1b'),
+            "ESC byte must not appear in rendered output"
+        );
         assert!(rendered.contains("name"));
     }
 }

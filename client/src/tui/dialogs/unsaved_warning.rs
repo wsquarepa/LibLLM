@@ -11,8 +11,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use crate::tui::theme::Theme;
 use crate::tui::Focus;
+use crate::tui::theme::Theme;
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 
@@ -45,10 +45,7 @@ impl UnsavedWarningState {
     }
 }
 
-pub(in crate::tui) fn handle_key(
-    state: &mut UnsavedWarningState,
-    key: KeyEvent,
-) -> UnsavedOutcome {
+pub(in crate::tui) fn handle_key(state: &mut UnsavedWarningState, key: KeyEvent) -> UnsavedOutcome {
     match key.code {
         KeyCode::Left => {
             state.focused = match state.focused {
@@ -85,9 +82,12 @@ pub(in crate::tui) fn render(
     let mut button_spans: Vec<Span<'_>> = vec![Span::raw("    ")];
     for (i, (label, button)) in [
         (" Save & Close ", UnsavedButton::SaveAndClose),
-        (" Discard ",      UnsavedButton::Discard),
-        (" Cancel ",       UnsavedButton::Cancel),
-    ].iter().enumerate() {
+        (" Discard ", UnsavedButton::Discard),
+        (" Cancel ", UnsavedButton::Cancel),
+    ]
+    .iter()
+    .enumerate()
+    {
         if i > 0 {
             button_spans.push(Span::raw("  "));
         }

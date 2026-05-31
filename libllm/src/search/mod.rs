@@ -111,11 +111,15 @@ fn run(
         sql.push_str(&format!(" AND m.role = ?{}", params.len()));
     }
     if let Some(before) = &query.before {
-        params.push(Value::Text(before.format(&Rfc3339).expect("RFC 3339 format")));
+        params.push(Value::Text(
+            before.format(&Rfc3339).expect("RFC 3339 format"),
+        ));
         sql.push_str(&format!(" AND m.timestamp < ?{}", params.len()));
     }
     if let Some(after) = &query.after {
-        params.push(Value::Text(after.format(&Rfc3339).expect("RFC 3339 format")));
+        params.push(Value::Text(
+            after.format(&Rfc3339).expect("RFC 3339 format"),
+        ));
         sql.push_str(&format!(" AND m.timestamp >= ?{}", params.len()));
     }
 
@@ -340,7 +344,10 @@ mod executor_tests {
         let (db, _file) = seed();
         let q = query::compile("m:(((", &db).unwrap();
         let err = search(&db, &q, DEFAULT_MAX_HITS).unwrap_err();
-        assert!(matches!(err, SearchError::InvalidMatch(_)), "expected InvalidMatch, got {err:?}");
+        assert!(
+            matches!(err, SearchError::InvalidMatch(_)),
+            "expected InvalidMatch, got {err:?}"
+        );
     }
 }
 

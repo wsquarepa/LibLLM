@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use libllm::group_chat::{
-    ChatMode, CharacterAttachment, normalized_talkativeness, notch_to_talkativeness,
+    CharacterAttachment, ChatMode, normalized_talkativeness, notch_to_talkativeness,
     talkativeness_notches, talkativeness_to_notch,
 };
 use libllm::session::{MessageTree, Session};
@@ -163,7 +163,13 @@ impl ChatSettingsDialog {
                 if matches!(self.rows[self.selected], Row::Buttons) {
                     self.button_focus = ButtonFocus::Cancel;
                 } else {
-                    self.adjust(session, -1, mode_locked, talkativeness_locked, set_locked_warning);
+                    self.adjust(
+                        session,
+                        -1,
+                        mode_locked,
+                        talkativeness_locked,
+                        set_locked_warning,
+                    );
                 }
                 ChatSettingsAction::Continue
             }
@@ -171,7 +177,13 @@ impl ChatSettingsDialog {
                 if matches!(self.rows[self.selected], Row::Buttons) {
                     self.button_focus = ButtonFocus::Save;
                 } else {
-                    self.adjust(session, 1, mode_locked, talkativeness_locked, set_locked_warning);
+                    self.adjust(
+                        session,
+                        1,
+                        mode_locked,
+                        talkativeness_locked,
+                        set_locked_warning,
+                    );
                 }
                 ChatSettingsAction::Continue
             }
@@ -288,11 +300,14 @@ impl ChatSettingsDialog {
         let content_height =
             self.rows.len() as u16 + 4 + slider_margin_lines + buttons_margin_lines;
         let row_width = notches_total as u16 + 35;
-        let mode_width = if has_mode { mode_line_width() as u16 + 4 } else { 0 };
+        let mode_width = if has_mode {
+            mode_line_width() as u16 + 4
+        } else {
+            0
+        };
         let preferred = (area.width as f32 * 0.7) as u16;
         let width = preferred.max(row_width).max(mode_width).min(area.width);
-        let dialog =
-            super::super::render::clear_centered(f, width, content_height, area);
+        let dialog = super::super::render::clear_centered(f, width, content_height, area);
         let content_width = width.saturating_sub(2) as usize;
 
         let mut lines: Vec<Line> = vec![Line::from("")];
@@ -343,9 +358,10 @@ impl ChatSettingsDialog {
             prev_was_slider = is_slider;
         }
 
-        let para = Paragraph::new(lines).block(
-            super::super::render::dialog_block(" Chat Settings ", Color::Yellow),
-        );
+        let para = Paragraph::new(lines).block(super::super::render::dialog_block(
+            " Chat Settings ",
+            Color::Yellow,
+        ));
         f.render_widget(para, dialog);
 
         super::super::render::render_hints_below_dialog(
@@ -360,12 +376,8 @@ impl ChatSettingsDialog {
         match self.rows[self.selected] {
             Row::Scenario => "Up/Down: navigate  Enter: edit  Esc: cancel",
             Row::Mode => "Up/Down: navigate  Left/Right: change mode  Esc: cancel",
-            Row::Talkativeness { .. } => {
-                "Up/Down: navigate  Left/Right: adjust  Esc: cancel"
-            }
-            Row::Buttons => {
-                "Up/Down: navigate  Left/Right: select  Enter: confirm  Esc: cancel"
-            }
+            Row::Talkativeness { .. } => "Up/Down: navigate  Left/Right: adjust  Esc: cancel",
+            Row::Buttons => "Up/Down: navigate  Left/Right: select  Enter: confirm  Esc: cancel",
         }
     }
 }

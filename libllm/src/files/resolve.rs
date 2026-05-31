@@ -61,10 +61,7 @@ pub fn resolve_all(
 /// Build a `ResolvedFile` for piped stdin bytes, labelled as `stdin`.
 /// Called by the CLI on piped invocations before invoking `resolve_all`
 /// on the `@stdin`-appended message text.
-pub fn stdin_attachment(
-    bytes: Vec<u8>,
-    config: &FilesConfig,
-) -> Result<ResolvedFile, FileError> {
+pub fn stdin_attachment(bytes: Vec<u8>, config: &FilesConfig) -> Result<ResolvedFile, FileError> {
     let path = PathBuf::from("<stdin>");
     if bytes.len() > config.per_file_bytes {
         return Err(FileError::TooLarge {
@@ -343,7 +340,10 @@ mod tests {
     fn plain_at_stdin_alone_is_skipped_when_not_prepended() {
         let tmp = TempDir::new().unwrap();
         let msgs = resolve_all("summarise @stdin", tmp.path(), &config()).unwrap();
-        assert!(msgs.is_empty(), "bare @stdin without prepended attachment produces no message");
+        assert!(
+            msgs.is_empty(),
+            "bare @stdin without prepended attachment produces no message"
+        );
     }
 
     #[test]
@@ -417,11 +417,8 @@ mod tests {
     fn symlink_basename_preserves_user_path() {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("actual.md"), "body").unwrap();
-        std::os::unix::fs::symlink(
-            tmp.path().join("actual.md"),
-            tmp.path().join("mylink.md"),
-        )
-        .unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("actual.md"), tmp.path().join("mylink.md"))
+            .unwrap();
         let msgs = resolve_all("read @mylink.md", tmp.path(), &config()).unwrap();
         assert_eq!(msgs.len(), 1);
         assert!(msgs[0].content.contains("<<<FILE mylink.md>>>"));
@@ -434,12 +431,7 @@ mod tests {
         let name = "Lecture 29 notes.md";
         std::fs::write(tmp.path().join(name), "lecture body").unwrap();
         let cfg = FilesConfig::default();
-        let msgs = resolve_all(
-            r#"summarise @"Lecture 29 notes.md""#,
-            tmp.path(),
-            &cfg,
-        )
-        .unwrap();
+        let msgs = resolve_all(r#"summarise @"Lecture 29 notes.md""#, tmp.path(), &cfg).unwrap();
         assert_eq!(msgs.len(), 1);
         assert!(msgs[0].content.contains("<<<FILE Lecture 29 notes.md>>>"));
         assert!(msgs[0].content.contains("lecture body"));
@@ -452,7 +444,10 @@ mod tests {
         std::fs::write(&target, "body").unwrap();
         let resolved = resolve_all_resolved("see @note.md", tmp.path(), &config()).unwrap();
         assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved[0].canonical_path, std::fs::canonicalize(&target).unwrap());
+        assert_eq!(
+            resolved[0].canonical_path,
+            std::fs::canonicalize(&target).unwrap()
+        );
         assert_eq!(resolved[0].body, "body");
     }
 

@@ -1164,10 +1164,7 @@ mod tests {
 
     #[test]
     fn html_collapses_explicit_thought_block() {
-        let msgs = [assistant_thought_msg(
-            "<think>planning</think>Hi!",
-            Some(7),
-        )];
+        let msgs = [assistant_thought_msg("<think>planning</think>Hi!", Some(7))];
         let refs: Vec<&Message> = msgs.iter().collect();
         let preset = deepseek();
         let meta = meta_with("Char", "User");

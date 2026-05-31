@@ -93,10 +93,7 @@ mod tests {
 
     #[test]
     fn escaped_token_is_not_rewritten() {
-        assert_eq!(
-            rewrite_user_message("literal \\@keep"),
-            "literal \\@keep",
-        );
+        assert_eq!(rewrite_user_message("literal \\@keep"), "literal \\@keep",);
     }
 
     #[test]

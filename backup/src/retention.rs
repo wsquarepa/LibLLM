@@ -174,7 +174,11 @@ pub fn apply_prune(
 }
 
 /// Computes prunable entries and removes them from the index and disk in one step.
-pub fn run_retention(index: &mut BackupIndex, config: &BackupConfig, backups_dir: &Path) -> Result<()> {
+pub fn run_retention(
+    index: &mut BackupIndex,
+    config: &BackupConfig,
+    backups_dir: &Path,
+) -> Result<()> {
     let prunable = compute_prunable_entries(index, config);
     apply_prune(index, &prunable, backups_dir)
 }
@@ -476,9 +480,21 @@ mod tests {
         let old_time = now - Duration::days(200);
 
         let mut index = BackupIndex::new();
-        index.entries.push(make_entry("first", BackupType::Base, None, old_time));
-        index.entries.push(make_entry("fails", BackupType::Base, None, old_time + Duration::hours(1)));
-        index.entries.push(make_entry("third", BackupType::Base, None, old_time + Duration::hours(2)));
+        index
+            .entries
+            .push(make_entry("first", BackupType::Base, None, old_time));
+        index.entries.push(make_entry(
+            "fails",
+            BackupType::Base,
+            None,
+            old_time + Duration::hours(1),
+        ));
+        index.entries.push(make_entry(
+            "third",
+            BackupType::Base,
+            None,
+            old_time + Duration::hours(2),
+        ));
 
         // Write "first" as a normal file that will be successfully deleted.
         std::fs::write(backups_dir.join("first-base.bak"), b"data").unwrap();
@@ -495,7 +511,10 @@ mod tests {
 
         let result = apply_prune(&mut index, &prunable, backups_dir);
 
-        assert!(result.is_err(), "apply_prune must return Err when a deletion fails");
+        assert!(
+            result.is_err(),
+            "apply_prune must return Err when a deletion fails"
+        );
 
         // The first file was successfully deleted before the error.
         assert!(

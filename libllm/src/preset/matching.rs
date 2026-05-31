@@ -11,12 +11,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::preset::InstructPreset;
 use crate::session::{Message, Role};
 
-const BOS_PREFIXES: &[&str] = &[
-    "<|begin_of_text|>",
-    "<|begin▁of▁sentence|>",
-    "[BOS]",
-    "<s>",
-];
+const BOS_PREFIXES: &[&str] = &["<|begin_of_text|>", "<|begin▁of▁sentence|>", "[BOS]", "<s>"];
 
 /// Strip leading BOS-like prefix, NFC normalize, trim, collapse whitespace runs.
 pub fn normalize(s: &str) -> String {
@@ -87,9 +82,18 @@ impl CanonicalContext {
     pub fn fixed() -> Self {
         Self {
             messages: vec![
-                CanonicalMessage { role: "system", content: CANONICAL_SYSTEM },
-                CanonicalMessage { role: "user", content: CANONICAL_USER },
-                CanonicalMessage { role: "assistant", content: CANONICAL_ASSISTANT },
+                CanonicalMessage {
+                    role: "system",
+                    content: CANONICAL_SYSTEM,
+                },
+                CanonicalMessage {
+                    role: "user",
+                    content: CANONICAL_USER,
+                },
+                CanonicalMessage {
+                    role: "assistant",
+                    content: CANONICAL_ASSISTANT,
+                },
             ],
             bos_token: "",
             eos_token: "",
@@ -182,7 +186,10 @@ pub fn pick_best_match(
     // add_generation_prompt) and the preset side (last message is a user turn) append the
     // assistant prompt, keeping both sides structurally aligned.
     let ctx = CanonicalContext {
-        messages: vec![CanonicalMessage { role: "user", content: CANONICAL_USER }],
+        messages: vec![CanonicalMessage {
+            role: "user",
+            content: CANONICAL_USER,
+        }],
         bos_token: "",
         eos_token: "",
         add_generation_prompt: true,
@@ -232,11 +239,19 @@ pub fn pick_best_match(
     };
 
     if top_score >= CONFIDENT_THRESHOLD {
-        MatchOutcome::Confident { preset: winner.name.clone(), score: top_score }
+        MatchOutcome::Confident {
+            preset: winner.name.clone(),
+            score: top_score,
+        }
     } else if top_score >= BEST_GUESS_THRESHOLD {
-        MatchOutcome::BestGuess { preset: winner.name.clone(), score: top_score }
+        MatchOutcome::BestGuess {
+            preset: winner.name.clone(),
+            score: top_score,
+        }
     } else {
-        MatchOutcome::NoMatch { best_score: top_score }
+        MatchOutcome::NoMatch {
+            best_score: top_score,
+        }
     }
 }
 
@@ -315,8 +330,8 @@ mod tests {
     #[test]
     fn nfc_normalizes_decomposed_chars() {
         // "é" composed vs decomposed
-        let composed = "\u{00E9}";       // é
-        let decomposed = "e\u{0301}";    // e + combining acute
+        let composed = "\u{00E9}"; // é
+        let decomposed = "e\u{0301}"; // e + combining acute
         assert_eq!(normalize(decomposed), composed);
     }
 
@@ -389,14 +404,12 @@ mod tests {
     const MISTRAL_V3_JINJA: &str = include_str!("matching_fixtures/mistral_v3.jinja");
     const NONSENSE_JINJA: &str = include_str!("matching_fixtures/nonsense.jinja");
 
-
     fn all_builtin_presets() -> Vec<InstructPreset> {
         crate::preset::BUILTIN_INSTRUCT
             .iter()
             .filter_map(|(_, json)| serde_json::from_str(json).ok())
             .collect()
     }
-
 
     #[test]
     fn pick_best_match_llama3_template_picks_llama3_preset() {
@@ -407,7 +420,9 @@ mod tests {
                 assert_eq!(preset, "Llama 3 Instruct");
             }
             MatchOutcome::NoMatch { best_score } => {
-                panic!("expected match for Llama-3 template, got NoMatch (best_score={best_score})");
+                panic!(
+                    "expected match for Llama-3 template, got NoMatch (best_score={best_score})"
+                );
             }
         }
     }
@@ -435,7 +450,9 @@ mod tests {
                 assert_eq!(preset, "Mistral V3-Tekken");
             }
             MatchOutcome::NoMatch { best_score } => {
-                panic!("expected match for Mistral V3 template, got NoMatch (best_score={best_score})");
+                panic!(
+                    "expected match for Mistral V3 template, got NoMatch (best_score={best_score})"
+                );
             }
         }
     }

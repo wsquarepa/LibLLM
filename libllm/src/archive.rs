@@ -16,8 +16,8 @@ const ZSTD_LEVEL: i32 = 3;
 pub fn snapshot_data_dir(data_dir: &Path, output_path: &Path, exclude_subdir: &str) -> Result<u64> {
     let file = crate::crypto::create_file_restricted(output_path)
         .with_context(|| format!("failed to create snapshot file: {}", output_path.display()))?;
-    let zstd_encoder = zstd::Encoder::new(file, ZSTD_LEVEL)
-        .context("failed to initialize zstd encoder")?;
+    let zstd_encoder =
+        zstd::Encoder::new(file, ZSTD_LEVEL).context("failed to initialize zstd encoder")?;
     let mut tar = tar::Builder::new(zstd_encoder);
     tar.mode(tar::HeaderMode::Deterministic);
 

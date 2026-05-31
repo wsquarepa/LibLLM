@@ -23,14 +23,34 @@ impl std::fmt::Display for DelimiterKind {
 #[derive(Debug)]
 pub enum FileError {
     Missing(PathBuf),
-    TooLarge { path: PathBuf, size: usize, cap: usize },
-    MessageTooLarge { total: usize, cap: usize },
+    TooLarge {
+        path: PathBuf,
+        size: usize,
+        cap: usize,
+    },
+    MessageTooLarge {
+        total: usize,
+        cap: usize,
+    },
     BinaryUnsupported(PathBuf),
     PdfNoText(PathBuf),
-    Collision { path: PathBuf, kind: DelimiterKind },
-    Io { path: PathBuf, source: std::io::Error },
-    TooLargeForSummary { path: PathBuf, tokens: usize, limit: usize },
-    SummaryTokenize { path: PathBuf, source: anyhow::Error },
+    Collision {
+        path: PathBuf,
+        kind: DelimiterKind,
+    },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    TooLargeForSummary {
+        path: PathBuf,
+        tokens: usize,
+        limit: usize,
+    },
+    SummaryTokenize {
+        path: PathBuf,
+        source: anyhow::Error,
+    },
 }
 
 impl std::fmt::Display for FileError {
@@ -48,11 +68,9 @@ impl std::fmt::Display for FileError {
                 f,
                 "attached files exceed per-message cap: {total} bytes > {cap} byte cap"
             ),
-            FileError::BinaryUnsupported(path) => write!(
-                f,
-                "unsupported binary file: {}",
-                path.display()
-            ),
+            FileError::BinaryUnsupported(path) => {
+                write!(f, "unsupported binary file: {}", path.display())
+            }
             FileError::PdfNoText(path) => write!(
                 f,
                 "PDF has no extractable text (scanned without OCR?): {}",
@@ -66,7 +84,11 @@ impl std::fmt::Display for FileError {
             FileError::Io { path, source } => {
                 write!(f, "I/O error reading {}: {source}", path.display())
             }
-            FileError::TooLargeForSummary { path, tokens, limit } => write!(
+            FileError::TooLargeForSummary {
+                path,
+                tokens,
+                limit,
+            } => write!(
                 f,
                 "file '{}' is too large to summarize ({tokens} tokens, max {limit})",
                 path.display()

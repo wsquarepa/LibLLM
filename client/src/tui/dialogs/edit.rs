@@ -125,7 +125,10 @@ mod tests {
 
     #[test]
     fn ctrl_s_is_commit() {
-        assert!(is_commit_key(&key(KeyCode::Char('s'), KeyModifiers::CONTROL)));
+        assert!(is_commit_key(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]

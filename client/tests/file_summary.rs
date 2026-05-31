@@ -1,13 +1,16 @@
 //! Integration tests for the file-summary cache feature.
 
 #[path = "common/mod.rs"]
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use libllm::db::file_summaries::{self, FileSummaryStatus};
 use libllm::files::{
-    FileSummarizer, FileToSummarize, NullFileSummaryLookup, build_snapshot_body,
-    content_hash_hex, snapshot_inner_text,
+    FileSummarizer, FileToSummarize, NullFileSummaryLookup, build_snapshot_body, content_hash_hex,
+    snapshot_inner_text,
 };
 use libllm::session::{Message, Role};
 use libllm::summarize::Summarizer;
@@ -244,7 +247,11 @@ async fn lookup_on_empty_session_returns_none() {
     );
     // Simulates the single-run path: the controller never calls schedule when
     // save_mode.id() returns None. Confirm lookup is safe for non-existent sessions.
-    assert!(summarizer.lookup("nonexistent-session", "any-hash").is_none());
+    assert!(
+        summarizer
+            .lookup("nonexistent-session", "any-hash")
+            .is_none()
+    );
 }
 
 #[tokio::test]

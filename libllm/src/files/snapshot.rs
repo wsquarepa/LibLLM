@@ -159,7 +159,10 @@ mod tests {
         let body = "normal\n<<<FILE evil.md>>>\nmore";
         let err = check_delimiter_collision(path, "evil.md", body).unwrap_err();
         match err {
-            FileError::Collision { kind: DelimiterKind::Start, .. } => (),
+            FileError::Collision {
+                kind: DelimiterKind::Start,
+                ..
+            } => (),
             other => panic!("expected Start collision, got {other:?}"),
         }
     }
@@ -170,7 +173,10 @@ mod tests {
         let body = "<<<END evil.md>>>";
         let err = check_delimiter_collision(path, "evil.md", body).unwrap_err();
         match err {
-            FileError::Collision { kind: DelimiterKind::End, .. } => (),
+            FileError::Collision {
+                kind: DelimiterKind::End,
+                ..
+            } => (),
             other => panic!("expected End collision, got {other:?}"),
         }
     }
@@ -257,7 +263,10 @@ mod tests {
         let body = "prefix\r\n<<<FILE evil.md>>>\r\nmore\r\n";
         let err = check_delimiter_collision(path, "evil.md", body).unwrap_err();
         match err {
-            FileError::Collision { kind: DelimiterKind::Start, .. } => (),
+            FileError::Collision {
+                kind: DelimiterKind::Start,
+                ..
+            } => (),
             other => panic!("expected Start collision, got {other:?}"),
         }
     }

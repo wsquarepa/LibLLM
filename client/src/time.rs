@@ -79,10 +79,7 @@ mod tests {
         let last_relative = utc(2026, 4, 8, 12, 0, 0);
         let first_absolute = utc(2026, 4, 7, 12, 0, 0);
         assert!(format_relative_core(now, last_relative).starts_with("13d"));
-        assert_eq!(
-            format_relative_core(now, first_absolute),
-            "Apr 07 12:00"
-        );
+        assert_eq!(format_relative_core(now, first_absolute), "Apr 07 12:00");
     }
 
     #[test]

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{compute_kek_fingerprint, unwrap_dek, wrap_dek};
-use crate::index::{open_index, save_index, BackupType, FingerprintField, WrappedDek};
+use crate::index::{BackupType, FingerprintField, WrappedDek, open_index, save_index};
 
 pub const JOURNAL_FILENAME: &str = ".rekey.journal";
 pub const PRE_REKEY_SIDECAR: &str = "index.json.pre-rekey";
@@ -106,8 +106,7 @@ pub fn prepare_rekey(data_dir: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) ->
         root.kek_fingerprint = Some(FingerprintField::Known(new_fp.clone()));
     }
 
-    std::fs::copy(&index_path, sidecar_path(&backups_dir))
-        .context("stage index.json.pre-rekey")?;
+    std::fs::copy(&index_path, sidecar_path(&backups_dir)).context("stage index.json.pre-rekey")?;
     write_journal(&backups_dir, &RekeyJournal { old_fp, new_fp })?;
     save_index(&index_path, &index)?;
     Ok(())
@@ -137,10 +136,7 @@ pub fn rollback_rekey(data_dir: &Path) -> Result<()> {
 /// Detects a partial-rekey state and converges to a clean state. Caller supplies
 /// whichever KEK is active now (typically derived from the passkey the user just
 /// entered). If the journal is absent, this is a no-op.
-pub fn recover_journal_if_present(
-    data_dir: &Path,
-    current_kek: Option<&[u8; 32]>,
-) -> Result<()> {
+pub fn recover_journal_if_present(data_dir: &Path, current_kek: Option<&[u8; 32]>) -> Result<()> {
     let backups_dir = data_dir.join("backups");
     let journal = read_journal(&backups_dir)?;
     match journal {
@@ -191,7 +187,7 @@ mod tests {
     use super::*;
     use crate::crypto::{encrypt_payload, resolve_backup_key};
     use crate::index::{
-        backup_filename, save_index as save_idx, BackupEntry, BackupIndex, SCHEMA_VERSION,
+        BackupEntry, BackupIndex, SCHEMA_VERSION, backup_filename, save_index as save_idx,
     };
     use chrono::Utc;
     use tempfile::TempDir;
@@ -212,7 +208,9 @@ mod tests {
     fn make_populated(data_dir: &Path, passkey: &str) -> ([u8; 32], [u8; 32], String) {
         let backups_dir = data_dir.join("backups");
         std::fs::create_dir_all(&backups_dir).unwrap();
-        let kek = resolve_backup_key(data_dir, Some(passkey)).unwrap().unwrap();
+        let kek = resolve_backup_key(data_dir, Some(passkey))
+            .unwrap()
+            .unwrap();
         let dek = [42u8; 32];
         let id = "20260421T020000.000Z".to_string();
         let filename = backup_filename(&id, BackupType::Base);
@@ -244,7 +242,9 @@ mod tests {
     fn rekey_rewraps_active_chain_and_creates_journal_sidecar() {
         let tmp = TempDir::new().unwrap();
         let (old_kek, dek, _id) = make_populated(tmp.path(), "old-pw");
-        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw")).unwrap().unwrap();
+        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
+            .unwrap()
+            .unwrap();
 
         prepare_rekey(tmp.path(), &old_kek, &new_kek).unwrap();
 
@@ -272,8 +272,12 @@ mod tests {
         // writing the journal or sidecar.
         let tmp = TempDir::new().unwrap();
         let _ = make_populated(tmp.path(), "old-pw");
-        let wrong_kek = resolve_backup_key(tmp.path(), Some("wrong")).unwrap().unwrap();
-        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw")).unwrap().unwrap();
+        let wrong_kek = resolve_backup_key(tmp.path(), Some("wrong"))
+            .unwrap()
+            .unwrap();
+        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
+            .unwrap()
+            .unwrap();
 
         prepare_rekey(tmp.path(), &wrong_kek, &new_kek).unwrap();
         assert!(!journal_path(&tmp.path().join("backups")).exists());
@@ -284,7 +288,9 @@ mod tests {
     fn recover_cleanup_when_current_matches_new_fp() {
         let tmp = TempDir::new().unwrap();
         let (old_kek, _dek, _id) = make_populated(tmp.path(), "old-pw");
-        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw")).unwrap().unwrap();
+        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
+            .unwrap()
+            .unwrap();
         prepare_rekey(tmp.path(), &old_kek, &new_kek).unwrap();
         recover_journal_if_present(tmp.path(), Some(&new_kek)).unwrap();
         let backups_dir = tmp.path().join("backups");
@@ -297,7 +303,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (old_kek, _dek, _id) = make_populated(tmp.path(), "old-pw");
         let pre = std::fs::read(tmp.path().join("backups/index.json")).unwrap();
-        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw")).unwrap().unwrap();
+        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
+            .unwrap()
+            .unwrap();
         prepare_rekey(tmp.path(), &old_kek, &new_kek).unwrap();
         recover_journal_if_present(tmp.path(), Some(&old_kek)).unwrap();
         let backups_dir = tmp.path().join("backups");
@@ -311,8 +319,12 @@ mod tests {
     fn recover_errors_when_current_matches_neither() {
         let tmp = TempDir::new().unwrap();
         let (old_kek, _dek, _id) = make_populated(tmp.path(), "old-pw");
-        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw")).unwrap().unwrap();
-        let other_kek = resolve_backup_key(tmp.path(), Some("other")).unwrap().unwrap();
+        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
+            .unwrap()
+            .unwrap();
+        let other_kek = resolve_backup_key(tmp.path(), Some("other"))
+            .unwrap()
+            .unwrap();
         prepare_rekey(tmp.path(), &old_kek, &new_kek).unwrap();
         let err = recover_journal_if_present(tmp.path(), Some(&other_kek)).unwrap_err();
         assert!(err.to_string().contains("matches neither"));

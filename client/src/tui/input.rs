@@ -186,9 +186,9 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 let (row, col) = app.textarea.cursor();
                 let anchor_col = col.saturating_sub(1);
                 let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                app.file_picker = Some(
-                    super::dialogs::file_picker::FilePickerState::new(cwd, row, anchor_col),
-                );
+                app.file_picker = Some(super::dialogs::file_picker::FilePickerState::new(
+                    cwd, row, anchor_col,
+                ));
                 app.focus = super::Focus::FilePickerDialog;
             }
             None
@@ -478,11 +478,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         KeyCode::Right => {
             let cursor = app.nav_cursor?;
-            let role = app
-                .session
-                .tree
-                .node(cursor)
-                .map(|n| n.message.role);
+            let role = app.session.tree.node(cursor).map(|n| n.message.role);
             match role {
                 Some(Role::User) => {
                     if switch_nav_sibling(app, 1) {
@@ -556,8 +552,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
             if has_later_summary && role != Role::Summary {
                 app.set_status(
-                    "Cannot edit before a summary. Branch from this message instead."
-                        .to_owned(),
+                    "Cannot edit before a summary. Branch from this message instead.".to_owned(),
                     StatusLevel::Warning,
                 );
                 return None;
@@ -782,10 +777,7 @@ mod next_autocomplete_tests {
 
     #[test]
     fn empty_query_returns_all_candidates() {
-        let cast = vec![
-            ("alice", "Alice the Wise"),
-            ("bob", "Bob the Knight"),
-        ];
+        let cast = vec![("alice", "Alice the Wise"), ("bob", "Bob the Knight")];
         let matches = match_next_candidates("", &cast);
         assert_eq!(matches, vec!["Alice the Wise", "Bob the Knight"]);
     }
@@ -839,10 +831,7 @@ mod recall_walk_tests {
     use libllm::session::{Message, MessageTree, Role};
 
     fn snapshot(name: &str, body: &str) -> Message {
-        Message::new(
-            Role::System,
-            libllm::files::build_snapshot_body(name, body),
-        )
+        Message::new(Role::System, libllm::files::build_snapshot_body(name, body))
     }
 
     #[test]
@@ -868,7 +857,10 @@ mod recall_walk_tests {
         let root_user = tree.push(None, Message::new(Role::User, "root".into()));
         let s1 = tree.push(Some(root_user), snapshot("a.md", "A"));
         let s2 = tree.push(Some(s1), snapshot("b.md", "B"));
-        let _u = tree.push(Some(s2), Message::new(Role::User, "do @a.md and @b.md".into()));
+        let _u = tree.push(
+            Some(s2),
+            Message::new(Role::User, "do @a.md and @b.md".into()),
+        );
         assert_eq!(
             retreat_past_snapshot_chain(&tree, Some(s2)),
             Some(root_user)
@@ -936,10 +928,7 @@ mod retry_resolve_tests {
     use libllm::session::{Message, MessageTree, Role};
 
     fn snapshot(name: &str, body: &str) -> Message {
-        Message::new(
-            Role::System,
-            libllm::files::build_snapshot_body(name, body),
-        )
+        Message::new(Role::System, libllm::files::build_snapshot_body(name, body))
     }
 
     #[test]

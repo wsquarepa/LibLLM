@@ -2,11 +2,11 @@
 //! generated 8-char [A-Z0-9] string to enable the Destroy button.
 
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use crate::tui::types::TypedConfirmState;
 
@@ -76,10 +76,7 @@ pub(in crate::tui) fn render_danger_typed_confirm(
         ),
         Line::styled("  A snapshot will be written to:", body_style),
         Line::from(""),
-        Line::styled(
-            format!("    {}", state.snapshot_path.display()),
-            body_style,
-        ),
+        Line::styled(format!("    {}", state.snapshot_path.display()), body_style),
         Line::from(""),
         Line::styled(
             "  Type the confirmation string below to enable.",
@@ -254,7 +251,10 @@ mod tests {
         for _ in 0..32 {
             let c = generate_challenge();
             assert_eq!(c.len(), 8);
-            assert!(c.chars().all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit()));
+            assert!(
+                c.chars()
+                    .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+            );
         }
     }
 
@@ -294,7 +294,10 @@ mod tests {
     #[test]
     fn typed_chars_preserve_case() {
         let mut s = fixture("ABCDEFGH");
-        handle_danger_typed_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &mut s);
+        handle_danger_typed_key(
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+            &mut s,
+        );
         assert_eq!(s.input, "a");
     }
 
@@ -312,7 +315,10 @@ mod tests {
         let mut s = fixture("X");
         type_string(&mut s, "ABC");
         handle_danger_typed_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
-        handle_danger_typed_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), &mut s);
+        handle_danger_typed_key(
+            KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+            &mut s,
+        );
         assert_eq!(s.input, "AC");
         assert_eq!(s.cursor_pos, 1);
     }

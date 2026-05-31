@@ -93,12 +93,7 @@ pub fn compile_rules(rules: &[RegexRule]) -> Vec<CompiledRule> {
 /// Apply every compiled rule whose `scope` and `target` match, top-to-bottom.
 /// Each rule sees the previous rule's output. Returns `Cow::Borrowed` on the
 /// no-rule-fired path so callers pay zero copy cost when no rule matches.
-pub fn apply<'a>(
-    rules: &[CompiledRule],
-    scope: Scope,
-    role: Role,
-    text: &'a str,
-) -> Cow<'a, str> {
+pub fn apply<'a>(rules: &[CompiledRule], scope: Scope, role: Role, text: &'a str) -> Cow<'a, str> {
     if rules.is_empty() {
         return Cow::Borrowed(text);
     }
@@ -153,12 +148,7 @@ mod tests {
         assert!(cfg.regex.is_empty());
     }
 
-    fn rule(
-        pattern: &str,
-        replacement: &str,
-        scopes: &[Scope],
-        targets: &[Target],
-    ) -> RegexRule {
+    fn rule(pattern: &str, replacement: &str, scopes: &[Scope], targets: &[Target]) -> RegexRule {
         RegexRule {
             name: "test".to_owned(),
             pattern: pattern.to_owned(),
@@ -179,12 +169,7 @@ mod tests {
 
     #[test]
     fn apply_returns_borrowed_on_no_match() {
-        let rules = compile_rules(&[rule(
-            "zzz",
-            "yyy",
-            &[Scope::Display],
-            &[Target::Assistant],
-        )]);
+        let rules = compile_rules(&[rule("zzz", "yyy", &[Scope::Display], &[Target::Assistant])]);
         let out = apply(&rules, Scope::Display, Role::Assistant, "hello");
         assert!(matches!(out, Cow::Borrowed("hello")));
     }
@@ -201,24 +186,14 @@ mod tests {
 
     #[test]
     fn apply_skips_non_matching_scope() {
-        let rules = compile_rules(&[rule(
-            "a",
-            "b",
-            &[Scope::PromptSend],
-            &[Target::Assistant],
-        )]);
+        let rules = compile_rules(&[rule("a", "b", &[Scope::PromptSend], &[Target::Assistant])]);
         let out = apply(&rules, Scope::Display, Role::Assistant, "a");
         assert_eq!(out, "a");
     }
 
     #[test]
     fn apply_skips_non_matching_target() {
-        let rules = compile_rules(&[rule(
-            "a",
-            "b",
-            &[Scope::Display],
-            &[Target::User],
-        )]);
+        let rules = compile_rules(&[rule("a", "b", &[Scope::Display], &[Target::User])]);
         let out = apply(&rules, Scope::Display, Role::Assistant, "a");
         assert_eq!(out, "a");
     }
@@ -341,6 +316,9 @@ mod tests {
         );
         let back: Config = toml::from_str(&s).unwrap();
         assert_eq!(back.regex.len(), 1);
-        assert!(!back.regex[0].enabled, "deserialized rule must remain disabled");
+        assert!(
+            !back.regex[0].enabled,
+            "deserialized rule must remain disabled"
+        );
     }
 }

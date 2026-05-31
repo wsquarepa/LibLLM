@@ -94,11 +94,7 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     );
 
     writeln!(&mut out, "{}", border).unwrap();
-    writeln!(
-        &mut out,
-        "Events:"
-    )
-    .unwrap();
+    writeln!(&mut out, "Events:").unwrap();
     writeln!(&mut out).unwrap();
     out
 }

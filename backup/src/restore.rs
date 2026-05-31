@@ -333,8 +333,8 @@ mod tests {
 mod archived_tests {
     use crate::crypto::{compute_kek_fingerprint, encrypt_payload, resolve_backup_key, wrap_dek};
     use crate::index::{
-        backup_filename, save_index, BackupEntry, BackupIndex, BackupType, FingerprintField,
-        SCHEMA_VERSION,
+        BackupEntry, BackupIndex, BackupType, FingerprintField, SCHEMA_VERSION, backup_filename,
+        save_index,
     };
     use chrono::Utc;
     use tempfile::TempDir;
@@ -346,8 +346,12 @@ mod archived_tests {
         let backups_dir = data_dir.join("backups");
         std::fs::create_dir_all(&backups_dir).unwrap();
 
-        let _current_kek = resolve_backup_key(data_dir, Some("current")).unwrap().unwrap();
-        let foreign_kek = resolve_backup_key(data_dir, Some("foreign")).unwrap().unwrap();
+        let _current_kek = resolve_backup_key(data_dir, Some("current"))
+            .unwrap()
+            .unwrap();
+        let foreign_kek = resolve_backup_key(data_dir, Some("foreign"))
+            .unwrap()
+            .unwrap();
         let dek = [7u8; 32];
         let id = "20260421T030000.000Z".to_string();
         let filename = backup_filename(&id, BackupType::Base);
@@ -371,7 +375,9 @@ mod archived_tests {
                 encrypted: true,
                 created_at: Utc::now(),
                 wrapped_dek: Some(wrap_dek(&dek, &foreign_kek).unwrap()),
-                kek_fingerprint: Some(FingerprintField::Known(compute_kek_fingerprint(&foreign_kek))),
+                kek_fingerprint: Some(FingerprintField::Known(compute_kek_fingerprint(
+                    &foreign_kek,
+                ))),
             }],
         };
         save_index(&backups_dir.join("index.json"), &index).unwrap();

@@ -1626,7 +1626,8 @@ mod tests {
 
     #[test]
     fn files_config_round_trips_toml() {
-        let toml_text = "[files]\nenabled = false\nper_file_bytes = 1024\nper_message_bytes = 4096\n";
+        let toml_text =
+            "[files]\nenabled = false\nper_file_bytes = 1024\nper_message_bytes = 4096\n";
         let config: Config = toml::from_str(toml_text).expect("parse");
         assert!(!config.files.enabled);
         assert_eq!(config.files.per_file_bytes, 1024);
@@ -1653,7 +1654,10 @@ mod tests {
     #[test]
     fn files_config_defaults_include_summarize_fields() {
         let config = Config::default();
-        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
+        assert_eq!(
+            config.files.summarize_mode,
+            crate::config::FileSummarizeMode::Eager
+        );
         assert!(config.files.summary_prompt.contains("Summarize this file"));
     }
 
@@ -1668,15 +1672,22 @@ summarize_mode = "lazy"
 summary_prompt = "custom prompt"
 "#;
         let config: Config = toml::from_str(toml_text).unwrap();
-        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Lazy);
+        assert_eq!(
+            config.files.summarize_mode,
+            crate::config::FileSummarizeMode::Lazy
+        );
         assert_eq!(config.files.summary_prompt, "custom prompt");
     }
 
     #[test]
     fn files_config_missing_summarize_fields_use_defaults() {
-        let toml_text = "[files]\nenabled = true\nper_file_bytes = 1024\nper_message_bytes = 4096\n";
+        let toml_text =
+            "[files]\nenabled = true\nper_file_bytes = 1024\nper_message_bytes = 4096\n";
         let config: Config = toml::from_str(toml_text).unwrap();
-        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
+        assert_eq!(
+            config.files.summarize_mode,
+            crate::config::FileSummarizeMode::Eager
+        );
         assert!(!config.files.summary_prompt.is_empty());
     }
 
@@ -1685,7 +1696,10 @@ summary_prompt = "custom prompt"
         let toml_text = "[files]\nsummarize_mode = \"eager\"\n";
         let config: Config = toml::from_str(toml_text).unwrap();
         let defaults = crate::config::FilesConfig::default();
-        assert_eq!(config.files.summarize_mode, crate::config::FileSummarizeMode::Eager);
+        assert_eq!(
+            config.files.summarize_mode,
+            crate::config::FileSummarizeMode::Eager
+        );
         assert_eq!(config.files.enabled, defaults.enabled);
         assert_eq!(config.files.per_file_bytes, defaults.per_file_bytes);
         assert_eq!(config.files.per_message_bytes, defaults.per_message_bytes);

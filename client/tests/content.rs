@@ -237,8 +237,12 @@ fn rendered_prompt_preserves_snapshot_for_multiple_files_in_order() {
     let refs: Vec<&Message> = rewritten.iter().collect();
     let rendered = InstructPreset::raw().render(&refs, None);
 
-    let a_idx = rendered.find("<<<FILE a.md>>>").expect("a snapshot present");
-    let b_idx = rendered.find("<<<FILE b.md>>>").expect("b snapshot present");
+    let a_idx = rendered
+        .find("<<<FILE a.md>>>")
+        .expect("a snapshot present");
+    let b_idx = rendered
+        .find("<<<FILE b.md>>>")
+        .expect("b snapshot present");
     assert!(a_idx < b_idx, "snapshots must appear in tree order");
     assert!(rendered.contains("[a.md]"));
     assert!(rendered.contains("[b.md]"));

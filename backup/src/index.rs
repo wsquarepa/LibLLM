@@ -9,8 +9,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 mod base64_bytes {
-    use base64::engine::{general_purpose::STANDARD, Engine};
-    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+    use base64::engine::{Engine, general_purpose::STANDARD};
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
     pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&STANDARD.encode(bytes))
@@ -19,18 +19,15 @@ mod base64_bytes {
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
         let value = serde_json::Value::deserialize(d)?;
         match value {
-            serde_json::Value::String(s) => {
-                STANDARD.decode(&s).map_err(D::Error::custom)
-            }
-            serde_json::Value::Array(arr) => {
-                arr.iter()
-                    .map(|v| {
-                        v.as_u64()
-                            .and_then(|n| u8::try_from(n).ok())
-                            .ok_or_else(|| D::Error::custom("blob array element is not a valid byte"))
-                    })
-                    .collect()
-            }
+            serde_json::Value::String(s) => STANDARD.decode(&s).map_err(D::Error::custom),
+            serde_json::Value::Array(arr) => arr
+                .iter()
+                .map(|v| {
+                    v.as_u64()
+                        .and_then(|n| u8::try_from(n).ok())
+                        .ok_or_else(|| D::Error::custom("blob array element is not a valid byte"))
+                })
+                .collect(),
             other => Err(D::Error::custom(format!(
                 "blob must be a base64 string or byte array, got: {}",
                 other
@@ -661,7 +658,9 @@ mod wrapped_dek_tests {
 
     #[test]
     fn round_trips_through_json() {
-        let w = WrappedDek { blob: vec![1, 2, 3, 4, 5] };
+        let w = WrappedDek {
+            blob: vec![1, 2, 3, 4, 5],
+        };
         let json = serde_json::to_string(&w).unwrap();
         let back: WrappedDek = serde_json::from_str(&json).unwrap();
         assert_eq!(back, w);
@@ -669,9 +668,14 @@ mod wrapped_dek_tests {
 
     #[test]
     fn blob_serializes_as_base64_string() {
-        let w = WrappedDek { blob: vec![0xde, 0xad, 0xbe, 0xef] };
+        let w = WrappedDek {
+            blob: vec![0xde, 0xad, 0xbe, 0xef],
+        };
         let json = serde_json::to_string(&w).unwrap();
-        assert!(json.contains("\"blob\":\"3q2+7w==\""), "unexpected encoding: {json}");
+        assert!(
+            json.contains("\"blob\":\"3q2+7w==\""),
+            "unexpected encoding: {json}"
+        );
     }
 
     #[test]

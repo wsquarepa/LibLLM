@@ -7,6 +7,7 @@
 //! file, a `mod vN;` declaration, and an `if version < N` branch below.
 
 mod v1;
+mod v10;
 mod v2;
 mod v3;
 mod v4;
@@ -15,7 +16,6 @@ mod v6;
 mod v7;
 mod v8;
 mod v9;
-mod v10;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -316,7 +316,8 @@ mod tests {
         )
         .unwrap();
 
-        conn.execute("DELETE FROM sessions WHERE id='s1'", []).unwrap();
+        conn.execute("DELETE FROM sessions WHERE id='s1'", [])
+            .unwrap();
 
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM file_summaries", [], |row| row.get(0))
@@ -507,8 +508,11 @@ mod tests {
             .unwrap();
         assert_eq!(hits_after_update, 0, "UPDATE trigger did not retokenize");
 
-        conn.execute("DELETE FROM messages WHERE session_id = 's1' AND id = 0", [])
-            .unwrap();
+        conn.execute(
+            "DELETE FROM messages WHERE session_id = 's1' AND id = 0",
+            [],
+        )
+        .unwrap();
         let hits_after_delete: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'world'",
@@ -607,11 +611,23 @@ mod tests {
         run_migrations(&conn).unwrap();
 
         let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
-        let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
-            .collect::<Result<Vec<_>, _>>().unwrap();
-        assert!(cols.iter().any(|c| c == "chat_mode"), "missing chat_mode in {cols:?}");
-        assert!(!cols.iter().any(|c| c == "chat_policy"), "stale chat_policy still present in {cols:?}");
-        assert!(!cols.iter().any(|c| c == "card_assembly"), "stale card_assembly still present in {cols:?}");
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            cols.iter().any(|c| c == "chat_mode"),
+            "missing chat_mode in {cols:?}"
+        );
+        assert!(
+            !cols.iter().any(|c| c == "chat_policy"),
+            "stale chat_policy still present in {cols:?}"
+        );
+        assert!(
+            !cols.iter().any(|c| c == "card_assembly"),
+            "stale card_assembly still present in {cols:?}"
+        );
     }
 
     #[test]
@@ -620,10 +636,19 @@ mod tests {
         run_migrations(&conn).unwrap();
 
         let mut stmt = conn.prepare("PRAGMA table_info(messages)").unwrap();
-        let cols: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(1)).unwrap()
-            .collect::<Result<Vec<_>, _>>().unwrap();
-        assert!(cols.iter().any(|c| c == "speaker_slug"), "missing column 'speaker_slug' in {cols:?}");
-        assert!(cols.iter().any(|c| c == "pre_turn_action_points"), "missing column 'pre_turn_action_points' in {cols:?}");
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            cols.iter().any(|c| c == "speaker_slug"),
+            "missing column 'speaker_slug' in {cols:?}"
+        );
+        assert!(
+            cols.iter().any(|c| c == "pre_turn_action_points"),
+            "missing column 'pre_turn_action_points' in {cols:?}"
+        );
     }
 
     #[test]
@@ -632,7 +657,8 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE schema_version (version INTEGER NOT NULL);
              INSERT INTO schema_version (version) VALUES (4);",
-        ).unwrap();
+        )
+        .unwrap();
         super::v1::migrate(&conn).unwrap();
         super::v2::migrate(&conn).unwrap();
         super::v3::migrate(&conn).unwrap();
@@ -642,35 +668,46 @@ mod tests {
             "INSERT INTO sessions (id, character, created_at, updated_at)
              VALUES ('s-solo', 'alice', 'now', 'now')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO sessions (id, character, created_at, updated_at)
              VALUES ('s-bare', NULL, 'now', 'now')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         run_migrations(&conn).unwrap();
 
-        let solo_attachments: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM session_characters WHERE session_id = 's-solo'",
-            [], |row| row.get(0),
-        ).unwrap();
+        let solo_attachments: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_characters WHERE session_id = 's-solo'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(solo_attachments, 1);
 
-        let (slug, idx, talk, ap): (String, i64, f64, f64) = conn.query_row(
-            "SELECT slug, attach_index, talkativeness, action_points
+        let (slug, idx, talk, ap): (String, i64, f64, f64) = conn
+            .query_row(
+                "SELECT slug, attach_index, talkativeness, action_points
              FROM session_characters WHERE session_id = 's-solo'",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        ).unwrap();
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
         assert_eq!(slug, "alice");
         assert_eq!(idx, 0);
         assert!((talk - 1.0).abs() < 1e-6);
         assert!((ap - 0.0).abs() < 1e-6);
 
-        let bare_attachments: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM session_characters WHERE session_id = 's-bare'",
-            [], |row| row.get(0),
-        ).unwrap();
+        let bare_attachments: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_characters WHERE session_id = 's-bare'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(bare_attachments, 0);
     }
 
@@ -683,17 +720,21 @@ mod tests {
         conn.execute(
             "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points)
              VALUES ('s1', 'alice', 0, 1.0, 0.0)",
             [],
         ).unwrap();
 
-        conn.execute("DELETE FROM sessions WHERE id='s1'", []).unwrap();
+        conn.execute("DELETE FROM sessions WHERE id='s1'", [])
+            .unwrap();
 
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM session_characters", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM session_characters", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -703,10 +744,8 @@ mod tests {
         // Simulate a database from the old intermediate build where author_note
         // columns were added as schema version 5. Run v6 again; it must succeed.
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+            .unwrap();
         // Run v1-v5 to get the full base schema including session_characters,
         // which v8 requires when it later runs UPDATE session_characters.
         super::v1::migrate(&conn).unwrap();
@@ -785,10 +824,8 @@ mod tests {
     #[test]
     fn v10_preserves_existing_non_null_rows() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+            .unwrap();
         for v in 1..=9i64 {
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?1)",
@@ -827,10 +864,8 @@ mod tests {
     #[test]
     fn v10_drops_null_keyed_rows_from_buggy_v4_window() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+            .unwrap();
         for v in 1..=9i64 {
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?1)",
@@ -872,10 +907,8 @@ mod tests {
         // stamped as schema version 5. The table and triggers already exist;
         // the current runner must apply v6/v7/v8/v9 without failing.
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_version (version INTEGER NOT NULL);",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+            .unwrap();
         // Run v1-v5 to get the full base schema including session_characters,
         // which v8 requires when it later runs UPDATE session_characters.
         super::v1::migrate(&conn).unwrap();

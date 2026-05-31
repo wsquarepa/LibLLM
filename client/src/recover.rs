@@ -53,12 +53,15 @@ pub fn run_with_interactivity(
     tracing::info!(phase = "start", subcommand = subcommand, data_dir = %data_dir.display(), has_passkey = passkey.is_some(), interactive = interactive, "recover.run");
     match command {
         Some(RecoverCommand::List) => cmd_list(data_dir, passkey),
-        Some(RecoverCommand::Verify { full, archived_passkey }) => {
-            cmd_verify(data_dir, passkey, archived_passkey.as_deref(), *full)
-        }
-        Some(RecoverCommand::Restore { id, yes, archived_passkey }) => {
-            cmd_restore(data_dir, passkey, id, *yes, archived_passkey.as_deref())
-        }
+        Some(RecoverCommand::Verify {
+            full,
+            archived_passkey,
+        }) => cmd_verify(data_dir, passkey, archived_passkey.as_deref(), *full),
+        Some(RecoverCommand::Restore {
+            id,
+            yes,
+            archived_passkey,
+        }) => cmd_restore(data_dir, passkey, id, *yes, archived_passkey.as_deref()),
         Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
         None if interactive => run_interactive_menu(data_dir, passkey),
         None => print_recover_help(),
@@ -296,9 +299,7 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    let current_fp = kek
-        .as_ref()
-        .map(backup::crypto::compute_kek_fingerprint);
+    let current_fp = kek.as_ref().map(backup::crypto::compute_kek_fingerprint);
 
     println!(
         "{:<20} {:<6} {:<12} {:<12} {:<10} {:<26} Status",
@@ -309,9 +310,7 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     for entry in index.entries.iter().rev() {
         let root = chain_root_for(&index, entry);
         let status = match &root.kek_fingerprint {
-            Some(backup::index::FingerprintField::Known(fp))
-                if Some(fp) == current_fp.as_ref() =>
-            {
+            Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
                 "current".to_string()
             }
             Some(backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
@@ -385,9 +384,7 @@ fn cmd_restore(
         .find_entry(id)
         .with_context(|| format!("backup id not found: {id}"))?;
 
-    let current_fp = kek
-        .as_ref()
-        .map(backup::crypto::compute_kek_fingerprint);
+    let current_fp = kek.as_ref().map(backup::crypto::compute_kek_fingerprint);
     let root = chain_root_for(&index, entry);
     let status = match &root.kek_fingerprint {
         Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {

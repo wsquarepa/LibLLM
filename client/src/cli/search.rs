@@ -152,7 +152,10 @@ mod tests {
         // Attacker injects \x1b[1m before the FTS open-marker; after sanitization the
         // injected sequence is gone and the renderer emits its own bold code exactly once.
         let result = render_hl("\x1b[1m\u{1}hi\u{2}\x1b[0m", true);
-        assert_eq!(result, "\x1b[1mhi\x1b[0m", "attacker-supplied sequences must not appear; renderer codes must appear once");
+        assert_eq!(
+            result, "\x1b[1mhi\x1b[0m",
+            "attacker-supplied sequences must not appear; renderer codes must appear once"
+        );
     }
 
     #[test]

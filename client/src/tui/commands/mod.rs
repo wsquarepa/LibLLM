@@ -9,7 +9,9 @@ pub mod export;
 pub mod streaming;
 
 pub(super) use background::handle_background_event;
-pub(super) use streaming::{handle_stream_token, start_group_chat_loop, start_retry_streaming, start_streaming};
+pub(super) use streaming::{
+    handle_stream_token, start_group_chat_loop, start_retry_streaming, start_streaming,
+};
 
 use tokio::sync::mpsc;
 
@@ -119,10 +121,7 @@ async fn cmd_retry(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
 /// Returns `Some(())` when a group-chat retry was dispatched (caller should return immediately),
 /// or `None` when the head message lacks the group-chat fields needed for restoration (caller
 /// should fall through to the default single-character retry path).
-async fn try_group_retry(
-    app: &mut App<'_>,
-    sender: &mpsc::Sender<StreamToken>,
-) -> Option<()> {
+async fn try_group_retry(app: &mut App<'_>, sender: &mpsc::Sender<StreamToken>) -> Option<()> {
     let head_msg = app
         .session
         .tree
@@ -161,9 +160,11 @@ async fn cmd_continue(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamT
             );
             return;
         }
-        let Some(slug) =
-            resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, target_speaker)
-        else {
+        let Some(slug) = resolve_speaker_by_name(
+            &app.session.characters,
+            &app.character_cards_cache,
+            target_speaker,
+        ) else {
             app.set_status(
                 format!("no attached character matches '{target_speaker}'"),
                 StatusLevel::Error,
@@ -548,8 +549,9 @@ fn cmd_character(app: &mut App) {
 }
 
 fn cmd_chat(app: &mut App) {
-    app.chat_settings_dialog =
-        Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
+    app.chat_settings_dialog = Some(dialogs::chat_settings::ChatSettingsDialog::for_session(
+        app.session,
+    ));
     app.focus = Focus::ChatSettingsDialog;
 }
 
@@ -696,7 +698,10 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
 
     let needle = arg.trim();
     if needle.is_empty() {
-        if matches!(app.session.chat_mode, libllm::group_chat::ChatMode::Directed) {
+        if matches!(
+            app.session.chat_mode,
+            libllm::group_chat::ChatMode::Directed
+        ) {
             app.set_status(
                 "directed mode: use /next <name>".to_owned(),
                 StatusLevel::Warning,
@@ -714,8 +719,7 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
                 .iter()
                 .map(|c| (c.slug.clone(), c.action_points))
                 .collect();
-            let snapshot_json =
-                serde_json::to_string(&snapshot_before).unwrap_or_default();
+            let snapshot_json = serde_json::to_string(&snapshot_before).unwrap_or_default();
             streaming::run_one_group_turn(app, &slug, &snapshot_json, &sender).await;
         }
         None => {

@@ -1,6 +1,6 @@
+use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
-use time::OffsetDateTime;
 
 use crate::db::Database;
 use crate::session::Role;
@@ -300,10 +300,7 @@ mod tests {
 
     #[test]
     fn quoted_phrase_is_preserved() {
-        assert_eq!(
-            match_expr_only("\"redact pii\"").unwrap(),
-            "\"redact pii\""
-        );
+        assert_eq!(match_expr_only("\"redact pii\"").unwrap(), "\"redact pii\"");
     }
 
     #[test]
@@ -335,7 +332,10 @@ mod tests {
 
     #[test]
     fn role_filter_accepts_assistant_and_system() {
-        assert_eq!(parse("role:assistant x").unwrap().role, Some(Role::Assistant));
+        assert_eq!(
+            parse("role:assistant x").unwrap().role,
+            Some(Role::Assistant)
+        );
         assert_eq!(parse("role:system x").unwrap().role, Some(Role::System));
     }
 
@@ -468,10 +468,7 @@ mod tests {
 
     #[test]
     fn session_filter_literal_percent_matches_only_session_with_percent_in_name() {
-        let (db, _file) = seed_db_with_sessions(&[
-            ("a", "100% done"),
-            ("b", "something else"),
-        ]);
+        let (db, _file) = seed_db_with_sessions(&[("a", "100% done"), ("b", "something else")]);
         let compiled = compile("session:% done", &db).unwrap();
         assert_eq!(
             compiled.session_ids.unwrap(),
@@ -482,10 +479,7 @@ mod tests {
 
     #[test]
     fn session_filter_literal_underscore_matches_only_session_with_underscore_in_name() {
-        let (db, _file) = seed_db_with_sessions(&[
-            ("a", "feature_x"),
-            ("b", "plain"),
-        ]);
+        let (db, _file) = seed_db_with_sessions(&[("a", "feature_x"), ("b", "plain")]);
         let compiled = compile("session:feature_x x", &db).unwrap();
         assert_eq!(
             compiled.session_ids.unwrap(),
@@ -498,9 +492,6 @@ mod tests {
     fn session_filter_literal_backslash_in_name() {
         let (db, _file) = seed_db_with_sessions(&[("a", "foo\\bar")]);
         let compiled = compile("session:foo\\bar x", &db).unwrap();
-        assert_eq!(
-            compiled.session_ids.unwrap(),
-            vec!["a".to_string()]
-        );
+        assert_eq!(compiled.session_ids.unwrap(), vec!["a".to_string()]);
     }
 }

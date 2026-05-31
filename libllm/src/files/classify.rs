@@ -17,7 +17,6 @@ impl Classified {
             Classified::Text(t) | Classified::Pdf(t) => t,
         }
     }
-
 }
 
 /// Classify `bytes` originating from `path`.
@@ -45,11 +44,10 @@ pub fn classify(path: &Path, bytes: &[u8]) -> Result<Classified, FileError> {
 }
 
 fn classify_pdf(path: &Path, bytes: &[u8]) -> Result<Classified, FileError> {
-    let text = pdf_extract::extract_text_from_mem(bytes)
-        .map_err(|e| FileError::Io {
-            path: path.to_path_buf(),
-            source: std::io::Error::other(format!("pdf-extract: {e}")),
-        })?;
+    let text = pdf_extract::extract_text_from_mem(bytes).map_err(|e| FileError::Io {
+        path: path.to_path_buf(),
+        source: std::io::Error::other(format!("pdf-extract: {e}")),
+    })?;
     if text.trim().is_empty() {
         return Err(FileError::PdfNoText(path.to_path_buf()));
     }
@@ -71,7 +69,11 @@ mod tests {
     #[test]
     fn extensionless_utf8_still_text() {
         // Dockerfile-style content with no extension.
-        let out = classify(Path::new("/tmp/Dockerfile"), b"FROM alpine:3\nRUN echo hi\n").unwrap();
+        let out = classify(
+            Path::new("/tmp/Dockerfile"),
+            b"FROM alpine:3\nRUN echo hi\n",
+        )
+        .unwrap();
         assert!(matches!(out, Classified::Text(_)));
     }
 

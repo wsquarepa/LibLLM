@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{compute_kek_fingerprint, decrypt_payload, encrypt_payload, wrap_dek};
-use crate::index::{save_index, BackupIndex, BackupType, FingerprintField};
+use crate::index::{BackupIndex, BackupType, FingerprintField, save_index};
 
 pub(super) fn migrate(
     index: &mut BackupIndex,
@@ -15,11 +15,7 @@ pub(super) fn migrate(
     }
 }
 
-fn migrate_encrypted(
-    index: &mut BackupIndex,
-    backups_dir: &Path,
-    kek: &[u8; 32],
-) -> Result<()> {
+fn migrate_encrypted(index: &mut BackupIndex, backups_dir: &Path, kek: &[u8; 32]) -> Result<()> {
     let fingerprint = compute_kek_fingerprint(kek);
     let chain_roots: Vec<String> = index
         .entries
@@ -49,8 +45,8 @@ fn migrate_encrypted(
                 .find_entry(entry_id)
                 .with_context(|| format!("entry {entry_id} missing from index"))?;
             let src = backups_dir.join(&entry.filename);
-            let ciphertext = std::fs::read(&src)
-                .with_context(|| format!("read {}", src.display()))?;
+            let ciphertext =
+                std::fs::read(&src).with_context(|| format!("read {}", src.display()))?;
             let plaintext = decrypt_payload(&ciphertext, kek)
                 .with_context(|| format!("decrypt {entry_id} with current KEK"))?;
             let new_blob = encrypt_payload(&plaintext, &dek)
@@ -125,8 +121,8 @@ mod tests {
     use super::migrate;
     use crate::crypto::{encrypt_payload, resolve_backup_key, unwrap_dek};
     use crate::index::{
-        backup_filename, load_index, save_index, BackupEntry, BackupIndex, BackupType,
-        FingerprintField,
+        BackupEntry, BackupIndex, BackupType, FingerprintField, backup_filename, load_index,
+        save_index,
     };
     use chrono::Utc;
     use libllm::crypto::write_atomic;
@@ -176,7 +172,10 @@ mod tests {
         let entry = &index.entries[0];
         let wrapped = entry.wrapped_dek.as_ref().expect("DEK wrapped");
         let dek = unwrap_dek(wrapped, &kek).unwrap();
-        assert!(matches!(entry.kek_fingerprint, Some(FingerprintField::Known(_))));
+        assert!(matches!(
+            entry.kek_fingerprint,
+            Some(FingerprintField::Known(_))
+        ));
 
         let bytes = std::fs::read(backups_dir.join(&filename)).unwrap();
         let recovered = crate::crypto::decrypt_payload(&bytes, &dek).unwrap();
@@ -254,7 +253,10 @@ mod tests {
 
         assert!(index.entries[0].wrapped_dek.is_none());
         assert!(index.entries[0].kek_fingerprint.is_none());
-        assert_eq!(std::fs::read(backups_dir.join(&filename)).unwrap(), plaintext);
+        assert_eq!(
+            std::fs::read(backups_dir.join(&filename)).unwrap(),
+            plaintext
+        );
     }
 
     #[test]
@@ -289,7 +291,10 @@ mod tests {
             });
         }
 
-        let mut index = BackupIndex { version: 1, entries };
+        let mut index = BackupIndex {
+            version: 1,
+            entries,
+        };
         let index_path = backups_dir.join("index.json");
         save_index(&index_path, &index).unwrap();
 

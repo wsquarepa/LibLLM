@@ -422,7 +422,14 @@ pub fn config_locked_fields_by_section(overrides: &crate::cli::CliOverrides) -> 
     if overrides.sampling.max_tokens.is_some() {
         sampling.push(6);
     }
-    vec![general, sampling, Vec::new(), Vec::new(), Vec::new(), Vec::new()]
+    vec![
+        general,
+        sampling,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    ]
 }
 
 pub fn apply_tabbed_config_fields(
@@ -696,14 +703,15 @@ async fn emit_startup_probe_events(
                 .into_iter()
                 .map(|n| libllm::preset::resolve_instruct_preset(&n))
                 .collect();
-        let outcome =
-            libllm::preset::matching::pick_best_match(&server_template, &presets, &current_preset_name);
+        let outcome = libllm::preset::matching::pick_best_match(
+            &server_template,
+            &presets,
+            &current_preset_name,
+        );
         let _ = bg_tx
             .send(BackgroundEvent::TemplateMatch {
                 outcome,
-                server_template_hash: libllm::preset::matching::template_hash(
-                    &server_template,
-                ),
+                server_template_hash: libllm::preset::matching::template_hash(&server_template),
             })
             .await;
     }
@@ -717,7 +725,14 @@ pub(super) fn spawn_startup_probes(
     current_preset_name: String,
 ) {
     tokio::spawn(async move {
-        emit_startup_probe_events(client, tokenizer_tx, bg_tx, cli_override_template_set, current_preset_name).await;
+        emit_startup_probe_events(
+            client,
+            tokenizer_tx,
+            bg_tx,
+            cli_override_template_set,
+            current_preset_name,
+        )
+        .await;
     });
 }
 
@@ -737,7 +752,11 @@ fn build_summarize_client(
 ) -> ApiClient {
     let auth = libllm::config::resolve_auth(config, &cli_overrides.auth_overrides());
     let url = summarize_api_url(config, cli_overrides);
-    ApiClient::new(&url, config.tls_skip_verify || cli_overrides.tls_skip_verify, auth)
+    ApiClient::new(
+        &url,
+        config.tls_skip_verify || cli_overrides.tls_skip_verify,
+        auth,
+    )
 }
 
 pub(super) fn summarize_api_url(
@@ -884,7 +903,8 @@ pub(super) fn rebuild_character_cards_cache(app: &mut App) {
     let Some(ref db) = app.db else { return };
     for attachment in &app.session.characters {
         if let Ok(card) = db.load_character(&attachment.slug) {
-            app.character_cards_cache.insert(attachment.slug.clone(), card);
+            app.character_cards_cache
+                .insert(attachment.slug.clone(), card);
         }
     }
 }
@@ -895,9 +915,9 @@ pub(super) fn load_active_card_author_note(app: &mut App) {
         .character
         .as_deref()
         .and_then(|name| {
-            app.db.as_ref().and_then(|db| {
-                db.load_character(&libllm::character::slugify(name)).ok()
-            })
+            app.db
+                .as_ref()
+                .and_then(|db| db.load_character(&libllm::character::slugify(name)).ok())
         })
         .and_then(|card| card.author_note);
 }
@@ -1386,7 +1406,11 @@ mod tests {
         assert!(format_relative_age("", now).is_none());
     }
 
-    fn make_session_entry(display_name: &str, updated_at: Option<&str>, count: Option<usize>) -> SessionEntry {
+    fn make_session_entry(
+        display_name: &str,
+        updated_at: Option<&str>,
+        count: Option<usize>,
+    ) -> SessionEntry {
         SessionEntry {
             id: "id".to_owned(),
             display_name: display_name.to_owned(),
@@ -1463,11 +1487,8 @@ mod tests {
             ..Config::default()
         };
         let dialog = open_theme_editor(&config);
-        let sections: Vec<Vec<String>> = dialog
-            .sections()
-            .iter()
-            .map(|s| s.values.clone())
-            .collect();
+        let sections: Vec<Vec<String>> =
+            dialog.sections().iter().map(|s| s.values.clone()).collect();
         let rebuilt = build_theme_color_overrides(&sections);
         assert_eq!(
             rebuilt.get(ColorLabel::GroupCharacterFg1),

@@ -39,7 +39,8 @@ pub const TARGET: &str = const {
 };
 
 fn parse_version_tag(s: &str) -> Option<semver::Version> {
-    s.strip_prefix('v').and_then(|rest| semver::Version::parse(rest).ok())
+    s.strip_prefix('v')
+        .and_then(|rest| semver::Version::parse(rest).ok())
 }
 
 fn normalize_tag(s: &str) -> String {
@@ -385,7 +386,10 @@ async fn update_stable(client: &reqwest::Client) -> Result<()> {
                 reason = "up_to_date",
                 "update.check"
             );
-            println!("Already up to date ({} commit {current_hash}).", release.tag_name);
+            println!(
+                "Already up to date ({} commit {current_hash}).",
+                release.tag_name
+            );
             return Ok(());
         }
     }
@@ -520,9 +524,7 @@ fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
             reason = "non_interactive",
             "update.downgrade"
         );
-        anyhow::bail!(
-            "Downgrading to '{target}' in a non-interactive terminal requires --yes."
-        );
+        anyhow::bail!("Downgrading to '{target}' in a non-interactive terminal requires --yes.");
     }
 
     eprintln!(
@@ -596,7 +598,8 @@ async fn pick_branch(client: &reqwest::Client) -> Result<Option<String>> {
         .collect();
 
     let default = entries.iter().position(|e| e.current).unwrap_or(0);
-    let Some(index) = crate::interactive::arrow_select("Select a release channel:", &rows, default)?
+    let Some(index) =
+        crate::interactive::arrow_select("Select a release channel:", &rows, default)?
     else {
         tracing::debug!(phase = "cancelled", "update.interactive");
         return Ok(None);
@@ -719,7 +722,9 @@ mod tests {
         let names: Vec<&str> = list.iter().map(|e| e.tag.as_str()).collect();
         assert_eq!(
             names,
-            vec!["v2.6.0", "preview", "feat/foo", "feat/bar", "v2.5.0", "v2.4.0"]
+            vec![
+                "v2.6.0", "preview", "feat/foo", "feat/bar", "v2.5.0", "v2.4.0"
+            ]
         );
     }
 

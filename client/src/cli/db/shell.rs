@@ -269,5 +269,7 @@ fn run_statement(state: &ShellState, sql: &str) -> Result<()> {
 fn print_rows(state: &ShellState, rows: &QueryRows) -> Result<()> {
     let formatter = state.formatter();
     let output = formatter.format(&rows.headers, &rows.rows, state.show_headers);
-    io::stdout().write_all(output.as_bytes()).context("failed to write query output")
+    io::stdout()
+        .write_all(output.as_bytes())
+        .context("failed to write query output")
 }

@@ -1,11 +1,11 @@
 //! Confirmation dialog for Danger tab items 1-6 (synchronous destructive ops).
 
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use crate::tui::types::DangerOp;
 
@@ -100,10 +100,7 @@ pub(in crate::tui) fn render_danger_confirm(
             Span::styled(format!(" {confirm_label} "), confirm_style),
         ]),
     ];
-    f.render_widget(
-        Paragraph::new(lines).alignment(Alignment::Left),
-        inner,
-    );
+    f.render_widget(Paragraph::new(lines).alignment(Alignment::Left), inner);
 }
 
 pub(in crate::tui) fn handle_danger_confirm_key(
@@ -135,7 +132,8 @@ mod tests {
     #[test]
     fn arrow_toggles_selection() {
         let mut s = 0;
-        let _ = handle_danger_confirm_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &mut s);
+        let _ =
+            handle_danger_confirm_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &mut s);
         assert_eq!(s, 1);
         let _ = handle_danger_confirm_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
         assert_eq!(s, 0);
@@ -144,14 +142,16 @@ mod tests {
     #[test]
     fn enter_on_cancel_returns_cancel() {
         let mut s = 0;
-        let r = handle_danger_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
+        let r =
+            handle_danger_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
         assert!(matches!(r, DangerConfirmResult::Cancel));
     }
 
     #[test]
     fn enter_on_confirm_returns_confirm() {
         let mut s = 1;
-        let r = handle_danger_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
+        let r =
+            handle_danger_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
         assert!(matches!(r, DangerConfirmResult::Confirm));
     }
 }

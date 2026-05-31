@@ -309,7 +309,10 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
             app.token_counter.apply_update(update);
             app.invalidate_prompt_cache();
         }
-        BackgroundEvent::TemplateMatch { outcome, server_template_hash } => {
+        BackgroundEvent::TemplateMatch {
+            outcome,
+            server_template_hash,
+        } => {
             use libllm::preset::matching::MatchOutcome;
             let (preset_name, score, is_best_guess) = match outcome {
                 MatchOutcome::Confident { preset, score } => (preset, score, false),
@@ -329,7 +332,11 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 return;
             }
 
-            let dismissed = match app.db.as_ref().map(|db| db.is_template_dismissed(&server_template_hash)) {
+            let dismissed = match app
+                .db
+                .as_ref()
+                .map(|db| db.is_template_dismissed(&server_template_hash))
+            {
                 Some(Ok(d)) => d,
                 Some(Err(err)) => {
                     tracing::error!(error = %err, "template_match.dismissed_lookup_failed");

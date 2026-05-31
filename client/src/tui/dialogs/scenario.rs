@@ -7,7 +7,10 @@ use ratatui::style::Color;
 use ratatui::text::Line;
 use tui_textarea::TextArea;
 
-use super::{DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, clear_centered, dialog_block, render_hints_below_dialog};
+use super::{
+    DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, clear_centered, dialog_block,
+    render_hints_below_dialog,
+};
 use crate::tui::types::{App, Focus, StatusLevel};
 use crate::tui::{Action, clipboard, dialog_handler, events};
 
@@ -57,15 +60,11 @@ pub(in crate::tui) fn render(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(dialog_block(" Edit Scenario ", Color::Yellow), dialog);
 
     let editor_rect = editor_area(dialog);
-    app.scenario_scroll_top = events::update_scroll_top(app.scenario_scroll_top, editor, editor_rect);
+    app.scenario_scroll_top =
+        events::update_scroll_top(app.scenario_scroll_top, editor, editor_rect);
     f.render_widget(editor, editor_rect);
 
-    render_hints_below_dialog(
-        f,
-        dialog,
-        area,
-        &[Line::from("Esc: close")],
-    );
+    render_hints_below_dialog(f, dialog, area, &[Line::from("Esc: close")]);
 }
 
 pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
@@ -115,7 +114,13 @@ pub(in crate::tui) fn handle_mouse_click(app: &mut App, screen_col: u16, screen_
         let editor_rect = editor_area(dialog);
         let scroll_top = app.scenario_scroll_top;
         editor.cancel_selection();
-        events::move_textarea_cursor_to_mouse(editor, editor_rect, scroll_top, screen_col, screen_row);
+        events::move_textarea_cursor_to_mouse(
+            editor,
+            editor_rect,
+            scroll_top,
+            screen_col,
+            screen_row,
+        );
     } else {
         stage_provisional_and_close(app);
     }

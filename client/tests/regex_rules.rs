@@ -1,6 +1,9 @@
 //! Integration tests for regex find/replace rules across the four pipeline scopes.
 
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use libllm::regex_rules::{RegexRule, Scope, Target};
@@ -26,15 +29,14 @@ fn prompt_send_rule_rewrites_outgoing_text_without_mutating_tree() {
     let original = "He said \u{201c}hi\u{201d}";
     let stored = Message::new(Role::User, original.to_owned());
 
-    let transformed = libllm::regex_rules::apply(
-        &compiled,
-        Scope::PromptSend,
-        stored.role,
-        &stored.content,
-    );
+    let transformed =
+        libllm::regex_rules::apply(&compiled, Scope::PromptSend, stored.role, &stored.content);
 
     assert_eq!(transformed, "He said \"hi\"");
-    assert_eq!(stored.content, original, "tree-stored content must not change");
+    assert_eq!(
+        stored.content, original,
+        "tree-stored content must not change"
+    );
 }
 
 #[test]
@@ -85,13 +87,9 @@ fn prompt_recv_rule_mutates_stored_assistant_content() {
     let compiled = libllm::regex_rules::compile_rules(&[rule]);
 
     let raw_response = "Well, y'know, that's how it is.";
-    let stored = libllm::regex_rules::apply(
-        &compiled,
-        Scope::PromptRecv,
-        Role::Assistant,
-        raw_response,
-    )
-    .into_owned();
+    let stored =
+        libllm::regex_rules::apply(&compiled, Scope::PromptRecv, Role::Assistant, raw_response)
+            .into_owned();
 
     assert_eq!(stored, "Well, you know, that's how it is.");
 }
@@ -111,15 +109,18 @@ fn export_rule_only_affects_export_output() {
 
     let raw = "my key is sk-abc123";
 
-    let display_out =
-        libllm::regex_rules::apply(&compiled, Scope::Display, Role::User, raw);
-    let send_out =
-        libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::User, raw);
-    let export_out =
-        libllm::regex_rules::apply(&compiled, Scope::Export, Role::User, raw);
+    let display_out = libllm::regex_rules::apply(&compiled, Scope::Display, Role::User, raw);
+    let send_out = libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::User, raw);
+    let export_out = libllm::regex_rules::apply(&compiled, Scope::Export, Role::User, raw);
 
-    assert_eq!(display_out, raw, "Export-scoped rule must not affect display");
-    assert_eq!(send_out, raw, "Export-scoped rule must not affect prompt_send");
+    assert_eq!(
+        display_out, raw,
+        "Export-scoped rule must not affect display"
+    );
+    assert_eq!(
+        send_out, raw,
+        "Export-scoped rule must not affect prompt_send"
+    );
     assert_eq!(export_out, "my key is [REDACTED]");
 }
 
@@ -142,12 +143,8 @@ fn prompt_send_runs_before_file_rewrite_for_at_path_tokens() {
     // (which substitutes @paths). Confirm the regex sees the @path token unchanged
     // and that the @path is still recognized for file resolution.
     let user_input = "check @/home/user/file.txt and secret info";
-    let after_regex = libllm::regex_rules::apply(
-        &compiled,
-        Scope::PromptSend,
-        Role::User,
-        user_input,
-    );
+    let after_regex =
+        libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::User, user_input);
     assert_eq!(
         after_regex, "check @/home/user/file.txt and classified info",
         "PromptSend regex must not corrupt @path tokens"
@@ -202,13 +199,12 @@ fn prompt_send_system_rule_does_not_rewrite_snapshot_messages() {
 
     // Control case: the rule fires on plain system text.
     let plain_system = "&lt;hello&gt;".to_owned();
-    let rewritten_plain = libllm::regex_rules::apply(
-        &compiled,
-        Scope::PromptSend,
-        Role::System,
-        &plain_system,
+    let rewritten_plain =
+        libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::System, &plain_system);
+    assert_eq!(
+        rewritten_plain, "<hello&gt;",
+        "rule must fire on plain system text"
     );
-    assert_eq!(rewritten_plain, "<hello&gt;", "rule must fire on plain system text");
 
     // Confirm is_snapshot recognises the body.
     assert!(
@@ -218,12 +214,8 @@ fn prompt_send_system_rule_does_not_rewrite_snapshot_messages() {
 
     // Without the guard, applying the rule to the snapshot body produces the
     // dangerous decoded delimiter — documents the vulnerability.
-    let raw_applied = libllm::regex_rules::apply(
-        &compiled,
-        Scope::PromptSend,
-        Role::System,
-        &snapshot_body,
-    );
+    let raw_applied =
+        libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::System, &snapshot_body);
     assert!(
         raw_applied.contains("<<<END evil.md>>>"),
         "unguarded apply produces the dangerous decoded delimiter"
@@ -266,11 +258,9 @@ fn prompt_send_system_rule_still_rewrites_freeform_system_messages() {
         !libllm::files::is_snapshot(&freeform),
         "freeform system message must not be identified as snapshot"
     );
-    let result = libllm::regex_rules::apply(
-        &compiled,
-        Scope::PromptSend,
-        Role::System,
-        &freeform,
+    let result = libllm::regex_rules::apply(&compiled, Scope::PromptSend, Role::System, &freeform);
+    assert_eq!(
+        result, "You are <helpful&gt;.",
+        "freeform system messages must still be rewritten"
     );
-    assert_eq!(result, "You are <helpful&gt;.", "freeform system messages must still be rewritten");
 }

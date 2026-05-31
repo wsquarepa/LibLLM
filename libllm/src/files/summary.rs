@@ -323,11 +323,7 @@ impl FileSummarizer {
     /// Lazy-schedules any missing rows before waiting. Force-transitions
     /// stuck `pending` rows to `failed` after
     /// `per_file_timeout * files.len()` has elapsed.
-    pub async fn ensure_ready(
-        &self,
-        session_id: &str,
-        files: &[FileToSummarize],
-    ) -> Result<()> {
+    pub async fn ensure_ready(&self, session_id: &str, files: &[FileToSummarize]) -> Result<()> {
         if files.is_empty() {
             return Ok(());
         }
@@ -686,10 +682,15 @@ mod tests {
 
     use crate::files::ResolvedFile;
 
-    fn heuristic_token_counter() -> (crate::tokenizer::TokenCounter, tokio::sync::mpsc::Receiver<crate::tokenizer::TokenCountUpdate>) {
+    fn heuristic_token_counter() -> (
+        crate::tokenizer::TokenCounter,
+        tokio::sync::mpsc::Receiver<crate::tokenizer::TokenCountUpdate>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::channel(8);
         let counter = crate::tokenizer::TokenCounter::new_with_backend(
-            crate::tokenizer::TokenizerBackend::Heuristic(crate::tokenizer::HeuristicTokenizer::standard()),
+            crate::tokenizer::TokenizerBackend::Heuristic(
+                crate::tokenizer::HeuristicTokenizer::standard(),
+            ),
             tx,
         );
         (counter, rx)
@@ -722,7 +723,10 @@ mod tests {
         let err = result.expect_err("expected TooLargeForSummary");
         match err {
             FileError::TooLargeForSummary { tokens, limit, .. } => {
-                assert!(tokens > limit, "tokens {tokens} should exceed limit {limit}");
+                assert!(
+                    tokens > limit,
+                    "tokens {tokens} should exceed limit {limit}"
+                );
             }
             other => panic!("expected TooLargeForSummary, got {other:?}"),
         }
@@ -735,7 +739,10 @@ mod tests {
         // which exceeds the 3_552-token limit (4096 - 512 response - 32 pad).
         let file = small_file(&"a".repeat(12_000));
         let short = check_file_fits(&counter, &file, "Summarize.", 4096).await;
-        assert!(short.is_err(), "12k-char body must not fit in 4096-token context");
+        assert!(
+            short.is_err(),
+            "12k-char body must not fit in 4096-token context"
+        );
 
         // Same file, larger context — should fit.
         let ok = check_file_fits(&counter, &file, "Summarize.", 131_072).await;

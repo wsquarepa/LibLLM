@@ -11,8 +11,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use ratatui::text::Span;
+use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::tui::dialog_handler::return_to_input;

@@ -49,10 +49,14 @@ mod tests {
         let mut cache = InputFileCache::new();
         cache.insert(
             PathBuf::from("/tmp/a.md"),
-            CachedResolution { estimated_tokens: 3 },
+            CachedResolution {
+                estimated_tokens: 3,
+            },
         );
         assert_eq!(
-            cache.lookup(Path::new("/tmp/a.md")).map(|r| r.estimated_tokens),
+            cache
+                .lookup(Path::new("/tmp/a.md"))
+                .map(|r| r.estimated_tokens),
             Some(3)
         );
     }
@@ -62,11 +66,15 @@ mod tests {
         let mut cache = InputFileCache::new();
         cache.insert(
             PathBuf::from("/tmp/a.md"),
-            CachedResolution { estimated_tokens: 1 },
+            CachedResolution {
+                estimated_tokens: 1,
+            },
         );
         cache.insert(
             PathBuf::from("/tmp/b.md"),
-            CachedResolution { estimated_tokens: 1 },
+            CachedResolution {
+                estimated_tokens: 1,
+            },
         );
         let mut live = HashSet::new();
         live.insert(PathBuf::from("/tmp/a.md"));
@@ -80,11 +88,15 @@ mod tests {
         let mut cache = InputFileCache::new();
         cache.insert(
             PathBuf::from("/tmp/a.md"),
-            CachedResolution { estimated_tokens: 3 },
+            CachedResolution {
+                estimated_tokens: 3,
+            },
         );
         cache.insert(
             PathBuf::from("/tmp/b.md"),
-            CachedResolution { estimated_tokens: 5 },
+            CachedResolution {
+                estimated_tokens: 5,
+            },
         );
         assert_eq!(cache.sum_estimated_tokens(), 8);
     }

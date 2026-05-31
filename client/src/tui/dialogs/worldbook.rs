@@ -319,7 +319,9 @@ pub(in crate::tui) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App,
     } else {
         vec![
             Line::from("Up/Down: navigate  PgUp/PgDn: page  Home/End: jump"),
-            Line::from("Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Ctrl+S: save  Esc: close"),
+            Line::from(
+                "Right/Enter: edit  a: add  Del: delete  Ctrl+F: search  Ctrl+S: save  Esc: close",
+            ),
         ]
     };
     render_hints_below_dialog(f, dialog, area, &hints);
@@ -874,16 +876,25 @@ mod tests {
 
     #[test]
     fn ctrl_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::CONTROL)));
+        assert!(is_save_shortcut(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]
     fn ctrl_shift_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(KeyCode::Char('S'), KeyModifiers::CONTROL)));
+        assert!(is_save_shortcut(&key(
+            KeyCode::Char('S'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]
     fn plain_s_is_not_save_shortcut() {
-        assert!(!is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::NONE)));
+        assert!(!is_save_shortcut(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::NONE
+        )));
     }
 }

@@ -162,7 +162,10 @@ mod tests {
         let max_start = n - ARROW_VISIBLE;
         assert_eq!(arrow_window_start(n - 1, n), max_start);
         assert_eq!(arrow_window_start(n - 2, n), max_start);
-        assert_eq!(arrow_window_start(n - ARROW_VISIBLE + ARROW_ABOVE, n), max_start);
+        assert_eq!(
+            arrow_window_start(n - ARROW_VISIBLE + ARROW_ABOVE, n),
+            max_start
+        );
     }
 
     #[test]

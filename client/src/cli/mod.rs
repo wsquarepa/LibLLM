@@ -6,7 +6,7 @@ pub mod search;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, ensure, Context};
+use anyhow::{Context, anyhow, bail, ensure};
 use clap::{Parser, Subcommand};
 use libllm::sampling::SamplingOverrides;
 
@@ -584,8 +584,7 @@ mod tests {
     fn validate_rejects_missing_card() {
         let chars = vec!["alice".to_owned(), "bob".to_owned()];
         let card_names = names(&[("alice", "Alice")]);
-        let err =
-            validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
+        let err = validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
         assert!(err.to_string().contains("bob"));
     }
 
@@ -593,8 +592,7 @@ mod tests {
     fn validate_rejects_duplicate_display_names_case_insensitive() {
         let chars = vec!["alice1".to_owned(), "alice2".to_owned()];
         let card_names = names(&[("alice1", "Alice"), ("alice2", "alice")]);
-        let err =
-            validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
+        let err = validate_group_chat_args(&chars, &Default::default(), &card_names).unwrap_err();
         assert!(err.to_string().contains("share display name"));
     }
 
@@ -615,7 +613,10 @@ mod tests {
 
     #[test]
     fn multiple_characters_parse_in_order() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-c", "charlie", "-p", "me"]).unwrap();
+        let args = Args::try_parse_from([
+            "libllm", "-c", "alice", "-c", "bob", "-c", "charlie", "-p", "me",
+        ])
+        .unwrap();
         assert_eq!(args.character, vec!["alice", "bob", "charlie"]);
     }
 
@@ -627,19 +628,42 @@ mod tests {
 
     #[test]
     fn chat_mode_default_action_value() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me"]).unwrap();
+        let args =
+            Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me"]).unwrap();
         assert!(matches!(args.chat_mode, ChatModeArg::ActionValue));
     }
 
     #[test]
     fn chat_mode_weighted_random_parses() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-mode", "weighted-random"]).unwrap();
+        let args = Args::try_parse_from([
+            "libllm",
+            "-c",
+            "alice",
+            "-c",
+            "bob",
+            "-p",
+            "me",
+            "--chat-mode",
+            "weighted-random",
+        ])
+        .unwrap();
         assert!(matches!(args.chat_mode, ChatModeArg::WeightedRandom));
     }
 
     #[test]
     fn chat_mode_directed_parses() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-c", "bob", "-p", "me", "--chat-mode", "directed"]).unwrap();
+        let args = Args::try_parse_from([
+            "libllm",
+            "-c",
+            "alice",
+            "-c",
+            "bob",
+            "-p",
+            "me",
+            "--chat-mode",
+            "directed",
+        ])
+        .unwrap();
         assert!(matches!(args.chat_mode, ChatModeArg::Directed));
     }
 

@@ -166,7 +166,11 @@ mod tests {
     fn at_token_mid_word_is_plain() {
         let line = parse_styled_line("email@example.com", Color::Red, Color::Blue);
         for span in &line.spans {
-            assert_ne!(span.style.fg, Some(Color::Blue), "mid-word @ must not be styled");
+            assert_ne!(
+                span.style.fg,
+                Some(Color::Blue),
+                "mid-word @ must not be styled"
+            );
         }
     }
 
@@ -226,11 +230,7 @@ mod tests {
         // The quoted @-token opens with `@"` — the dialogue parser
         // would otherwise want to style the inner `"`. Confirm no
         // span gets the dialogue colour.
-        let line = parse_styled_line(
-            r#"read @"Lecture 29 notes.pdf""#,
-            Color::Red,
-            Color::Blue,
-        );
+        let line = parse_styled_line(r#"read @"Lecture 29 notes.pdf""#, Color::Red, Color::Blue);
         for span in &line.spans {
             assert_ne!(
                 span.style.fg,

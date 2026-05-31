@@ -85,7 +85,10 @@ pub fn normalized_talkativeness(characters: &[CharacterAttachment]) -> Vec<f32> 
     if characters.is_empty() {
         return Vec::new();
     }
-    let raw: Vec<f32> = characters.iter().map(|c| c.talkativeness.max(0.0)).collect();
+    let raw: Vec<f32> = characters
+        .iter()
+        .map(|c| c.talkativeness.max(0.0))
+        .collect();
     let sum: f32 = raw.iter().sum();
     if sum <= 0.0 {
         let n = characters.len() as f32;
@@ -153,7 +156,7 @@ impl ChatMode {
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{Result, anyhow, ensure};
 use rand::{Rng, RngExt};
 
 use crate::character::CharacterCard;
@@ -516,8 +519,8 @@ mod tests {
     use super::*;
 
     use crate::session::Session;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     fn card(
         name: &str,
@@ -541,7 +544,10 @@ mod tests {
     }
 
     fn cards_map(items: &[(&str, CharacterCard)]) -> HashMap<String, CharacterCard> {
-        items.iter().map(|(s, c)| ((*s).to_owned(), c.clone())).collect()
+        items
+            .iter()
+            .map(|(s, c)| ((*s).to_owned(), c.clone()))
+            .collect()
     }
 
     fn fixture_session(slugs: &[&str]) -> crate::session::Session {
@@ -572,7 +578,13 @@ mod tests {
         let cards = cards_map(&[
             (
                 "alice",
-                card("Alice", "A wandering bard.", "Cheerful.", "A tavern.", "Hi!\nGood evening."),
+                card(
+                    "Alice",
+                    "A wandering bard.",
+                    "Cheerful.",
+                    "A tavern.",
+                    "Hi!\nGood evening.",
+                ),
             ),
             ("bob", card("Bob", "A grumpy dwarf.", "Stoic.", "", "")),
         ]);
@@ -591,9 +603,15 @@ mod tests {
     #[test]
     fn build_turn_prompt_join_three_with_persona_matches_fixture() {
         let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
+            (
+                "alice",
+                card("Alice", "Bard.", "Cheerful.", "A tavern.", ""),
+            ),
             ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
-            ("charlie", card("Charlie", "Wizard.", "Curious.", "A tavern.", "")),
+            (
+                "charlie",
+                card("Charlie", "Wizard.", "Curious.", "A tavern.", ""),
+            ),
         ]);
         let mut session = fixture_session(&["alice", "bob", "charlie"]);
         session.persona = Some("me".to_owned());
@@ -664,7 +682,10 @@ mod tests {
             ..inputs(&session, &cards, "alice")
         })
         .unwrap();
-        assert!(p.nudge.is_none(), "empty nudge template should not emit a message");
+        assert!(
+            p.nudge.is_none(),
+            "empty nudge template should not emit a message"
+        );
     }
 
     #[test]
@@ -680,9 +701,7 @@ mod tests {
         };
         let p = build_turn_prompt(TurnPromptInputs {
             persona: Some(&persona),
-            base_system_prompt: Some(
-                "You are {{char}} in a roleplay with {{user}}.",
-            ),
+            base_system_prompt: Some("You are {{char}} in a roleplay with {{user}}."),
             ..inputs(&session, &cards, "alice")
         })
         .unwrap();
@@ -773,8 +792,18 @@ mod tests {
         let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
         assert_eq!(d.speaker_slug, "b");
         // Time advance = 0.5. a: 2 - 0.5 = 1.5. b: reset to base = 1/0.5 = 2.
-        let new_a = d.updated_action_points.iter().find(|(s, _)| s == "a").unwrap().1;
-        let new_b = d.updated_action_points.iter().find(|(s, _)| s == "b").unwrap().1;
+        let new_a = d
+            .updated_action_points
+            .iter()
+            .find(|(s, _)| s == "a")
+            .unwrap()
+            .1;
+        let new_b = d
+            .updated_action_points
+            .iter()
+            .find(|(s, _)| s == "b")
+            .unwrap()
+            .1;
         assert!((new_a - 1.5).abs() < 1e-4, "new_a={new_a}");
         assert!((new_b - 2.0).abs() < 1e-4, "new_b={new_b}");
     }
@@ -801,7 +830,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
         let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
-        assert_eq!(d.speaker_slug, "a", "all tied at AV=0; round-robin picks first attach");
+        assert_eq!(
+            d.speaker_slug, "a",
+            "all tied at AV=0; round-robin picks first attach"
+        );
     }
 
     #[test]
@@ -813,12 +845,17 @@ mod tests {
         for _ in 0..3000 {
             let cs = vec![att("a", 0.25, 0.0), att("b", 0.75, 0.0)];
             let d = decide_next_speaker(&cs, ChatMode::WeightedRandom, &mut rng, None).unwrap();
-            if d.speaker_slug == "a" { counts.0 += 1; } else { counts.1 += 1; }
+            if d.speaker_slug == "a" {
+                counts.0 += 1;
+            } else {
+                counts.1 += 1;
+            }
         }
         assert!(
             counts.1 > counts.0 * 2,
             "expected b to win at least 2x: a={}, b={}",
-            counts.0, counts.1,
+            counts.0,
+            counts.1,
         );
     }
 
@@ -910,7 +947,10 @@ mod tests {
         assert_eq!(back.slug, "alice");
         assert!((back.talkativeness - 0.7).abs() < f32::EPSILON);
         assert!((back.action_points - 0.3).abs() < f32::EPSILON);
-        assert!(!back.spoke_this_round, "spoke_this_round must not persist across serde");
+        assert!(
+            !back.spoke_this_round,
+            "spoke_this_round must not persist across serde"
+        );
     }
 
     #[test]
@@ -946,7 +986,9 @@ mod tests {
             renormalize_action_values(&mut state);
             let mut order = Vec::new();
             for _ in 0..max_per_round {
-                let Some(d) = decide_next_speaker(&state, mode, &mut rng, None) else { break };
+                let Some(d) = decide_next_speaker(&state, mode, &mut rng, None) else {
+                    break;
+                };
                 order.push(d.speaker_slug.clone());
                 for (slug, av) in d.updated_action_points {
                     if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
@@ -982,7 +1024,8 @@ mod tests {
         assert_eq!(rounds[0].len(), 2, "both should speak in one round");
         assert!(
             rounds[0].contains(&"loud".to_owned()) && rounds[0].contains(&"quiet".to_owned()),
-            "expected both speakers to appear: {:?}", rounds[0],
+            "expected both speakers to appear: {:?}",
+            rounds[0],
         );
     }
 
@@ -993,7 +1036,10 @@ mod tests {
         // catch up unless it has been waiting.
         let cs = vec![att("loud", 1.0, 0.0), att("quiet", 0.2, 0.0)];
         let rounds = simulate(cs, ChatMode::ActionValue, 20, 2, 0);
-        let first_slot_loud = rounds.iter().filter(|r| r.first() == Some(&"loud".to_owned())).count();
+        let first_slot_loud = rounds
+            .iter()
+            .filter(|r| r.first() == Some(&"loud".to_owned()))
+            .count();
         assert!(
             first_slot_loud >= 18,
             "expected loud to take the first slot in nearly every round: {first_slot_loud}/20",
@@ -1016,7 +1062,9 @@ mod tests {
         let mut first = true;
         loop {
             let tb = if first { None } else { Some(budget) };
-            let Some(d) = decide_next_speaker(state, mode, rng, tb) else { break };
+            let Some(d) = decide_next_speaker(state, mode, rng, tb) else {
+                break;
+            };
             order.push(d.speaker_slug.clone());
             budget -= d.time_advanced.max(0.0);
             for (slug, av) in d.updated_action_points {
@@ -1037,7 +1085,11 @@ mod tests {
         // Run many user-rounds. With the time-budget gate, slow characters skip rounds
         // rather than being forced to speak every round; their AVs stay within
         // base-AV range and don't drift.
-        let cs = vec![att("a", 1.0, 0.0), att("b", 0.5, 0.0), att("c", 0.16667, 0.0)];
+        let cs = vec![
+            att("a", 1.0, 0.0),
+            att("b", 0.5, 0.0),
+            att("c", 0.16667, 0.0),
+        ];
         let mut state = cs;
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..50 {
@@ -1049,7 +1101,10 @@ mod tests {
             .map(|c| c.action_points)
             .filter(|v| v.is_finite())
             .fold(f32::INFINITY, f32::min);
-        assert!((finite_min - 0.0).abs() < 1e-3, "min AV after renormalize: {finite_min}");
+        assert!(
+            (finite_min - 0.0).abs() < 1e-3,
+            "min AV after renormalize: {finite_min}"
+        );
         // Max base AV here is 6.0 (talk=1/6). With renormalize between rounds, max AV
         // stays under (max base AV + 1 time advance).
         let finite_max = state
@@ -1057,14 +1112,21 @@ mod tests {
             .map(|c| c.action_points)
             .filter(|v| v.is_finite())
             .fold(0.0_f32, f32::max);
-        assert!(finite_max < 7.5, "unexpected AV magnitude after 50 rounds: {finite_max}");
+        assert!(
+            finite_max < 7.5,
+            "unexpected AV magnitude after 50 rounds: {finite_max}"
+        );
     }
 
     #[test]
     fn cascade_long_run_speaks_proportional_to_speed() {
         // Each user-round runs the cascade. Over many rounds the per-character turn
         // count should track the SPD ratio (1.0 : 0.5 : 0.167 ≈ 6 : 3 : 1).
-        let cs = vec![att("a", 1.0, 0.0), att("b", 0.5, 0.0), att("c", 0.16667, 0.0)];
+        let cs = vec![
+            att("a", 1.0, 0.0),
+            att("b", 0.5, 0.0),
+            att("c", 0.16667, 0.0),
+        ];
         let mut state = cs;
         let mut rng = StdRng::seed_from_u64(0);
         let mut counts = (0u32, 0u32, 0u32);
@@ -1121,20 +1183,26 @@ mod tests {
 
     #[test]
     fn action_value_tiebreak_is_uniformly_random_not_deterministic() {
-        let cs = vec![
-            att("alice", 0.5, 1.0),
-            att("bob", 0.5, 1.0),
-        ];
+        let cs = vec![att("alice", 0.5, 1.0), att("bob", 0.5, 1.0)];
         let mut rng = StdRng::seed_from_u64(42);
         let mut saw_alice = false;
         let mut saw_bob = false;
         for _ in 0..100 {
             let d = decide_next_speaker(&cs, ChatMode::ActionValue, &mut rng, None).unwrap();
-            if d.speaker_slug == "alice" { saw_alice = true; }
-            if d.speaker_slug == "bob" { saw_bob = true; }
-            if saw_alice && saw_bob { break; }
+            if d.speaker_slug == "alice" {
+                saw_alice = true;
+            }
+            if d.speaker_slug == "bob" {
+                saw_bob = true;
+            }
+            if saw_alice && saw_bob {
+                break;
+            }
         }
-        assert!(saw_alice, "alice should appear in at least one of 100 trials");
+        assert!(
+            saw_alice,
+            "alice should appear in at least one of 100 trials"
+        );
         assert!(saw_bob, "bob should appear in at least one of 100 trials");
     }
 
@@ -1167,16 +1235,16 @@ mod tests {
         let cs = vec![att("alice", 0.5, 99.0), att("bob", 0.5, 100.0)];
         let mut rng = StdRng::seed_from_u64(0);
         let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, Some(0.001));
-        assert!(d.is_some(), "RoundRobin ignores time_budget; should still pick alice");
+        assert!(
+            d.is_some(),
+            "RoundRobin ignores time_budget; should still pick alice"
+        );
         assert_eq!(d.unwrap().speaker_slug, "alice");
     }
 
     #[test]
     fn weighted_random_skips_zero_talkativeness() {
-        let cs = vec![
-            att("silent", 0.0, 0.0),
-            att("talker", 1.0, 0.0),
-        ];
+        let cs = vec![att("silent", 0.0, 0.0), att("talker", 1.0, 0.0)];
         let mut rng = StdRng::seed_from_u64(7);
         for _ in 0..50 {
             let d = decide_next_speaker(&cs, ChatMode::WeightedRandom, &mut rng, None).unwrap();
@@ -1187,13 +1255,20 @@ mod tests {
     #[test]
     fn build_turn_prompt_join_combines_fields_across_members() {
         let cards = cards_map(&[
-            ("alice",   card("Alice",   "Bard.",   "Cheerful.", "", "")),
-            ("bob",     card("Bob",     "Dwarf.",  "Stoic.",    "", "")),
-            ("charlie", card("Charlie", "Wizard.", "Curious.",  "", "")),
+            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
+            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
+            ("charlie", card("Charlie", "Wizard.", "Curious.", "", "")),
         ]);
         let session = fixture_session(&["alice", "bob", "charlie"]);
         let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        for term in ["Bard.", "Dwarf.", "Wizard.", "Cheerful.", "Stoic.", "Curious."] {
+        for term in [
+            "Bard.",
+            "Dwarf.",
+            "Wizard.",
+            "Cheerful.",
+            "Stoic.",
+            "Curious.",
+        ] {
             assert!(p.system.contains(term), "missing {term:?} in: {}", p.system);
         }
     }
@@ -1201,8 +1276,11 @@ mod tests {
     #[test]
     fn build_turn_prompt_excludes_attachments_with_missing_cards() {
         let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "A tavern.", "")),
-            ("bob",   card("Bob",   "Dwarf.", "Stoic.", "", "")),
+            (
+                "alice",
+                card("Alice", "Bard.", "Cheerful.", "A tavern.", ""),
+            ),
+            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
         ]);
         let session = fixture_session(&["alice", "bob", "ghost"]);
         let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
@@ -1215,7 +1293,7 @@ mod tests {
     fn build_turn_prompt_default_template_renders_persona_and_card_fields() {
         let cards = cards_map(&[
             ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
-            ("bob",   card("Bob",   "Dwarf.", "Stoic.",   "", "")),
+            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
         ]);
         let mut session = fixture_session(&["alice", "bob"]);
         session.scenario = Some("A medieval tavern.".to_owned());
@@ -1263,7 +1341,13 @@ mod tests {
         let cards = cards_map(&[
             (
                 "alice",
-                card("Alice", "{{char}} runs the tavern.", "Friendly to {{user}}.", "", ""),
+                card(
+                    "Alice",
+                    "{{char}} runs the tavern.",
+                    "Friendly to {{user}}.",
+                    "",
+                    "",
+                ),
             ),
             ("bob", card("Bob", "", "", "", "")),
         ]);
@@ -1277,7 +1361,11 @@ mod tests {
             ..inputs(&session, &cards, "alice")
         })
         .unwrap();
-        assert!(p.system.contains("Alice runs the tavern."), "got: {}", p.system);
+        assert!(
+            p.system.contains("Alice runs the tavern."),
+            "got: {}",
+            p.system
+        );
         assert!(p.system.contains("Friendly to Trav."), "got: {}", p.system);
     }
 
@@ -1290,7 +1378,11 @@ mod tests {
         let mut session = fixture_session(&["alice", "bob"]);
         session.scenario = Some("A medieval tavern at dusk.".to_owned());
         let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        assert!(p.system.contains("[Scenario]"), "missing [Scenario] block: {}", p.system);
+        assert!(
+            p.system.contains("[Scenario]"),
+            "missing [Scenario] block: {}",
+            p.system
+        );
         assert!(
             p.system.contains("A medieval tavern at dusk."),
             "missing scenario text: {}",
@@ -1306,7 +1398,11 @@ mod tests {
         ]);
         let session = fixture_session(&["alice", "bob"]);
         let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        assert!(!p.system.contains("[Scenario]"), "unexpected [Scenario] block: {}", p.system);
+        assert!(
+            !p.system.contains("[Scenario]"),
+            "unexpected [Scenario] block: {}",
+            p.system
+        );
     }
 
     #[test]
@@ -1318,13 +1414,20 @@ mod tests {
         let mut session = fixture_session(&["alice", "bob"]);
         session.scenario = Some("   ".to_owned());
         let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        assert!(!p.system.contains("[Scenario]"), "unexpected [Scenario] block: {}", p.system);
+        assert!(
+            !p.system.contains("[Scenario]"),
+            "unexpected [Scenario] block: {}",
+            p.system
+        );
     }
 
     #[test]
     fn build_turn_prompt_does_not_emit_per_card_scenarios() {
         let cards = cards_map(&[
-            ("alice", card("Alice", "", "", "alice-card-scenario-text", "")),
+            (
+                "alice",
+                card("Alice", "", "", "alice-card-scenario-text", ""),
+            ),
             ("bob", card("Bob", "", "", "bob-card-scenario-text", "")),
         ]);
         let mut session = fixture_session(&["alice", "bob"]);

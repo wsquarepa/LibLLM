@@ -232,12 +232,18 @@ mod kek_helpers_tests {
     fn fingerprint_is_32_lowercase_hex() {
         let fp = compute_kek_fingerprint(&[0u8; 32]);
         assert_eq!(fp.len(), 32);
-        assert!(fp.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)));
+        assert!(
+            fp.chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        );
     }
 
     #[test]
     fn fingerprint_distinguishes_keys() {
-        assert_ne!(compute_kek_fingerprint(&[1u8; 32]), compute_kek_fingerprint(&[2u8; 32]));
+        assert_ne!(
+            compute_kek_fingerprint(&[1u8; 32]),
+            compute_kek_fingerprint(&[2u8; 32])
+        );
     }
 
     #[test]

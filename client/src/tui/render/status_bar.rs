@@ -37,7 +37,8 @@ pub fn render_status_bar(f: &mut ratatui::Frame, app: &App, area: Rect) {
 
     let total_width = area.width as usize;
     if total_width < 20 {
-        let paragraph = Paragraph::new(format!(" {}", crate::version::STATUS_BAR)).style(left_style);
+        let paragraph =
+            Paragraph::new(format!(" {}", crate::version::STATUS_BAR)).style(left_style);
         f.render_widget(paragraph, area);
         return;
     }

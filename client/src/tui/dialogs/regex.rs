@@ -102,12 +102,7 @@ pub(in crate::tui) fn open(app: &mut App) {
 }
 
 pub(in crate::tui) fn render_regex_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let labels: Vec<String> = app
-        .config
-        .regex
-        .iter()
-        .map(format_rule_summary)
-        .collect();
+    let labels: Vec<String> = app.config.regex.iter().map(format_rule_summary).collect();
     let count = labels.len();
     let height = super::paged_list_height(count, area.height, super::FIELD_DIALOG_PADDING_ROWS);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
@@ -187,7 +182,10 @@ pub(in crate::tui) fn render_regex_editor_dialog(f: &mut ratatui::Frame, app: &A
 
     let hints = if ed.editing {
         vec![Line::from("Type to edit  Enter/Esc: stop editing")]
-    } else if matches!(ed.field, EditorField::ScopeToggles | EditorField::TargetToggles) {
+    } else if matches!(
+        ed.field,
+        EditorField::ScopeToggles | EditorField::TargetToggles
+    ) {
         vec![Line::from(
             "Left/Right: option  Space/Enter: toggle  Up/Down: field  Ctrl+S: save & close  Esc: close",
         )]
@@ -243,12 +241,7 @@ fn build_editor_lines(ed: &RegexEditorState, _app: &App) -> Vec<Line<'static>> {
             |i| ed.draft.target.contains(&TARGET_ORDER[i]),
         ),
         bool_row(ed, EditorField::Enabled, "enabled:", ed.draft.enabled),
-        text_row(
-            ed,
-            EditorField::SampleInput,
-            "sample:",
-            &ed.sample_input,
-        ),
+        text_row(ed, EditorField::SampleInput, "sample:", &ed.sample_input),
     ]
 }
 
@@ -274,12 +267,7 @@ fn value_style(ed: &RegexEditorState, field: EditorField) -> Style {
     }
 }
 
-fn text_row(
-    ed: &RegexEditorState,
-    field: EditorField,
-    label: &str,
-    value: &str,
-) -> Line<'static> {
+fn text_row(ed: &RegexEditorState, field: EditorField, label: &str, value: &str) -> Line<'static> {
     let display = if ed.field == field && ed.editing && field.is_text() {
         format!("{value}_")
     } else {
@@ -294,12 +282,7 @@ fn text_row(
     ])
 }
 
-fn bool_row(
-    ed: &RegexEditorState,
-    field: EditorField,
-    label: &str,
-    val: bool,
-) -> Line<'static> {
+fn bool_row(ed: &RegexEditorState, field: EditorField, label: &str, val: bool) -> Line<'static> {
     let mark = if val { "[x]" } else { "[ ]" };
     Line::from(vec![
         Span::styled(
@@ -427,8 +410,7 @@ pub(in crate::tui) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> O
             save_and_recompile(app);
         }
         KeyCode::Down
-            if key.modifiers.contains(KeyModifiers::SHIFT)
-                && app.regex_list_selected + 1 < len =>
+            if key.modifiers.contains(KeyModifiers::SHIFT) && app.regex_list_selected + 1 < len =>
         {
             let i = app.regex_list_selected;
             app.config.regex.swap(i, i + 1);
@@ -531,14 +513,10 @@ pub(in crate::tui) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> O
         KeyCode::Right => {
             if let Some(ed) = app.regex_editor.as_mut() {
                 match ed.field {
-                    EditorField::ScopeToggles
-                        if ed.scope_cursor + 1 < SCOPE_ORDER.len() =>
-                    {
+                    EditorField::ScopeToggles if ed.scope_cursor + 1 < SCOPE_ORDER.len() => {
                         ed.scope_cursor += 1;
                     }
-                    EditorField::TargetToggles
-                        if ed.target_cursor + 1 < TARGET_ORDER.len() =>
-                    {
+                    EditorField::TargetToggles if ed.target_cursor + 1 < TARGET_ORDER.len() => {
                         ed.target_cursor += 1;
                     }
                     _ => {}
@@ -722,17 +700,26 @@ mod tests {
 
     #[test]
     fn ctrl_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::CONTROL)));
+        assert!(is_save_shortcut(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]
     fn ctrl_shift_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(KeyCode::Char('S'), KeyModifiers::CONTROL)));
+        assert!(is_save_shortcut(&key(
+            KeyCode::Char('S'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]
     fn plain_s_is_not_save_shortcut() {
-        assert!(!is_save_shortcut(&key(KeyCode::Char('s'), KeyModifiers::NONE)));
+        assert!(!is_save_shortcut(&key(
+            KeyCode::Char('s'),
+            KeyModifiers::NONE
+        )));
     }
 
     #[test]
@@ -747,7 +734,10 @@ mod tests {
             compile_error: None,
         };
         let result = validate_pattern(&mut rule);
-        assert!(result.is_some(), "invalid pattern should produce an error message");
+        assert!(
+            result.is_some(),
+            "invalid pattern should produce an error message"
+        );
         assert!(!rule.enabled, "invalid pattern must disable the rule");
         assert!(rule.compile_error.is_some(), "compile_error must be set");
     }
@@ -765,7 +755,10 @@ mod tests {
         };
         let result = validate_pattern(&mut rule);
         assert!(result.is_none(), "valid pattern should return None");
-        assert!(rule.compile_error.is_none(), "stale compile_error must be cleared");
+        assert!(
+            rule.compile_error.is_none(),
+            "stale compile_error must be cleared"
+        );
         assert!(rule.enabled, "valid pattern must not change enabled flag");
     }
 

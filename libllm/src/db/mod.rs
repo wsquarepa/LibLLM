@@ -382,8 +382,7 @@ impl Database {
                             "db.purge.rollback_failed"
                         );
                     }
-                    return Err(commit_err)
-                        .with_context(|| format!("{table_name}: commit txn"));
+                    return Err(commit_err).with_context(|| format!("{table_name}: commit txn"));
                 }
                 Ok(n as u64)
             }
@@ -625,7 +624,10 @@ mod tests {
             .conn()
             .query_row("SELECT COUNT(*) FROM personas", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 1, "personas row must still exist after rolled-back purge");
+        assert_eq!(
+            count, 1,
+            "personas row must still exist after rolled-back purge"
+        );
 
         // A subsequent purge call must not fail with 'cannot start a transaction
         // within a transaction'.
@@ -636,5 +638,4 @@ mod tests {
             "connection left in open transaction: {err_msg}"
         );
     }
-
 }

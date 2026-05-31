@@ -137,7 +137,8 @@ fn full_backup_restore_cycle_encrypted() {
     assert_eq!(idx.entries.len(), 1);
     assert!(idx.entries[0].encrypted, "expected entry to be encrypted");
 
-    let verify_result = verify::verify_chain(dir.path(), Some("test-passkey"), None, false).unwrap();
+    let verify_result =
+        verify::verify_chain(dir.path(), Some("test-passkey"), None, false).unwrap();
     assert!(
         verify_result.errors.is_empty(),
         "expected no verify errors, got: {:?}",

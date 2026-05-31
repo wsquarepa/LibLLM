@@ -57,7 +57,9 @@ fn new_base_backup_stamps_wrapped_dek_and_fingerprint() {
     let tmp = TempDir::new().unwrap();
     let data_dir = tmp.path();
     let passkey = "pw";
-    let kek = resolve_backup_key(data_dir, Some(passkey)).unwrap().unwrap();
+    let kek = resolve_backup_key(data_dir, Some(passkey))
+        .unwrap()
+        .unwrap();
     setup_encrypted_db(data_dir, passkey);
 
     create_snapshot(data_dir, Some(passkey), &dummy_config()).unwrap();
@@ -82,7 +84,9 @@ fn diff_backup_reuses_chain_dek_and_restore_succeeds() {
     let tmp = TempDir::new().unwrap();
     let data_dir = tmp.path();
     let passkey = "pw";
-    let kek = resolve_backup_key(data_dir, Some(passkey)).unwrap().unwrap();
+    let kek = resolve_backup_key(data_dir, Some(passkey))
+        .unwrap()
+        .unwrap();
 
     setup_encrypted_db(data_dir, passkey);
     insert_encrypted(data_dir, passkey, "a", "1");
@@ -97,7 +101,10 @@ fn diff_backup_reuses_chain_dek_and_restore_succeeds() {
         .iter()
         .find(|e| e.entry_type == BackupType::Diff)
         .expect("diff present");
-    assert!(diff.wrapped_dek.is_none(), "diff must not carry its own DEK");
+    assert!(
+        diff.wrapped_dek.is_none(),
+        "diff must not carry its own DEK"
+    );
 
     let last_id = idx.entries.last().unwrap().id.clone();
     backup::restore::restore_to_point(data_dir, &last_id, Some(passkey), None).unwrap();

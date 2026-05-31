@@ -94,7 +94,11 @@ fn config_missing_file_returns_default() {
     assert!(!bogus.exists());
 
     let cfg = config::load();
-    assert!(cfg.api_url.is_none(), "missing config file should yield default (None) api_url, got {:?}", cfg.api_url);
+    assert!(
+        cfg.api_url.is_none(),
+        "missing config file should yield default (None) api_url, got {:?}",
+        cfg.api_url
+    );
 }
 
 #[test]

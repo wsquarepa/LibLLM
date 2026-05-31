@@ -2,12 +2,18 @@
 //! These exercise the libllm-level matching logic against the actual built-in presets;
 //! the TUI wiring is tested via subprocess in a separate file.
 
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
-use libllm::preset::matching::{pick_best_match, template_hash, MatchOutcome, BEST_GUESS_THRESHOLD};
+use libllm::preset::matching::{
+    BEST_GUESS_THRESHOLD, MatchOutcome, pick_best_match, template_hash,
+};
 
-const REAL_LLAMA3_TEMPLATE: &str = include_str!("../../libllm/src/preset/matching_fixtures/llama3.jinja");
+const REAL_LLAMA3_TEMPLATE: &str =
+    include_str!("../../libllm/src/preset/matching_fixtures/llama3.jinja");
 
 fn all_builtins() -> Vec<libllm::preset::InstructPreset> {
     libllm::preset::list_instruct_preset_names()

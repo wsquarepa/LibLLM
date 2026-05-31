@@ -3,7 +3,10 @@
 //! via the --debug-trigger-destroy-all flag, verify the snapshot exists and
 //! the data dir is removed.
 
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use std::process::Command;

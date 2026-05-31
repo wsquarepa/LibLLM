@@ -2,7 +2,10 @@
 //! Drives the libllm-level functions directly; the full TUI flow is exercised
 //! in `danger_subprocess.rs` for Destroy All Data.
 
-#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]
+#[expect(
+    dead_code,
+    reason = "each test binary uses a different subset of common helpers"
+)]
 mod common;
 
 use libllm::db::migrations::run_migrations;

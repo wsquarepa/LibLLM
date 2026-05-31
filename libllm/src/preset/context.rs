@@ -254,7 +254,9 @@ mod tests {
     fn render_story_string_resolves_group_chat_vars() {
         let preset = ContextPreset {
             name: "test".to_owned(),
-            story_string: "{{characters_block}}|{{roster_block}}|{{active_speaker}}|{{other_speakers}}".to_owned(),
+            story_string:
+                "{{characters_block}}|{{roster_block}}|{{active_speaker}}|{{other_speakers}}"
+                    .to_owned(),
             ..Default::default()
         };
         let vars = ContextVars {
@@ -272,6 +274,9 @@ mod tests {
             other_speakers: "Bob, Charlie".to_owned(),
         };
         let out = preset.render_story_string(&vars);
-        assert_eq!(out, "<characters>...</characters>|<roster>...</roster>|Alice|Bob, Charlie");
+        assert_eq!(
+            out,
+            "<characters>...</characters>|<roster>...</roster>|Alice|Bob, Charlie"
+        );
     }
 }

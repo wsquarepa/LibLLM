@@ -80,7 +80,12 @@ pub(in crate::tui) fn render(f: &mut ratatui::Frame, app: &App, area: Rect) {
 
     f.render_widget(paragraph, dialog);
 
-    render_hints_below_dialog(f, dialog, area, &[Line::from("Press Enter or Esc to dismiss")]);
+    render_hints_below_dialog(
+        f,
+        dialog,
+        area,
+        &[Line::from("Press Enter or Esc to dismiss")],
+    );
 }
 
 pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {

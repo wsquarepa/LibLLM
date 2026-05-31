@@ -513,9 +513,7 @@ fn search_json_output_is_parseable_array() {
 
 #[test]
 fn search_full_prints_highlight_text() {
-    let dir = common::seed_search_db(&[
-        ("alpha", "user", "remember to redact PII before sending"),
-    ]);
+    let dir = common::seed_search_db(&[("alpha", "user", "remember to redact PII before sending")]);
 
     let output = std::process::Command::new(common::client_bin())
         .arg("-d")
@@ -562,8 +560,7 @@ fn cli_dash_m_still_reads_stdin_as_prompt_with_no_attachment() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("file not found")
-            && !stderr.contains("@stdin"),
+        !stderr.contains("file not found") && !stderr.contains("@stdin"),
         "expected no file-pipeline activity for -m -; stderr: {stderr}"
     );
     assert!(

@@ -104,9 +104,7 @@ pub fn verify_chain(
         let chain_root = chain[0];
         let effective_kek: Option<[u8; 32]> = match &chain_root.kek_fingerprint {
             None => backup_key,
-            Some(crate::index::FingerprintField::Known(fp))
-                if Some(fp) == current_fp.as_ref() =>
-            {
+            Some(crate::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
                 backup_key
             }
             Some(_) if backup_key.is_none() => backup_key,

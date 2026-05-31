@@ -114,15 +114,24 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                 .collect();
 
             if picked.len() >= 2 {
-                let slugs: Vec<String> =
-                    picked.iter().map(|&i| app.character_slugs[i].clone()).collect();
+                let slugs: Vec<String> = picked
+                    .iter()
+                    .map(|&i| app.character_slugs[i].clone())
+                    .collect();
                 let names_by_slug: std::collections::HashMap<String, String> = picked
                     .iter()
-                    .map(|&i| (app.character_slugs[i].clone(), app.character_names[i].clone()))
+                    .map(|&i| {
+                        (
+                            app.character_slugs[i].clone(),
+                            app.character_names[i].clone(),
+                        )
+                    })
                     .collect();
-                if let Err(e) =
-                    crate::cli::validate_group_chat_args(&slugs, &Default::default(), &names_by_slug)
-                {
+                if let Err(e) = crate::cli::validate_group_chat_args(
+                    &slugs,
+                    &Default::default(),
+                    &names_by_slug,
+                ) {
                     app.set_status(e.to_string(), super::super::StatusLevel::Error);
                     return None;
                 }
@@ -193,8 +202,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.session.system_prompt =
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());
-                    app.session.characters = vec![libllm::group_chat::CharacterAttachment::new(slug)];
-                    app.session.scenario = libllm::group_chat::inherit_card_scenario(&card.scenario);
+                    app.session.characters =
+                        vec![libllm::group_chat::CharacterAttachment::new(slug)];
+                    app.session.scenario =
+                        libllm::group_chat::inherit_card_scenario(&card.scenario);
                     app.active_card_author_note = card.author_note.clone();
                     app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();
@@ -244,9 +255,7 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                         card.author_note
                             .as_ref()
                             .map(|n| n.depth.to_string())
-                            .unwrap_or_else(|| {
-                                libllm::author_note::DEFAULT_DEPTH.to_string()
-                            }),
+                            .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string()),
                         if card.author_note.as_ref().is_some_and(|n| n.at_top) {
                             "true".to_owned()
                         } else {

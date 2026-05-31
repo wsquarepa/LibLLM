@@ -16,8 +16,7 @@ pub fn run_migrations(
     while index.version < SCHEMA_VERSION {
         let next = index.version + 1;
         match next {
-            2 => v2::migrate(index, backups_dir, kek)
-                .context("v1 -> v2 migration failed")?,
+            2 => v2::migrate(index, backups_dir, kek).context("v1 -> v2 migration failed")?,
             other => anyhow::bail!("no migration registered for version {other}"),
         }
         stamp_version(index, next);

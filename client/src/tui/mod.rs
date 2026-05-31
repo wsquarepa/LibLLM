@@ -101,7 +101,13 @@ pub async fn run(
     );
 
     let cli_template_override = cli_overrides.template.is_some();
-    business::spawn_startup_probes(client.clone(), tokenizer_tx.clone(), bg_tx.clone(), cli_template_override, instruct_preset.name.clone());
+    business::spawn_startup_probes(
+        client.clone(),
+        tokenizer_tx.clone(),
+        bg_tx.clone(),
+        cli_template_override,
+        instruct_preset.name.clone(),
+    );
 
     let config = libllm::config::load();
 
@@ -694,9 +700,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     if app.focus == Focus::Input && input::input_has_next_arg_picker(app) {
         {
             let _span = tracing::trace_span!("picker", phase = "next_arg_picker").entered();
-            let arg = app.textarea.lines()[0]
-                .strip_prefix("/next ")
-                .unwrap_or("");
+            let arg = app.textarea.lines()[0].strip_prefix("/next ").unwrap_or("");
             render::render_next_arg_picker(f, app, arg, chat_area);
         }
     } else if app.focus == Focus::Input && input::input_has_command_picker(app) {
@@ -753,11 +757,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     }
 
     let frame_ms = _frame_start.elapsed().as_micros() as f64 / 1000.0;
-    tracing::trace!(
-        phase = "frame",
-        elapsed_ms = frame_ms,
-        "frame"
-    );
+    tracing::trace!(phase = "frame", elapsed_ms = frame_ms, "frame");
 }
 
 fn estimate_input_tokens(app: &mut App) -> usize {
@@ -1032,16 +1032,18 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
         }
         Focus::DangerTypedConfirmDialog => {
             if let Some(ref state) = app.danger_typed_confirm {
-                dialogs::danger_typed_confirm::render_danger_typed_confirm(
-                    f,
-                    f.area(),
-                    state,
-                );
+                dialogs::danger_typed_confirm::render_danger_typed_confirm(f, f.area(), state);
             }
         }
         Focus::ChatSettingsDialog => {
             if let Some(ref dlg) = app.chat_settings_dialog {
-                dlg.render(f, f.area(), app.session, &app.theme, app.cli_overrides.scenario.is_some());
+                dlg.render(
+                    f,
+                    f.area(),
+                    app.session,
+                    &app.theme,
+                    app.cli_overrides.scenario.is_some(),
+                );
             }
         }
         Focus::ScenarioEditorDialog => {

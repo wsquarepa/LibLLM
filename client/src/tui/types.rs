@@ -188,7 +188,10 @@ pub(super) struct TypedConfirmState {
     pub(super) challenge: String,
     pub(super) input: String,
     pub(super) cursor_pos: usize,
-    #[expect(dead_code, reason = "identifies the operation for future multi-op typed-confirm flows; used in test fixtures")]
+    #[expect(
+        dead_code,
+        reason = "identifies the operation for future multi-op typed-confirm flows; used in test fixtures"
+    )]
     pub(super) op: DangerOp,
     pub(super) snapshot_path: std::path::PathBuf,
     pub(super) focus_idx: usize,
@@ -271,7 +274,8 @@ pub(super) struct App<'a> {
     pub(super) api_available: bool,
     pub(super) api_error: String,
     pub(super) file_picker: Option<dialogs::file_picker::FilePickerState>,
-    pub(super) file_reference_confirm: Option<dialogs::file_reference_confirm::FileReferenceConfirmState>,
+    pub(super) file_reference_confirm:
+        Option<dialogs::file_reference_confirm::FileReferenceConfirmState>,
     pub(super) injection_warning: Option<dialogs::injection_warning::InjectionWarning>,
     pub(super) status_message: Option<StatusMessage>,
     pub(super) should_quit: bool,
@@ -384,10 +388,8 @@ pub(super) struct App<'a> {
     /// decide whether to reuse the existing file-snapshot parent chain or
     /// push a fresh one.
     pub(super) recall_refs: Option<Vec<String>>,
-    pub(super) file_summarizer:
-        Option<std::sync::Arc<libllm::files::FileSummarizer>>,
-    pub(super) file_summary_ready_tx:
-        tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
+    pub(super) file_summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>>,
+    pub(super) file_summary_ready_tx: tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
     pub(super) file_summary_ready_rx:
         tokio::sync::mpsc::UnboundedReceiver<libllm::files::ReadyEvent>,
     /// Monotonic counter bumped on each file-summary completion so that the
@@ -403,7 +405,8 @@ pub(super) struct App<'a> {
     pub(super) scenario_editor: Option<TextArea<'a>>,
     pub(super) scenario_scroll_top: u16,
     pub(super) is_group_chat_creation_pending: bool,
-    pub(super) character_cards_cache: std::collections::HashMap<String, libllm::character::CharacterCard>,
+    pub(super) character_cards_cache:
+        std::collections::HashMap<String, libllm::character::CharacterCard>,
     /// Active RNG for the in-progress group-chat action-point loop. `None` when no group-chat
     /// loop is running. Set before the first turn, cleared after the loop ends.
     pub(super) group_chat_loop_rng: Option<rand::rngs::StdRng>,
@@ -428,6 +431,7 @@ pub(super) const STATUS_DURATION: std::time::Duration = std::time::Duration::fro
 pub(super) const NOTIFICATION_SLIDE_DURATION: std::time::Duration =
     std::time::Duration::from_millis(300);
 pub(super) const STREAM_REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
-pub(super) const SIDEBAR_AGE_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+pub(super) const SIDEBAR_AGE_REFRESH_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(60);
 pub(super) const AUTOSAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(350);
 pub(super) const AUTOSAVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);

@@ -24,7 +24,12 @@ fn summarizer_includes_prior_summary_as_context() {
         Message::new(Role::User, "New message".to_owned()),
     ];
     let refs: Vec<&_> = msgs.iter().collect();
-    let prompt = Summarizer::format_prompt(None, "Instruction", &refs, &libllm::files::NullFileSummaryLookup);
+    let prompt = Summarizer::format_prompt(
+        None,
+        "Instruction",
+        &refs,
+        &libllm::files::NullFileSummaryLookup,
+    );
     assert!(prompt.contains("Previous summary: Prior summary content"));
     assert!(prompt.contains("User: New message"));
 }
@@ -309,18 +314,9 @@ fn side_character_split_chains_three_user_nodes() {
 
     let ids = tree.current_branch_ids().to_vec();
     assert_eq!(ids.len(), 3);
-    assert_eq!(
-        tree.node(ids[0]).unwrap().message.content,
-        "User voice."
-    );
-    assert_eq!(
-        tree.node(ids[1]).unwrap().message.content,
-        "[Alice]: hi."
-    );
-    assert_eq!(
-        tree.node(ids[2]).unwrap().message.content,
-        "[Bob]: hello."
-    );
+    assert_eq!(tree.node(ids[0]).unwrap().message.content, "User voice.");
+    assert_eq!(tree.node(ids[1]).unwrap().message.content, "[Alice]: hi.");
+    assert_eq!(tree.node(ids[2]).unwrap().message.content, "[Bob]: hello.");
     for id in &ids {
         assert_eq!(tree.node(*id).unwrap().message.role, Role::User);
     }
@@ -359,7 +355,9 @@ fn remove_head_moves_head_to_parent() {
     let removed = tree.remove_node(m2);
     assert!(removed);
 
-    let survivor = tree.head().expect("head must move to parent after leaf delete");
+    let survivor = tree
+        .head()
+        .expect("head must move to parent after leaf delete");
     assert_eq!(tree.node(survivor).unwrap().message.content, "m1");
 }
 
@@ -433,10 +431,7 @@ fn rollback_provisional_group_clears_session_state() {
         ChatMode::default(),
         "rollback must reset chat mode to default"
     );
-    assert_eq!(
-        session.scenario, None,
-        "rollback must clear the scenario"
-    );
+    assert_eq!(session.scenario, None, "rollback must clear the scenario");
     assert!(
         session.tree.head().is_none(),
         "rollback must clear the message tree"

@@ -52,10 +52,7 @@ pub fn split_user_input(raw: &str) -> Vec<String> {
     }
 
     for (i, &start) in header_indices.iter().enumerate() {
-        let end = header_indices
-            .get(i + 1)
-            .copied()
-            .unwrap_or(lines.len());
+        let end = header_indices.get(i + 1).copied().unwrap_or(lines.len());
         let block_lines = &lines[start..end];
         let mut block = block_lines.join("\n");
         block = block.trim_end().to_owned();
@@ -273,8 +270,7 @@ mod tests {
 
     #[test]
     fn blank_line_terminates_voice_only_when_next_line_is_header() {
-        let raw =
-            "User.\n\n[Alice]: line 1\n\nline 2\n\n[Bob]: line 3";
+        let raw = "User.\n\n[Alice]: line 1\n\nline 2\n\n[Bob]: line 3";
         assert_eq!(
             split_user_input(raw),
             vec![
@@ -306,10 +302,7 @@ mod tests {
     #[test]
     fn empty_brackets_are_not_a_header() {
         let raw = "User.\n\n[]: nope";
-        assert_eq!(
-            split_user_input(raw),
-            vec!["User.\n\n[]: nope".to_owned()]
-        );
+        assert_eq!(split_user_input(raw), vec!["User.\n\n[]: nope".to_owned()]);
     }
 
     #[test]
@@ -326,10 +319,7 @@ mod tests {
         let raw = "User voice.\n\n\n\n[Alice]: voice";
         assert_eq!(
             split_user_input(raw),
-            vec![
-                "User voice.".to_owned(),
-                "[Alice]: voice".to_owned(),
-            ]
+            vec!["User voice.".to_owned(), "[Alice]: voice".to_owned(),]
         );
     }
 
@@ -346,10 +336,7 @@ mod tests {
         let out = parse_side_character_block("[Alice]: line 1\nline 2\n\nline 4");
         assert_eq!(
             out,
-            Some((
-                "Alice".to_owned(),
-                "line 1\nline 2\n\nline 4".to_owned(),
-            )),
+            Some(("Alice".to_owned(), "line 1\nline 2\n\nline 4".to_owned(),)),
         );
     }
 
@@ -392,7 +379,7 @@ mod tests {
         assert_eq!(out, Some(("Alice".to_owned(), " two spaces".to_owned())));
     }
 
-    use super::{header_prefix_ranges, HeaderPrefix};
+    use super::{HeaderPrefix, header_prefix_ranges};
 
     #[test]
     fn header_prefix_ranges_returns_empty_for_plain_text() {
@@ -405,7 +392,11 @@ mod tests {
         let ranges = header_prefix_ranges("[Alice]: hi");
         assert_eq!(
             ranges,
-            vec![HeaderPrefix { line: 0, start: 0, end: 8 }],
+            vec![HeaderPrefix {
+                line: 0,
+                start: 0,
+                end: 8
+            }],
         );
     }
 
@@ -416,8 +407,16 @@ mod tests {
         assert_eq!(
             ranges,
             vec![
-                HeaderPrefix { line: 2, start: 0, end: 8 },
-                HeaderPrefix { line: 4, start: 0, end: 6 },
+                HeaderPrefix {
+                    line: 2,
+                    start: 0,
+                    end: 8
+                },
+                HeaderPrefix {
+                    line: 4,
+                    start: 0,
+                    end: 6
+                },
             ],
         );
     }
@@ -440,7 +439,11 @@ mod tests {
         let ranges = header_prefix_ranges(raw);
         assert_eq!(
             ranges,
-            vec![HeaderPrefix { line: 2, start: 3, end: 11 }],
+            vec![HeaderPrefix {
+                line: 2,
+                start: 3,
+                end: 11
+            }],
         );
     }
 
@@ -458,7 +461,11 @@ mod tests {
         let expected_end = 1 + name_bytes + 2;
         assert_eq!(
             ranges,
-            vec![HeaderPrefix { line: 0, start: 0, end: expected_end }],
+            vec![HeaderPrefix {
+                line: 0,
+                start: 0,
+                end: expected_end
+            }],
         );
     }
 }

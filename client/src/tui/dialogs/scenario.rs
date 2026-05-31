@@ -70,7 +70,7 @@ pub(in crate::tui) fn render(f: &mut Frame, app: &mut App, area: Rect) {
 
 pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if key.code == KeyCode::Esc {
-        discard_and_close(app);
+        stage_provisional_and_close(app);
         return None;
     }
 
@@ -117,11 +117,11 @@ pub(in crate::tui) fn handle_mouse_click(app: &mut App, screen_col: u16, screen_
         editor.cancel_selection();
         events::move_textarea_cursor_to_mouse(editor, editor_rect, scroll_top, screen_col, screen_row);
     } else {
-        discard_and_close(app);
+        stage_provisional_and_close(app);
     }
 }
 
-fn discard_and_close(app: &mut App) {
+fn stage_provisional_and_close(app: &mut App) {
     let content = app
         .scenario_editor
         .take()

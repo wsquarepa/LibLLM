@@ -546,9 +546,14 @@ mod tests {
     }
 
     #[test]
-    fn render_jinja_fuel_exhaustion_returns_err() {
+    fn render_jinja_rejects_output_exceeding_size_cap() {
+        // `'A' * N` is a single Mul instruction, so the fuel cap does not bound it;
+        // the MAX_RENDER_BYTES output-size cap is what rejects this template.
         let result = render_jinja("{{ 'A' * 50000000 }}", &CanonicalContext::fixed());
-        assert!(result.is_err(), "expected fuel exhaustion error, got Ok");
+        assert!(
+            result.is_err(),
+            "render must be rejected when output exceeds MAX_RENDER_BYTES"
+        );
     }
 
     #[test]

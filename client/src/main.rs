@@ -21,6 +21,7 @@ use client::validation;
 use std::io::{self, IsTerminal, Read, Write};
 
 use anyhow::{Context, Result};
+#[cfg(debug_assertions)]
 use chrono::Utc;
 use clap::Parser;
 use crossterm::execute;

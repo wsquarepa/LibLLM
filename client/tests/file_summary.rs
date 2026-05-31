@@ -350,3 +350,72 @@ fn build_file_summarizer_opens_encrypted_db() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn schedule_remains_live_without_shutdown() {
+    let conn = setup_summarizer_conn("s1");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let summarizer = FileSummarizer::new(
+        Arc::clone(&conn),
+        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        "Summarize the file.".to_owned(),
+        tx,
+    );
+
+    let file_a = FileToSummarize {
+        basename: "a.md".to_owned(),
+        content_hash: "hash-a-live".to_owned(),
+        body: "body a".to_owned(),
+    };
+    // Pre-shutdown schedule must insert a pending row.
+    summarizer.schedule("s1", &file_a);
+    assert!(
+        file_summaries::lookup(&conn.lock().unwrap(), "s1", "hash-a-live")
+            .unwrap()
+            .is_some(),
+        "pre-condition: row must exist before any shutdown"
+    );
+
+    // Represent the new (fixed) error path: snapshot failed, so shutdown is
+    // NOT called. A second schedule call must still insert a pending row.
+    let file_b = FileToSummarize {
+        basename: "b.md".to_owned(),
+        content_hash: "hash-b-live".to_owned(),
+        body: "body b".to_owned(),
+    };
+    summarizer.schedule("s1", &file_b);
+    assert!(
+        file_summaries::lookup(&conn.lock().unwrap(), "s1", "hash-b-live")
+            .unwrap()
+            .is_some(),
+        "schedule must insert a pending row when shutdown was never called (fixed error path)"
+    );
+}
+
+#[tokio::test]
+async fn shutdown_then_schedule_drops_work() {
+    let conn = setup_summarizer_conn("s2");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let summarizer = FileSummarizer::new(
+        Arc::clone(&conn),
+        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        "Summarize the file.".to_owned(),
+        tx,
+    );
+
+    summarizer.shutdown().await;
+
+    let file = FileToSummarize {
+        basename: "c.md".to_owned(),
+        content_hash: "hash-c-shutdown".to_owned(),
+        body: "body c".to_owned(),
+    };
+    summarizer.schedule("s2", &file);
+
+    assert!(
+        file_summaries::lookup(&conn.lock().unwrap(), "s2", "hash-c-shutdown")
+            .unwrap()
+            .is_none(),
+        "schedule must drop work once shutdown latch is set"
+    );
+}

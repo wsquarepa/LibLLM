@@ -14,9 +14,6 @@ pub(in crate::tui) fn spawn_destroy_all(
     summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>>,
 ) {
     tokio::spawn(async move {
-        if let Some(s) = &summarizer {
-            s.shutdown().await;
-        }
         let snapshot_path_for_task = snapshot_path.clone();
         let result = tokio::task::spawn_blocking(move || {
             libllm::archive::snapshot_data_dir(&data_dir, &snapshot_path_for_task, "backups")
@@ -25,6 +22,11 @@ pub(in crate::tui) fn spawn_destroy_all(
         })
         .await
         .unwrap_or_else(|join_err| Err(join_err.to_string()));
+        if result.is_ok()
+            && let Some(s) = &summarizer
+        {
+            s.shutdown().await;
+        }
         let _ = bg_tx
             .send(crate::tui::types::BackgroundEvent::DangerOpComplete(
                 crate::tui::types::DangerOp::DestroyAll,

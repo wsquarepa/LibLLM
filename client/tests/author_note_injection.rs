@@ -55,3 +55,54 @@ fn at_top_overrides_a_high_depth() {
     inject_author_notes(&mut messages, None, Some(&session));
     assert_eq!(messages[0].content, "PIN");
 }
+
+#[test]
+fn card_author_note_loaded_when_session_character_is_display_name() {
+    use libllm::author_note::AuthorNote;
+    use libllm::character::CharacterCard;
+    use libllm::db::Database;
+
+    let dir = common::temp_dir();
+    let db_path = dir.path().join("data.db");
+    let db = Database::open(&db_path, None).unwrap();
+
+    let card = CharacterCard {
+        name: "Alice Example".to_owned(),
+        author_note: Some(AuthorNote {
+            text: "SENTINEL".to_owned(),
+            depth: 2,
+            at_top: false,
+        }),
+        description: String::new(),
+        personality: String::new(),
+        scenario: String::new(),
+        first_mes: String::new(),
+        mes_example: String::new(),
+        system_prompt: String::new(),
+        post_history_instructions: String::new(),
+        alternate_greetings: vec![],
+    };
+    let slug = libllm::character::slugify(&card.name);
+    db.insert_character(&slug, &card).unwrap();
+
+    let slug_of_display = libllm::character::slugify("Alice Example");
+    let loaded = db.load_character(&slug_of_display).unwrap();
+
+    assert_eq!(
+        loaded.author_note.as_ref().map(|n| n.text.as_str()),
+        Some("SENTINEL"),
+        "card author note must be retrievable when looked up by slugified display name"
+    );
+}
+
+#[test]
+fn slugify_is_idempotent_on_slug() {
+    assert_eq!(
+        libllm::character::slugify("alice-example"),
+        "alice-example"
+    );
+    assert_eq!(
+        libllm::character::slugify("Alice Example"),
+        "alice-example"
+    );
+}

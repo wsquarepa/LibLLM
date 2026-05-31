@@ -894,7 +894,11 @@ pub(super) fn load_active_card_author_note(app: &mut App) {
         .session
         .character
         .as_deref()
-        .and_then(|name| app.db.as_ref().and_then(|db| db.load_character(name).ok()))
+        .and_then(|name| {
+            app.db.as_ref().and_then(|db| {
+                db.load_character(&libllm::character::slugify(name)).ok()
+            })
+        })
         .and_then(|card| card.author_note);
 }
 

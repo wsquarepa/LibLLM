@@ -93,13 +93,15 @@ where
     };
     let card_note = speaker_for_note
         .as_deref()
-        .and_then(|slug| {
+        .and_then(|name| {
             let db = app.db.as_ref()?;
-            match db.load_character(slug) {
+            let slug = libllm::character::slugify(name);
+            match db.load_character(&slug) {
                 Ok(card) => Some(card),
                 Err(err) => {
                     tracing::warn!(
-                        slug = slug,
+                        name = name,
+                        slug = slug.as_str(),
                         result = "error",
                         error = %err,
                         "author_note.card_load"

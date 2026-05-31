@@ -217,6 +217,8 @@ pub struct ChatContentCache {
     char_name: String,
     user_name: String,
     width: u16,
+    roster_fingerprint: Vec<String>,
+    card_names_fingerprint: Vec<(String, String)>,
     entries: Vec<CachedMessageLines>,
     pub(super) banner_height: u16,
 }
@@ -481,11 +483,35 @@ pub fn render_chat(
     };
     let worldbook_count = super::business::enabled_worldbook_names(app.session, &app.config).len();
 
+    let roster_fingerprint: Vec<String> = app
+        .session
+        .characters
+        .iter()
+        .map(|c| c.slug.clone())
+        .collect();
+
+    let card_names_fingerprint: Vec<(String, String)> = app
+        .session
+        .characters
+        .iter()
+        .map(|c| {
+            (
+                c.slug.clone(),
+                app.character_cards_cache
+                    .get(&c.slug)
+                    .map(|card| card.name.clone())
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+
     let cache_valid = cache.as_ref().is_some_and(|c| {
         c.branch_ids == branch_ids
             && c.char_name == char_name
             && c.user_name == user_name
             && c.width == area.width
+            && c.roster_fingerprint == roster_fingerprint
+            && c.card_names_fingerprint == card_names_fingerprint
     });
 
     if !cache_valid {
@@ -692,6 +718,8 @@ pub fn render_chat(
             char_name: char_name.to_owned(),
             user_name: user_name.to_owned(),
             width: area.width,
+            roster_fingerprint,
+            card_names_fingerprint,
             entries,
             banner_height: 0,
         });
@@ -1505,5 +1533,87 @@ mod tests {
 
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].spans[1].content, "<think>a</think>answer");
+    }
+
+    fn make_roster(slugs: &[&str]) -> Vec<libllm::group_chat::CharacterAttachment> {
+        slugs
+            .iter()
+            .map(|&s| libllm::group_chat::CharacterAttachment {
+                slug: s.to_owned(),
+                talkativeness: 0.5,
+                action_points: 0.0,
+                spoke_this_round: false,
+            })
+            .collect()
+    }
+
+    fn make_card_cache(
+        entries: &[(&str, &str)],
+    ) -> std::collections::HashMap<String, libllm::character::CharacterCard> {
+        entries
+            .iter()
+            .map(|&(slug, name)| {
+                (
+                    slug.to_owned(),
+                    libllm::character::CharacterCard {
+                        name: name.to_owned(),
+                        ..libllm::character::CharacterCard::default()
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn roster_fingerprint(
+        characters: &[libllm::group_chat::CharacterAttachment],
+    ) -> Vec<String> {
+        characters.iter().map(|c| c.slug.clone()).collect()
+    }
+
+    fn card_names_fingerprint(
+        characters: &[libllm::group_chat::CharacterAttachment],
+        cache: &std::collections::HashMap<String, libllm::character::CharacterCard>,
+    ) -> Vec<(String, String)> {
+        characters
+            .iter()
+            .map(|c| {
+                (
+                    c.slug.clone(),
+                    cache
+                        .get(&c.slug)
+                        .map(|card| card.name.clone())
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn render_cache_invalidates_on_card_name_change() {
+        let roster = make_roster(&["alice", "bob"]);
+        let cache_before = make_card_cache(&[("alice", "Alice"), ("bob", "Bob")]);
+        let cache_after = make_card_cache(&[("alice", "Alicia"), ("bob", "Bob")]);
+
+        let fp_before = card_names_fingerprint(&roster, &cache_before);
+        let fp_after = card_names_fingerprint(&roster, &cache_after);
+
+        assert_ne!(
+            fp_before, fp_after,
+            "fingerprint must change when a card display name changes"
+        );
+    }
+
+    #[test]
+    fn render_cache_invalidates_on_roster_order_change() {
+        let roster_ab = make_roster(&["alice", "bob"]);
+        let roster_ba = make_roster(&["bob", "alice"]);
+
+        let fp_ab = roster_fingerprint(&roster_ab);
+        let fp_ba = roster_fingerprint(&roster_ba);
+
+        assert_ne!(
+            fp_ab, fp_ba,
+            "fingerprint must change when roster order changes"
+        );
     }
 }

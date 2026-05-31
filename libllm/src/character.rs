@@ -8,7 +8,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 
 /// A character card following the SillyTavern V2 spec, with optional V1 fallback fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CharacterCard {
     pub name: String,
     pub description: String,

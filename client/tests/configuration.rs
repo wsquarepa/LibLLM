@@ -387,7 +387,7 @@ fn is_libllm_data_dir_detects_legacy_data() {
 fn theme_editor_covers_all_color_override_fields() {
     let config = libllm::config::Config::default();
     let dialog = client::tui::dialogs::open_theme_editor(&config);
-    assert_eq!(dialog.sections().len(), 5, "expected 5 theme tabs");
+    assert_eq!(dialog.sections().len(), 6, "expected 6 theme tabs");
     let color_field_count: usize = dialog
         .sections()
         .iter()
@@ -395,8 +395,8 @@ fn theme_editor_covers_all_color_override_fields() {
         .map(|s| s.labels.len())
         .sum();
     assert_eq!(
-        color_field_count, 31,
-        "tabs 2-5 must cover all 31 editable ThemeColorOverrides fields"
+        color_field_count, 47,
+        "tabs 2-6 must cover all 47 editable ThemeColorOverrides fields"
     );
 }
 
@@ -426,6 +426,7 @@ fn theme_overrides_apply_round_trip() {
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 3],
+        vec!["".to_owned(); 16],
     ];
 
     let cfg = libllm::config::Config::default();
@@ -462,6 +463,7 @@ fn empty_theme_override_drops_to_none() {
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 10],
         vec!["".to_owned(); 3],
+        vec!["".to_owned(); 16],
     ];
 
     client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();

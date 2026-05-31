@@ -1447,4 +1447,37 @@ mod tests {
         let found = find_node_for_message(&tree, -1);
         assert_eq!(found, None);
     }
+
+    #[test]
+    fn build_theme_color_overrides_preserves_group_character_overrides() {
+        use crate::tui::dialogs::open_theme_editor;
+        use libllm::config::ColorLabel;
+
+        let overrides = libllm::config::ThemeColorOverrides {
+            group_character_fg_1: Some("#112233".to_owned()),
+            group_character_bg_8: Some("#445566".to_owned()),
+            ..Default::default()
+        };
+        let config = Config {
+            theme_colors: Some(overrides),
+            ..Config::default()
+        };
+        let dialog = open_theme_editor(&config);
+        let sections: Vec<Vec<String>> = dialog
+            .sections()
+            .iter()
+            .map(|s| s.values.clone())
+            .collect();
+        let rebuilt = build_theme_color_overrides(&sections);
+        assert_eq!(
+            rebuilt.get(ColorLabel::GroupCharacterFg1),
+            Some("#112233"),
+            "build_theme_color_overrides must preserve group_character_fg_1"
+        );
+        assert_eq!(
+            rebuilt.get(ColorLabel::GroupCharacterBg8),
+            Some("#445566"),
+            "build_theme_color_overrides must preserve group_character_bg_8"
+        );
+    }
 }

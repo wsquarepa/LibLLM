@@ -795,6 +795,9 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         ChatSettingsAction::Save => {
             if app.is_group_chat_creation_pending {
+                if let Some(dlg) = app.chat_settings_dialog.as_mut() {
+                    dlg.commit_provisional_scenario(app.session);
+                }
                 let scenario_ok = app
                     .session
                     .scenario
@@ -809,6 +812,8 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     return None;
                 }
                 app.is_group_chat_creation_pending = false;
+            } else if let Some(dlg) = app.chat_settings_dialog.as_mut() {
+                dlg.commit_provisional_scenario(app.session);
             }
             app.chat_settings_dialog = None;
             app.mark_session_dirty(SaveTrigger::Debounced, false);

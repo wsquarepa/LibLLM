@@ -17,6 +17,9 @@ pub struct ChatSettingsDialog {
     pub selected: usize,
     pub rows: Vec<Row>,
     pub button_focus: ButtonFocus,
+    // `None` = scenario editor was never opened; `Some(v)` = editor was opened and closed,
+    // with `v` holding the text (or `None` if the user cleared the field).
+    provisional_scenario: Option<Option<String>>,
     snapshot: Snapshot,
 }
 
@@ -100,12 +103,41 @@ impl ChatSettingsDialog {
             selected: 0,
             rows,
             button_focus: ButtonFocus::Save,
+            provisional_scenario: None,
             snapshot: Snapshot::capture(session),
         }
     }
 
     pub fn restore_snapshot(&self, session: &mut Session) {
         self.snapshot.restore(session);
+    }
+
+    /// Stores scenario text typed in the child editor without writing it to the session.
+    ///
+    /// Called by the scenario editor on close, even when the user cleared the field (passes
+    /// `None`). The outer `Some` records that the editor was opened; the inner value holds the
+    /// text.
+    pub fn set_provisional_scenario(&mut self, value: Option<String>) {
+        self.provisional_scenario = Some(value);
+    }
+
+    /// Returns the pending provisional scenario text for pre-populating the editor on reopen.
+    ///
+    /// Returns `None` both when the editor has never been opened and when the user cleared
+    /// the field. Callers that need to distinguish the two states must inspect the raw field.
+    pub fn provisional_scenario(&self) -> Option<&str> {
+        self.provisional_scenario.as_ref()?.as_deref()
+    }
+
+    /// Writes the provisional scenario into the session. Called only on Save.
+    ///
+    /// When the editor was never opened (`provisional_scenario` is `None`), the existing
+    /// `session.scenario` is left untouched. When the editor was opened and closed, the
+    /// inner value (which may itself be `None` when the user cleared the field) is written.
+    pub fn commit_provisional_scenario(&mut self, session: &mut Session) {
+        if let Some(value) = self.provisional_scenario.take() {
+            session.scenario = value;
+        }
     }
 
     pub fn handle_key(
@@ -285,7 +317,14 @@ impl ChatSettingsDialog {
                 Style::default()
             };
             let line = match row {
-                Row::Scenario => render_scenario_line(session, scenario_locked, base_style),
+                Row::Scenario => render_scenario_line(
+                    match &self.provisional_scenario {
+                        Some(v) => v.as_deref(),
+                        None => session.scenario.as_deref(),
+                    },
+                    scenario_locked,
+                    base_style,
+                ),
                 Row::Mode => render_mode_line(session.chat_mode, base_style),
                 Row::Talkativeness { index } => render_talkativeness_line(
                     &session.characters[*index],
@@ -322,13 +361,11 @@ fn sliders_disabled(mode: ChatMode) -> bool {
 }
 
 fn render_scenario_line(
-    session: &Session,
+    scenario: Option<&str>,
     scenario_locked: bool,
     base_style: Style,
 ) -> Line<'static> {
-    let preview = session
-        .scenario
-        .as_deref()
+    let preview = scenario
         .map(|s| {
             let trimmed = s.trim();
             let char_count = trimmed.chars().count();

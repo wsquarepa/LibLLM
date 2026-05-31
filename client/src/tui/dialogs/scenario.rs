@@ -8,11 +8,17 @@ use ratatui::text::Line;
 use tui_textarea::TextArea;
 
 use super::{DIALOG_HEIGHT_RATIO, DIALOG_WIDTH_RATIO, clear_centered, dialog_block, render_hints_below_dialog};
-use crate::tui::types::{App, Focus, SaveTrigger, StatusLevel};
+use crate::tui::types::{App, Focus, StatusLevel};
 use crate::tui::{Action, clipboard, dialog_handler, events};
 
 pub(in crate::tui) fn open(app: &mut App) {
-    let initial = app.session.scenario.clone().unwrap_or_default();
+    let initial = app
+        .chat_settings_dialog
+        .as_ref()
+        .and_then(|dlg| dlg.provisional_scenario())
+        .map(str::to_owned)
+        .or_else(|| app.session.scenario.clone())
+        .unwrap_or_default();
     let lines: Vec<String> = if initial.is_empty() {
         vec![String::new()]
     } else {
@@ -58,13 +64,13 @@ pub(in crate::tui) fn render(f: &mut Frame, app: &mut App, area: Rect) {
         f,
         dialog,
         area,
-        &[Line::from("Esc: save & close")],
+        &[Line::from("Esc: close")],
     );
 }
 
 pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if key.code == KeyCode::Esc {
-        commit_and_close(app);
+        discard_and_close(app);
         return None;
     }
 
@@ -111,24 +117,26 @@ pub(in crate::tui) fn handle_mouse_click(app: &mut App, screen_col: u16, screen_
         editor.cancel_selection();
         events::move_textarea_cursor_to_mouse(editor, editor_rect, scroll_top, screen_col, screen_row);
     } else {
-        commit_and_close(app);
+        discard_and_close(app);
     }
 }
 
-fn commit_and_close(app: &mut App) {
+fn discard_and_close(app: &mut App) {
     let content = app
         .scenario_editor
         .take()
         .map(|e| e.lines().join("\n"))
         .unwrap_or_default();
     let trimmed = content.trim();
-    app.session.scenario = if trimmed.is_empty() {
+    let provisional = if trimmed.is_empty() {
         None
     } else {
         Some(trimmed.to_owned())
     };
+    if let Some(dlg) = app.chat_settings_dialog.as_mut() {
+        dlg.set_provisional_scenario(provisional);
+    }
     app.scenario_scroll_top = 0;
-    app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_caches();
     app.focus = Focus::ChatSettingsDialog;
 }

@@ -401,3 +401,56 @@ fn legacy_v8_group_session_migrates_with_synthesized_scenario() {
         "v9 migration must synthesize scenario from attached character cards"
     );
 }
+
+#[test]
+fn scenario_editor_cancel_does_not_write_provisional_to_session() {
+    use client::tui::dialogs::chat_settings::ChatSettingsDialog;
+    use libllm::group_chat::CharacterAttachment;
+    use libllm::session::Session;
+
+    let mut session = Session {
+        scenario: Some("original".to_owned()),
+        characters: vec![CharacterAttachment::new("alice".to_owned())],
+        ..Session::default()
+    };
+    let mut dialog = ChatSettingsDialog::for_session(&session);
+
+    // Load a provisional value into the dialog (simulates the scenario editor closing
+    // with typed text before the user cancels Chat Settings).
+    dialog.set_provisional_scenario(Some("edited but canceled".to_owned()));
+
+    // On Cancel the snapshot is restored; the provisional value must NOT be written
+    // to session.scenario at any point.
+    dialog.restore_snapshot(&mut session);
+
+    assert_eq!(
+        session.scenario.as_deref(),
+        Some("original"),
+        "Cancel must restore the original scenario, not the provisional edit"
+    );
+}
+
+#[test]
+fn scenario_editor_save_commits_provisional_to_session() {
+    use client::tui::dialogs::chat_settings::ChatSettingsDialog;
+    use libllm::group_chat::CharacterAttachment;
+    use libllm::session::Session;
+
+    let mut session = Session {
+        scenario: Some("original".to_owned()),
+        characters: vec![CharacterAttachment::new("alice".to_owned())],
+        ..Session::default()
+    };
+    let mut dialog = ChatSettingsDialog::for_session(&session);
+
+    // Simulate the scenario editor writing a provisional value into the dialog,
+    // then the parent Save committing it to session.scenario.
+    dialog.set_provisional_scenario(Some("new scenario".to_owned()));
+    dialog.commit_provisional_scenario(&mut session);
+
+    assert_eq!(
+        session.scenario.as_deref(),
+        Some("new scenario"),
+        "Save must commit the provisional scenario to the session"
+    );
+}

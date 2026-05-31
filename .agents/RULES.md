@@ -128,11 +128,13 @@ Messages form a tree (`MessageTree` in `libllm/src/session.rs`) using an arena (
 
 ### Database migrations
 
-Migrations live under `libllm/src/db/migrations/` — one file per version (`v1.rs`, `v2.rs`, ...), each exposing `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `migrations/mod.rs` owns the `CURRENT_VERSION` constant, the `run_migrations` dispatch loop, `stamp_version` helper, and the cross-version tests. Adding a new migration is three touches:
+Migrations live under `libllm/src/db/migrations/` — one file per version (`v1.rs`, `v2.rs`, ...), each exposing `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `migrations/mod.rs` owns the `CURRENT_VERSION` constant, the `run_migrations` dispatch loop, the `stamp_version` / `apply_migration` helpers, and the cross-version tests. Adding a new migration is three touches:
 
 1. Create `libllm/src/db/migrations/v{N}.rs` with the `pub(super) fn migrate` body.
 2. Add `mod v{N};` to `migrations/mod.rs`.
-3. Bump `CURRENT_VERSION = N` and append `if version < N { v{N}::migrate(conn)?; stamp_version(conn, N)?; applied += 1; }` to `run_migrations`.
+3. Bump `CURRENT_VERSION = N` and append `if version < N { apply_migration(conn, N, v{N}::migrate)?; applied += 1; }` to `run_migrations`.
+
+`apply_migration` runs each migration and stamps its version inside one transaction, so a crash mid-upgrade rolls back cleanly instead of leaving a half-applied schema. Individual `migrate` bodies therefore stay plain `&Connection` statements and must **not** open their own transaction.
 
 Migrations run exactly once per process: `Database::open` (in `libllm/src/db/mod.rs`) calls `migrations::run_migrations(&conn)` on the main connection after applying the SQLCipher key. The `FileSummarizer`'s dedicated second connection (opened in `client/src/tui/mod.rs`) does **not** run migrations — it observes the already-migrated schema over SQLite's WAL file locking.
 

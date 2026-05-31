@@ -41,53 +41,43 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
         let mut applied = 0usize;
         if version < 1 {
-            v1::migrate(conn)?;
-            stamp_version(conn, 1)?;
+            apply_migration(conn, 1, v1::migrate)?;
             applied += 1;
         }
         if version < 2 {
-            v2::migrate(conn)?;
-            stamp_version(conn, 2)?;
+            apply_migration(conn, 2, v2::migrate)?;
             applied += 1;
         }
         if version < 3 {
-            v3::migrate(conn)?;
-            stamp_version(conn, 3)?;
+            apply_migration(conn, 3, v3::migrate)?;
             applied += 1;
         }
         if version < 4 {
-            v4::migrate(conn)?;
-            stamp_version(conn, 4)?;
+            apply_migration(conn, 4, v4::migrate)?;
             applied += 1;
         }
         if version < 5 {
-            v5::migrate(conn)?;
-            stamp_version(conn, 5)?;
+            apply_migration(conn, 5, v5::migrate)?;
             applied += 1;
         }
         if version < 6 {
-            v6::migrate(conn)?;
-            stamp_version(conn, 6)?;
+            apply_migration(conn, 6, v6::migrate)?;
             applied += 1;
         }
         if version < 7 {
-            v7::migrate(conn)?;
-            stamp_version(conn, 7)?;
+            apply_migration(conn, 7, v7::migrate)?;
             applied += 1;
         }
         if version < 8 {
-            v8::migrate(conn)?;
-            stamp_version(conn, 8)?;
+            apply_migration(conn, 8, v8::migrate)?;
             applied += 1;
         }
         if version < 9 {
-            v9::migrate(conn)?;
-            stamp_version(conn, 9)?;
+            apply_migration(conn, 9, v9::migrate)?;
             applied += 1;
         }
         if version < 10 {
-            v10::migrate(conn)?;
-            stamp_version(conn, 10)?;
+            apply_migration(conn, 10, v10::migrate)?;
             applied += 1;
         }
 
@@ -108,6 +98,23 @@ fn stamp_version(conn: &Connection, version: i64) -> Result<()> {
         rusqlite::params![version],
     )
     .context("failed to record schema version")?;
+    Ok(())
+}
+
+/// Runs one migration and records its version in a single transaction so a crash
+/// mid-upgrade rolls back instead of leaving a half-applied schema.
+fn apply_migration(
+    conn: &Connection,
+    version: i64,
+    migrate: fn(&Connection) -> Result<()>,
+) -> Result<()> {
+    let tx = conn
+        .unchecked_transaction()
+        .context("failed to begin migration transaction")?;
+    migrate(conn)?;
+    stamp_version(conn, version)?;
+    tx.commit()
+        .context("failed to commit migration transaction")?;
     Ok(())
 }
 

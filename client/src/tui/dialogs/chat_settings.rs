@@ -6,8 +6,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use libllm::group_chat::{
-    ChatMode, CharacterAttachment, TALKATIVENESS_NOTCHES, normalized_talkativeness,
-    notch_to_talkativeness, talkativeness_to_notch,
+    ChatMode, CharacterAttachment, normalized_talkativeness, notch_to_talkativeness,
+    talkativeness_notches, talkativeness_to_notch,
 };
 use libllm::session::{MessageTree, Session};
 
@@ -254,11 +254,11 @@ impl ChatSettingsDialog {
                     ));
                     return;
                 }
+                let notches = talkativeness_notches(session.characters.len());
                 let current =
-                    talkativeness_to_notch(session.characters[index].talkativeness) as i32;
-                let max = TALKATIVENESS_NOTCHES as i32;
-                let new_notch = (current + notch_delta).clamp(0, max) as u8;
-                let new_talk = notch_to_talkativeness(new_notch);
+                    talkativeness_to_notch(session.characters[index].talkativeness, notches) as i32;
+                let new_notch = (current + notch_delta).clamp(0, notches as i32) as u8;
+                let new_talk = notch_to_talkativeness(new_notch, notches);
                 session.characters[index].talkativeness = new_talk;
                 session.characters[index].action_points =
                     libllm::group_chat::base_action_value(new_talk);
@@ -274,24 +274,26 @@ impl ChatSettingsDialog {
         theme: &Theme,
         scenario_locked: bool,
     ) {
-        let notches_total = TALKATIVENESS_NOTCHES as usize;
+        let notches_total = talkativeness_notches(session.characters.len()) as usize;
         let dim_sliders = sliders_disabled(session.chat_mode);
         let weights = normalized_talkativeness(&session.characters);
         let has_sliders = self
             .rows
             .iter()
             .any(|r| matches!(r, Row::Talkativeness { .. }));
+        let has_mode = self.rows.iter().any(|r| matches!(r, Row::Mode));
 
         let slider_margin_lines = if has_sliders { 2 } else { 0 };
         let buttons_margin_lines = 1;
         let content_height =
             self.rows.len() as u16 + 4 + slider_margin_lines + buttons_margin_lines;
-        let notches_total_u16 = TALKATIVENESS_NOTCHES as u16;
-        let row_width = notches_total_u16 + 35;
+        let row_width = notches_total as u16 + 35;
+        let mode_width = if has_mode { mode_line_width() as u16 + 4 } else { 0 };
         let preferred = (area.width as f32 * 0.7) as u16;
-        let width = preferred.max(row_width).min(area.width);
+        let width = preferred.max(row_width).max(mode_width).min(area.width);
         let dialog =
             super::super::render::clear_centered(f, width, content_height, area);
+        let content_width = width.saturating_sub(2) as usize;
 
         let mut lines: Vec<Line> = vec![Line::from("")];
         let mut prev_was_slider = false;
@@ -325,11 +327,12 @@ impl ChatSettingsDialog {
                     scenario_locked,
                     base_style,
                 ),
-                Row::Mode => render_mode_line(session.chat_mode, base_style),
+                Row::Mode => render_mode_line(session.chat_mode, highlight),
                 Row::Talkativeness { index } => render_talkativeness_line(
                     &session.characters[*index],
                     weights.get(*index).copied().unwrap_or(0.0),
                     notches_total,
+                    content_width,
                     dim_sliders,
                     base_style,
                     theme,
@@ -349,10 +352,21 @@ impl ChatSettingsDialog {
             f,
             dialog,
             area,
-            &[Line::from(
-                "Up/Down: navigate  Left/Right: adjust  Enter: confirm  Esc: cancel",
-            )],
+            &[Line::from(self.current_hint())],
         );
+    }
+
+    fn current_hint(&self) -> &'static str {
+        match self.rows[self.selected] {
+            Row::Scenario => "Up/Down: navigate  Enter: edit  Esc: cancel",
+            Row::Mode => "Up/Down: navigate  Left/Right: change mode  Esc: cancel",
+            Row::Talkativeness { .. } => {
+                "Up/Down: navigate  Left/Right: adjust  Esc: cancel"
+            }
+            Row::Buttons => {
+                "Up/Down: navigate  Left/Right: select  Enter: confirm  Esc: cancel"
+            }
+        }
     }
 }
 
@@ -390,34 +404,81 @@ fn render_scenario_line(
     ])
 }
 
-fn render_mode_line(mode: ChatMode, base_style: Style) -> Line<'static> {
-    Line::from(vec![
-        Span::styled("  mode:     ", base_style),
-        Span::styled(mode.as_str().to_owned(), base_style),
-    ])
+const MODE_LABEL: &str = "  mode:     ";
+const CHAT_MODES: [ChatMode; 4] = [
+    ChatMode::ActionValue,
+    ChatMode::RoundRobin,
+    ChatMode::WeightedRandom,
+    ChatMode::Directed,
+];
+const MODE_OPTION_SEPARATOR: &str = "  ";
+
+/// Rendered width of the mode radio row, used to size the dialog so every option fits.
+fn mode_line_width() -> usize {
+    let radio_marker_width = 4;
+    let options: usize = CHAT_MODES
+        .iter()
+        .map(|m| radio_marker_width + m.as_str().chars().count())
+        .sum();
+    let separators = MODE_OPTION_SEPARATOR.chars().count() * (CHAT_MODES.len() - 1);
+    MODE_LABEL.chars().count() + options + separators
+}
+
+fn render_mode_line(mode: ChatMode, focused: bool) -> Line<'static> {
+    let label_style = if focused {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let mut spans: Vec<Span<'static>> = vec![Span::styled(MODE_LABEL, label_style)];
+    for (i, option) in CHAT_MODES.iter().enumerate() {
+        let selected = *option == mode;
+        let marker = if selected { "(*) " } else { "( ) " };
+        let style = match (selected, focused) {
+            (true, true) => Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+            (true, false) => Style::default().add_modifier(Modifier::BOLD),
+            (false, true) => Style::default().fg(Color::Cyan),
+            (false, false) => Style::default().fg(Color::DarkGray),
+        };
+        spans.push(Span::styled(format!("{marker}{}", option.as_str()), style));
+        if i + 1 < CHAT_MODES.len() {
+            spans.push(Span::raw(MODE_OPTION_SEPARATOR));
+        }
+    }
+    Line::from(spans)
 }
 
 fn render_talkativeness_line(
     character: &CharacterAttachment,
     weight: f32,
     notches_total: usize,
+    content_width: usize,
     dim_sliders: bool,
     base_style: Style,
     theme: &Theme,
 ) -> Line<'static> {
-    let filled = talkativeness_to_notch(character.talkativeness) as usize;
+    let filled = talkativeness_to_notch(character.talkativeness, notches_total as u8) as usize;
     let bar: String = "#".repeat(filled) + &".".repeat(notches_total - filled);
     let percent = (weight * 100.0).round() as u32;
+    let notch_digits = notches_total.to_string().len();
+    let slider = format!("[{bar}] {filled:>notch_digits$}/{notches_total}  ({percent:>3}%)");
+    let name = format!("  {}", character.slug);
+    let right_edge = content_width.saturating_sub(1);
+    let gap = right_edge
+        .saturating_sub(name.chars().count() + slider.chars().count())
+        .max(1);
     let style = if dim_sliders {
         Style::default().fg(theme.dimmed)
     } else {
         base_style
     };
     Line::from(vec![Span::styled(
-        format!(
-            "  {:<16} [{bar}] {filled}/{notches_total}  ({percent:>3}%)",
-            character.slug,
-        ),
+        format!("{name}{}{slider}", " ".repeat(gap)),
         style,
     )])
 }

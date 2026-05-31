@@ -29,9 +29,13 @@ pub const DEFAULT_TALKATIVENESS: f32 = 0.5;
 /// our (talkativeness ∈ [0, 1]) range: with `numerator = 1`, a character at
 /// talkativeness 1.0 (the cap) has base AV 1.0; at 0.5, base AV 2.0; at 1/6, base AV 6.
 pub const BASE_ACTION_VALUE_NUMERATOR: f32 = 1.0;
-/// Talkativeness slider granularity. Thirty notches, mapping to talkativeness values
-/// 1/30, 2/30, ..., 30/30 (notch 0 mutes the character entirely).
-pub const TALKATIVENESS_NOTCHES: u8 = 30;
+
+/// Talkativeness slider granularity for a group of `character_count` members: two notches
+/// per character. A two-character chat gets four notches; a full eight-character group gets
+/// sixteen. Notch 0 always mutes the character entirely.
+pub fn talkativeness_notches(character_count: usize) -> u8 {
+    (character_count.saturating_mul(2)).min(u8::MAX as usize) as u8
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterAttachment {
@@ -90,17 +94,21 @@ pub fn normalized_talkativeness(characters: &[CharacterAttachment]) -> Vec<f32> 
     raw.into_iter().map(|w| w / sum).collect()
 }
 
-/// Snaps a talkativeness value to the nearest notch in `[0, TALKATIVENESS_NOTCHES]`,
-/// returning that notch index and the canonical f32 value for it.
-pub fn talkativeness_to_notch(talkativeness: f32) -> u8 {
-    let scaled = (talkativeness.clamp(0.0, 1.0) * TALKATIVENESS_NOTCHES as f32).round();
-    (scaled as u8).min(TALKATIVENESS_NOTCHES)
+/// Snaps a talkativeness value to the nearest notch in `[0, notches]` for a slider with
+/// the given total notch count.
+pub fn talkativeness_to_notch(talkativeness: f32, notches: u8) -> u8 {
+    let scaled = (talkativeness.clamp(0.0, 1.0) * notches as f32).round();
+    (scaled as u8).min(notches)
 }
 
-/// Converts a notch index back into the canonical talkativeness f32 (notch/N).
-pub fn notch_to_talkativeness(notch: u8) -> f32 {
-    let n = notch.min(TALKATIVENESS_NOTCHES);
-    n as f32 / TALKATIVENESS_NOTCHES as f32
+/// Converts a notch index back into the canonical talkativeness f32 (notch/notches) for a
+/// slider with the given total notch count. A zero-notch slider maps everything to 0.0.
+pub fn notch_to_talkativeness(notch: u8, notches: u8) -> f32 {
+    if notches == 0 {
+        return 0.0;
+    }
+    let n = notch.min(notches);
+    n as f32 / notches as f32
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -731,10 +739,23 @@ mod tests {
 
     #[test]
     fn notch_round_trip_is_stable() {
-        for n in 0..=TALKATIVENESS_NOTCHES {
-            let t = notch_to_talkativeness(n);
-            assert_eq!(talkativeness_to_notch(t), n, "notch {n} did not round-trip");
+        for character_count in 2..=MAX_GROUP_SIZE {
+            let notches = talkativeness_notches(character_count);
+            for n in 0..=notches {
+                let t = notch_to_talkativeness(n, notches);
+                assert_eq!(
+                    talkativeness_to_notch(t, notches),
+                    n,
+                    "notch {n}/{notches} did not round-trip"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn talkativeness_notches_is_two_per_character() {
+        assert_eq!(talkativeness_notches(2), 4);
+        assert_eq!(talkativeness_notches(MAX_GROUP_SIZE), 16);
     }
 
     #[test]

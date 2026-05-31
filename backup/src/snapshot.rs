@@ -325,20 +325,9 @@ pub fn rebuild_index(
                         }
                     };
 
-                    if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
-                        let msg = format!(
-                            "skipping {filename}: failed to persist re-encrypted file: {e}"
-                        );
-                        tracing::warn!(
-                            result = "error",
-                            filename = %filename,
-                            error = %e,
-                            "backup.rebuild_index.write_failed"
-                        );
-                        warnings.push(msg);
-                        continue;
-                    }
-
+                    // Wrap the DEK before overwriting the on-disk file: if the wrap
+                    // fails after the file is re-encrypted, the fresh DEK exists only
+                    // in this stack frame and is lost, leaving the backup unrecoverable.
                     let wrapped = match crate::crypto::wrap_dek(&dek, kek) {
                         Ok(w) => w,
                         Err(e) => {
@@ -353,6 +342,20 @@ pub fn rebuild_index(
                             continue;
                         }
                     };
+
+                    if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
+                        let msg = format!(
+                            "skipping {filename}: failed to persist re-encrypted file: {e}"
+                        );
+                        tracing::warn!(
+                            result = "error",
+                            filename = %filename,
+                            error = %e,
+                            "backup.rebuild_index.write_failed"
+                        );
+                        warnings.push(msg);
+                        continue;
+                    }
 
                     let fp = crate::crypto::compute_kek_fingerprint(kek);
                     (

@@ -2,16 +2,16 @@
 //! a better-matching instruct preset.
 
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::tui::theme::Theme;
 use crate::tui::types::TemplatePromptState;
 
-use super::{clear_centered, dialog_block};
+use super::{clear_centered, dialog_block, render_hints_below_dialog};
 
 #[derive(Debug, Clone, Copy)]
 pub enum TemplatePromptResult {
@@ -81,10 +81,7 @@ pub(in crate::tui) fn render_template_prompt(
         layout[1],
     );
 
-    let q = Line::from(format!(
-        "  Switch to \"{}\"?",
-        state.suggested_preset.name
-    ));
+    let q = Line::from(format!("  Switch to \"{}\"?", state.suggested_preset.name));
     let yes_style = if state.button_selected == 0 {
         Style::default()
             .fg(theme.nav_cursor_fg)
@@ -110,6 +107,14 @@ pub(in crate::tui) fn render_template_prompt(
     f.render_widget(
         Paragraph::new(vec![q, Line::raw(""), buttons]).alignment(Alignment::Left),
         layout[2],
+    );
+    render_hints_below_dialog(
+        f,
+        popup,
+        area,
+        &[Line::from(
+            "Left/Right: select  Enter: confirm  Tab: expand/collapse  Esc: dismiss",
+        )],
     );
 }
 
@@ -199,10 +204,8 @@ mod tests {
     fn arrow_keys_toggle_button() {
         let mut s = fixture_state();
         assert_eq!(s.button_selected, 1);
-        let _ = handle_template_prompt_key(
-            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-            &mut s,
-        );
+        let _ =
+            handle_template_prompt_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
         assert_eq!(s.button_selected, 0);
     }
 
@@ -210,10 +213,8 @@ mod tests {
     fn enter_on_yes_returns_switch() {
         let mut s = fixture_state();
         s.button_selected = 0;
-        let r = handle_template_prompt_key(
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-            &mut s,
-        );
+        let r =
+            handle_template_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
         assert!(matches!(r, TemplatePromptResult::Switch));
     }
 
@@ -221,20 +222,15 @@ mod tests {
     fn enter_on_no_returns_dismiss() {
         let mut s = fixture_state();
         s.button_selected = 1;
-        let r = handle_template_prompt_key(
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-            &mut s,
-        );
+        let r =
+            handle_template_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
         assert!(matches!(r, TemplatePromptResult::Dismiss));
     }
 
     #[test]
     fn esc_returns_dismiss() {
         let mut s = fixture_state();
-        let r = handle_template_prompt_key(
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-            &mut s,
-        );
+        let r = handle_template_prompt_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut s);
         assert!(matches!(r, TemplatePromptResult::Dismiss));
     }
 
@@ -242,10 +238,7 @@ mod tests {
     fn tab_toggles_expanded() {
         let mut s = fixture_state();
         assert!(!s.expanded);
-        let _ = handle_template_prompt_key(
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
-            &mut s,
-        );
+        let _ = handle_template_prompt_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), &mut s);
         assert!(s.expanded);
     }
 }

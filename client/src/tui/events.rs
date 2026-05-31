@@ -191,17 +191,15 @@ pub(super) async fn process_action(
             commands::handle_slash_command(&cmd, &arg, app, token_tx).await;
         }
         Action::OpenChatSettings => {
-            app.chat_settings_dialog =
-                Some(dialogs::chat_settings::ChatSettingsDialog::for_session(app.session));
+            app.chat_settings_dialog = Some(
+                dialogs::chat_settings::ChatSettingsDialog::for_session(app.session),
+            );
             app.focus = Focus::ChatSettingsDialog;
         }
         Action::JumpToSearchHit(hit) => {
             if let Err(err) = super::business::jump_to_search_hit(app, &hit).await {
                 tracing::warn!(error = %err, "search.jump");
-                app.set_status(
-                    format!("Search jump failed: {err}"),
-                    StatusLevel::Error,
-                );
+                app.set_status(format!("Search jump failed: {err}"), StatusLevel::Error);
             }
         }
         Action::UnsavedWarningResolved(button) => {
@@ -242,6 +240,78 @@ pub(super) async fn process_action(
                     app.worldbook_editor_name_editing = false;
                     app.dialog_search.deactivate_and_clear();
                     app.focus = Focus::WorldbookDialog;
+                }
+                (Focus::PresetEditorDialog, UnsavedButton::SaveAndClose) => {
+                    let _ = crate::tui::dialog_handler::commit_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::PresetEditor,
+                    );
+                }
+                (Focus::PresetEditorDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::PresetEditor,
+                    );
+                }
+                (Focus::PersonaEditorDialog, UnsavedButton::SaveAndClose) => {
+                    let _ = crate::tui::dialog_handler::commit_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::PersonaEditor,
+                    );
+                }
+                (Focus::PersonaEditorDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::PersonaEditor,
+                    );
+                }
+                (Focus::AuthorNoteEditorDialog, UnsavedButton::SaveAndClose) => {
+                    let _ = crate::tui::dialog_handler::commit_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::AuthorNoteEditor,
+                    );
+                }
+                (Focus::AuthorNoteEditorDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::AuthorNoteEditor,
+                    );
+                }
+                (Focus::CharacterEditorDialog, UnsavedButton::SaveAndClose) => {
+                    let _ = crate::tui::dialog_handler::commit_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::CharacterEditor,
+                    );
+                }
+                (Focus::CharacterEditorDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::CharacterEditor,
+                    );
+                }
+                (Focus::SystemPromptEditorDialog, UnsavedButton::SaveAndClose) => {
+                    let _ = crate::tui::dialog_handler::commit_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::SystemPromptEditor,
+                    );
+                }
+                (Focus::SystemPromptEditorDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::SystemPromptEditor,
+                    );
+                }
+                (Focus::WorldbookEntryEditorDialog, UnsavedButton::SaveAndClose) => {
+                    let _ = crate::tui::dialog_handler::commit_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::WorldbookEntryEditor,
+                    );
+                }
+                (Focus::WorldbookEntryEditorDialog, UnsavedButton::Discard) => {
+                    crate::tui::dialog_handler::discard_field_dialog(
+                        app,
+                        crate::tui::dialog_handler::DialogKind::WorldbookEntryEditor,
+                    );
                 }
                 (focus, UnsavedButton::Cancel) => {
                     app.focus = focus;
@@ -340,10 +410,9 @@ pub(in crate::tui) fn handle_edit_message(
         app.save_mode.id(),
         app.file_summarizer.as_ref(),
     ) {
-        (false, _, _, _) => tracing::debug!(
-            reason = "mode_lazy",
-            "files.summary.eager_schedule.skipped"
-        ),
+        (false, _, _, _) => {
+            tracing::debug!(reason = "mode_lazy", "files.summary.eager_schedule.skipped")
+        }
         (_, false, _, _) => tracing::debug!(
             reason = "summarization_disabled",
             "files.summary.eager_schedule.skipped"
@@ -369,11 +438,7 @@ pub(in crate::tui) fn handle_edit_message(
         }
     }
 
-    let original_parent = app
-        .session
-        .tree
-        .node(node_id)
-        .and_then(|n| n.parent);
+    let original_parent = app.session.tree.node(node_id).and_then(|n| n.parent);
 
     let mut parent = original_parent;
     for sys_msg in sys_messages {
@@ -594,9 +659,7 @@ fn handle_key(
                 if let Some(op) = app.danger_confirm_op.take() {
                     match commands::danger::dispatch_sync(app, op) {
                         Ok(summary) => commands::danger::report_summary(app, op, &summary),
-                        Err(err) => {
-                            app.set_status(format!("Op failed: {err}"), StatusLevel::Error)
-                        }
+                        Err(err) => app.set_status(format!("Op failed: {err}"), StatusLevel::Error),
                     }
                 }
                 app.danger_confirm_selected = None;
@@ -653,10 +716,7 @@ fn handle_key(
                         StatusLevel::Warning,
                     );
                 } else {
-                    app.set_status(
-                        format!("Switched to {preset_name}"),
-                        StatusLevel::Info,
-                    );
+                    app.set_status(format!("Switched to {preset_name}"), StatusLevel::Info);
                 }
                 app.template_prompt_state = None;
                 return_to_input(app);
@@ -668,10 +728,7 @@ fn handle_key(
                     && let Err(err) = db.record_template_dismissal(&state.server_template_hash)
                 {
                     tracing::warn!(result = "error", error = %err, "template_prompt.dismiss_record_failed");
-                    app.set_status(
-                        "Couldn't remember dismissal".to_owned(),
-                        StatusLevel::Info,
-                    );
+                    app.set_status("Couldn't remember dismissal".to_owned(), StatusLevel::Info);
                 }
                 return_to_input(app);
                 return None;
@@ -783,7 +840,14 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let mode_locked = app.cli_overrides.chat_mode.is_some();
     let talkativeness_locked = app.cli_overrides.talkativeness.clone();
     let mut warning: Option<String> = None;
-    let action = dlg.handle_key(key, app.session, scenario_locked, mode_locked, &talkativeness_locked, &mut warning);
+    let action = dlg.handle_key(
+        key,
+        app.session,
+        scenario_locked,
+        mode_locked,
+        &talkativeness_locked,
+        &mut warning,
+    );
     if let Some(msg) = warning {
         app.set_status(msg, StatusLevel::Warning);
     }
@@ -1277,11 +1341,7 @@ pub(super) fn move_textarea_cursor_to_mouse(
 /// the top of the viewport) based on the cursor position. Mirrors
 /// tui-textarea's internal `next_scroll_top` so the caret always stays inside
 /// the viewport without us needing access to its private `viewport` field.
-pub(super) fn update_scroll_top(
-    prev_top: u16,
-    textarea: &TextArea<'_>,
-    content_area: Rect,
-) -> u16 {
+pub(super) fn update_scroll_top(prev_top: u16, textarea: &TextArea<'_>, content_area: Rect) -> u16 {
     if content_area.height == 0 || content_area.width == 0 {
         return prev_top;
     }
@@ -1489,8 +1549,8 @@ mod paste_tests {
         let p = tmp.path().join("Lecture 29 notes.md");
         std::fs::write(&p, "body").unwrap();
         let cfg = libllm::config::FilesConfig::default();
-        let out = paste_as_file_reference(p.to_str().unwrap(), &cfg)
-            .expect("spaced path should paste");
+        let out =
+            paste_as_file_reference(p.to_str().unwrap(), &cfg).expect("spaced path should paste");
         assert!(out.starts_with(r#"@""#));
         assert!(out.ends_with('"'));
         assert!(out.contains("Lecture 29 notes.md"));
@@ -1539,7 +1599,10 @@ mod wrap_tests {
 
     #[test]
     fn long_word_falls_back_to_glyph_break() {
-        assert_eq!(wrap_line_segments("abcdefghij", 4), vec![(0, 4), (4, 8), (8, 10)]);
+        assert_eq!(
+            wrap_line_segments("abcdefghij", 4),
+            vec![(0, 4), (4, 8), (8, 10)]
+        );
     }
 
     #[test]

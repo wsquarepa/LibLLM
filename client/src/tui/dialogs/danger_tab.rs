@@ -1,11 +1,11 @@
 //! Renders the Danger tab body inside the /config dialog and handles its key events.
 
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use crate::tui::theme::Theme;
 use crate::tui::types::{App, DangerOp};
@@ -14,13 +14,13 @@ use crate::tui::types::{App, DangerOp};
 pub const DANGER_TAB_INDEX: usize = 5;
 
 const ITEMS: &[(DangerOp, &str)] = &[
-    (DangerOp::ClearStores, "1. Clear Stores"),
-    (DangerOp::RegeneratePresets, "2. Regenerate Presets"),
-    (DangerOp::PurgeChats, "3. Purge Chats"),
-    (DangerOp::PurgeCharacters, "4. Purge Characters"),
-    (DangerOp::PurgePersonas, "5. Purge Personas"),
-    (DangerOp::PurgeWorldbooks, "6. Purge Worldbooks"),
-    (DangerOp::DestroyAll, "7. Destroy All Data"),
+    (DangerOp::ClearStores, "Clear Stores"),
+    (DangerOp::RegeneratePresets, "Regenerate Presets"),
+    (DangerOp::PurgeChats, "Purge Chats"),
+    (DangerOp::PurgeCharacters, "Purge Characters"),
+    (DangerOp::PurgePersonas, "Purge Personas"),
+    (DangerOp::PurgeWorldbooks, "Purge Worldbooks"),
+    (DangerOp::DestroyAll, "Destroy All Data"),
 ];
 
 /// Render the body of the Danger tab inside the /config dialog.
@@ -131,9 +131,25 @@ mod tests {
     fn enter_returns_op_for_selection() {
         let mut s = 0;
         let r = handle_danger_tab_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
-        assert!(matches!(r, DangerTabResult::OpenConfirm(DangerOp::ClearStores)));
+        assert!(matches!(
+            r,
+            DangerTabResult::OpenConfirm(DangerOp::ClearStores)
+        ));
         s = 6;
         let r = handle_danger_tab_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
-        assert!(matches!(r, DangerTabResult::OpenConfirm(DangerOp::DestroyAll)));
+        assert!(matches!(
+            r,
+            DangerTabResult::OpenConfirm(DangerOp::DestroyAll)
+        ));
+    }
+
+    #[test]
+    fn labels_do_not_imply_numeric_shortcuts() {
+        assert!(ITEMS.iter().all(|(_, label)| {
+            !label
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_digit())
+        }));
     }
 }

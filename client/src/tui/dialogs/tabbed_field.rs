@@ -190,6 +190,19 @@ impl<'a> TabbedFieldDialog<'a> {
         self.sections.iter().any(|s| s.values != s.original_values)
     }
 
+    fn text_input_key(key: KeyEvent) -> Option<char> {
+        match key.code {
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                Some(c)
+            }
+            _ => None,
+        }
+    }
+
     fn next_tab(&mut self) {
         if self.sections.is_empty() {
             return;
@@ -315,7 +328,9 @@ impl<'a> TabbedFieldDialog<'a> {
     /// value if the buffer differs, and sets `value_changed` accordingly. No-op
     /// when there is no active editor.
     fn commit_editor(&mut self) {
-        let Some(editor) = self.editor.take() else { return; };
+        let Some(editor) = self.editor.take() else {
+            return;
+        };
         let content = editor.lines().join("\n");
         let tab = self.current_tab;
         let idx = self.sections[tab].selected;
@@ -353,8 +368,7 @@ impl<'a> TabbedFieldDialog<'a> {
                 return TabbedFieldAction::Continue;
             }
             if let Some(ref mut editor) = self.editor {
-                let (consumed, warning) =
-                    crate::tui::clipboard::handle_clipboard_key(&key, editor);
+                let (consumed, warning) = crate::tui::clipboard::handle_clipboard_key(&key, editor);
                 self.clipboard_warning = warning;
                 if !consumed {
                     crate::tui::dialog_handler::input_with_eof_jump(editor, key);
@@ -366,6 +380,23 @@ impl<'a> TabbedFieldDialog<'a> {
         if self.editing {
             let tab = self.current_tab;
             let idx = self.sections[tab].selected;
+            if let Some(c) = Self::text_input_key(key) {
+                let accept = self
+                    .validation_for(tab, idx)
+                    .map(|v| v.accepts_char(&self.sections[tab].values[idx], c))
+                    .unwrap_or(true);
+                if accept {
+                    let byte_pos =
+                        super::byte_pos_at_char(&self.sections[tab].values[idx], self.cursor_pos);
+                    self.sections[tab].values[idx].insert(byte_pos, c);
+                    self.cursor_pos += 1;
+                    self.value_changed = true;
+                } else {
+                    self.reject_flash = Some(Instant::now());
+                }
+                return TabbedFieldAction::Continue;
+            }
+
             match key.code {
                 KeyCode::Enter | KeyCode::Esc => {
                     let value = self.sections[tab].values[idx].clone();
@@ -379,23 +410,7 @@ impl<'a> TabbedFieldDialog<'a> {
                         self.reject_flash = Some(Instant::now());
                     }
                 }
-                KeyCode::Char(c) => {
-                    let accept = self
-                        .validation_for(tab, idx)
-                        .map(|v| v.accepts_char(&self.sections[tab].values[idx], c))
-                        .unwrap_or(true);
-                    if accept {
-                        let byte_pos = super::byte_pos_at_char(
-                            &self.sections[tab].values[idx],
-                            self.cursor_pos,
-                        );
-                        self.sections[tab].values[idx].insert(byte_pos, c);
-                        self.cursor_pos += 1;
-                        self.value_changed = true;
-                    } else {
-                        self.reject_flash = Some(Instant::now());
-                    }
-                }
+                KeyCode::Char(_) => {}
                 KeyCode::Backspace if self.cursor_pos > 0 => {
                     self.cursor_pos -= 1;
                     let byte_pos =
@@ -466,6 +481,15 @@ impl<'a> TabbedFieldDialog<'a> {
                     } else {
                         self.cursor_pos = self.sections[tab].values[idx].chars().count();
                         self.editing = true;
+                    }
+                }
+            }
+            KeyCode::Char(' ') => {
+                let tab = self.current_tab;
+                if !self.sections[tab].labels.is_empty() {
+                    let idx = self.sections[tab].selected;
+                    if !self.is_locked(tab, idx) && self.is_boolean(tab, idx) {
+                        self.toggle_boolean();
                     }
                 }
             }
@@ -552,9 +576,12 @@ impl<'a> TabbedFieldDialog<'a> {
 
     fn current_hint(&self) -> &'static str {
         let tab = self.current_tab;
+        if self.sections[tab].danger_style {
+            return "Tab/Shift-Tab: section  Up/Down: action  Enter: confirm  Esc: close";
+        }
         let idx = self.sections[tab].selected;
         if self.is_boolean(tab, idx) {
-            "Tab/Shift-Tab: section  ↑/↓: field  Enter: toggle  Ctrl+S: save  Esc: close"
+            "Tab/Shift-Tab: section  ↑/↓: field  Space/Enter: toggle  Ctrl+S: save  Esc: close"
         } else if self.is_selector(tab, idx) {
             "Tab/Shift-Tab: section  ↑/↓: field  Enter: select  Ctrl+S: save  Esc: close"
         } else if self.is_action(tab, idx) {
@@ -574,9 +601,7 @@ impl<'a> TabbedFieldDialog<'a> {
                 } else {
                     Color::Yellow
                 };
-                Style::default()
-                    .fg(base_color)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(base_color).add_modifier(Modifier::BOLD)
             } else if section.danger_style {
                 Style::default().fg(theme.status_error_bg)
             } else {
@@ -930,6 +955,29 @@ mod tests {
     }
 
     #[test]
+    fn boolean_toggles_on_space() {
+        let labels: &'static [&'static str] = &["Flag"];
+        let mut section = make_section("A", labels);
+        section.boolean_fields = {
+            const B: &[usize] = &[0];
+            B
+        };
+        section.values[0] = "false".to_owned();
+        let mut d = TabbedFieldDialog::new(" test ", vec![section]);
+        d.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert_eq!(d.sections[0].values[0], "true");
+    }
+
+    #[test]
+    fn control_char_is_not_inserted_in_single_line_edit_mode() {
+        let mut d =
+            TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
+        d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        d.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(d.sections()[0].values[0], "v");
+    }
+
+    #[test]
     fn action_field_dispatches_invoke_action() {
         let labels: &'static [&'static str] = &["Reset"];
         let mut section = make_section("A", labels);
@@ -1042,20 +1090,16 @@ mod tests {
 
     #[test]
     fn esc_when_clean_returns_close() {
-        let mut d = TabbedFieldDialog::new(
-            "test",
-            vec![TabSection::new("S", &["a"], vec!["v".into()])],
-        );
+        let mut d =
+            TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
         let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(action, TabbedFieldAction::Close));
     }
 
     #[test]
     fn esc_when_dirty_returns_request_unsaved_warning() {
-        let mut d = TabbedFieldDialog::new(
-            "test",
-            vec![TabSection::new("S", &["a"], vec!["v".into()])],
-        );
+        let mut d =
+            TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
         d.set_value(0, 0, "changed".into());
         assert!(d.has_changes());
         let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -1131,28 +1175,18 @@ mod tests {
 
     #[test]
     fn ctrl_s_in_nav_mode_returns_save_and_close() {
-        let mut d = TabbedFieldDialog::new(
-            "test",
-            vec![TabSection::new("S", &["a"], vec!["v".into()])],
-        );
-        let action = d.handle_key(KeyEvent::new(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL,
-        ));
+        let mut d =
+            TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
+        let action = d.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert!(matches!(action, TabbedFieldAction::SaveAndClose));
     }
 
     #[test]
     fn ctrl_s_in_single_line_edit_mode_exits_editing_and_returns_save_and_close() {
-        let mut d = TabbedFieldDialog::new(
-            "test",
-            vec![TabSection::new("S", &["a"], vec!["v".into()])],
-        );
+        let mut d =
+            TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
         d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let action = d.handle_key(KeyEvent::new(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL,
-        ));
+        let action = d.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert!(matches!(action, TabbedFieldAction::SaveAndClose));
         assert!(!d.is_editing());
     }
@@ -1168,16 +1202,19 @@ mod tests {
         for c in "notacolor".chars() {
             d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
         }
-        let action = d.handle_key(KeyEvent::new(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL,
-        ));
+        let action = d.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert!(
             matches!(action, TabbedFieldAction::Continue),
             "Ctrl+S with invalid field must return Continue, not SaveAndClose"
         );
-        assert!(d.is_editing(), "dialog must remain in edit mode after Ctrl+S with invalid value");
-        assert!(d.reject_flash.is_some(), "reject_flash must be set after Ctrl+S with invalid value");
+        assert!(
+            d.is_editing(),
+            "dialog must remain in edit mode after Ctrl+S with invalid value"
+        );
+        assert!(
+            d.reject_flash.is_some(),
+            "reject_flash must be set after Ctrl+S with invalid value"
+        );
     }
 
     #[test]
@@ -1190,15 +1227,15 @@ mod tests {
         for c in "#ff0000".chars() {
             d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
         }
-        let action = d.handle_key(KeyEvent::new(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL,
-        ));
+        let action = d.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert!(
             matches!(action, TabbedFieldAction::SaveAndClose),
             "Ctrl+S with valid color must return SaveAndClose"
         );
-        assert!(!d.is_editing(), "dialog must exit edit mode after Ctrl+S with valid color");
+        assert!(
+            !d.is_editing(),
+            "dialog must exit edit mode after Ctrl+S with valid color"
+        );
         assert_eq!(d.sections()[0].values[0], "#ff0000");
     }
 
@@ -1206,19 +1243,16 @@ mod tests {
     fn ctrl_s_in_multiline_editor_commits_buffer_and_returns_save_and_close() {
         let mut d = TabbedFieldDialog::new(
             "test",
-            vec![
-                TabSection::new("S", &["a"], vec![String::new()])
-                    .with_multiline_fields(&[0]),
-            ],
+            vec![TabSection::new("S", &["a"], vec![String::new()]).with_multiline_fields(&[0])],
         );
         d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         d.insert_into_active_editor("edited");
-        let action = d.handle_key(KeyEvent::new(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL,
-        ));
+        let action = d.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert!(matches!(action, TabbedFieldAction::SaveAndClose));
-        assert!(!d.is_editing(), "multi-line editor must be closed after Ctrl+S");
+        assert!(
+            !d.is_editing(),
+            "multi-line editor must be closed after Ctrl+S"
+        );
         assert_eq!(
             d.sections()[0].values[0],
             "edited",
@@ -1228,10 +1262,8 @@ mod tests {
 
     #[test]
     fn ctrl_shift_s_also_returns_save_and_close() {
-        let mut d = TabbedFieldDialog::new(
-            "test",
-            vec![TabSection::new("S", &["a"], vec!["v".into()])],
-        );
+        let mut d =
+            TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
         let action = d.handle_key(KeyEvent::new(
             KeyCode::Char('S'),
             KeyModifiers::CONTROL | KeyModifiers::SHIFT,

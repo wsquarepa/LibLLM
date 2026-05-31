@@ -3,7 +3,6 @@
 pub mod api_error;
 pub mod auth;
 pub mod branch;
-pub(crate) mod search;
 pub mod character;
 pub mod chat_settings;
 pub mod danger_confirm;
@@ -19,6 +18,7 @@ pub mod persona;
 pub mod preset;
 pub mod regex;
 pub mod scenario;
+pub(crate) mod search;
 pub mod set_passkey;
 pub mod system_prompt;
 pub mod template_prompt;
@@ -39,8 +39,7 @@ pub(in crate::tui) use builders::{
 pub use builders::{
     open_author_note_editor, open_character_editor, open_config_editor, open_entry_editor,
     open_entry_editor_non_selective, open_instruct_editor, open_persona_editor,
-    open_reasoning_editor, open_system_prompt_editor, open_template_editor,
-    open_theme_editor,
+    open_reasoning_editor, open_system_prompt_editor, open_template_editor, open_theme_editor,
 };
 pub(in crate::tui) use crypto::derive_key_blocking;
 use crypto::log_phase_with_path;
@@ -54,7 +53,7 @@ pub(in crate::tui) use paged_list::{
 pub use tabbed_field::{TabSection, TabbedFieldAction, TabbedFieldDialog};
 pub use validation::FieldValidation;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
@@ -162,7 +161,7 @@ pub(in crate::tui) fn render_multiline_editor(
         f,
         dialog,
         area,
-        &[ratatui::text::Line::from("Esc: done editing")],
+        &[ratatui::text::Line::from("Esc: done editing  Ctrl+S: save")],
     );
 }
 
@@ -176,6 +175,8 @@ const LOADING_DIALOG_HEIGHT: u16 = 5;
 pub enum FieldDialogAction {
     Continue,
     Close,
+    SaveAndClose,
+    RequestUnsavedWarning,
     OpenSelector(usize),
 }
 
@@ -268,6 +269,24 @@ impl<'a> FieldDialog<'a> {
         self.values != self.original_values
     }
 
+    fn save_shortcut(key: KeyEvent) -> bool {
+        key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
+    }
+
+    fn text_input_key(key: KeyEvent) -> Option<char> {
+        match key.code {
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                Some(c)
+            }
+            _ => None,
+        }
+    }
+
     fn is_locked(&self, index: usize) -> bool {
         self.locked_fields.contains(&index)
     }
@@ -308,6 +327,13 @@ impl<'a> FieldDialog<'a> {
         if let Some(ref mut editor) = self.editor {
             editor.insert_str(text);
         }
+    }
+
+    fn commit_editor(&mut self) {
+        let Some(editor) = self.editor.take() else {
+            return;
+        };
+        self.values[self.selected] = editor.lines().join("\n");
     }
 
     fn open_multiline_editor(&mut self) {
@@ -455,11 +481,11 @@ impl<'a> FieldDialog<'a> {
         f.render_widget(paragraph, dialog);
 
         let hint = if self.is_boolean(self.selected) {
-            "Up/Down: navigate  Enter: toggle  Esc: save & close"
+            "Up/Down: navigate  Space/Enter: toggle  Ctrl+S: save  Esc: close"
         } else if self.is_selector(self.selected) {
-            "Up/Down: navigate  Enter: select  Esc: save & close"
+            "Up/Down: navigate  Enter: select  Ctrl+S: save  Esc: close"
         } else {
-            "Up/Down: navigate  Enter: edit  Esc: save & close"
+            "Up/Down: navigate  Enter: edit  Ctrl+S: save  Esc: close"
         };
         render_hints_below_dialog(f, dialog, area, &[Line::from(hint)]);
     }
@@ -478,44 +504,48 @@ impl<'a> FieldDialog<'a> {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FieldDialogAction {
-        if let Some(ref mut editor) = self.editor {
-            match key.code {
-                KeyCode::Esc => {
-                    let content = editor.lines().join("\n");
-                    self.values[self.selected] = content;
-                    self.editor = None;
-                }
-                _ => {
-                    let (consumed, warning) =
-                        crate::tui::clipboard::handle_clipboard_key(&key, editor);
-                    self.clipboard_warning = warning;
-                    if !consumed {
-                        super::dialog_handler::input_with_eof_jump(editor, key);
-                    }
+        if Self::save_shortcut(key) {
+            self.commit_editor();
+            self.editing = false;
+            return FieldDialogAction::SaveAndClose;
+        }
+
+        if self.editor.is_some() {
+            if key.code == KeyCode::Esc {
+                self.commit_editor();
+                return FieldDialogAction::Continue;
+            }
+            if let Some(ref mut editor) = self.editor {
+                let (consumed, warning) = crate::tui::clipboard::handle_clipboard_key(&key, editor);
+                self.clipboard_warning = warning;
+                if !consumed {
+                    super::dialog_handler::input_with_eof_jump(editor, key);
                 }
             }
             return FieldDialogAction::Continue;
         }
 
         if self.editing {
+            if let Some(c) = Self::text_input_key(key) {
+                let accept = self
+                    .validation_for(self.selected)
+                    .map(|v| v.accepts_char(&self.values[self.selected], c))
+                    .unwrap_or(true);
+                if accept {
+                    let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
+                    self.values[self.selected].insert(byte_pos, c);
+                    self.cursor_pos += 1;
+                } else {
+                    self.reject_flash = Some(std::time::Instant::now());
+                }
+                return FieldDialogAction::Continue;
+            }
+
             match key.code {
                 KeyCode::Enter | KeyCode::Esc => {
                     self.editing = false;
                 }
-                KeyCode::Char(c) => {
-                    let accept = self
-                        .validation_for(self.selected)
-                        .map(|v| v.accepts_char(&self.values[self.selected], c))
-                        .unwrap_or(true);
-                    if accept {
-                        let byte_pos =
-                            byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
-                        self.values[self.selected].insert(byte_pos, c);
-                        self.cursor_pos += 1;
-                    } else {
-                        self.reject_flash = Some(std::time::Instant::now());
-                    }
-                }
+                KeyCode::Char(_) => {}
                 KeyCode::Backspace if self.cursor_pos > 0 => {
                     self.cursor_pos -= 1;
                     let byte_pos = byte_pos_at_char(&self.values[self.selected], self.cursor_pos);
@@ -572,7 +602,6 @@ impl<'a> FieldDialog<'a> {
             },
             KeyCode::Enter => {
                 if self.is_locked(self.selected) {
-                    // locked by CLI flag, no editing
                 } else if self.is_selector(self.selected) {
                     return FieldDialogAction::OpenSelector(self.selected);
                 } else if self.is_boolean(self.selected) {
@@ -584,7 +613,15 @@ impl<'a> FieldDialog<'a> {
                     self.editing = true;
                 }
             }
+            KeyCode::Char(' ')
+                if !self.is_locked(self.selected) && self.is_boolean(self.selected) =>
+            {
+                self.toggle_boolean();
+            }
             KeyCode::Esc => {
+                if self.has_changes() {
+                    return FieldDialogAction::RequestUnsavedWarning;
+                }
                 return FieldDialogAction::Close;
             }
             _ => {}
@@ -703,5 +740,76 @@ impl<'a> FieldDialog<'a> {
                 (FIELD_DIALOG_DEFAULT_WIDTH, default_height + editor_extra)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn ctrl_s_returns_save_and_close() {
+        let mut dialog = FieldDialog::new(" test ", &["Name"], vec!["value".to_owned()], &[]);
+
+        let action = dialog.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        assert!(matches!(action, FieldDialogAction::SaveAndClose));
+    }
+
+    #[test]
+    fn dirty_esc_requests_unsaved_warning() {
+        let mut dialog = FieldDialog::new(" test ", &["Name"], vec!["old".to_owned()], &[]);
+        dialog.values[0] = "new".to_owned();
+
+        let action = dialog.handle_key(key(KeyCode::Esc));
+
+        assert!(matches!(action, FieldDialogAction::RequestUnsavedWarning));
+    }
+
+    #[test]
+    fn clean_esc_closes_without_save_action() {
+        let mut dialog = FieldDialog::new(" test ", &["Name"], vec!["old".to_owned()], &[]);
+
+        let action = dialog.handle_key(key(KeyCode::Esc));
+
+        assert!(matches!(action, FieldDialogAction::Close));
+    }
+
+    #[test]
+    fn space_toggles_boolean_outside_edit_mode() {
+        let mut dialog = FieldDialog::new(" test ", &["Enabled"], vec!["false".to_owned()], &[])
+            .with_boolean_fields(&[0]);
+
+        let action = dialog.handle_key(key(KeyCode::Char(' ')));
+
+        assert!(matches!(action, FieldDialogAction::Continue));
+        assert_eq!(dialog.values[0], "true");
+    }
+
+    #[test]
+    fn control_char_is_not_inserted_in_single_line_edit_mode() {
+        let mut dialog = FieldDialog::new(" test ", &["Name"], vec!["old".to_owned()], &[]);
+        dialog.handle_key(key(KeyCode::Enter));
+
+        dialog.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+
+        assert_eq!(dialog.values[0], "old");
+    }
+
+    #[test]
+    fn ctrl_s_commits_multiline_editor_before_save() {
+        let mut dialog = FieldDialog::new(" test ", &["Body"], vec![String::new()], &[0]);
+        dialog.handle_key(key(KeyCode::Enter));
+        dialog.insert_into_active_editor("edited");
+
+        let action = dialog.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        assert!(matches!(action, FieldDialogAction::SaveAndClose));
+        assert!(dialog.editor.is_none());
+        assert_eq!(dialog.values[0], "edited");
     }
 }

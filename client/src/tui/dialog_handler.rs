@@ -52,12 +52,19 @@ pub(super) fn cancel_generation(app: &mut App) {
                 app.stream_first_think_closed_at,
             );
             let final_seconds = libllm::thought::resolve_thought_seconds(
-                &app.session.tree.node(head).expect("head id resolves to message node").message.content,
+                &app.session
+                    .tree
+                    .node(head)
+                    .expect("head id resolves to message node")
+                    .message
+                    .content,
                 current_seconds,
                 measured_seconds,
                 app.reasoning_preset.as_ref(),
             );
-            app.session.tree.set_message_thought_seconds(head, final_seconds);
+            app.session
+                .tree
+                .set_message_thought_seconds(head, final_seconds);
         }
         app.is_continuation = false;
     } else if !app.streaming_buffer.is_empty() {
@@ -86,12 +93,10 @@ pub(super) fn cancel_generation(app: &mut App) {
             measured_seconds,
             app.reasoning_preset.as_ref(),
         );
-        app.session
-            .tree
-            .push(
-                Some(head),
-                Message::new(Role::Assistant, stored_content).with_thought_seconds(thought_seconds),
-            );
+        app.session.tree.push(
+            Some(head),
+            Message::new(Role::Assistant, stored_content).with_thought_seconds(thought_seconds),
+        );
     }
 
     app.streaming_buffer.clear();
@@ -152,6 +157,7 @@ pub(super) fn input_with_eof_jump(ta: &mut TextArea<'_>, key: KeyEvent) {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum DialogKind {
     Config,
     Theme,
@@ -346,199 +352,209 @@ pub(super) fn handle_field_dialog_key(
     match result {
         dialogs::FieldDialogAction::Continue => None,
         dialogs::FieldDialogAction::OpenSelector(_field_index) => None,
-        dialogs::FieldDialogAction::Close => match kind {
-            DialogKind::Config => unreachable!(),
-            DialogKind::Theme => unreachable!(),
-            DialogKind::PresetEditor => {
-                if !app.preset_editor.as_ref().unwrap().has_changes() {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                } else {
-                    let editor = app.preset_editor.as_ref().unwrap();
-                    let original_name = app.preset_editor_original_name.clone();
-                    let edited_preset_name = editor.values[0].trim().to_owned();
-                    match dialogs::preset::save_preset_from_editor(
-                        app.preset_editor_kind,
-                        &editor.values,
-                        &original_name,
-                    ) {
-                        Ok(()) => {
-                            app.set_status("Preset saved.".to_owned(), StatusLevel::Info);
-                            dialogs::preset::refresh_preset_list(app);
-                            if matches!(
-                                app.preset_editor_kind,
-                                dialogs::preset::PresetKind::Instruct
-                            ) && app.instruct_preset.name == original_name
-                            {
-                                let resolve_name = if edited_preset_name.is_empty() {
-                                    &original_name
-                                } else {
-                                    &edited_preset_name
-                                };
-                                app.instruct_preset =
-                                    libllm::preset::resolve_instruct_preset(resolve_name);
-                                app.stop_tokens = app.instruct_preset.stop_tokens();
-                            }
-                        }
-                        Err(e) => {
-                            app.set_status(
-                                format!("Failed to save preset: {e}"),
-                                StatusLevel::Error,
-                            );
-                        }
-                    }
-                }
-                app.preset_editor = None;
-                app.focus = Focus::PresetPickerDialog;
-                None
-            }
-            DialogKind::PersonaEditor => {
-                let is_cli_locked = app.cli_overrides.persona.is_some();
-                if is_cli_locked {
-                    app.persona_editor = None;
-                    return_to_input(app);
-                } else if !app.persona_editor.as_ref().unwrap().has_changes() {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                    app.persona_editor = None;
-                    app.focus = Focus::PersonaDialog;
-                } else {
-                    let values = &app.persona_editor.as_ref().unwrap().values;
-                    let old_slug = app.persona_editor_slug.clone();
-                    let persona = libllm::persona::PersonaFile {
-                        name: values[0].clone(),
-                        persona: values[1].clone(),
-                    };
+        dialogs::FieldDialogAction::Close => {
+            discard_field_dialog(app, kind);
+            None
+        }
+        dialogs::FieldDialogAction::SaveAndClose => commit_field_dialog(app, kind),
+        dialogs::FieldDialogAction::RequestUnsavedWarning => {
+            app.unsaved_warning = Some(
+                crate::tui::dialogs::unsaved_warning::UnsavedWarningState::new(field_dialog_focus(
+                    kind,
+                )),
+            );
+            app.focus = Focus::UnsavedWarningDialog;
+            None
+        }
+    }
+}
 
-                    let new_slug = libllm::character::slugify(&persona.name);
-                    if new_slug != old_slug && app.persona_slugs.iter().any(|s| s == &new_slug) {
-                        app.set_status(
-                            format!("Name '{}' is already in use.", persona.name),
-                            StatusLevel::Error,
-                        );
-                        return None;
-                    }
-
-                    if !old_slug.is_empty()
-                        && new_slug != old_slug
-                        && let Some(ref db) = app.db
-                    {
-                        let _ = db.delete_persona(&old_slug);
-                    }
-                    match app
-                        .db
-                        .as_ref()
-                        .map(|db| {
-                            if db.load_persona(&new_slug).is_ok() {
-                                db.update_persona(&new_slug, &persona)
+pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Action> {
+    match kind {
+        DialogKind::Config => unreachable!(),
+        DialogKind::Theme => unreachable!(),
+        DialogKind::PresetEditor => {
+            if !app.preset_editor.as_ref().unwrap().has_changes() {
+                app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+            } else {
+                let editor = app.preset_editor.as_ref().unwrap();
+                let original_name = app.preset_editor_original_name.clone();
+                let edited_preset_name = editor.values[0].trim().to_owned();
+                match dialogs::preset::save_preset_from_editor(
+                    app.preset_editor_kind,
+                    &editor.values,
+                    &original_name,
+                ) {
+                    Ok(()) => {
+                        app.set_status("Preset saved.".to_owned(), StatusLevel::Info);
+                        dialogs::preset::refresh_preset_list(app);
+                        if matches!(
+                            app.preset_editor_kind,
+                            dialogs::preset::PresetKind::Instruct
+                        ) && app.instruct_preset.name == original_name
+                        {
+                            let resolve_name = if edited_preset_name.is_empty() {
+                                &original_name
                             } else {
-                                db.insert_persona(&new_slug, &persona)
-                            }
-                        })
-                        .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
-                    {
-                        Ok(_) => {
-                            if app.session.persona.as_deref() == Some(old_slug.as_str()) {
-                                app.invalidate_prompt_cache();
-                                app.invalidate_chat_render_cache();
-                                app.active_persona_name = Some(persona.name.clone());
-                                app.active_persona_desc = Some(persona.persona.clone());
-                                app.session.persona = Some(new_slug.clone());
-                            }
-                            app.persona_editor_slug = new_slug;
-                            app.set_status(
-                                format!("Persona '{}' saved.", persona.name),
-                                StatusLevel::Info,
-                            );
-                        }
-                        Err(e) => {
-                            app.set_status(
-                                format!("Failed to save persona: {e}"),
-                                StatusLevel::Error,
-                            );
+                                &edited_preset_name
+                            };
+                            app.instruct_preset =
+                                libllm::preset::resolve_instruct_preset(resolve_name);
+                            app.stop_tokens = app.instruct_preset.stop_tokens();
                         }
                     }
-                    app.persona_editor = None;
-                    maintenance::reload_persona_picker(app);
-                    app.focus = Focus::PersonaDialog;
+                    Err(e) => {
+                        app.set_status(format!("Failed to save preset: {e}"), StatusLevel::Error);
+                    }
                 }
-                None
             }
-            DialogKind::AuthorNoteEditor => {
-                if !app.author_note_editor.as_ref().unwrap().has_changes() {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                    app.author_note_editor = None;
-                    return_to_input(app);
-                    return None;
-                }
-
-                let dialog = app.author_note_editor.take()?;
-                let values = &dialog.values;
-                let text = values.first().cloned().unwrap_or_default();
-                let depth_str = values
-                    .get(1)
-                    .cloned()
-                    .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string());
-                let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
-
-                let depth = depth_str
-                    .trim()
-                    .parse::<u32>()
-                    .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
-                let at_top = at_top_str == "true";
-
-                app.session.author_note =
-                    libllm::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);
-                app.mark_session_dirty(SaveTrigger::Debounced, false);
-                app.invalidate_chat_caches();
+            app.preset_editor = None;
+            app.focus = Focus::PresetPickerDialog;
+            None
+        }
+        DialogKind::PersonaEditor => {
+            let is_cli_locked = app.cli_overrides.persona.is_some();
+            if is_cli_locked {
+                app.persona_editor = None;
                 return_to_input(app);
-                None
-            }
-            DialogKind::SystemPromptEditor => {
-                if app.system_editor_read_only {
-                    app.system_prompt_editor = None;
-                    app.system_editor_read_only = false;
-                    app.focus = app.system_editor_return_focus;
-                    return None;
-                }
+            } else if !app.persona_editor.as_ref().unwrap().has_changes() {
+                app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                app.persona_editor = None;
+                app.focus = Focus::PersonaDialog;
+            } else {
+                let values = &app.persona_editor.as_ref().unwrap().values;
+                let old_slug = app.persona_editor_slug.clone();
+                let persona = libllm::persona::PersonaFile {
+                    name: values[0].clone(),
+                    persona: values[1].clone(),
+                };
 
-                if !app.system_prompt_editor.as_ref().unwrap().has_changes() {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                    app.system_prompt_editor = None;
-                    app.focus = app.system_editor_return_focus;
-                    return None;
-                }
-
-                let values = &app.system_prompt_editor.as_ref().unwrap().values;
-                let new_name = values[0].clone();
-                let content = values[1].clone();
-                let original_name = app.system_editor_prompt_name.clone();
-
-                if original_name != new_name
-                    && app.system_prompt_list.iter().any(|n| n == &new_name)
-                {
+                let new_slug = libllm::character::slugify(&persona.name);
+                if new_slug != old_slug && app.persona_slugs.iter().any(|s| s == &new_slug) {
                     app.set_status(
-                        format!("Name '{new_name}' is already in use."),
+                        format!("Name '{}' is already in use.", persona.name),
                         StatusLevel::Error,
                     );
                     return None;
                 }
 
-                let value = if content.trim().is_empty() {
-                    None
-                } else {
-                    Some(content.clone())
-                };
-                app.session.system_prompt = value;
-                app.invalidate_prompt_cache();
-                app.mark_session_dirty(SaveTrigger::Debounced, false);
+                if !old_slug.is_empty()
+                    && new_slug != old_slug
+                    && let Some(ref db) = app.db
+                {
+                    let _ = db.delete_persona(&old_slug);
+                }
+                match app
+                    .db
+                    .as_ref()
+                    .map(|db| {
+                        if db.load_persona(&new_slug).is_ok() {
+                            db.update_persona(&new_slug, &persona)
+                        } else {
+                            db.insert_persona(&new_slug, &persona)
+                        }
+                    })
+                    .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
+                {
+                    Ok(_) => {
+                        if app.session.persona.as_deref() == Some(old_slug.as_str()) {
+                            app.invalidate_prompt_cache();
+                            app.invalidate_chat_render_cache();
+                            app.active_persona_name = Some(persona.name.clone());
+                            app.active_persona_desc = Some(persona.persona.clone());
+                            app.session.persona = Some(new_slug.clone());
+                        }
+                        app.persona_editor_slug = new_slug;
+                        app.set_status(
+                            format!("Persona '{}' saved.", persona.name),
+                            StatusLevel::Info,
+                        );
+                    }
+                    Err(e) => {
+                        app.set_status(format!("Failed to save persona: {e}"), StatusLevel::Error);
+                    }
+                }
+                app.persona_editor = None;
+                maintenance::reload_persona_picker(app);
+                app.focus = Focus::PersonaDialog;
+            }
+            None
+        }
+        DialogKind::AuthorNoteEditor => {
+            if !app.author_note_editor.as_ref().unwrap().has_changes() {
+                app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                app.author_note_editor = None;
+                return_to_input(app);
+                return None;
+            }
 
-                if !original_name.is_empty() {
-                    let prompt = libllm::system_prompt::SystemPromptFile {
-                        name: new_name.clone(),
-                        content,
-                    };
-                    let new_slug = libllm::character::slugify(&new_name);
-                    let old_slug = libllm::character::slugify(&original_name);
-                    let save_result = app
+            let dialog = app.author_note_editor.take()?;
+            let values = &dialog.values;
+            let text = values.first().cloned().unwrap_or_default();
+            let depth_str = values
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string());
+            let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
+
+            let depth = depth_str
+                .trim()
+                .parse::<u32>()
+                .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+            let at_top = at_top_str == "true";
+
+            app.session.author_note =
+                libllm::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+            app.invalidate_chat_caches();
+            return_to_input(app);
+            None
+        }
+        DialogKind::SystemPromptEditor => {
+            if app.system_editor_read_only {
+                app.system_prompt_editor = None;
+                app.system_editor_read_only = false;
+                app.focus = app.system_editor_return_focus;
+                return None;
+            }
+
+            if !app.system_prompt_editor.as_ref().unwrap().has_changes() {
+                app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+                app.system_prompt_editor = None;
+                app.focus = app.system_editor_return_focus;
+                return None;
+            }
+
+            let values = &app.system_prompt_editor.as_ref().unwrap().values;
+            let new_name = values[0].clone();
+            let content = values[1].clone();
+            let original_name = app.system_editor_prompt_name.clone();
+
+            if original_name != new_name && app.system_prompt_list.iter().any(|n| n == &new_name) {
+                app.set_status(
+                    format!("Name '{new_name}' is already in use."),
+                    StatusLevel::Error,
+                );
+                return None;
+            }
+
+            let value = if content.trim().is_empty() {
+                None
+            } else {
+                Some(content.clone())
+            };
+            app.session.system_prompt = value;
+            app.invalidate_prompt_cache();
+            app.mark_session_dirty(SaveTrigger::Debounced, false);
+
+            if !original_name.is_empty() {
+                let prompt = libllm::system_prompt::SystemPromptFile {
+                    name: new_name.clone(),
+                    content,
+                };
+                let new_slug = libllm::character::slugify(&new_name);
+                let old_slug = libllm::character::slugify(&original_name);
+                let save_result = app
                             .db
                             .as_ref()
                             .map(|db| {
@@ -554,148 +570,190 @@ pub(super) fn handle_field_dialog_key(
                                 }
                             })
                             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
-                    match save_result {
-                        Ok(()) => {
-                            let prompts = app
-                                .db
-                                .as_ref()
-                                .and_then(|db| db.list_prompts().ok())
-                                .unwrap_or_default();
-                            app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
-                            app.set_status(
-                                format!("System prompt '{}' saved.", new_name),
-                                StatusLevel::Info,
-                            );
-                        }
-                        Err(e) => {
-                            app.set_status(
-                                format!("Failed to save prompt: {e}"),
-                                StatusLevel::Error,
-                            );
-                        }
-                    }
-                }
-
-                app.system_prompt_editor = None;
-                app.focus = app.system_editor_return_focus;
-                None
-            }
-            DialogKind::CharacterEditor => {
-                if !app.character_editor.as_ref().unwrap().has_changes() {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                    app.character_editor = None;
-                    app.focus = Focus::CharacterDialog;
-                    return None;
-                }
-
-                let values = &app.character_editor.as_ref().unwrap().values;
-                let new_slug = libllm::character::slugify(&values[0]);
-                if new_slug != app.character_editor_slug
-                    && app.character_slugs.iter().any(|s| s == &new_slug)
-                {
-                    app.set_status(
-                        format!("Name '{}' is already in use.", values[0]),
-                        StatusLevel::Error,
-                    );
-                    return None;
-                }
-
-                let note_depth = values
-                    .get(9)
-                    .and_then(|s| s.trim().parse::<u32>().ok())
-                    .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
-                let note_at_top = values.get(10).is_some_and(|s| s == "true");
-                let card = libllm::character::CharacterCard {
-                    name: values[0].clone(),
-                    description: values[1].clone(),
-                    personality: values[2].clone(),
-                    scenario: values[3].clone(),
-                    first_mes: values[4].clone(),
-                    mes_example: values[5].clone(),
-                    system_prompt: values[6].clone(),
-                    post_history_instructions: values[7].clone(),
-                    alternate_greetings: Vec::new(),
-                    author_note: libllm::author_note::AuthorNote::from_row_parts(
-                        values.get(8).cloned(),
-                        note_depth,
-                        note_at_top,
-                    ),
-                };
-                let old_slug = app.character_editor_slug.clone();
-                let save_result = app
-                    .db
-                    .as_ref()
-                    .map(|db| {
-                        if new_slug != old_slug {
-                            let _ = db.delete_character(&old_slug);
-                        }
-                        if db.load_character(&new_slug).is_ok() {
-                            db.update_character(&new_slug, &card)
-                        } else {
-                            db.insert_character(&new_slug, &card)
-                        }
-                    })
-                    .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
                 match save_result {
                     Ok(()) => {
-                        let chars = app
+                        let prompts = app
                             .db
                             .as_ref()
-                            .and_then(|db| db.list_characters().ok())
+                            .and_then(|db| db.list_prompts().ok())
                             .unwrap_or_default();
-                        app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
-                        app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
-                        app.character_selected = app
-                            .character_slugs
-                            .iter()
-                            .position(|existing| existing == &new_slug)
-                            .unwrap_or(0)
-                            .min(app.character_slugs.len().saturating_sub(1));
-                        app.character_editor_slug = new_slug.clone();
+                        app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
                         app.set_status(
-                            format!("Saved character: {}", card.name),
+                            format!("System prompt '{}' saved.", new_name),
                             StatusLevel::Info,
                         );
-                        let is_active = app.session.character.as_deref().is_some_and(|name| {
-                            libllm::character::slugify(name) == app.character_editor_slug
-                        });
-                        if is_active {
-                            let cfg = libllm::config::load();
-                            let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
-                            let tpl = libllm::preset::resolve_template_preset(tpl_name);
-                            app.session.system_prompt =
-                                Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
-                            app.session.character = Some(card.name.clone());
-                            app.active_card_author_note = card.author_note.clone();
-                            app.invalidate_chat_caches();
-                        }
                     }
                     Err(e) => {
-                        app.set_status(format!("Failed to save character: {e}"), StatusLevel::Error)
+                        app.set_status(format!("Failed to save prompt: {e}"), StatusLevel::Error);
                     }
                 }
+            }
+
+            app.system_prompt_editor = None;
+            app.focus = app.system_editor_return_focus;
+            None
+        }
+        DialogKind::CharacterEditor => {
+            if !app.character_editor.as_ref().unwrap().has_changes() {
+                app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                 app.character_editor = None;
                 app.focus = Focus::CharacterDialog;
-                None
+                return None;
             }
-            DialogKind::WorldbookEntryEditor => {
-                if !app.worldbook_entry_editor.as_ref().unwrap().has_changes() {
-                    app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                } else {
-                    let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
-                    let idx = app.worldbook_entry_editor_index;
-                    if idx < app.worldbook_editor_entries.len() {
-                        app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(
-                            values,
-                            &app.worldbook_editor_entries[idx],
-                        );
+
+            let values = &app.character_editor.as_ref().unwrap().values;
+            let new_slug = libllm::character::slugify(&values[0]);
+            if new_slug != app.character_editor_slug
+                && app.character_slugs.iter().any(|s| s == &new_slug)
+            {
+                app.set_status(
+                    format!("Name '{}' is already in use.", values[0]),
+                    StatusLevel::Error,
+                );
+                return None;
+            }
+
+            let note_depth = values
+                .get(9)
+                .and_then(|s| s.trim().parse::<u32>().ok())
+                .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+            let note_at_top = values.get(10).is_some_and(|s| s == "true");
+            let card = libllm::character::CharacterCard {
+                name: values[0].clone(),
+                description: values[1].clone(),
+                personality: values[2].clone(),
+                scenario: values[3].clone(),
+                first_mes: values[4].clone(),
+                mes_example: values[5].clone(),
+                system_prompt: values[6].clone(),
+                post_history_instructions: values[7].clone(),
+                alternate_greetings: Vec::new(),
+                author_note: libllm::author_note::AuthorNote::from_row_parts(
+                    values.get(8).cloned(),
+                    note_depth,
+                    note_at_top,
+                ),
+            };
+            let old_slug = app.character_editor_slug.clone();
+            let save_result = app
+                .db
+                .as_ref()
+                .map(|db| {
+                    if new_slug != old_slug {
+                        let _ = db.delete_character(&old_slug);
+                    }
+                    if db.load_character(&new_slug).is_ok() {
+                        db.update_character(&new_slug, &card)
+                    } else {
+                        db.insert_character(&new_slug, &card)
+                    }
+                })
+                .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
+            match save_result {
+                Ok(()) => {
+                    let chars = app
+                        .db
+                        .as_ref()
+                        .and_then(|db| db.list_characters().ok())
+                        .unwrap_or_default();
+                    app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
+                    app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
+                    app.character_selected = app
+                        .character_slugs
+                        .iter()
+                        .position(|existing| existing == &new_slug)
+                        .unwrap_or(0)
+                        .min(app.character_slugs.len().saturating_sub(1));
+                    app.character_editor_slug = new_slug.clone();
+                    app.set_status(format!("Saved character: {}", card.name), StatusLevel::Info);
+                    let is_active = app.session.character.as_deref().is_some_and(|name| {
+                        libllm::character::slugify(name) == app.character_editor_slug
+                    });
+                    if is_active {
+                        let cfg = libllm::config::load();
+                        let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
+                        let tpl = libllm::preset::resolve_template_preset(tpl_name);
+                        app.session.system_prompt =
+                            Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
+                        app.session.character = Some(card.name.clone());
+                        app.active_card_author_note = card.author_note.clone();
+                        app.invalidate_chat_caches();
                     }
                 }
-                app.worldbook_entry_editor = None;
-                app.focus = Focus::WorldbookEditorDialog;
-                None
+                Err(e) => {
+                    app.set_status(format!("Failed to save character: {e}"), StatusLevel::Error)
+                }
             }
-        },
+            app.character_editor = None;
+            app.focus = Focus::CharacterDialog;
+            None
+        }
+        DialogKind::WorldbookEntryEditor => {
+            if !app.worldbook_entry_editor.as_ref().unwrap().has_changes() {
+                app.set_status("No changes found.".to_owned(), StatusLevel::Info);
+            } else {
+                let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
+                let idx = app.worldbook_entry_editor_index;
+                if idx < app.worldbook_editor_entries.len() {
+                    app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(
+                        values,
+                        &app.worldbook_editor_entries[idx],
+                    );
+                }
+            }
+            app.worldbook_entry_editor = None;
+            app.focus = Focus::WorldbookEditorDialog;
+            None
+        }
+    }
+}
+
+fn field_dialog_focus(kind: DialogKind) -> Focus {
+    match kind {
+        DialogKind::Config => Focus::ConfigDialog,
+        DialogKind::Theme => Focus::ThemeDialog,
+        DialogKind::PresetEditor => Focus::PresetEditorDialog,
+        DialogKind::PersonaEditor => Focus::PersonaEditorDialog,
+        DialogKind::AuthorNoteEditor => Focus::AuthorNoteEditorDialog,
+        DialogKind::CharacterEditor => Focus::CharacterEditorDialog,
+        DialogKind::SystemPromptEditor => Focus::SystemPromptEditorDialog,
+        DialogKind::WorldbookEntryEditor => Focus::WorldbookEntryEditorDialog,
+    }
+}
+
+pub(super) fn discard_field_dialog(app: &mut App, kind: DialogKind) {
+    match kind {
+        DialogKind::Config => discard_config_dialog(app),
+        DialogKind::Theme => discard_theme_dialog(app),
+        DialogKind::PresetEditor => {
+            app.preset_editor = None;
+            app.focus = Focus::PresetPickerDialog;
+        }
+        DialogKind::PersonaEditor => {
+            app.persona_editor = None;
+            if app.cli_overrides.persona.is_some() {
+                return_to_input(app);
+            } else {
+                app.focus = Focus::PersonaDialog;
+            }
+        }
+        DialogKind::AuthorNoteEditor => {
+            app.author_note_editor = None;
+            return_to_input(app);
+        }
+        DialogKind::CharacterEditor => {
+            app.character_editor = None;
+            app.focus = Focus::CharacterDialog;
+        }
+        DialogKind::SystemPromptEditor => {
+            app.system_prompt_editor = None;
+            app.system_editor_read_only = false;
+            app.focus = app.system_editor_return_focus;
+        }
+        DialogKind::WorldbookEntryEditor => {
+            app.worldbook_entry_editor = None;
+            app.focus = Focus::WorldbookEditorDialog;
+        }
     }
 }
 

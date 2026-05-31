@@ -16,8 +16,8 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 
 use libllm::session::{NodeId, Role};
 
-use super::input::match_next_candidates;
 use super::App;
+use super::input::match_next_candidates;
 
 use super::theme::Theme;
 
@@ -26,6 +26,40 @@ fn thought_summary_label(thought_seconds: Option<u32>) -> String {
         Some(1) => "(Thought for 1 second)".to_owned(),
         Some(seconds) => format!("(Thought for {seconds} seconds)"),
         None => "(Thought for a moment)".to_owned(),
+    }
+}
+
+fn focused_chat_hint(app: &App) -> String {
+    format!(
+        " Up/Down: navigate, {}, Enter: edit, Del: delete ",
+        focused_chat_branch_hint(app)
+    )
+}
+
+fn focused_chat_branch_hint(app: &App) -> &'static str {
+    let Some(node_id) = app.nav_cursor else {
+        return "Left/Right: branch";
+    };
+    let Some(node) = app.session.tree.node(node_id) else {
+        return "Left/Right: branch";
+    };
+    match node.message.role {
+        Role::User => {
+            let (index, total) = app.session.tree.sibling_info(node_id);
+            if index + 1 >= total {
+                if index == 0 {
+                    "Right: retry"
+                } else {
+                    "Left: branch, Right: retry"
+                }
+            } else if index == 0 {
+                "Right: branch"
+            } else {
+                "Left/Right: branch"
+            }
+        }
+        Role::Assistant => "Right: retry",
+        _ => "Left/Right: branch",
     }
 }
 
@@ -380,9 +414,15 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let list_area = sidebar_block.inner(area);
     f.render_widget(sidebar_block, area);
 
-    let list = List::new(app.sidebar_cache.as_ref().expect("sidebar_cache populated above").items.clone())
-        .highlight_style(highlight_style)
-        .highlight_symbol("> ");
+    let list = List::new(
+        app.sidebar_cache
+            .as_ref()
+            .expect("sidebar_cache populated above")
+            .items
+            .clone(),
+    )
+    .highlight_style(highlight_style)
+    .highlight_symbol("> ");
 
     let mut local_state = ListState::default();
     if let Some(orig_idx) = selected_idx {
@@ -537,7 +577,11 @@ pub fn render_chat(
                     None
                 };
                 let in_group = app.session.characters.len() >= 2;
-                let group_speaker = if in_group { msg.speaker.as_deref() } else { None };
+                let group_speaker = if in_group {
+                    msg.speaker.as_deref()
+                } else {
+                    None
+                };
 
                 let (role_label, base_role_style) = match msg.role {
                     Role::User => {
@@ -555,10 +599,7 @@ pub fn render_chat(
                         };
                         (
                             label,
-                            Style::default()
-                                .fg(fg)
-                                .bg(bg)
-                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
                         )
                     }
                     Role::Assistant => {
@@ -587,10 +628,7 @@ pub fn render_chat(
                         };
                         (
                             label,
-                            Style::default()
-                                .fg(fg)
-                                .bg(bg)
-                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
                         )
                     }
                     Role::System => {
@@ -622,8 +660,7 @@ pub fn render_chat(
                 };
 
                 let content_lines: Vec<Line<'static>> = if msg.role == Role::Summary {
-                    let summary_line =
-                        format!("--- Summary of {} earlier messages ---", idx);
+                    let summary_line = format!("--- Summary of {} earlier messages ---", idx);
                     vec![Line::from(Span::styled(
                         format!("  {summary_line}"),
                         Style::default()
@@ -658,9 +695,7 @@ pub fn render_chat(
                     let content: String = match &side {
                         Some((_, body)) => replace_vars(body.as_str(), speaker),
                         None => {
-                            let raw = app
-                                .display_content_for(node_id)
-                                .unwrap_or(&msg.content);
+                            let raw = app.display_content_for(node_id).unwrap_or(&msg.content);
                             replace_vars(raw, speaker)
                         }
                     };
@@ -748,10 +783,7 @@ pub fn render_chat(
         let style = Style::default().fg(app.theme.system_message);
         lines.push(Line::from(Span::styled("─── Scenario ───", style)));
         for paragraph in scenario.split('\n') {
-            lines.push(Line::from(Span::styled(
-                format!("  {paragraph}"),
-                style,
-            )));
+            lines.push(Line::from(Span::styled(format!("  {paragraph}"), style)));
         }
         lines.push(Line::from(""));
     }
@@ -835,11 +867,8 @@ pub fn render_chat(
         let buffer = if app.is_continuation {
             raw_buffer
         } else {
-            libllm::thought::normalize_assistant_content(
-                &raw_buffer,
-                app.reasoning_preset.as_ref(),
-            )
-            .into_owned()
+            libllm::thought::normalize_assistant_content(&raw_buffer, app.reasoning_preset.as_ref())
+                .into_owned()
         };
         let thought_seconds = libllm::thought::measured_thought_seconds(
             app.stream_started_at,
@@ -952,10 +981,7 @@ pub fn render_chat(
             .centered(),
         );
     } else if chat_focused {
-        chat_block = chat_block
-            .title_bottom(
-                Line::from(" Up/Down: navigate, Left/Right: branch, Del: delete ").centered(),
-            );
+        chat_block = chat_block.title_bottom(Line::from(focused_chat_hint(app)).centered());
     } else {
         let worldbook_label = format_count(worldbook_count, "worldbook");
         let model_label =
@@ -1114,8 +1140,7 @@ fn truncate_with_ellipsis(text: &str, max_chars: usize) -> String {
 }
 
 fn queue_user_label(app: &App) -> String {
-    let has_replacements =
-        app.session.character.is_some() || !app.session.characters.is_empty();
+    let has_replacements = app.session.character.is_some() || !app.session.characters.is_empty();
     if has_replacements && app.active_persona_name.is_some() {
         app.active_persona_name
             .as_deref()
@@ -1522,17 +1547,10 @@ mod tests {
     #[test]
     fn render_assistant_lines_without_preset_renders_content_verbatim() {
         let theme = crate::tui::theme::Theme::dark();
-        let lines = render_assistant_lines(
-            "<think>a</think>answer",
-            Some(5),
-            &theme,
-            None,
-            true,
-            false,
-        );
+        let lines =
+            render_assistant_lines("<think>a</think>answer", Some(5), &theme, None, true, false);
 
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].spans[1].content, "<think>a</think>answer");
     }
-
 }

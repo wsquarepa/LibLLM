@@ -330,6 +330,19 @@ impl<'a> TabbedFieldDialog<'a> {
             && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
         {
             self.commit_editor();
+            if self.editing {
+                let tab = self.current_tab;
+                let idx = self.sections[tab].selected;
+                let value = self.sections[tab].values[idx].clone();
+                let valid = self
+                    .validation_for(tab, idx)
+                    .map(|v| v.validate(&value))
+                    .unwrap_or(true);
+                if !valid {
+                    self.reject_flash = Some(Instant::now());
+                    return TabbedFieldAction::Continue;
+                }
+            }
             self.editing = false;
             return TabbedFieldAction::SaveAndClose;
         }
@@ -1142,6 +1155,51 @@ mod tests {
         ));
         assert!(matches!(action, TabbedFieldAction::SaveAndClose));
         assert!(!d.is_editing());
+    }
+
+    #[test]
+    fn ctrl_s_while_editing_invalid_color_stays_in_edit_mode() {
+        let labels: &'static [&'static str] = &["Color"];
+        let mut section = make_section("A", labels);
+        section.validated_fields = vec![(0, FieldValidation::Color)];
+        let mut d = TabbedFieldDialog::new(" test ", vec![section]);
+        d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(d.is_editing());
+        for c in "notacolor".chars() {
+            d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let action = d.handle_key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        ));
+        assert!(
+            matches!(action, TabbedFieldAction::Continue),
+            "Ctrl+S with invalid field must return Continue, not SaveAndClose"
+        );
+        assert!(d.is_editing(), "dialog must remain in edit mode after Ctrl+S with invalid value");
+        assert!(d.reject_flash.is_some(), "reject_flash must be set after Ctrl+S with invalid value");
+    }
+
+    #[test]
+    fn ctrl_s_while_editing_valid_color_exits_and_saves() {
+        let labels: &'static [&'static str] = &["Color"];
+        let mut section = make_section("A", labels);
+        section.validated_fields = vec![(0, FieldValidation::Color)];
+        let mut d = TabbedFieldDialog::new(" test ", vec![section]);
+        d.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        for c in "#ff0000".chars() {
+            d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let action = d.handle_key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        ));
+        assert!(
+            matches!(action, TabbedFieldAction::SaveAndClose),
+            "Ctrl+S with valid color must return SaveAndClose"
+        );
+        assert!(!d.is_editing(), "dialog must exit edit mode after Ctrl+S with valid color");
+        assert_eq!(d.sections()[0].values[0], "#ff0000");
     }
 
     #[test]

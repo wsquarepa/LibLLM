@@ -1451,23 +1451,6 @@ mod tests {
     }
 
     #[test]
-    fn streaming_done_preserves_group_prefill() {
-        let prefill = "Alice: ".to_owned();
-        let full_response = "Hello there.";
-
-        let combined_prefixed = format!("{}{}", prefill, full_response.trim_start());
-        assert_eq!(
-            combined_prefixed,
-            "Alice: Hello there.",
-            "combined content must include the speaker prefix"
-        );
-        assert!(
-            combined_prefixed.starts_with("Alice: "),
-            "stored message must begin with the speaker prefix for future prompt rendering"
-        );
-    }
-
-    #[test]
     fn build_turn_prompt_historical_messages_retain_speaker_prefix() {
         use crate::preset::InstructPreset;
         use crate::session::{Message, MessageTree, Role, Session};

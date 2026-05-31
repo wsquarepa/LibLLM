@@ -123,22 +123,3 @@ pub(in crate::tui) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action>
     }
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn state_defaults_to_safe_paste_raw_option() {
-        let state = FileReferenceConfirmState {
-            token: "@/tmp/secret.txt".to_owned(),
-            raw: "/tmp/secret.txt".to_owned(),
-            selected: 0,
-        };
-        assert_eq!(state.token, "@/tmp/secret.txt");
-        assert_eq!(state.raw, "/tmp/secret.txt");
-        // selected == 0 is Paste Raw, the non-attaching option, so confirming
-        // the default never reads or attaches the file.
-        assert_eq!(state.selected, 0);
-    }
-}

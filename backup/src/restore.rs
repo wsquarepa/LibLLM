@@ -32,9 +32,12 @@ pub(crate) fn replay_chain(
 
     // Resolve the chain DEK and the base payload slice. Precedence: self-describing
     // header (type 3) -> index wrapped_dek (type 2) -> legacy KEK-direct (type 1).
-    let header = match backup_key {
+    let type3_result = match backup_key {
         Some(kek) if base_entry.encrypted => match crate::format::decode_base_blob(&base_bytes) {
             Some((wrapped, payload)) => {
+                // A matched magic whose DEK fails to unwrap (a ~2^-32 nonce collision,
+                // or a wrong KEK) falls through to the index/legacy paths, which surface
+                // any genuine authentication error via `?`.
                 crate::crypto::unwrap_dek(&wrapped, kek).ok().map(|dek| (dek, payload))
             }
             None => None,
@@ -42,7 +45,7 @@ pub(crate) fn replay_chain(
         _ => None,
     };
 
-    let (chain_dek, base_payload): (Option<[u8; 32]>, &[u8]) = match (backup_key, header) {
+    let (chain_dek, base_payload): (Option<[u8; 32]>, &[u8]) = match (backup_key, type3_result) {
         (_, Some((dek, payload))) => (Some(dek), payload),
         (Some(kek), None) if base_entry.encrypted => {
             let dek = match base_entry.wrapped_dek.as_ref() {

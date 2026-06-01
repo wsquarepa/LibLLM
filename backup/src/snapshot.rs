@@ -183,17 +183,15 @@ fn build_payload(
     let base_file_bytes = std::fs::read(&base_file_path)
         .with_context(|| format!("failed to read base file: {}", base_file_path.display()))?;
 
-    let base_payload: &[u8] = match chain_dek {
-        Some(_) => match crate::format::decode_base_blob(&base_file_bytes) {
-            Some((_, payload)) => payload,
-            None => &base_file_bytes,
-        },
-        None => &base_file_bytes,
-    };
-
     let decrypted = match chain_dek {
-        Some(dek) => crate::crypto::decrypt_payload(base_payload, dek)?,
-        None => base_payload.to_vec(),
+        Some(dek) => {
+            let payload = match crate::format::decode_base_blob(&base_file_bytes) {
+                Some((_, payload)) => payload,
+                None => &base_file_bytes,
+            };
+            crate::crypto::decrypt_payload(payload, dek)?
+        }
+        None => base_file_bytes,
     };
     let base_plaintext = crate::diff::decompress(&decrypted)?;
 

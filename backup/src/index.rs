@@ -130,7 +130,8 @@ pub struct BackupIndex {
 }
 
 /// On-disk schema version for the backup index. Version 2 introduces per-chain DEK wrapping.
-pub const SCHEMA_VERSION: u32 = 2;
+/// Version 3 embeds the wrapped DEK in the base-file header for self-describing recovery.
+pub const SCHEMA_VERSION: u32 = 3;
 
 impl Default for BackupIndex {
     fn default() -> Self {

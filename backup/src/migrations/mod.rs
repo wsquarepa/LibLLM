@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::index::{BackupIndex, SCHEMA_VERSION};
 
 mod v2;
+mod v3;
 
 /// Public entry point. Applies every pending migration in order and stamps
 /// the final version on the supplied index. Callers are expected to persist
@@ -17,6 +18,7 @@ pub fn run_migrations(
         let next = index.version + 1;
         match next {
             2 => v2::migrate(index, backups_dir, kek).context("v1 -> v2 migration failed")?,
+            3 => v3::migrate(index, backups_dir, kek).context("v2 -> v3 migration failed")?,
             other => anyhow::bail!("no migration registered for version {other}"),
         }
         stamp_version(index, next);

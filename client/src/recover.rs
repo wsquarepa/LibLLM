@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use clap::CommandFactory;
 
-use backup::index::{BackupType, open_index};
+use backup::index::{BackupType, load_index, open_index};
 use backup::restore::restore_to_point;
 use backup::snapshot::rebuild_index;
 use backup::verify::verify_chain;
@@ -62,7 +62,7 @@ pub fn run_with_interactivity(
             yes,
             archived_passkey,
         }) => cmd_restore(data_dir, passkey, id, *yes, archived_passkey.as_deref()),
-        Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey),
+        Some(RecoverCommand::RebuildIndex) => cmd_rebuild_index(data_dir, passkey, interactive),
         None if interactive => run_interactive_menu(data_dir, passkey),
         None => print_recover_help(),
     }
@@ -119,7 +119,7 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
                 }
             }
             3 => {
-                if let Err(err) = cmd_rebuild_index(data_dir, passkey) {
+                if let Err(err) = cmd_rebuild_index(data_dir, passkey, true) {
                     eprintln!("error: {err}");
                 }
             }
@@ -441,7 +441,7 @@ fn cmd_restore(
     Ok(())
 }
 
-fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
+fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>, interactive: bool) -> Result<()> {
     libllm::timed_result!(tracing::Level::INFO, "recover.rebuild_index", ; {
         let backups_dir = data_dir.join("backups");
 
@@ -480,6 +480,38 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             "recover.rebuild_index"
         );
         let index_path = backups_dir.join("index.json");
+        if index_path.exists() {
+            let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%3fZ");
+            let backup_path = backups_dir.join(format!("index.json.{stamp}.bak"));
+            std::fs::copy(&index_path, &backup_path).with_context(|| {
+                format!("failed to back up existing index to {}", backup_path.display())
+            })?;
+
+            let existing = load_index(&index_path)?;
+            if !existing.entries.is_empty() && rebuilt.entries.len() < existing.entries.len() {
+                let proceed = if interactive {
+                    crate::interactive::confirm(
+                        &format!(
+                            "Existing index has {} entries; rebuild found {}. Replace anyway?",
+                            existing.entries.len(),
+                            rebuilt.entries.len()
+                        ),
+                        false,
+                    )?
+                    .unwrap_or(false)
+                } else {
+                    false
+                };
+                if !proceed {
+                    bail!(
+                        "refusing to overwrite index ({} entries) with fewer ({}); a backup was saved to {}",
+                        existing.entries.len(),
+                        rebuilt.entries.len(),
+                        backup_path.display()
+                    );
+                }
+            }
+        }
         backup::index::save_index(&index_path, &rebuilt)?;
 
         println!("Rebuilt index with {} entry/entries.", rebuilt.entries.len());

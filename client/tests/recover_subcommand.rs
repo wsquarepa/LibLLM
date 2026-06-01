@@ -442,3 +442,69 @@ fn recover_no_subcommand_non_tty_prints_help() {
         "expected help output, got: {combined}"
     );
 }
+
+#[test]
+fn recover_rebuild_index_refuses_regression_and_backs_up() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+
+    // Build an encrypted backup so the index has one base entry.
+    let salt =
+        libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
+    let key = libllm::crypto::derive_key("pw", &salt).expect("derive key");
+    {
+        let db =
+            Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");
+        db.insert_persona(
+            "bob",
+            &PersonaFile {
+                name: "bob".to_owned(),
+                persona: "calm".to_owned(),
+            },
+        )
+        .expect("insert bob");
+    }
+    create_snapshot(data_dir, Some("pw"), &BackupConfig::default()).expect("snapshot");
+
+    let backups_dir = data_dir.join("backups");
+    let index_before = load_index(&backups_dir.join("index.json")).expect("load index");
+    assert_eq!(index_before.entries.len(), 1, "snapshot produced one entry");
+
+    // Corrupt the base file so a rebuild can recover nothing: random bytes have no
+    // header and fail KEK decryption -> rebuild yields zero entries.
+    let base = index_before
+        .entries
+        .iter()
+        .find(|e| e.entry_type == backup::index::BackupType::Base)
+        .unwrap();
+    std::fs::write(backups_dir.join(&base.filename), [0u8; 256]).unwrap();
+
+    let output = Command::new(client_bin())
+        .args(["-d", data_dir.to_str().unwrap(), "recover", "rebuild-index"])
+        .env("LIBLLM_PASSKEY", "pw")
+        .output()
+        .expect("run rebuild-index");
+
+    assert!(
+        !output.status.success(),
+        "rebuild must refuse to replace a non-empty index with zero entries; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("refusing to overwrite"),
+        "stderr should explain the refusal, got: {stderr}"
+    );
+
+    // The live index is untouched, and a timestamped backup copy was written.
+    let index_after = load_index(&backups_dir.join("index.json")).expect("reload index");
+    assert_eq!(index_after.entries.len(), 1, "live index must be preserved");
+    let has_backup = std::fs::read_dir(&backups_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.starts_with("index.json.") && name.ends_with(".bak")
+        });
+    assert!(has_backup, "an index.json.<ts>.bak copy must exist");
+}

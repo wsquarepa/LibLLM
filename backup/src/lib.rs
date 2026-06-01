@@ -3,6 +3,7 @@
 pub mod crypto;
 pub mod diff;
 pub mod export;
+pub mod format;
 pub mod hash;
 pub mod index;
 pub mod migrations;

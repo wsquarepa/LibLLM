@@ -1084,6 +1084,36 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_then_restore_upgrades_legacy_base() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let plaintext = b"legacy KEK-direct database bytes";
+        let compressed = crate::diff::compress(plaintext).unwrap();
+        let blob = crate::crypto::encrypt_payload(&compressed, &kek).unwrap();
+        let id = "20260601T080000.000Z".to_string();
+        let filename = crate::index::backup_filename(&id, BackupType::Base);
+        libllm::crypto::write_atomic(&backups_dir.join(&filename), &blob).unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
+        assert!(
+            !warnings.iter().any(|w| w.contains("DEK unavailable")),
+            "legacy base must be upgraded, not reported unrecoverable: {warnings:?}"
+        );
+        let base = rebuilt
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Base)
+            .expect("legacy base recovered");
+        let chain = rebuilt.chain_to(&base.id).unwrap();
+        let restored = crate::restore::replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
+        assert_eq!(restored, plaintext, "upgraded legacy base must restore to the original bytes");
+    }
+
+    #[test]
     fn rebuild_index_reports_warnings_for_corrupt_base() {
         let dir = tempfile::TempDir::new().unwrap();
         let backups_dir = dir.path().join("backups");

@@ -344,6 +344,46 @@ mod tests {
     }
 
     #[test]
+    fn replay_reads_type2_base_via_index_wrapped_dek() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let plaintext = b"type-2 database bytes that must round-trip";
+        let compressed = crate::diff::compress(plaintext).unwrap();
+        let dek = crate::crypto::generate_dek();
+        let payload = crate::crypto::encrypt_payload(&compressed, &dek).unwrap();
+        let id = "20260601T070000.000Z".to_string();
+        let filename = crate::index::backup_filename(&id, crate::index::BackupType::Base);
+        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+        let wrapped = crate::crypto::wrap_dek(&dek, &kek).unwrap();
+
+        let index = crate::index::BackupIndex {
+            version: crate::index::SCHEMA_VERSION,
+            entries: vec![crate::index::BackupEntry {
+                id: id.clone(),
+                entry_type: crate::index::BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: crate::hash::hash_bytes(plaintext),
+                file_hash: crate::hash::hash_bytes(&payload),
+                plaintext_size: plaintext.len() as u64,
+                stored_size: payload.len() as u64,
+                encrypted: true,
+                created_at: chrono::Utc::now(),
+                wrapped_dek: Some(wrapped),
+                kek_fingerprint: None,
+            }],
+        };
+
+        let chain = index.chain_to(&id).unwrap();
+        let restored = replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
+        assert_eq!(restored, plaintext, "type-2 base must restore via the index wrapped DEK");
+    }
+
+    #[test]
     fn replay_reads_self_describing_base() {
         let dir = tempfile::TempDir::new().unwrap();
         let data_dir = dir.path();

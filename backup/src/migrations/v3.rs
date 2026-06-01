@@ -264,6 +264,49 @@ mod tests {
     }
 
     #[test]
+    fn migrated_type2_base_restores_via_replay_chain() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let plaintext = b"db bytes that survive a v3 migration and restore";
+        let compressed = crate::diff::compress(plaintext).unwrap();
+        let dek = generate_dek();
+        let payload = encrypt_payload(&compressed, &dek).unwrap();
+        let id = "20260601T090000.000Z".to_string();
+        let filename = backup_filename(&id, BackupType::Base);
+        write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+        let wrapped = wrap_dek(&dek, &kek).unwrap();
+
+        let mut index = BackupIndex {
+            version: 2,
+            entries: vec![BackupEntry {
+                id: id.clone(),
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: crate::hash::hash_bytes(plaintext),
+                file_hash: crate::hash::hash_bytes(&payload),
+                plaintext_size: plaintext.len() as u64,
+                stored_size: payload.len() as u64,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: Some(wrapped),
+                kek_fingerprint: None,
+            }],
+        };
+        save_index(&backups_dir.join("index.json"), &index).unwrap();
+
+        migrate(&mut index, &backups_dir, Some(&kek)).unwrap();
+
+        let chain = index.chain_to(&id).unwrap();
+        let restored = crate::restore::replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
+        assert_eq!(restored, plaintext, "v3-migrated type-2 base must restore to the original bytes");
+    }
+
+    #[test]
     fn bails_with_kek_but_missing_wrapped_dek() {
         let tmp = TempDir::new().unwrap();
         let data_dir = tmp.path();

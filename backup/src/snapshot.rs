@@ -214,12 +214,17 @@ fn build_payload(
 /// emitted via `tracing::warn!` for debug-log subscribers.
 ///
 /// For unencrypted data dirs, the rebuilt index carries accurate
-/// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs where
-/// backup files were encrypted directly with the KEK (pre-v2 format), this
-/// function decrypts each base file with the KEK, generates a fresh DEK,
-/// re-encrypts the file under the new DEK, and stores the wrapped DEK in the
-/// rebuilt index entry. When `passkey` is `None` or decryption fails, the
-/// affected entry is skipped and a warning is appended to the return value.
+/// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs, the
+/// behavior depends on the file format:
+///
+/// - **Type-3 (header present):** unwraps the DEK from the header with the KEK,
+///   decrypts the payload, and records the real plaintext hash and size.
+/// - **No header, KEK-direct decrypt succeeds (type-1 legacy):** generates a fresh
+///   DEK, re-encrypts in the type-3 header format, records `"unknown"` plaintext_hash.
+/// - **No header, KEK decrypt fails (type-2 orphaned, index lost):** skips with an
+///   honest warning; the DEK is gone with the lost index and cannot be recovered.
+///
+/// When `passkey` is `None`, all encrypted entries are skipped with a warning.
 pub fn rebuild_index(
     backups_dir: &Path,
     passkey: Option<&str>,
@@ -306,76 +311,103 @@ pub fn rebuild_index(
                             .as_ref()
                             .expect("backup_key is Some: None case continued above");
 
-                        let plaintext = match crate::crypto::decrypt_payload(&file_bytes, kek) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                let msg = format!("skipping {filename}: decryption failed: {e}");
-                                tracing::warn!(
-                                    result = "error",
-                                    filename = %filename,
-                                    error = %e,
-                                    "backup.rebuild_index.decrypt_failed"
+                        if let Some((wrapped, payload)) = crate::format::decode_base_blob(&file_bytes)
+                        {
+                            let dek = match crate::crypto::unwrap_dek(&wrapped, kek) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    let msg = format!("skipping {filename}: decryption failed: {e}");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+                            let compressed = match crate::crypto::decrypt_payload(payload, &dek) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    let msg = format!("skipping {filename}: decryption failed: {e}");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+                            let plaintext = match crate::diff::decompress(&compressed) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let msg = format!("skipping {filename}: decompression failed: {e}");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+                            let fp = crate::crypto::compute_kek_fingerprint(kek);
+                            (
+                                crate::hash::hash_bytes(&plaintext),
+                                plaintext.len() as u64,
+                                Some(FingerprintField::Known(fp)),
+                                Some(wrapped),
+                            )
+                        } else {
+                            // No header: try the legacy KEK-direct (type-1) layout. A failure
+                            // means the file is type-2 whose DEK lived only in the lost index.
+                            let plaintext_compressed =
+                                match crate::crypto::decrypt_payload(&file_bytes, kek) {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        let msg = format!(
+                                            "skipping {filename}: DEK unavailable (no header; index lost) — cannot rebuild"
+                                        );
+                                        tracing::warn!(
+                                            result = "error",
+                                            filename = %filename,
+                                            "backup.rebuild_index.dek_unavailable"
+                                        );
+                                        warnings.push(msg);
+                                        continue;
+                                    }
+                                };
+
+                            let dek = crate::crypto::generate_dek();
+                            let payload = match crate::crypto::encrypt_payload(&plaintext_compressed, &dek) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    let msg = format!("skipping {filename}: re-encryption failed: {e}");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+
+                            // Wrap before overwriting: a wrap failure after the file is rewritten
+                            // would strand the fresh DEK in this frame and lose the backup.
+                            let wrapped = match crate::crypto::wrap_dek(&dek, kek) {
+                                Ok(w) => w,
+                                Err(e) => {
+                                    let msg = format!("skipping {filename}: DEK wrap failed: {e}");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.wrap_dek_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+
+                            let new_blob = crate::format::encode_base_blob(&wrapped, &payload);
+                            if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
+                                let msg = format!(
+                                    "skipping {filename}: failed to persist re-encrypted file: {e}"
                                 );
+                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.write_failed");
                                 warnings.push(msg);
                                 continue;
                             }
-                        };
 
-                        let dek = crate::crypto::generate_dek();
-                        let new_blob = match crate::crypto::encrypt_payload(&plaintext, &dek) {
-                            Ok(b) => b,
-                            Err(e) => {
-                                let msg = format!("skipping {filename}: re-encryption failed: {e}");
-                                tracing::warn!(
-                                    result = "error",
-                                    filename = %filename,
-                                    error = %e,
-                                    "backup.rebuild_index.reencrypt_failed"
-                                );
-                                warnings.push(msg);
-                                continue;
-                            }
-                        };
-
-                        // Wrap the DEK before overwriting the on-disk file: if the wrap
-                        // fails after the file is re-encrypted, the fresh DEK exists only
-                        // in this stack frame and is lost, leaving the backup unrecoverable.
-                        let wrapped = match crate::crypto::wrap_dek(&dek, kek) {
-                            Ok(w) => w,
-                            Err(e) => {
-                                let msg = format!("skipping {filename}: DEK wrap failed: {e}");
-                                tracing::warn!(
-                                    result = "error",
-                                    filename = %filename,
-                                    error = %e,
-                                    "backup.rebuild_index.wrap_dek_failed"
-                                );
-                                warnings.push(msg);
-                                continue;
-                            }
-                        };
-
-                        if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
-                            let msg = format!(
-                                "skipping {filename}: failed to persist re-encrypted file: {e}"
-                            );
-                            tracing::warn!(
-                                result = "error",
-                                filename = %filename,
-                                error = %e,
-                                "backup.rebuild_index.write_failed"
-                            );
-                            warnings.push(msg);
-                            continue;
+                            let fp = crate::crypto::compute_kek_fingerprint(kek);
+                            (
+                                "unknown".to_string(),
+                                stored_size,
+                                Some(FingerprintField::Known(fp)),
+                                Some(wrapped),
+                            )
                         }
-
-                        let fp = crate::crypto::compute_kek_fingerprint(kek);
-                        (
-                            "unknown".to_string(),
-                            stored_size,
-                            Some(FingerprintField::Known(fp)),
-                            Some(wrapped),
-                        )
                     } else {
                         let plaintext = match crate::diff::decompress(&file_bytes) {
                             Ok(p) => p,
@@ -976,6 +1008,56 @@ mod tests {
         assert!(
             crate::format::decode_base_blob(&bytes).is_none(),
             "unencrypted base file must not carry a header"
+        );
+    }
+
+    #[test]
+    fn rebuild_index_recovers_self_describing_base() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        setup_encrypted_test_db(data_dir, "pw");
+        let config = BackupConfig::default();
+        create_snapshot(data_dir, Some("pw"), &config).unwrap();
+
+        let backups_dir = data_dir.join("backups");
+        std::fs::remove_file(backups_dir.join("index.json")).unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
+
+        let base = rebuilt
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Base)
+            .expect("type-3 base must be recovered from its header");
+        assert!(base.wrapped_dek.is_some(), "recovered base keeps its wrapped DEK");
+        assert_ne!(base.plaintext_hash, "unknown", "type-3 recovery computes the real plaintext hash");
+        assert!(
+            !warnings.iter().any(|w| w.contains("DEK unavailable")),
+            "a self-describing base must not be reported unrecoverable: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn rebuild_index_type2_without_index_reports_dek_unavailable() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        let _ = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        // type-2: payload encrypted under a random DEK, no header, no index entry.
+        let dek = [42u8; 32];
+        let payload = crate::crypto::encrypt_payload(b"orphaned-db-bytes", &dek).unwrap();
+        let id = "20260601T000000.000Z".to_string();
+        let filename = crate::index::backup_filename(&id, BackupType::Base);
+        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
+
+        assert!(rebuilt.entries.is_empty(), "an orphaned type-2 base cannot be rebuilt");
+        assert!(
+            warnings.iter().any(|w| w.contains("DEK unavailable")),
+            "orphaned type-2 base must produce an honest 'DEK unavailable' warning, got: {warnings:?}"
         );
     }
 

@@ -508,3 +508,51 @@ fn recover_rebuild_index_refuses_regression_and_backs_up() {
         });
     assert!(has_backup, "an index.json.<ts>.bak copy must exist");
 }
+
+#[test]
+fn recover_rebuild_index_recovers_encrypted_backup_end_to_end() {
+    let dir = common::temp_dir();
+    let data_dir = dir.path();
+
+    let salt =
+        libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
+    let key = libllm::crypto::derive_key("pw", &salt).expect("derive key");
+    {
+        let db = Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");
+        db.insert_persona(
+            "carol",
+            &PersonaFile {
+                name: "carol".to_owned(),
+                persona: "wise".to_owned(),
+            },
+        )
+        .expect("insert carol");
+    }
+    create_snapshot(data_dir, Some("pw"), &BackupConfig::default()).expect("snapshot");
+
+    let backups_dir = data_dir.join("backups");
+    let before = load_index(&backups_dir.join("index.json")).expect("load index");
+    assert_eq!(before.entries.len(), 1, "snapshot produced one entry");
+
+    // Lose the index entirely — the wrapped DEK now survives only in the base
+    // file's self-describing header.
+    std::fs::remove_file(backups_dir.join("index.json")).unwrap();
+
+    let output = Command::new(client_bin())
+        .args(["-d", data_dir.to_str().unwrap(), "recover", "rebuild-index"])
+        .env("LIBLLM_PASSKEY", "pw")
+        .output()
+        .expect("run rebuild-index");
+
+    assert!(
+        output.status.success(),
+        "rebuild should recover the encrypted base; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let after = load_index(&backups_dir.join("index.json")).expect("reload index");
+    assert_eq!(
+        after.entries.len(),
+        1,
+        "the type-3 base must be recovered from its header"
+    );
+}

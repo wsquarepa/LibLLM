@@ -481,11 +481,16 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>, interactive: bool) 
         );
         let index_path = backups_dir.join("index.json");
         if index_path.exists() {
-            let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%3fZ");
+            let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S.%3fZ");
             let backup_path = backups_dir.join(format!("index.json.{stamp}.bak"));
             std::fs::copy(&index_path, &backup_path).with_context(|| {
                 format!("failed to back up existing index to {}", backup_path.display())
             })?;
+            tracing::info!(
+                phase = "backup",
+                backup_path = %backup_path.display(),
+                "recover.rebuild_index"
+            );
 
             let existing = load_index(&index_path)?;
             if !existing.entries.is_empty() && rebuilt.entries.len() < existing.entries.len() {
@@ -503,6 +508,12 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>, interactive: bool) 
                     false
                 };
                 if !proceed {
+                    tracing::warn!(
+                        phase = "refused",
+                        existing_count = existing.entries.len(),
+                        rebuilt_count = rebuilt.entries.len(),
+                        "recover.rebuild_index"
+                    );
                     bail!(
                         "refusing to overwrite index ({} entries) with fewer ({}); a backup was saved to {}",
                         existing.entries.len(),

@@ -26,27 +26,37 @@ pub(crate) fn replay_chain(
         );
     }
 
-    let dek = match backup_key {
-        Some(kek) if chain[0].encrypted => {
-            let root = chain[0];
-            let wrapped = root.wrapped_dek.as_ref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "chain root {} has no wrapped DEK (run migrations or rebuild index)",
-                    root.id
-                )
-            })?;
-            Some(crate::crypto::unwrap_dek(wrapped, kek)?)
-        }
-        _ => None,
-    };
-
     let base_entry = chain[0];
     let base_bytes = std::fs::read(backups_dir.join(&base_entry.filename))
         .with_context(|| format!("failed to read base backup: {}", base_entry.filename))?;
 
-    let base_decrypted = match dek.as_ref() {
-        Some(key) => crate::crypto::decrypt_payload(&base_bytes, key)?,
-        None => base_bytes,
+    // Resolve the chain DEK and the base payload slice. Precedence: self-describing
+    // header (type 3) -> index wrapped_dek (type 2) -> legacy KEK-direct (type 1).
+    let header = match backup_key {
+        Some(kek) if base_entry.encrypted => match crate::format::decode_base_blob(&base_bytes) {
+            Some((wrapped, payload)) => {
+                crate::crypto::unwrap_dek(&wrapped, kek).ok().map(|dek| (dek, payload))
+            }
+            None => None,
+        },
+        _ => None,
+    };
+
+    let (chain_dek, base_payload): (Option<[u8; 32]>, &[u8]) = match (backup_key, header) {
+        (_, Some((dek, payload))) => (Some(dek), payload),
+        (Some(kek), None) if base_entry.encrypted => {
+            let dek = match base_entry.wrapped_dek.as_ref() {
+                Some(wrapped) => crate::crypto::unwrap_dek(wrapped, kek)?,
+                None => *kek,
+            };
+            (Some(dek), base_bytes.as_slice())
+        }
+        _ => (None, base_bytes.as_slice()),
+    };
+
+    let base_decrypted = match chain_dek.as_ref() {
+        Some(key) => crate::crypto::decrypt_payload(base_payload, key)?,
+        None => base_payload.to_vec(),
     };
     let mut plaintext = crate::diff::decompress(&base_decrypted)?;
 
@@ -54,7 +64,7 @@ pub(crate) fn replay_chain(
         let diff_bytes = std::fs::read(backups_dir.join(&diff_entry.filename))
             .with_context(|| format!("failed to read diff backup: {}", diff_entry.filename))?;
 
-        let diff_decrypted = match dek.as_ref() {
+        let diff_decrypted = match chain_dek.as_ref() {
             Some(key) => crate::crypto::decrypt_payload(&diff_bytes, key)?,
             None => diff_bytes,
         };
@@ -326,6 +336,41 @@ mod tests {
             pre_restore_exists,
             "expected a pre-restore-* file in pre_restore dir"
         );
+    }
+
+    #[test]
+    fn replay_reads_self_describing_base() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+
+        let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
+        let key = libllm::crypto::derive_key("pw", &salt).unwrap();
+        let db_path = data_dir.join("data.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(&key.key_pragma()).unwrap();
+        conn.execute_batch("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);")
+            .unwrap();
+        conn.execute("INSERT INTO test (value) VALUES (?1)", ["hello"])
+            .unwrap();
+        drop(conn);
+
+        let config = crate::BackupConfig::default();
+        crate::snapshot::create_snapshot(data_dir, Some("pw"), &config).unwrap();
+
+        let backups_dir = data_dir.join("backups");
+        let index = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let base = index
+            .entries
+            .iter()
+            .find(|e| e.entry_type == crate::index::BackupType::Base)
+            .unwrap();
+
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw"))
+            .unwrap()
+            .unwrap();
+        let chain = index.chain_to(&base.id).unwrap();
+        let plaintext = replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
+        assert!(!plaintext.is_empty(), "restored plaintext from a type-3 base must be non-empty");
     }
 }
 

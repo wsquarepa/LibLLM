@@ -449,12 +449,10 @@ fn recover_rebuild_index_refuses_regression_and_backs_up() {
     let data_dir = dir.path();
 
     // Build an encrypted backup so the index has one base entry.
-    let salt =
-        libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
+    let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
     let key = libllm::crypto::derive_key("pw", &salt).expect("derive key");
     {
-        let db =
-            Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");
+        let db = Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");
         db.insert_persona(
             "bob",
             &PersonaFile {
@@ -514,8 +512,7 @@ fn recover_rebuild_index_recovers_encrypted_backup_end_to_end() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
 
-    let salt =
-        libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
+    let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
     let key = libllm::crypto::derive_key("pw", &salt).expect("derive key");
     {
         let db = Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");

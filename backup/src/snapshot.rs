@@ -311,12 +311,14 @@ pub fn rebuild_index(
                             .as_ref()
                             .expect("backup_key is Some: None case continued above");
 
-                        if let Some((wrapped, payload)) = crate::format::decode_base_blob(&file_bytes)
+                        if let Some((wrapped, payload)) =
+                            crate::format::decode_base_blob(&file_bytes)
                         {
                             let dek = match crate::crypto::unwrap_dek(&wrapped, kek) {
                                 Ok(d) => d,
                                 Err(e) => {
-                                    let msg = format!("skipping {filename}: decryption failed: {e}");
+                                    let msg =
+                                        format!("skipping {filename}: decryption failed: {e}");
                                     tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
                                     warnings.push(msg);
                                     continue;
@@ -325,7 +327,8 @@ pub fn rebuild_index(
                             let compressed = match crate::crypto::decrypt_payload(payload, &dek) {
                                 Ok(c) => c,
                                 Err(e) => {
-                                    let msg = format!("skipping {filename}: decryption failed: {e}");
+                                    let msg =
+                                        format!("skipping {filename}: decryption failed: {e}");
                                     tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
                                     warnings.push(msg);
                                     continue;
@@ -334,7 +337,8 @@ pub fn rebuild_index(
                             let plaintext = match crate::diff::decompress(&compressed) {
                                 Ok(p) => p,
                                 Err(e) => {
-                                    let msg = format!("skipping {filename}: decompression failed: {e}");
+                                    let msg =
+                                        format!("skipping {filename}: decompression failed: {e}");
                                     tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
                                     warnings.push(msg);
                                     continue;
@@ -350,28 +354,34 @@ pub fn rebuild_index(
                         } else {
                             // No header: try the legacy KEK-direct (type-1) layout. A failure
                             // means the file is type-2 whose DEK lived only in the lost index.
-                            let plaintext_compressed =
-                                match crate::crypto::decrypt_payload(&file_bytes, kek) {
-                                    Ok(p) => p,
-                                    Err(_) => {
-                                        let msg = format!(
-                                            "skipping {filename}: DEK unavailable (no header; index lost) — cannot rebuild"
-                                        );
-                                        tracing::warn!(
-                                            result = "error",
-                                            filename = %filename,
-                                            "backup.rebuild_index.dek_unavailable"
-                                        );
-                                        warnings.push(msg);
-                                        continue;
-                                    }
-                                };
+                            let plaintext_compressed = match crate::crypto::decrypt_payload(
+                                &file_bytes,
+                                kek,
+                            ) {
+                                Ok(p) => p,
+                                Err(_) => {
+                                    let msg = format!(
+                                        "skipping {filename}: DEK unavailable (no header; index lost) — cannot rebuild"
+                                    );
+                                    tracing::warn!(
+                                        result = "error",
+                                        filename = %filename,
+                                        "backup.rebuild_index.dek_unavailable"
+                                    );
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
 
                             let dek = crate::crypto::generate_dek();
-                            let payload = match crate::crypto::encrypt_payload(&plaintext_compressed, &dek) {
+                            let payload = match crate::crypto::encrypt_payload(
+                                &plaintext_compressed,
+                                &dek,
+                            ) {
                                 Ok(b) => b,
                                 Err(e) => {
-                                    let msg = format!("skipping {filename}: re-encryption failed: {e}");
+                                    let msg =
+                                        format!("skipping {filename}: re-encryption failed: {e}");
                                     tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
                                     warnings.push(msg);
                                     continue;
@@ -1032,8 +1042,14 @@ mod tests {
             .iter()
             .find(|e| e.entry_type == BackupType::Base)
             .expect("type-3 base must be recovered from its header");
-        assert!(base.wrapped_dek.is_some(), "recovered base keeps its wrapped DEK");
-        assert_ne!(base.plaintext_hash, "unknown", "type-3 recovery computes the real plaintext hash");
+        assert!(
+            base.wrapped_dek.is_some(),
+            "recovered base keeps its wrapped DEK"
+        );
+        assert_ne!(
+            base.plaintext_hash, "unknown",
+            "type-3 recovery computes the real plaintext hash"
+        );
         assert!(
             !warnings.iter().any(|w| w.contains("DEK unavailable")),
             "a self-describing base must not be reported unrecoverable: {warnings:?}"
@@ -1057,7 +1073,10 @@ mod tests {
 
         let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
 
-        assert!(rebuilt.entries.is_empty(), "an orphaned type-2 base cannot be rebuilt");
+        assert!(
+            rebuilt.entries.is_empty(),
+            "an orphaned type-2 base cannot be rebuilt"
+        );
         assert!(
             warnings.iter().any(|w| w.contains("DEK unavailable")),
             "orphaned type-2 base must produce an honest 'DEK unavailable' warning, got: {warnings:?}"

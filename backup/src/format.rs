@@ -18,8 +18,8 @@ const HEADER_PREFIX_LEN: usize = MAGIC.len() + 1 + 2;
 
 /// Prepends the type-3 header carrying `wrapped` to `payload`.
 pub fn encode_base_blob(wrapped: &WrappedDek, payload: &[u8]) -> Vec<u8> {
-    let dek_len = u16::try_from(wrapped.blob.len())
-        .expect("WrappedDek blob length exceeds u16 capacity");
+    let dek_len =
+        u16::try_from(wrapped.blob.len()).expect("WrappedDek blob length exceeds u16 capacity");
     let mut out = Vec::with_capacity(HEADER_PREFIX_LEN + wrapped.blob.len() + payload.len());
     out.extend_from_slice(&MAGIC);
     out.push(FORMAT_VERSION);

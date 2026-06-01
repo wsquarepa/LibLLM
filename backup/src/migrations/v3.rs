@@ -158,7 +158,10 @@ mod tests {
         let after_first = std::fs::read(backups_dir.join(&filename)).unwrap();
         migrate(&mut index, &backups_dir, Some(&kek)).unwrap();
         let after_second = std::fs::read(backups_dir.join(&filename)).unwrap();
-        assert_eq!(after_first, after_second, "second run must not change the file");
+        assert_eq!(
+            after_first, after_second,
+            "second run must not change the file"
+        );
     }
 
     #[test]
@@ -187,7 +190,10 @@ mod tests {
             }],
         };
         migrate(&mut index, &backups_dir, None).unwrap();
-        assert_eq!(std::fs::read(backups_dir.join(&filename)).unwrap(), b"plain");
+        assert_eq!(
+            std::fs::read(backups_dir.join(&filename)).unwrap(),
+            b"plain"
+        );
     }
 
     #[test]

@@ -38,7 +38,9 @@ pub(crate) fn replay_chain(
                 // A matched magic whose DEK fails to unwrap (a ~2^-32 nonce collision,
                 // or a wrong KEK) falls through to the index/legacy paths, which surface
                 // any genuine authentication error via `?`.
-                crate::crypto::unwrap_dek(&wrapped, kek).ok().map(|dek| (dek, payload))
+                crate::crypto::unwrap_dek(&wrapped, kek)
+                    .ok()
+                    .map(|dek| (dek, payload))
             }
             None => None,
         },
@@ -373,7 +375,10 @@ mod tests {
             .unwrap();
         let chain = index.chain_to(&base.id).unwrap();
         let plaintext = replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
-        assert!(!plaintext.is_empty(), "restored plaintext from a type-3 base must be non-empty");
+        assert!(
+            !plaintext.is_empty(),
+            "restored plaintext from a type-3 base must be non-empty"
+        );
     }
 }
 

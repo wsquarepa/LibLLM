@@ -286,8 +286,8 @@ pub fn rebuild_index(
             }
         };
 
-        let file_hash = crate::hash::hash_bytes(&file_bytes);
-        let stored_size = file_bytes.len() as u64;
+        let mut file_hash = crate::hash::hash_bytes(&file_bytes);
+        let mut stored_size = file_bytes.len() as u64;
 
         let created_at = chrono::DateTime::<Utc>::from(mtime);
 
@@ -399,6 +399,9 @@ pub fn rebuild_index(
                                 warnings.push(msg);
                                 continue;
                             }
+
+                            file_hash = crate::hash::hash_bytes(&new_blob);
+                            stored_size = new_blob.len() as u64;
 
                             let fp = crate::crypto::compute_kek_fingerprint(kek);
                             (

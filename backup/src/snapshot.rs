@@ -78,9 +78,13 @@ pub fn create_snapshot(
         (None, _) => (None, None, None),
     };
 
-    let stored = match dek_for_this_entry {
-        Some(ref dek) => crate::crypto::encrypt_payload(&compressed, dek)?,
-        None => compressed,
+    let stored = match (&dek_for_this_entry, &wrapped_dek_for_base) {
+        (Some(dek), Some(wrapped)) => {
+            let payload = crate::crypto::encrypt_payload(&compressed, dek)?;
+            crate::format::encode_base_blob(wrapped, &payload)
+        }
+        (Some(dek), None) => crate::crypto::encrypt_payload(&compressed, dek)?,
+        (None, _) => compressed,
     };
 
     let (id, filename, file_path) = unique_backup_id(&backups_dir, backup_type);
@@ -919,6 +923,53 @@ mod tests {
             unique_filenames.len(),
             filenames.len(),
             "all snapshot filenames must be unique"
+        );
+    }
+
+    #[test]
+    fn create_snapshot_encrypted_base_is_self_describing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        setup_encrypted_test_db(data_dir, "pw");
+        let config = BackupConfig::default();
+
+        create_snapshot(data_dir, Some("pw"), &config).unwrap();
+
+        let backups_dir = data_dir.join("backups");
+        let index = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let base = index
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Base)
+            .expect("a base entry exists");
+
+        let bytes = std::fs::read(backups_dir.join(&base.filename)).unwrap();
+        assert!(
+            crate::format::decode_base_blob(&bytes).is_some(),
+            "encrypted base file must carry a self-describing header"
+        );
+    }
+
+    #[test]
+    fn create_snapshot_unencrypted_base_has_no_header() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = setup_test_db(dir.path());
+        let data_dir = db_path.parent().unwrap();
+        let config = BackupConfig::default();
+
+        create_snapshot(data_dir, None, &config).unwrap();
+
+        let backups_dir = data_dir.join("backups");
+        let index = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let base = index
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Base)
+            .expect("a base entry exists");
+        let bytes = std::fs::read(backups_dir.join(&base.filename)).unwrap();
+        assert!(
+            crate::format::decode_base_blob(&bytes).is_none(),
+            "unencrypted base file must not carry a header"
         );
     }
 

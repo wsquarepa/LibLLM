@@ -7,6 +7,8 @@
 //! ```text
 //! MAGIC(4) | format_version(1) | wrapped_dek_len(u16 BE) | wrapped_dek | payload
 //! ```
+//! "type-3" refers to the v3 backup-index schema introduced alongside this header;
+//! files written by earlier schema versions carry no header.
 
 use crate::index::WrappedDek;
 
@@ -16,7 +18,8 @@ const HEADER_PREFIX_LEN: usize = MAGIC.len() + 1 + 2;
 
 /// Prepends the type-3 header carrying `wrapped` to `payload`.
 pub fn encode_base_blob(wrapped: &WrappedDek, payload: &[u8]) -> Vec<u8> {
-    let dek_len = wrapped.blob.len() as u16;
+    let dek_len = u16::try_from(wrapped.blob.len())
+        .expect("WrappedDek blob length exceeds u16 capacity");
     let mut out = Vec::with_capacity(HEADER_PREFIX_LEN + wrapped.blob.len() + payload.len());
     out.extend_from_slice(&MAGIC);
     out.push(FORMAT_VERSION);
@@ -39,7 +42,7 @@ pub fn decode_base_blob(bytes: &[u8]) -> Option<(WrappedDek, &[u8])> {
     if bytes[MAGIC.len()] != FORMAT_VERSION {
         return None;
     }
-    let dek_len = u16::from_be_bytes([bytes[5], bytes[6]]) as usize;
+    let dek_len = u16::from_be_bytes([bytes[MAGIC.len() + 1], bytes[MAGIC.len() + 2]]) as usize;
     let dek_end = HEADER_PREFIX_LEN.checked_add(dek_len)?;
     if bytes.len() < dek_end {
         return None;

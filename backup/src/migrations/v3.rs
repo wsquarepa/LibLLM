@@ -37,6 +37,23 @@ pub(super) fn migrate(
         let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
 
         if crate::format::decode_base_blob(&bytes).is_some() {
+            // The file already carries a header (e.g. a prior run wrote it but
+            // crashed before persisting the index). Reconcile the entry's size
+            // and hash with the on-disk file rather than leaving them stale.
+            let correct_size = bytes.len() as u64;
+            let correct_hash = crate::hash::hash_bytes(&bytes);
+            let entry = index
+                .entries
+                .iter_mut()
+                .find(|e| e.id == base_id)
+                .expect("base_id was collected from the same index");
+            if entry.stored_size != correct_size || entry.file_hash != correct_hash {
+                entry.stored_size = correct_size;
+                entry.file_hash = correct_hash;
+                save_index(&index_path, index).with_context(|| {
+                    format!("persist index after reconciling metadata for {base_id}")
+                })?;
+            }
             continue;
         }
 
@@ -200,5 +217,77 @@ mod tests {
         };
         let err = migrate(&mut index, &backups_dir, None).unwrap_err();
         assert!(err.to_string().contains("without a KEK"));
+    }
+
+    #[test]
+    fn reconciles_metadata_when_header_already_present() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let (mut entry, payload) = type2_base(data_dir, &kek, "20260601T050000.000Z");
+        let backups_dir = data_dir.join("backups");
+        let filename = entry.filename.clone();
+
+        // Simulate a crash after the file was rewritten with the header but before
+        // the index was persisted: the on-disk file has the header, the index does not.
+        let wrapped = entry.wrapped_dek.clone().unwrap();
+        let headered = crate::format::encode_base_blob(&wrapped, &payload);
+        write_atomic(&backups_dir.join(&filename), &headered).unwrap();
+        entry.stored_size = payload.len() as u64;
+        entry.file_hash = crate::hash::hash_bytes(&payload);
+
+        let mut index = BackupIndex {
+            version: 2,
+            entries: vec![entry],
+        };
+        save_index(&backups_dir.join("index.json"), &index).unwrap();
+
+        migrate(&mut index, &backups_dir, Some(&kek)).unwrap();
+
+        let on_disk = std::fs::read(backups_dir.join(&filename)).unwrap();
+        assert_eq!(
+            index.entries[0].stored_size,
+            on_disk.len() as u64,
+            "stale stored_size must be reconciled to the headered file"
+        );
+        assert_eq!(
+            index.entries[0].file_hash,
+            crate::hash::hash_bytes(&on_disk),
+            "stale file_hash must be reconciled to the headered file"
+        );
+    }
+
+    #[test]
+    fn bails_with_kek_but_missing_wrapped_dek() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+        let id = "20260601T060000.000Z";
+        let filename = backup_filename(id, BackupType::Base);
+        write_atomic(&backups_dir.join(&filename), b"cipher-no-header").unwrap();
+        let mut index = BackupIndex {
+            version: 2,
+            entries: vec![BackupEntry {
+                id: id.to_string(),
+                entry_type: BackupType::Base,
+                filename,
+                base_id: None,
+                plaintext_hash: "u".into(),
+                file_hash: "u".into(),
+                plaintext_size: 0,
+                stored_size: 0,
+                encrypted: true,
+                created_at: Utc::now(),
+                wrapped_dek: None,
+                kek_fingerprint: None,
+            }],
+        };
+        let err = migrate(&mut index, &backups_dir, Some(&kek)).unwrap_err();
+        assert!(
+            err.to_string().contains("no wrapped DEK"),
+            "expected a missing-wrapped-DEK error, got: {err}"
+        );
     }
 }

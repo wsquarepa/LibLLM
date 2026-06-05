@@ -1863,6 +1863,7 @@ name = "libllm"
 version = "3.1.4"
 dependencies = [
  "libllm-core",
+ "libllm-storage",
 ]
 
 [[package]]
@@ -1883,7 +1884,6 @@ dependencies = [
  "rand 0.10.1",
  "regex",
  "reqwest",
- "rusqlite",
  "rustls",
  "serde",
  "serde_json",
@@ -1904,6 +1904,19 @@ dependencies = [
  "xxhash-rust",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "libllm-storage"
+version = "3.1.4"
+dependencies = [
+ "anyhow",
+ "libllm-core",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tracing",
 ]
 
 [[package]]

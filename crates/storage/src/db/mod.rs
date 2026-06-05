@@ -6,12 +6,12 @@ use std::sync::OnceLock;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-use crate::character::CharacterCard;
-use crate::crypto::DerivedKey;
-use crate::persona::PersonaFile;
-use crate::session::{Node, NodeId, SaveMode, Session};
-use crate::system_prompt::SystemPromptFile;
-use crate::worldinfo::WorldBook;
+use libllm_core::character::CharacterCard;
+use libllm_core::crypto::DerivedKey;
+use libllm_core::persona::PersonaFile;
+use libllm_core::session::{Node, NodeId, SaveMode, Session};
+use libllm_core::system_prompt::SystemPromptFile;
+use libllm_core::worldinfo::WorldBook;
 
 mod characters;
 mod dismissed_templates;
@@ -89,7 +89,7 @@ impl Database {
         suppress_sqlcipher_log();
         let encrypted = key.is_some();
         let path_str = path.display().to_string();
-        crate::timed_result!(
+        libllm_core::timed_result!(
             tracing::Level::INFO,
             "db.open",
             path = path_str.as_str(),
@@ -98,7 +98,7 @@ impl Database {
                 let conn = Connection::open(path)
                     .with_context(|| format!("failed to open database: {}", path.display()))?;
 
-                crate::crypto::chmod_0600(path)
+                libllm_core::crypto::chmod_0600(path)
                     .with_context(|| format!("failed to restrict permissions: {}", path.display()))?;
 
                 if let Some(key) = key {
@@ -120,12 +120,12 @@ impl Database {
                     std::path::PathBuf::from(s)
                 };
                 if path_wal.exists() {
-                    crate::crypto::chmod_0600(&path_wal).with_context(|| {
+                    libllm_core::crypto::chmod_0600(&path_wal).with_context(|| {
                         format!("failed to restrict permissions: {}", path_wal.display())
                     })?;
                 }
                 if path_shm.exists() {
-                    crate::crypto::chmod_0600(&path_shm).with_context(|| {
+                    libllm_core::crypto::chmod_0600(&path_shm).with_context(|| {
                         format!("failed to restrict permissions: {}", path_shm.display())
                     })?;
                 }
@@ -281,7 +281,7 @@ impl Database {
     }
 
     pub fn rekey(&self, new_key: &DerivedKey) -> Result<()> {
-        crate::timed_result!(tracing::Level::INFO, "db.rekey", ; {
+        libllm_core::timed_result!(tracing::Level::INFO, "db.rekey", ; {
             self.conn
                 .execute_batch(&new_key.rekey_pragma())
                 .context("failed to rekey database")?;
@@ -438,10 +438,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::Database;
-    use crate::crypto::{derive_key, load_or_create_salt};
-    use crate::session::{Message, NodeId, Role, Session};
+    use libllm_core::crypto::{derive_key, load_or_create_salt};
+    use libllm_core::session::{Message, NodeId, Role, Session};
 
-    fn make_key(dir: &TempDir) -> crate::crypto::DerivedKey {
+    fn make_key(dir: &TempDir) -> libllm_core::crypto::DerivedKey {
         let salt_path = dir.path().join(".salt");
         let salt = load_or_create_salt(&salt_path).unwrap();
         derive_key("test-passkey", &salt).unwrap()

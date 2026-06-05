@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v10" ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v10" ; {
         conn.execute_batch(
             "CREATE TABLE dismissed_template_prompts_new (
                 template_hash TEXT PRIMARY KEY NOT NULL,

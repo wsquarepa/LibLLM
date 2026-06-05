@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v5" ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v5" ; {
         conn.execute_batch(
             "ALTER TABLE sessions ADD COLUMN chat_policy TEXT NOT NULL DEFAULT 'round_robin';
              ALTER TABLE sessions ADD COLUMN card_assembly TEXT NOT NULL DEFAULT 'join_cards';

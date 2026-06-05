@@ -3,7 +3,7 @@ use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
 
 use crate::db::Database;
-use crate::session::Role;
+use libllm_core::session::Role;
 
 #[derive(Debug, Clone)]
 pub struct CompiledQuery {

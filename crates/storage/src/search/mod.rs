@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::search::query::CompiledQuery;
-use crate::session::Role;
+use libllm_core::session::Role;
 
 pub const DEFAULT_MAX_HITS: usize = 200;
 
@@ -59,7 +59,7 @@ pub fn search(
     query: &CompiledQuery,
     limit: usize,
 ) -> Result<Vec<SearchHit>, SearchError> {
-    let result = crate::timed_result!(
+    let result = libllm_core::timed_result!(
         tracing::Level::DEBUG,
         "search.execute",
         terms = query.match_expr.as_str() ;

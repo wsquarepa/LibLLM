@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v6" ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v6" ; {
         let sessions_cols: Vec<String> = conn
             .prepare("PRAGMA table_info(sessions)")
             .context("failed to prepare PRAGMA table_info(sessions)")?

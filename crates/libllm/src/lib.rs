@@ -5,9 +5,10 @@
 
 pub use libllm_core::{
     archive, author_note, character, client, commands, config, context, crypto, crypto_provider,
-    db, diagnostics, export, files, group_chat, migration, persona, preset, regex_rules, sampling,
-    search, session, side_character, summarize, system_prompt, template, thought, tokenizer,
-    worldinfo,
+    diagnostics, export, files, group_chat, migration, persona, preset, regex_rules, sampling,
+    session, side_character, summarize, system_prompt, template, thought, tokenizer, worldinfo,
 };
 
 pub use libllm_core::timed_result;
+
+pub use libllm_storage::{db, search};

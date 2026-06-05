@@ -28,7 +28,6 @@ xxhash-rust.workspace = true
 sysinfo.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-rusqlite.workspace = true
 hex.workspace = true
 minijinja.workspace = true
 sha2.workspace = true

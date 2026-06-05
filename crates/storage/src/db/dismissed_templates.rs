@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::timed_result;
+use libllm_core::timed_result;
 
 pub fn is_dismissed(conn: &Connection, template_hash: &str) -> Result<bool> {
     timed_result!(tracing::Level::DEBUG, "db.dismissed_template.lookup", hash = template_hash ; {

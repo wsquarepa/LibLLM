@@ -3,11 +3,11 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::persona::PersonaFile;
-use crate::session::now_iso8601;
+use libllm_core::persona::PersonaFile;
+use libllm_core::session::now_iso8601;
 
 pub fn insert_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.persona.insert", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.persona.insert", slug = slug ; {
         let now = now_iso8601();
         conn.execute(
             "INSERT INTO personas (slug, name, persona, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -19,7 +19,7 @@ pub fn insert_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> R
 }
 
 pub fn load_persona(conn: &Connection, slug: &str) -> Result<PersonaFile> {
-    crate::timed_result!(tracing::Level::INFO, "db.persona.load", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.persona.load", slug = slug ; {
         conn.query_row(
             "SELECT name, persona FROM personas WHERE slug = ?1",
             params![slug],
@@ -34,7 +34,7 @@ pub fn load_persona(conn: &Connection, slug: &str) -> Result<PersonaFile> {
 }
 
 pub fn list_personas(conn: &Connection) -> Result<Vec<(String, String)>> {
-    crate::timed_result!(tracing::Level::INFO, "db.persona.list", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.persona.list", ; {
         let entries = super::query_slug_name_pairs(
             conn,
             "SELECT slug, name FROM personas ORDER BY name",
@@ -46,7 +46,7 @@ pub fn list_personas(conn: &Connection) -> Result<Vec<(String, String)>> {
 }
 
 pub fn update_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.persona.update", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.persona.update", slug = slug ; {
         let now = now_iso8601();
         let affected = conn
             .execute(
@@ -63,7 +63,7 @@ pub fn update_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> R
 }
 
 pub fn delete_persona(conn: &Connection, slug: &str) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.persona.delete", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.persona.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM personas WHERE slug = ?1", params![slug])
             .context("failed to delete persona")?;
@@ -80,7 +80,7 @@ mod tests {
     use rusqlite::Connection;
 
     use crate::db::migrations::run_migrations;
-    use crate::persona::PersonaFile;
+    use libllm_core::persona::PersonaFile;
 
     use super::*;
 

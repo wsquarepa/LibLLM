@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
+use libllm_core::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
 
 type SessionRow = (
     Option<String>, // model
@@ -76,7 +76,7 @@ fn author_note_columns(session: &Session) -> (Option<&str>, i64, i64) {
             note.depth as i64,
             note.at_top as i64,
         ),
-        None => (None, crate::author_note::DEFAULT_DEPTH as i64, 0),
+        None => (None, libllm_core::author_note::DEFAULT_DEPTH as i64, 0),
     }
 }
 
@@ -226,7 +226,7 @@ fn write_session_characters(conn: &Connection, id: &str, session: &Session) -> R
 pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
     let node_count = session.tree.node_count();
     let worldbook_count = session.worldbooks.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.session.insert",
         session_id = id,
@@ -246,7 +246,7 @@ pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Res
 pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Result<()> {
     let node_count = session.tree.node_count();
     let worldbook_count = session.worldbooks.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.session.save",
         session_id = id,
@@ -308,7 +308,7 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
 }
 
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
-    crate::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
             let (
                 model,
                 template,
@@ -346,7 +346,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                 )
                 .with_context(|| format!("session not found: {id}"))?;
 
-            let chat_mode = crate::group_chat::ChatMode::from_db_str(
+            let chat_mode = libllm_core::group_chat::ChatMode::from_db_str(
                 chat_mode_str.as_deref().unwrap_or(""),
             )
             .unwrap_or_default();
@@ -461,7 +461,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     let slug: String = row.get(0)?;
                     let talkativeness: f64 = row.get(1)?;
                     let action_points: f64 = row.get(2)?;
-                    Ok(crate::group_chat::CharacterAttachment {
+                    Ok(libllm_core::group_chat::CharacterAttachment {
                         slug,
                         talkativeness: talkativeness as f32,
                         action_points: action_points as f32,
@@ -469,13 +469,13 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     })
                 })
                 .context("failed to query session_characters")?;
-            let mut characters: Vec<crate::group_chat::CharacterAttachment> = Vec::new();
+            let mut characters: Vec<libllm_core::group_chat::CharacterAttachment> = Vec::new();
             for ch in ch_rows {
                 characters.push(ch.context("failed to read session_characters row")?);
             }
 
             if characters.is_empty() && let Some(slug) = character.as_deref() {
-                characters.push(crate::group_chat::CharacterAttachment {
+                characters.push(libllm_core::group_chat::CharacterAttachment {
                     slug: slug.to_owned(),
                     talkativeness: 1.0,
                     action_points: 0.0,
@@ -488,11 +488,11 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     session_id = id,
                     raw = author_note_depth,
                     "db.session.load: author_note_depth out of range, defaulting to {}",
-                    crate::author_note::DEFAULT_DEPTH
+                    libllm_core::author_note::DEFAULT_DEPTH
                 );
-                crate::author_note::DEFAULT_DEPTH
+                libllm_core::author_note::DEFAULT_DEPTH
             });
-            let author_note = crate::author_note::AuthorNote::from_row_parts(
+            let author_note = libllm_core::author_note::AuthorNote::from_row_parts(
                 author_note_text,
                 depth,
                 author_note_at_top != 0,
@@ -515,7 +515,7 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
 }
 
 pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
-    crate::timed_result!(tracing::Level::INFO, "db.session.list", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.session.list", ; {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.display_name, s.updated_at,
@@ -552,7 +552,7 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
 }
 
 pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.session.delete", session_id = id ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.session.delete", session_id = id ; {
         let affected = conn
             .execute("DELETE FROM sessions WHERE id = ?1", params![id])
             .context("failed to delete session")?;
@@ -568,7 +568,7 @@ pub fn upsert_message(conn: &mut Connection, session_id: &str, node: &Node) -> R
     let node_id = node.id;
     let role = node.message.role.to_string();
     let content_bytes = node.message.content.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.message.upsert",
         session_id = session_id,
@@ -672,7 +672,7 @@ mod tests {
     use rusqlite::{Connection, params};
 
     use crate::db::migrations::run_migrations;
-    use crate::session::{Message, MessageTree, Node, Role, Session};
+    use libllm_core::session::{Message, MessageTree, Node, Role, Session};
 
     use super::*;
 
@@ -723,7 +723,7 @@ mod tests {
             persona: Some("TestUser".to_owned()),
             scenario: None,
             characters: Vec::new(),
-            chat_mode: crate::group_chat::ChatMode::default(),
+            chat_mode: libllm_core::group_chat::ChatMode::default(),
             author_note: None,
         }
     }
@@ -848,7 +848,7 @@ mod tests {
             persona: None,
             scenario: None,
             characters: Vec::new(),
-            chat_mode: crate::group_chat::ChatMode::default(),
+            chat_mode: libllm_core::group_chat::ChatMode::default(),
             author_note: None,
         };
 
@@ -887,7 +887,7 @@ mod tests {
             persona: None,
             scenario: None,
             characters: Vec::new(),
-            chat_mode: crate::group_chat::ChatMode::default(),
+            chat_mode: libllm_core::group_chat::ChatMode::default(),
             author_note: None,
         };
         insert_session(&mut conn, "sess-2", &session2).unwrap();
@@ -975,8 +975,8 @@ mod tests {
 
     #[test]
     fn save_and_load_group_session_round_trips_attachments_and_settings() {
-        use crate::group_chat::{CharacterAttachment, ChatMode};
-        use crate::session::{MessageTree, Session};
+        use libllm_core::group_chat::{CharacterAttachment, ChatMode};
+        use libllm_core::session::{MessageTree, Session};
 
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::migrations::run_migrations(&conn).unwrap();
@@ -1028,8 +1028,8 @@ mod tests {
 
     #[test]
     fn save_solo_session_mirrors_character_column() {
-        use crate::group_chat::CharacterAttachment;
-        use crate::session::{MessageTree, Session};
+        use libllm_core::group_chat::CharacterAttachment;
+        use libllm_core::session::{MessageTree, Session};
 
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::migrations::run_migrations(&conn).unwrap();
@@ -1057,8 +1057,8 @@ mod tests {
 
     #[test]
     fn save_group_session_clears_character_mirror() {
-        use crate::group_chat::CharacterAttachment;
-        use crate::session::{MessageTree, Session};
+        use libllm_core::group_chat::CharacterAttachment;
+        use libllm_core::session::{MessageTree, Session};
 
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::migrations::run_migrations(&conn).unwrap();
@@ -1088,8 +1088,8 @@ mod tests {
 
     #[test]
     fn save_session_replaces_attachment_set_on_re_save() {
-        use crate::group_chat::CharacterAttachment;
-        use crate::session::{MessageTree, Session};
+        use libllm_core::group_chat::CharacterAttachment;
+        use libllm_core::session::{MessageTree, Session};
 
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::migrations::run_migrations(&conn).unwrap();
@@ -1219,7 +1219,7 @@ mod tests {
     fn session_author_note_round_trip_some() {
         let mut conn = setup_db();
         let mut session = make_session_with_messages();
-        session.author_note = Some(crate::author_note::AuthorNote {
+        session.author_note = Some(libllm_core::author_note::AuthorNote {
             text: "Steer dramatic.".to_owned(),
             depth: 6,
             at_top: false,
@@ -1249,7 +1249,7 @@ mod tests {
         let mut session = make_session_with_messages();
         insert_session(&mut conn, "sess-edit", &session).unwrap();
 
-        session.author_note = Some(crate::author_note::AuthorNote {
+        session.author_note = Some(libllm_core::author_note::AuthorNote {
             text: "later note".to_owned(),
             depth: 2,
             at_top: true,
@@ -1275,12 +1275,12 @@ mod tests {
         super::upsert_message(
             &mut conn,
             "s1",
-            &crate::session::Node {
+            &libllm_core::session::Node {
                 id: 0,
                 parent: None,
                 children: vec![],
-                message: crate::session::Message {
-                    role: crate::session::Role::User,
+                message: libllm_core::session::Message {
+                    role: libllm_core::session::Role::User,
                     content: "uniqueold".to_owned(),
                     timestamp: "now".to_owned(),
                     thought_seconds: None,
@@ -1303,12 +1303,12 @@ mod tests {
         super::upsert_message(
             &mut conn,
             "s1",
-            &crate::session::Node {
+            &libllm_core::session::Node {
                 id: 0,
                 parent: None,
                 children: vec![],
-                message: crate::session::Message {
-                    role: crate::session::Role::User,
+                message: libllm_core::session::Message {
+                    role: libllm_core::session::Role::User,
                     content: "uniquenew".to_owned(),
                     timestamp: "now".to_owned(),
                     thought_seconds: None,

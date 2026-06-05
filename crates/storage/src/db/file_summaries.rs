@@ -4,9 +4,9 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::session::now_iso8601;
+use libllm_core::session::now_iso8601;
 
-pub use crate::files::FileSummaryStatus;
+pub use libllm_core::files::FileSummaryStatus;
 
 /// Row shape returned by `lookup`.
 #[derive(Debug, Clone)]

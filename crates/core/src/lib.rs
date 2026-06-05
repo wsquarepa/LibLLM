@@ -1,4 +1,4 @@
-//! Shared library for LibLLM: types, database access, API client, and preset management.
+//! Shared library for LibLLM: types, API client, and preset management.
 
 pub mod archive;
 pub mod author_note;
@@ -9,7 +9,6 @@ pub mod config;
 pub mod context;
 pub mod crypto;
 pub mod crypto_provider;
-pub mod db;
 pub mod diagnostics;
 pub mod export;
 pub mod files;
@@ -19,7 +18,6 @@ pub mod persona;
 pub mod preset;
 pub mod regex_rules;
 pub mod sampling;
-pub mod search;
 pub mod session;
 pub mod side_character;
 pub mod summarize;

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/libllm", "crates/client", "crates/backup"]
+members = ["crates/core", "crates/libllm", "crates/storage", "crates/client", "crates/backup"]
 resolver = "3"
 
 [workspace.package]
@@ -16,6 +16,7 @@ allow_attributes = "deny"
 [workspace.dependencies]
 libllm = { path = "crates/libllm" }
 libllm-core = { path = "crates/core" }
+libllm-storage = { path = "crates/storage" }
 backup = { path = "crates/backup" }
 
 anyhow = "1"

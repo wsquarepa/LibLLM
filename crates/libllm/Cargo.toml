@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 libllm-core = { workspace = true }
+libllm-storage = { workspace = true }
 
 [features]
 test-support = ["libllm-core/test-support"]

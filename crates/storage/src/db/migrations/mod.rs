@@ -23,7 +23,7 @@ use rusqlite::Connection;
 pub const CURRENT_VERSION: i64 = 10;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", ; {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL

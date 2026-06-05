@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v8" ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v8" ; {
         conn.execute_batch("UPDATE session_characters SET action_points = 0;")
             .context("failed to run migration v8")
     })

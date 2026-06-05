@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v1" ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v1" ; {
         conn.execute_batch(
             "CREATE TABLE sessions (
                 id TEXT PRIMARY KEY NOT NULL,

@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::character::CharacterCard;
-use crate::session::now_iso8601;
+use libllm_core::character::CharacterCard;
+use libllm_core::session::now_iso8601;
 
 fn author_note_columns(card: &CharacterCard) -> (Option<&str>, i64, i64) {
     match card.author_note.as_ref() {
@@ -13,13 +13,13 @@ fn author_note_columns(card: &CharacterCard) -> (Option<&str>, i64, i64) {
             note.depth as i64,
             note.at_top as i64,
         ),
-        None => (None, crate::author_note::DEFAULT_DEPTH as i64, 0),
+        None => (None, libllm_core::author_note::DEFAULT_DEPTH as i64, 0),
     }
 }
 
 pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> Result<()> {
     let alternate_greetings_count = card.alternate_greetings.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.character.insert",
         slug = slug,
@@ -58,7 +58,7 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
 }
 
 pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
-    crate::timed_result!(tracing::Level::INFO, "db.character.load", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.character.load", slug = slug ; {
         conn.query_row(
             "SELECT name, description, personality, scenario, first_mes, mes_example,
                     system_prompt, post_history_instructions, alternate_greetings,
@@ -118,11 +118,11 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
                         slug = slug,
                         raw = author_note_depth,
                         "db.character.load: author_note_depth out of range, defaulting to {}",
-                        crate::author_note::DEFAULT_DEPTH
+                        libllm_core::author_note::DEFAULT_DEPTH
                     );
-                    crate::author_note::DEFAULT_DEPTH
+                    libllm_core::author_note::DEFAULT_DEPTH
                 });
-                let author_note = crate::author_note::AuthorNote::from_row_parts(
+                let author_note = libllm_core::author_note::AuthorNote::from_row_parts(
                     author_note_text,
                     depth,
                     author_note_at_top != 0,
@@ -145,7 +145,7 @@ pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
 }
 
 pub fn list_characters(conn: &Connection) -> Result<Vec<(String, String)>> {
-    crate::timed_result!(tracing::Level::INFO, "db.character.list", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.character.list", ; {
         let entries = super::query_slug_name_pairs(
             conn,
             "SELECT slug, name FROM characters ORDER BY name",
@@ -158,7 +158,7 @@ pub fn list_characters(conn: &Connection) -> Result<Vec<(String, String)>> {
 
 pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> Result<()> {
     let alternate_greetings_count = card.alternate_greetings.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.character.update",
         slug = slug,
@@ -200,7 +200,7 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
 }
 
 pub fn delete_character(conn: &Connection, slug: &str) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.character.delete", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.character.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM characters WHERE slug = ?1", params![slug])
             .context("failed to delete character")?;
@@ -216,8 +216,8 @@ pub fn delete_character(conn: &Connection, slug: &str) -> Result<()> {
 mod tests {
     use rusqlite::Connection;
 
-    use crate::character::CharacterCard;
     use crate::db::migrations::run_migrations;
+    use libllm_core::character::CharacterCard;
 
     use super::*;
 
@@ -307,7 +307,7 @@ mod tests {
     fn character_author_note_round_trip_some() {
         let conn = setup_db();
         let mut card = make_card();
-        card.author_note = Some(crate::author_note::AuthorNote {
+        card.author_note = Some(libllm_core::author_note::AuthorNote {
             text: "Stay in scene.".to_owned(),
             depth: 3,
             at_top: false,
@@ -338,7 +338,7 @@ mod tests {
         insert_character(&conn, "aria", &card).unwrap();
 
         let mut updated = card.clone();
-        updated.author_note = Some(crate::author_note::AuthorNote {
+        updated.author_note = Some(libllm_core::author_note::AuthorNote {
             text: "edit later".to_owned(),
             depth: 1,
             at_top: true,

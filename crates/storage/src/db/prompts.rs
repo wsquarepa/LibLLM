@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::session::now_iso8601;
-use crate::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
+use libllm_core::session::now_iso8601;
+use libllm_core::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
 pub struct PromptListEntry {
     pub slug: String,
@@ -19,7 +19,7 @@ pub fn insert_prompt(
     builtin: bool,
 ) -> Result<()> {
     let content_bytes = prompt.content.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.prompt.insert",
         slug = slug,
@@ -38,7 +38,7 @@ pub fn insert_prompt(
 }
 
 pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
-    crate::timed_result!(tracing::Level::INFO, "db.prompt.load", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.load", slug = slug ; {
         conn.query_row(
             "SELECT name, content FROM system_prompts WHERE slug = ?1",
             params![slug],
@@ -53,7 +53,7 @@ pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
 }
 
 pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
-    crate::timed_result!(tracing::Level::INFO, "db.prompt.list", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.list", ; {
         let mut stmt = conn
             .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
             .context("failed to prepare list_prompts query")?;
@@ -83,7 +83,7 @@ pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
 
 pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -> Result<()> {
     let content_bytes = prompt.content.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.prompt.update",
         slug = slug,
@@ -112,7 +112,7 @@ pub fn rename_prompt(
     prompt: &SystemPromptFile,
 ) -> Result<()> {
     let content_bytes = prompt.content.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.prompt.rename",
         old_slug = old_slug,
@@ -136,7 +136,7 @@ pub fn rename_prompt(
 }
 
 pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.prompt.delete", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
             .context("failed to delete system prompt")?;
@@ -149,7 +149,7 @@ pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
 }
 
 pub fn ensure_builtins(conn: &Connection) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.prompt.ensure_builtins", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.ensure_builtins", ; {
         let mut inserted = 0usize;
         let mut existed = 0usize;
         for slug in [BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY] {
@@ -182,7 +182,7 @@ mod tests {
     use rusqlite::Connection;
 
     use crate::db::migrations::run_migrations;
-    use crate::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
+    use libllm_core::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
     use super::*;
 

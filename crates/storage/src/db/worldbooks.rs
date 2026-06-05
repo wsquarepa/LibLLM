@@ -3,12 +3,12 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::session::now_iso8601;
-use crate::worldinfo::WorldBook;
+use libllm_core::session::now_iso8601;
+use libllm_core::worldinfo::WorldBook;
 
 pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {
     let entry_count = book.entries.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.worldbook.insert",
         slug = slug,
@@ -28,7 +28,7 @@ pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
 }
 
 pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
-    crate::timed_result!(tracing::Level::INFO, "db.worldbook.load", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.worldbook.load", slug = slug ; {
         let book = conn
             .query_row(
                 "SELECT name, entries FROM worldbooks WHERE slug = ?1",
@@ -51,7 +51,7 @@ pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
 }
 
 pub fn list_worldbooks(conn: &Connection) -> Result<Vec<(String, String)>> {
-    crate::timed_result!(tracing::Level::INFO, "db.worldbook.list", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.worldbook.list", ; {
         let entries = super::query_slug_name_pairs(
             conn,
             "SELECT slug, name FROM worldbooks ORDER BY name",
@@ -64,7 +64,7 @@ pub fn list_worldbooks(conn: &Connection) -> Result<Vec<(String, String)>> {
 
 pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Result<()> {
     let entry_count = book.entries.len();
-    crate::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "db.worldbook.update",
         slug = slug,
@@ -89,7 +89,7 @@ pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
 }
 
 pub fn delete_worldbook(conn: &Connection, slug: &str) -> Result<()> {
-    crate::timed_result!(tracing::Level::INFO, "db.worldbook.delete", slug = slug ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.worldbook.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM worldbooks WHERE slug = ?1", params![slug])
             .context("failed to delete worldbook")?;
@@ -106,7 +106,7 @@ mod tests {
     use rusqlite::Connection;
 
     use crate::db::migrations::run_migrations;
-    use crate::worldinfo::{Entry, WorldBook};
+    use libllm_core::worldinfo::{Entry, WorldBook};
 
     use super::*;
 

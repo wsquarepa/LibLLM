@@ -648,11 +648,13 @@ fn load_runtime_reload_state(cli_overrides: &crate::cli::CliOverrides) -> Runtim
         .as_deref()
         .or(config.instruct_preset.as_deref())
         .unwrap_or("Mistral V3-Tekken");
-    let instruct_preset = libllm::preset::resolve_instruct_preset(preset_name);
-    let reasoning_preset = config
-        .reasoning_preset
-        .as_deref()
-        .and_then(libllm::preset::resolve_reasoning_preset);
+    let instruct_preset = libllm::preset::resolve_instruct_preset(
+        preset_name,
+        &libllm::config::instruct_presets_dir(),
+    );
+    let reasoning_preset = config.reasoning_preset.as_deref().and_then(|n| {
+        libllm::preset::resolve_reasoning_preset(n, &libllm::config::reasoning_presets_dir())
+    });
 
     RuntimeReloadState {
         reasoning_preset,
@@ -698,10 +700,11 @@ async fn emit_startup_probe_events(
     if !cli_override_template_set
         && let Some(server_template) = client.fetch_server_chat_template().await
     {
+        let instruct_dir = libllm::config::instruct_presets_dir();
         let presets: Vec<libllm::preset::InstructPreset> =
-            libllm::preset::list_instruct_preset_names()
+            libllm::preset::list_instruct_preset_names(&instruct_dir)
                 .into_iter()
-                .map(|n| libllm::preset::resolve_instruct_preset(&n))
+                .map(|n| libllm::preset::resolve_instruct_preset(&n, &instruct_dir))
                 .collect();
         let outcome = libllm::preset::matching::pick_best_match(
             &server_template,

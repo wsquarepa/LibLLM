@@ -55,7 +55,11 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                     if let Err(e) = db.ensure_builtin_prompts() {
                         app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
                     }
-                    libllm::preset::ensure_default_presets();
+                    libllm::preset::ensure_default_presets(
+                        &libllm::config::instruct_presets_dir(),
+                        &libllm::config::reasoning_presets_dir(),
+                        &libllm::config::template_presets_dir(),
+                    );
                     let id = match &app.save_mode {
                         SaveMode::PendingPasskey { id } => id.clone(),
                         _ => session::generate_session_id(),
@@ -131,7 +135,11 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                         if let Err(e) = db.ensure_builtin_prompts() {
                             app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
                         }
-                        libllm::preset::ensure_default_presets();
+                        libllm::preset::ensure_default_presets(
+                            &libllm::config::instruct_presets_dir(),
+                            &libllm::config::reasoning_presets_dir(),
+                            &libllm::config::template_presets_dir(),
+                        );
                         let id = match &app.save_mode {
                             SaveMode::PendingPasskey { id } => id.clone(),
                             _ => session::generate_session_id(),
@@ -349,7 +357,10 @@ pub(in crate::tui) fn handle_background_event(event: BackgroundEvent, app: &mut 
                 return;
             }
 
-            let suggested = libllm::preset::resolve_instruct_preset(&preset_name);
+            let suggested = libllm::preset::resolve_instruct_preset(
+                &preset_name,
+                &libllm::config::instruct_presets_dir(),
+            );
             let state = TemplatePromptState {
                 suggested_preset: suggested,
                 score,

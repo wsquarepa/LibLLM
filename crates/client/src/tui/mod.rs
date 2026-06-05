@@ -166,10 +166,9 @@ pub async fn run(
         pending_save_deadline: None,
         pending_save_trigger: None,
         stop_tokens: instruct_preset.stop_tokens(),
-        reasoning_preset: config
-            .reasoning_preset
-            .as_deref()
-            .and_then(libllm::preset::resolve_reasoning_preset),
+        reasoning_preset: config.reasoning_preset.as_deref().and_then(|n| {
+            libllm::preset::resolve_reasoning_preset(n, &libllm::config::reasoning_presets_dir())
+        }),
         instruct_preset,
         sampling,
         context_mgr: ContextManager::new(config.summarization.context_size),

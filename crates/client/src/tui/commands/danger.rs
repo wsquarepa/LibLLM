@@ -96,7 +96,7 @@ pub(in crate::tui) fn dispatch_sync(app: &mut App, op: DangerOp) -> Result<Dange
         }
         DangerOp::RegeneratePresets => {
             let summary =
-                libllm::preset::regenerate_builtins(&libllm::preset::instruct_presets_dir());
+                libllm::preset::regenerate_builtins(&libllm::config::instruct_presets_dir());
             Ok(DangerSummary::PresetsWritten {
                 written: summary.written,
                 failed: summary.failed.len(),

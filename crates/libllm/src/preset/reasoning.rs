@@ -1,11 +1,9 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{
-    BUILTIN_REASONING, REASONING_OFF, list_json_names_in_dir, load_json_from_dir,
-    reasoning_presets_dir,
-};
+use super::{BUILTIN_REASONING, REASONING_OFF, list_json_names_in_dir, load_json_from_dir};
 
 /// A reasoning-mode wrapper that adds think-aloud prefix/suffix around assistant output.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -38,22 +36,22 @@ fn load_builtin_reasoning(name: &str) -> Option<ReasoningPreset> {
 }
 
 /// Resolves a reasoning preset by name, returning `None` for "OFF" or an empty string.
-pub fn resolve_reasoning_preset(name: &str) -> Option<ReasoningPreset> {
+pub fn resolve_reasoning_preset(name: &str, presets_dir: &Path) -> Option<ReasoningPreset> {
     if name.eq_ignore_ascii_case(REASONING_OFF) || name.is_empty() {
         return None;
     }
-    if let Some(preset) = load_json_from_dir(&reasoning_presets_dir(), name) {
+    if let Some(preset) = load_json_from_dir(presets_dir, name) {
         return Some(preset);
     }
     load_builtin_reasoning(name)
 }
 
 /// Returns all available reasoning preset names, always starting with "OFF".
-pub fn list_reasoning_preset_names() -> Vec<String> {
+pub fn list_reasoning_preset_names(presets_dir: &Path) -> Vec<String> {
     let mut names = vec![REASONING_OFF.to_owned()];
     let mut seen: HashSet<String> = HashSet::from([REASONING_OFF.to_lowercase()]);
 
-    for dir_name in list_json_names_in_dir(&reasoning_presets_dir()) {
+    for dir_name in list_json_names_in_dir(presets_dir) {
         if seen.insert(dir_name.to_lowercase()) {
             names.push(dir_name);
         }
@@ -73,29 +71,27 @@ mod tests {
     use super::*;
 
     fn setup_data_dir() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        crate::config::set_data_dir(dir.path().to_path_buf()).ok();
-        dir
+        tempfile::tempdir().unwrap()
     }
 
     #[test]
     fn resolve_reasoning_preset_off() {
-        let _dir = setup_data_dir();
-        let result = resolve_reasoning_preset("OFF");
+        let dir = setup_data_dir();
+        let result = resolve_reasoning_preset("OFF", dir.path());
         assert!(result.is_none(), "\"OFF\" should resolve to None");
     }
 
     #[test]
     fn resolve_reasoning_preset_empty() {
-        let _dir = setup_data_dir();
-        let result = resolve_reasoning_preset("");
+        let dir = setup_data_dir();
+        let result = resolve_reasoning_preset("", dir.path());
         assert!(result.is_none(), "empty string should resolve to None");
     }
 
     #[test]
     fn list_reasoning_preset_names_includes_off() {
-        let _dir = setup_data_dir();
-        let names = list_reasoning_preset_names();
+        let dir = setup_data_dir();
+        let names = list_reasoning_preset_names(dir.path());
         assert!(
             !names.is_empty(),
             "reasoning preset list should not be empty"

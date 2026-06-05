@@ -191,7 +191,10 @@ mod tests {
 
     fn fixture_state() -> TemplatePromptState {
         TemplatePromptState {
-            suggested_preset: libllm::preset::resolve_instruct_preset("ChatML"),
+            suggested_preset: libllm::preset::resolve_instruct_preset(
+                "ChatML",
+                &libllm::config::instruct_presets_dir(),
+            ),
             score: 0.99,
             is_best_guess: false,
             server_template_hash: "abc123".to_owned(),

@@ -361,7 +361,8 @@ mod tests {
 
     #[test]
     fn render_preset_chatml_produces_im_start_tags() {
-        let preset = crate::preset::resolve_instruct_preset("ChatML");
+        let dir = tempfile::TempDir::new().unwrap();
+        let preset = crate::preset::resolve_instruct_preset("ChatML", dir.path());
         let out = render_preset(&preset);
         assert!(out.contains("<|im_start|>"));
         assert!(out.contains("<|im_end|>"));
@@ -370,7 +371,8 @@ mod tests {
 
     #[test]
     fn render_preset_llama3_produces_header_id_tags() {
-        let preset = crate::preset::resolve_instruct_preset("Llama 3 Instruct");
+        let dir = tempfile::TempDir::new().unwrap();
+        let preset = crate::preset::resolve_instruct_preset("Llama 3 Instruct", dir.path());
         let out = render_preset(&preset);
         assert!(out.contains("<|start_header_id|>"));
         assert!(out.contains("<|end_header_id|>"));

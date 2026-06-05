@@ -198,7 +198,10 @@ pub(in crate::tui) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) 
                     app.session.worldbooks.clear();
                     let cfg = libllm::config::load();
                     let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
-                    let tpl = libllm::preset::resolve_template_preset(tpl_name);
+                    let tpl = libllm::preset::resolve_template_preset(
+                        tpl_name,
+                        &libllm::config::template_presets_dir(),
+                    );
                     app.session.system_prompt =
                         Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
                     app.session.character = Some(card.name.clone());

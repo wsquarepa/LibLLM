@@ -965,6 +965,18 @@ pub fn salt_path() -> PathBuf {
     data_dir().join(".salt")
 }
 
+pub fn instruct_presets_dir() -> PathBuf {
+    data_dir().join("presets").join("instruct")
+}
+
+pub fn reasoning_presets_dir() -> PathBuf {
+    data_dir().join("presets").join("reasoning")
+}
+
+pub fn template_presets_dir() -> PathBuf {
+    data_dir().join("presets").join("template")
+}
+
 pub fn ensure_dirs() -> Result<()> {
     std::fs::create_dir_all(data_dir()).context("failed to create data directory")
 }

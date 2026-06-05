@@ -186,13 +186,15 @@ async fn main() -> Result<()> {
         .as_deref()
         .or(cfg.instruct_preset.as_deref())
         .unwrap_or("Mistral V3-Tekken");
-    let instruct_preset = preset::resolve_instruct_preset(preset_name);
+    let instruct_preset =
+        preset::resolve_instruct_preset(preset_name, &config::instruct_presets_dir());
     let reasoning_preset = cfg
         .reasoning_preset
         .as_deref()
-        .and_then(preset::resolve_reasoning_preset);
+        .and_then(|n| preset::resolve_reasoning_preset(n, &config::reasoning_presets_dir()));
     let template_preset_name = cfg.template_preset.as_deref().unwrap_or("Default");
-    let template_preset = preset::resolve_template_preset(template_preset_name);
+    let template_preset =
+        preset::resolve_template_preset(template_preset_name, &config::template_presets_dir());
 
     let sampling = sampling::SamplingParams::default()
         .with_overrides(&cfg.sampling)
@@ -508,7 +510,11 @@ fn resolve_session(args: &Args) -> Result<ResolvedSession> {
     if args.no_encrypt {
         let db = Database::open(&db_path, None)?;
         db.ensure_builtin_prompts()?;
-        preset::ensure_default_presets();
+        preset::ensure_default_presets(
+            &config::instruct_presets_dir(),
+            &config::reasoning_presets_dir(),
+            &config::template_presets_dir(),
+        );
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;
@@ -536,7 +542,11 @@ fn resolve_session(args: &Args) -> Result<ResolvedSession> {
         let db = Database::open(&db_path, Some(&*key_arc))
             .context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
-        preset::ensure_default_presets();
+        preset::ensure_default_presets(
+            &config::instruct_presets_dir(),
+            &config::reasoning_presets_dir(),
+            &config::template_presets_dir(),
+        );
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
             let session = db.load_session(uuid)?;

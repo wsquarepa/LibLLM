@@ -1,12 +1,13 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::session::{Message, Role};
 
 use super::{
-    BUILTIN_INSTRUCT, DEFAULT_INSTRUCT_PRESET, backward_compat_alias, instruct_presets_dir,
-    list_json_names_in_dir, load_json_from_dir,
+    BUILTIN_INSTRUCT, DEFAULT_INSTRUCT_PRESET, backward_compat_alias, list_json_names_in_dir,
+    load_json_from_dir,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -271,14 +272,14 @@ fn load_builtin_instruct(name: &str) -> Option<InstructPreset> {
 ///
 /// The special name "Raw" returns a minimal preset with newline-only suffixes. Legacy
 /// aliases like "chatml" are mapped to their canonical names.
-pub fn resolve_instruct_preset(name: &str) -> InstructPreset {
+pub fn resolve_instruct_preset(name: &str, presets_dir: &Path) -> InstructPreset {
     if name.eq_ignore_ascii_case("raw") {
         return InstructPreset::raw();
     }
 
     let resolved_name = backward_compat_alias(name).unwrap_or(name);
 
-    if let Some(preset) = load_json_from_dir(&instruct_presets_dir(), resolved_name) {
+    if let Some(preset) = load_json_from_dir(presets_dir, resolved_name) {
         return preset;
     }
 
@@ -290,8 +291,8 @@ pub fn resolve_instruct_preset(name: &str) -> InstructPreset {
 }
 
 /// Returns all available instruct preset names, merging user files with builtins.
-pub fn list_instruct_preset_names() -> Vec<String> {
-    let mut names = list_json_names_in_dir(&instruct_presets_dir());
+pub fn list_instruct_preset_names(presets_dir: &Path) -> Vec<String> {
+    let mut names = list_json_names_in_dir(presets_dir);
     let mut seen: HashSet<String> = names.iter().map(|n| n.to_lowercase()).collect();
 
     for (builtin_name, _) in BUILTIN_INSTRUCT {
@@ -314,9 +315,7 @@ mod tests {
     use super::*;
 
     fn setup_data_dir() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        crate::config::set_data_dir(dir.path().to_path_buf()).ok();
-        dir
+        tempfile::tempdir().unwrap()
     }
 
     fn user_msg(content: &str) -> Message {
@@ -348,8 +347,8 @@ mod tests {
 
     #[test]
     fn chatml_render() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let msgs = [
             system_msg("You are helpful."),
             user_msg("Hi"),
@@ -375,8 +374,8 @@ mod tests {
 
     #[test]
     fn llama3_render() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("Llama 3 Instruct");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("Llama 3 Instruct", dir.path());
         let msgs = [user_msg("Hi"), assistant_msg("Hello!")];
         let refs: Vec<&_> = msgs.iter().collect();
         let output = preset.render(&refs, Some("System text"));
@@ -399,8 +398,8 @@ mod tests {
 
     #[test]
     fn system_prompt_injection() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let msgs = [user_msg("Hi")];
         let refs: Vec<&_> = msgs.iter().collect();
 
@@ -419,8 +418,8 @@ mod tests {
 
     #[test]
     fn stop_tokens_chatml() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let tokens = preset.stop_tokens();
 
         assert!(
@@ -435,8 +434,8 @@ mod tests {
 
     #[test]
     fn stop_tokens_llama3() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("Llama 3 Instruct");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("Llama 3 Instruct", dir.path());
         let tokens = preset.stop_tokens();
 
         assert!(
@@ -447,19 +446,19 @@ mod tests {
 
     #[test]
     fn all_instruct_presets_load() {
-        let _dir = setup_data_dir();
-        let names = list_instruct_preset_names();
+        let dir = setup_data_dir();
+        let names = list_instruct_preset_names(dir.path());
         assert!(!names.is_empty(), "should have at least one preset");
         for name in &names {
-            let p = resolve_instruct_preset(name);
+            let p = resolve_instruct_preset(name, dir.path());
             assert!(!p.name.is_empty(), "preset {name} should have a name");
         }
     }
 
     #[test]
     fn empty_message_list() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let refs: Vec<&Message> = Vec::new();
         let output = preset.render(&refs, None);
         let _ = output;
@@ -467,8 +466,8 @@ mod tests {
 
     #[test]
     fn empty_message_list_with_system_prompt() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let refs: Vec<&Message> = Vec::new();
         let output = preset.render(&refs, Some("System"));
         assert!(
@@ -479,8 +478,8 @@ mod tests {
 
     #[test]
     fn multi_turn_conversation() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let msgs = [
             user_msg("Turn 1"),
             assistant_msg("Reply 1"),
@@ -509,8 +508,8 @@ mod tests {
 
     #[test]
     fn special_characters_in_messages() {
-        let _dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML");
+        let dir = setup_data_dir();
+        let preset = resolve_instruct_preset("ChatML", dir.path());
         let msgs = [
             user_msg("line1\nline2\nline3"),
             assistant_msg("<tag>content</tag> | pipe | test"),

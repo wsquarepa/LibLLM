@@ -16,9 +16,10 @@ const REAL_LLAMA3_TEMPLATE: &str =
     include_str!("../../libllm/src/preset/matching_fixtures/llama3.jinja");
 
 fn all_builtins() -> Vec<libllm::preset::InstructPreset> {
-    libllm::preset::list_instruct_preset_names()
+    let dir = libllm::config::instruct_presets_dir();
+    libllm::preset::list_instruct_preset_names(&dir)
         .into_iter()
-        .map(|n| libllm::preset::resolve_instruct_preset(&n))
+        .map(|n| libllm::preset::resolve_instruct_preset(&n, &dir))
         .collect()
 }
 

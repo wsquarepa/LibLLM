@@ -1,10 +1,10 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use super::{
     BUILTIN_TEMPLATE, DEFAULT_TEMPLATE_PRESET, list_json_names_in_dir, load_json_from_dir,
-    template_presets_dir,
 };
 
 /// A context template that controls how character description, persona, and worldbook entries
@@ -140,8 +140,8 @@ fn load_builtin_template(name: &str) -> Option<ContextPreset> {
 }
 
 /// Resolves a context template preset by name, falling back to the "Default" builtin.
-pub fn resolve_template_preset(name: &str) -> ContextPreset {
-    if let Some(preset) = load_json_from_dir(&template_presets_dir(), name) {
+pub fn resolve_template_preset(name: &str, presets_dir: &Path) -> ContextPreset {
+    if let Some(preset) = load_json_from_dir(presets_dir, name) {
         return preset;
     }
     if let Some(preset) = load_builtin_template(name) {
@@ -151,8 +151,8 @@ pub fn resolve_template_preset(name: &str) -> ContextPreset {
 }
 
 /// Returns all available context template preset names, merging user files with builtins.
-pub fn list_template_preset_names() -> Vec<String> {
-    let mut names = list_json_names_in_dir(&template_presets_dir());
+pub fn list_template_preset_names(presets_dir: &Path) -> Vec<String> {
+    let mut names = list_json_names_in_dir(presets_dir);
     let mut seen: HashSet<String> = names.iter().map(|n| n.to_lowercase()).collect();
 
     for (builtin_name, _) in BUILTIN_TEMPLATE {
@@ -169,28 +169,26 @@ mod tests {
     use super::*;
 
     fn setup_data_dir() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        crate::config::set_data_dir(dir.path().to_path_buf()).ok();
-        dir
+        tempfile::tempdir().unwrap()
     }
 
     #[test]
     fn all_template_presets_load() {
-        let _dir = setup_data_dir();
-        let names = list_template_preset_names();
+        let dir = setup_data_dir();
+        let names = list_template_preset_names(dir.path());
         assert!(
             !names.is_empty(),
             "should have at least one template preset"
         );
         for name in &names {
-            let _p = resolve_template_preset(name);
+            let _p = resolve_template_preset(name, dir.path());
         }
     }
 
     #[test]
     fn render_story_string_populated() {
-        let _dir = setup_data_dir();
-        let preset = resolve_template_preset("Default");
+        let dir = setup_data_dir();
+        let preset = resolve_template_preset("Default", dir.path());
         let vars = ContextVars {
             system: "SystemText".to_string(),
             description: "DescText".to_string(),
@@ -226,8 +224,8 @@ mod tests {
 
     #[test]
     fn render_story_string_empty_vars() {
-        let _dir = setup_data_dir();
-        let preset = resolve_template_preset("Default");
+        let dir = setup_data_dir();
+        let preset = resolve_template_preset("Default", dir.path());
         let vars = ContextVars {
             system: String::new(),
             description: String::new(),

@@ -5,7 +5,7 @@ mod instruct;
 pub mod matching;
 mod reasoning;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub use context::{
     ContextPreset, ContextVars, list_template_preset_names, resolve_template_preset,
@@ -42,22 +42,10 @@ pub(crate) const DEFAULT_TEMPLATE_PRESET: &str = "Default";
 pub(crate) const BUILTIN_TEMPLATE: &[(&str, &str)] =
     &[("Default", include_str!("../presets/template/default.json"))];
 
-pub fn instruct_presets_dir() -> PathBuf {
-    crate::config::data_dir().join("presets").join("instruct")
-}
-
-pub fn reasoning_presets_dir() -> PathBuf {
-    crate::config::data_dir().join("presets").join("reasoning")
-}
-
-pub fn template_presets_dir() -> PathBuf {
-    crate::config::data_dir().join("presets").join("template")
-}
-
-pub fn ensure_default_presets() {
-    write_defaults_if_dir_missing(&instruct_presets_dir(), BUILTIN_INSTRUCT);
-    write_defaults_if_dir_missing(&reasoning_presets_dir(), BUILTIN_REASONING);
-    write_defaults_if_dir_missing(&template_presets_dir(), BUILTIN_TEMPLATE);
+pub fn ensure_default_presets(instruct_dir: &Path, reasoning_dir: &Path, template_dir: &Path) {
+    write_defaults_if_dir_missing(instruct_dir, BUILTIN_INSTRUCT);
+    write_defaults_if_dir_missing(reasoning_dir, BUILTIN_REASONING);
+    write_defaults_if_dir_missing(template_dir, BUILTIN_TEMPLATE);
 }
 
 pub(crate) fn write_defaults_if_dir_missing(dir: &Path, builtins: &[(&str, &str)]) {

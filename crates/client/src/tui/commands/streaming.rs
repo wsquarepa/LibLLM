@@ -499,7 +499,8 @@ pub(super) async fn run_one_group_turn(
         .as_deref()
         .unwrap_or("Default")
         .to_owned();
-    let template = libllm::preset::resolve_template_preset(&tpl_name);
+    let template =
+        libllm::preset::resolve_template_preset(&tpl_name, &libllm::config::template_presets_dir());
 
     let persona = app
         .session

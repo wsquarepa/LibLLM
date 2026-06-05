@@ -114,15 +114,15 @@ pub enum DbSubcommand {
         #[arg(long)]
         private: bool,
     },
-    /// Write a fully decrypted SQLite database to <path>
+    /// Write a fully decrypted SQLite database to the given path
     Dump {
-        /// Skip overwrite confirmation if <path> already exists
+        /// Skip overwrite confirmation if the output path already exists
         #[arg(long, short = 'y')]
         yes: bool,
         /// Output path
         path: std::path::PathBuf,
     },
-    /// Replace the encrypted database with the contents of a plaintext SQLite file at <path>
+    /// Replace the encrypted database with the contents of a plaintext SQLite file at the given path
     Import {
         /// Skip the confirmation prompt
         #[arg(long, short = 'y')]

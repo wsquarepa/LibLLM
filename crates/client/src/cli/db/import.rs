@@ -1,5 +1,5 @@
 //! `libllm db import <path>` — replace the encrypted database with the
-//! contents of a plaintext SQLite file at <path>. Always backs up first;
+//! contents of a plaintext SQLite file at the given path. Always backs up first;
 //! aborts on schema-version mismatch.
 
 use std::path::Path;

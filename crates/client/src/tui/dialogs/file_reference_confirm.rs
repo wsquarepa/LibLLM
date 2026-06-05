@@ -1,5 +1,5 @@
 //! Confirmation dialog shown when a pasted string resolves to a local file.
-//! Offers [Paste Raw] (insert the original text verbatim) or [Attach] (insert
+//! Offers "Paste Raw" (insert the original text verbatim) or "Attach" (insert
 //! the `@<path>` token). The safe option (Paste Raw) is the default so that a
 //! reflexive Enter never attaches a file that clipboard poisoning slipped in.
 

@@ -9,7 +9,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 /// Errors from key derivation, salt management, and atomic file writes.
 #[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
-    /// A salt file exists but is not exactly [`SALT_LEN`] bytes.
+    /// A salt file exists but is not exactly `SALT_LEN` bytes.
     #[error("invalid salt file length for {path}: expected {expected} bytes, got {actual}")]
     InvalidSaltLength {
         path: PathBuf,

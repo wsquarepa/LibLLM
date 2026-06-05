@@ -1,4 +1,4 @@
-//! `libllm db dump <path>` — write a decrypted SQLite database to <path>.
+//! `libllm db dump <path>` — write a decrypted SQLite database to the given path.
 
 use std::path::Path;
 

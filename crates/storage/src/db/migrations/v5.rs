@@ -1,7 +1,8 @@
 //! v5: Adds session_characters table and group-chat columns on sessions/messages.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v5" ; {
@@ -29,6 +30,9 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
              FROM sessions
              WHERE character IS NOT NULL;",
         )
-        .context("failed to run migration v5")
+        .map_err(|source| DbError::Query {
+            context: "failed to run migration v5".to_owned(),
+            source,
+        })
     })
 }

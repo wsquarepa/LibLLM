@@ -1,7 +1,8 @@
 //! v1: initial schema — sessions, messages, characters, worldbooks, prompts, personas.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v1" ; {
@@ -80,6 +81,9 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
                 updated_at TEXT NOT NULL
             );",
         )
-        .context("failed to run migration v1")
+        .map_err(|source| DbError::Query {
+            context: "failed to run migration v1".to_owned(),
+            source,
+        })
     })
 }

@@ -1,8 +1,8 @@
 //! Persona profile CRUD operations against the SQLite personas table.
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::persona::PersonaFile;
 use libllm_core::session::now_iso8601;
 
@@ -13,7 +13,10 @@ pub fn insert_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> R
             "INSERT INTO personas (slug, name, persona, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![slug, persona.name, persona.persona, now, now],
         )
-        .context("failed to insert persona")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to insert persona".to_owned(),
+            source,
+        })?;
         Ok(())
     })
 }
@@ -29,7 +32,10 @@ pub fn load_persona(conn: &Connection, slug: &str) -> Result<PersonaFile> {
                 Ok(PersonaFile { name, persona })
             },
         )
-        .with_context(|| format!("persona not found: {slug}"))
+        .map_err(|source| DbError::Query {
+            context: format!("persona not found: {slug}"),
+            source,
+        })
     })
 }
 
@@ -53,10 +59,13 @@ pub fn update_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> R
                 "UPDATE personas SET name = ?1, persona = ?2, updated_at = ?3 WHERE slug = ?4",
                 params![persona.name, persona.persona, now, slug],
             )
-            .context("failed to update persona")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to update persona".to_owned(),
+                source,
+            })?;
         tracing::info!(slug = slug, affected = affected, "db.persona.update");
         if affected == 0 {
-            anyhow::bail!("persona not found: {slug}");
+            return Err(DbError::PersonaNotFound { slug: slug.to_owned() });
         }
         Ok(())
     })
@@ -66,10 +75,13 @@ pub fn delete_persona(conn: &Connection, slug: &str) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.persona.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM personas WHERE slug = ?1", params![slug])
-            .context("failed to delete persona")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to delete persona".to_owned(),
+                source,
+            })?;
         tracing::info!(slug = slug, affected = affected, "db.persona.delete");
         if affected == 0 {
-            anyhow::bail!("persona not found: {slug}");
+            return Err(DbError::PersonaNotFound { slug: slug.to_owned() });
         }
         Ok(())
     })

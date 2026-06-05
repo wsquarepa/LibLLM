@@ -1,8 +1,8 @@
 //! System prompt CRUD operations with builtin prompt seeding.
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::session::now_iso8601;
 use libllm_core::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
 
@@ -31,7 +31,10 @@ pub fn insert_prompt(
                 "INSERT INTO system_prompts (slug, name, content, builtin, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![slug, prompt.name, prompt.content, builtin as i64, now, now],
             )
-            .context("failed to insert system prompt")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to insert system prompt".to_owned(),
+                source,
+            })?;
             Ok(())
         }
     )
@@ -48,7 +51,10 @@ pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
                 Ok(SystemPromptFile { name, content })
             },
         )
-        .with_context(|| format!("system prompt not found: {slug}"))
+        .map_err(|source| DbError::Query {
+            context: format!("system prompt not found: {slug}"),
+            source,
+        })
     })
 }
 
@@ -56,7 +62,10 @@ pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.list", ; {
         let mut stmt = conn
             .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
-            .context("failed to prepare list_prompts query")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to prepare list_prompts query".to_owned(),
+                source,
+            })?;
 
         let rows = stmt
             .query_map([], |row| {
@@ -69,11 +78,17 @@ pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
                     builtin: builtin != 0,
                 })
             })
-            .context("failed to query system prompts")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to query system prompts".to_owned(),
+                source,
+            })?;
 
         let mut entries = Vec::new();
         for row in rows {
-            entries.push(row.context("failed to read system prompt row")?);
+            entries.push(row.map_err(|source| DbError::Query {
+                context: "failed to read system prompt row".to_owned(),
+                source,
+            })?);
         }
         let builtin_count = entries.iter().filter(|e| e.builtin).count();
         tracing::info!(count = entries.len(), builtin_count = builtin_count, "db.prompt.list");
@@ -95,10 +110,13 @@ pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -
                     "UPDATE system_prompts SET name = ?1, content = ?2, updated_at = ?3 WHERE slug = ?4",
                     params![prompt.name, prompt.content, now, slug],
                 )
-                .context("failed to update system prompt")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to update system prompt".to_owned(),
+                    source,
+                })?;
             tracing::info!(slug = slug, affected = affected, "db.prompt.update");
             if affected == 0 {
-                anyhow::bail!("system prompt not found: {slug}");
+                return Err(DbError::PromptNotFound { slug: slug.to_owned() });
             }
             Ok(())
         }
@@ -125,10 +143,13 @@ pub fn rename_prompt(
                     "UPDATE system_prompts SET slug = ?1, name = ?2, content = ?3, updated_at = ?4 WHERE slug = ?5",
                     params![new_slug, prompt.name, prompt.content, now, old_slug],
                 )
-                .context("failed to rename system prompt")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to rename system prompt".to_owned(),
+                    source,
+                })?;
             tracing::info!(old_slug = old_slug, new_slug = new_slug, affected = affected, "db.prompt.rename");
             if affected == 0 {
-                anyhow::bail!("system prompt not found: {old_slug}");
+                return Err(DbError::PromptNotFound { slug: old_slug.to_owned() });
             }
             Ok(())
         }
@@ -139,10 +160,13 @@ pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
-            .context("failed to delete system prompt")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to delete system prompt".to_owned(),
+                source,
+            })?;
         tracing::info!(slug = slug, affected = affected, "db.prompt.delete");
         if affected == 0 {
-            anyhow::bail!("system prompt not found: {slug}");
+            return Err(DbError::PromptNotFound { slug: slug.to_owned() });
         }
         Ok(())
     })
@@ -159,7 +183,10 @@ pub fn ensure_builtins(conn: &Connection) -> Result<()> {
                     params![slug],
                     |row| row.get(0),
                 )
-                .context("failed to check builtin prompt existence")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to check builtin prompt existence".to_owned(),
+                    source,
+                })?;
 
             if !exists {
                 let prompt = SystemPromptFile {

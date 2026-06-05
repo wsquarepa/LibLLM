@@ -702,7 +702,7 @@ pub(super) fn load_sidebar_selection(app: &mut App) {
         let load_result = app
             .db
             .as_ref()
-            .map(|db| db.load_session(&session_id))
+            .map(|db| db.load_session(&session_id).map_err(anyhow::Error::from))
             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
         match load_result {
             Ok(loaded) => {

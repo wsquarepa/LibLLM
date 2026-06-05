@@ -4,8 +4,9 @@
 //! breaks the intended key-value semantics. The table-rebuild idiom is the only
 //! way to add a NOT NULL constraint to an existing column in SQLite.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v10" ; {
@@ -25,6 +26,10 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
             ALTER TABLE dismissed_template_prompts_new
                 RENAME TO dismissed_template_prompts;",
         )
-        .context("failed to rebuild dismissed_template_prompts with NOT NULL constraint")
+        .map_err(|source| DbError::Query {
+            context: "failed to rebuild dismissed_template_prompts with NOT NULL constraint"
+                .to_owned(),
+            source,
+        })
     })
 }

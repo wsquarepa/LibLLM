@@ -1,7 +1,8 @@
 //! v4: Adds the dismissed_template_prompts KV table for auto-template-detection.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v4" ; {
@@ -11,6 +12,9 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
                 dismissed_at INTEGER NOT NULL
             );",
         )
-        .context("failed to create dismissed_template_prompts table")
+        .map_err(|source| DbError::Query {
+            context: "failed to create dismissed_template_prompts table".to_owned(),
+            source,
+        })
     })
 }

@@ -17,8 +17,9 @@ mod v7;
 mod v8;
 mod v9;
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub const CURRENT_VERSION: i64 = 10;
 
@@ -29,7 +30,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 version INTEGER NOT NULL
             );",
         )
-        .context("failed to create schema_version table")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to create schema_version table".to_owned(),
+            source,
+        })?;
 
         let version: i64 = conn
             .query_row(
@@ -37,7 +41,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 [],
                 |row| row.get(0),
             )
-            .context("failed to read schema version")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to read schema version".to_owned(),
+                source,
+            })?;
 
         let mut applied = 0usize;
         if version < 1 {
@@ -97,7 +104,10 @@ fn stamp_version(conn: &Connection, version: i64) -> Result<()> {
         "INSERT INTO schema_version (version) VALUES (?1)",
         rusqlite::params![version],
     )
-    .context("failed to record schema version")?;
+    .map_err(|source| DbError::Query {
+        context: "failed to record schema version".to_owned(),
+        source,
+    })?;
     Ok(())
 }
 
@@ -110,11 +120,16 @@ fn apply_migration(
 ) -> Result<()> {
     let tx = conn
         .unchecked_transaction()
-        .context("failed to begin migration transaction")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to begin migration transaction".to_owned(),
+            source,
+        })?;
     migrate(conn)?;
     stamp_version(conn, version)?;
-    tx.commit()
-        .context("failed to commit migration transaction")?;
+    tx.commit().map_err(|source| DbError::Query {
+        context: "failed to commit migration transaction".to_owned(),
+        source,
+    })?;
     Ok(())
 }
 

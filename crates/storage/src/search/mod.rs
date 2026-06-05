@@ -148,7 +148,7 @@ fn run(
     let mut hits: Vec<SearchHit> = Vec::new();
     for row in rows {
         let raw = row.map_err(map_match_error)?;
-        let role: Role = raw.role_raw.parse().map_err(|e: anyhow::Error| {
+        let role: Role = raw.role_raw.parse().map_err(|e| {
             SearchError::InvalidMatch(format!("unrecognised role '{}': {e}", raw.role_raw))
         })?;
         let timestamp = parse_iso(&raw.timestamp_raw).map_err(|e| {

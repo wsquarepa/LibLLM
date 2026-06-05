@@ -1117,7 +1117,7 @@ pub(super) async fn jump_to_search_hit(
                 if msg.contains("not found") || msg.contains("no rows") {
                     return Err(JumpError::MissingSession);
                 }
-                return Err(JumpError::Load(err));
+                return Err(JumpError::Load(err.into()));
             }
         }
     }

@@ -247,7 +247,7 @@ impl App<'_> {
                     retry_count = self.autosave_debug.retry_count,
                     "autosave",
                 );
-                Err(err)
+                Err(err.into())
             }
         }
     }

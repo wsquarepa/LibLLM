@@ -1,7 +1,8 @@
 //! v2: `file_summaries` cache for per-session LLM summaries of attached files.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v2" ; {
@@ -20,6 +21,9 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
 
             CREATE INDEX idx_file_summaries_status ON file_summaries(status);",
         )
-        .context("failed to run migration v2")
+        .map_err(|source| DbError::Query {
+            context: "failed to run migration v2".to_owned(),
+            source,
+        })
     })
 }

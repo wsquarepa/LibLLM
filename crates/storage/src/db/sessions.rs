@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::session::{Message, MessageTree, Node, NodeId, Role, Session, now_iso8601};
 
 type SessionRow = (
@@ -108,7 +108,10 @@ fn insert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             note_at_top,
         ],
     )
-    .context("failed to insert session row")?;
+    .map_err(|source| DbError::Query {
+        context: "failed to insert session row".to_owned(),
+        source,
+    })?;
     Ok(())
 }
 
@@ -156,7 +159,10 @@ fn upsert_session_row(conn: &Connection, id: &str, session: &Session) -> Result<
             note_at_top,
         ],
     )
-    .context("failed to upsert session row")?;
+    .map_err(|source| DbError::Query {
+        context: "failed to upsert session row".to_owned(),
+        source,
+    })?;
     Ok(())
 }
 
@@ -183,7 +189,10 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
                 node.message.pre_turn_action_points,
             ],
         )
-        .context("failed to insert message row")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to insert message row".to_owned(),
+            source,
+        })?;
     }
 
     for worldbook_slug in &session.worldbooks {
@@ -191,7 +200,10 @@ fn write_messages_and_worldbooks(conn: &Connection, id: &str, session: &Session)
             "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES (?1, ?2)",
             params![id, worldbook_slug],
         )
-        .context("failed to insert session_worldbooks row")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to insert session_worldbooks row".to_owned(),
+            source,
+        })?;
     }
 
     Ok(())
@@ -204,7 +216,10 @@ fn write_session_characters(conn: &Connection, id: &str, session: &Session) -> R
         "DELETE FROM session_characters WHERE session_id = ?1",
         params![id],
     )
-    .context("failed to clear session_characters")?;
+    .map_err(|source| DbError::Query {
+        context: "failed to clear session_characters".to_owned(),
+        source,
+    })?;
 
     for (idx, attachment) in session.characters.iter().enumerate() {
         conn.execute(
@@ -218,7 +233,10 @@ fn write_session_characters(conn: &Connection, id: &str, session: &Session) -> R
                 attachment.action_points as f64,
             ],
         )
-        .context("failed to insert session_characters row")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to insert session_characters row".to_owned(),
+            source,
+        })?;
     }
     Ok(())
 }
@@ -233,11 +251,17 @@ pub fn insert_session(conn: &mut Connection, id: &str, session: &Session) -> Res
         node_count = node_count,
         worldbook_count = worldbook_count
         ; {
-            let sp = conn.savepoint().context("failed to begin savepoint")?;
+            let sp = conn.savepoint().map_err(|source| DbError::Query {
+                context: "failed to begin savepoint".to_owned(),
+                source,
+            })?;
             insert_session_row(&sp, id, session)?;
             write_messages_and_worldbooks(&sp, id, session)?;
             write_session_characters(&sp, id, session)?;
-            sp.commit().context("failed to commit session insert")?;
+            sp.commit().map_err(|source| DbError::Query {
+                context: "failed to commit session insert".to_owned(),
+                source,
+            })?;
             Ok(())
         }
     )
@@ -253,18 +277,30 @@ pub fn save_session(conn: &mut Connection, id: &str, session: &Session) -> Resul
         node_count = node_count,
         worldbook_count = worldbook_count
         ; {
-            let sp = conn.savepoint().context("failed to begin savepoint")?;
+            let sp = conn.savepoint().map_err(|source| DbError::Query {
+                context: "failed to begin savepoint".to_owned(),
+                source,
+            })?;
             upsert_session_row(&sp, id, session)?;
             sp.execute("DELETE FROM messages WHERE session_id = ?1", params![id])
-                .context("failed to clear messages")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to clear messages".to_owned(),
+                    source,
+                })?;
             sp.execute(
                 "DELETE FROM session_worldbooks WHERE session_id = ?1",
                 params![id],
             )
-            .context("failed to clear session_worldbooks")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to clear session_worldbooks".to_owned(),
+                source,
+            })?;
             write_messages_and_worldbooks(&sp, id, session)?;
             write_session_characters(&sp, id, session)?;
-            sp.commit().context("failed to commit session save")?;
+            sp.commit().map_err(|source| DbError::Query {
+                context: "failed to commit session save".to_owned(),
+                source,
+            })?;
             Ok(())
         }
     )
@@ -282,12 +318,18 @@ pub fn ids_matching_display_name(conn: &Connection, substring: &str) -> Result<V
                AND display_name LIKE '%' || ?1 || '%' ESCAPE '\\' COLLATE NOCASE \
              ORDER BY id",
         )
-        .context("failed to prepare session lookup")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to prepare session lookup".to_owned(),
+            source,
+        })?;
     let rows = stmt
         .query_map(params![escaped], |row| row.get::<_, String>(0))
-        .context("failed to execute session lookup")?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!(e))
+        .map_err(|source| DbError::Query {
+            context: "failed to execute session lookup".to_owned(),
+            source,
+        })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::Sqlite)
 }
 
 pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
@@ -297,7 +339,10 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
             params![id],
             |row| row.get(0),
         )
-        .context("failed to check session existence")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to check session existence".to_owned(),
+            source,
+        })?;
     tracing::info!(
         session_id = id,
         result = "ok",
@@ -344,7 +389,10 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         ))
                     },
                 )
-                .with_context(|| format!("session not found: {id}"))?;
+                .map_err(|source| DbError::Query {
+                    context: format!("session not found: {id}"),
+                    source,
+                })?;
 
             let chat_mode = libllm_core::group_chat::ChatMode::from_db_str(
                 chat_mode_str.as_deref().unwrap_or(""),
@@ -356,7 +404,10 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points
                      FROM messages WHERE session_id = ?1 ORDER BY id",
                 )
-                .context("failed to prepare message query")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to prepare message query".to_owned(),
+                    source,
+                })?;
 
             let mut nodes: Vec<Node> = Vec::new();
             let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
@@ -384,7 +435,10 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         pre_turn_action_points,
                     ))
                 })
-                .context("failed to query messages")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to query messages".to_owned(),
+                    source,
+                })?;
 
             for row in rows {
                 let (
@@ -397,11 +451,21 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                     thought_seconds,
                     speaker,
                     pre_turn_action_points,
-                ) = row.context("failed to read message row")?;
+                ) = row.map_err(|source| DbError::Query {
+                    context: "failed to read message row".to_owned(),
+                    source,
+                })?;
 
                 let role: Role = role_str
                     .parse()
-                    .with_context(|| format!("invalid role in message {msg_id}: {role_str}"))?;
+                    .map_err(|_| DbError::Query {
+                        context: format!("invalid role in message {msg_id}: {role_str}"),
+                        source: rusqlite::Error::InvalidColumnType(
+                            3,
+                            role_str.clone(),
+                            rusqlite::types::Type::Text,
+                        ),
+                    })?;
                 let thought_seconds: Option<u32> =
                     thought_seconds.and_then(|seconds| u32::try_from(seconds).ok());
 
@@ -441,12 +505,21 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
             let mut worldbooks: Vec<String> = Vec::new();
             let mut wb_stmt = conn
                 .prepare("SELECT worldbook_slug FROM session_worldbooks WHERE session_id = ?1")
-                .context("failed to prepare worldbooks query")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to prepare worldbooks query".to_owned(),
+                    source,
+                })?;
             let wb_rows = wb_stmt
                 .query_map(params![id], |row| row.get(0))
-                .context("failed to query worldbooks")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to query worldbooks".to_owned(),
+                    source,
+                })?;
             for wb in wb_rows {
-                worldbooks.push(wb.context("failed to read worldbook row")?);
+                worldbooks.push(wb.map_err(|source| DbError::Query {
+                    context: "failed to read worldbook row".to_owned(),
+                    source,
+                })?);
             }
 
             let mut ch_stmt = conn
@@ -455,7 +528,10 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                      FROM session_characters WHERE session_id = ?1
                      ORDER BY attach_index",
                 )
-                .context("failed to prepare session_characters query")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to prepare session_characters query".to_owned(),
+                    source,
+                })?;
             let ch_rows = ch_stmt
                 .query_map(params![id], |row| {
                     let slug: String = row.get(0)?;
@@ -468,10 +544,16 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
                         spoke_this_round: false,
                     })
                 })
-                .context("failed to query session_characters")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to query session_characters".to_owned(),
+                    source,
+                })?;
             let mut characters: Vec<libllm_core::group_chat::CharacterAttachment> = Vec::new();
             for ch in ch_rows {
-                characters.push(ch.context("failed to read session_characters row")?);
+                characters.push(ch.map_err(|source| DbError::Query {
+                    context: "failed to read session_characters row".to_owned(),
+                    source,
+                })?);
             }
 
             if characters.is_empty() && let Some(slug) = character.as_deref() {
@@ -525,7 +607,10 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
                  GROUP BY s.id
                  ORDER BY s.updated_at DESC",
             )
-            .context("failed to prepare list_sessions query")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to prepare list_sessions query".to_owned(),
+                source,
+            })?;
 
         let rows = stmt
             .query_map([], |row| {
@@ -540,11 +625,17 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
                     updated_at,
                 })
             })
-            .context("failed to query sessions")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to query sessions".to_owned(),
+                source,
+            })?;
 
         let mut entries = Vec::new();
         for row in rows {
-            entries.push(row.context("failed to read session row")?);
+            entries.push(row.map_err(|source| DbError::Query {
+                context: "failed to read session row".to_owned(),
+                source,
+            })?);
         }
         tracing::info!(session_count = entries.len(), "db.session.list");
         Ok(entries)
@@ -555,10 +646,13 @@ pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.session.delete", session_id = id ; {
         let affected = conn
             .execute("DELETE FROM sessions WHERE id = ?1", params![id])
-            .context("failed to delete session")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to delete session".to_owned(),
+                source,
+            })?;
         tracing::info!(session_id = id, affected = affected, "db.session.delete");
         if affected == 0 {
-            anyhow::bail!("session not found: {id}");
+            return Err(DbError::SessionNotFound { id: id.to_owned() });
         }
         Ok(())
     })
@@ -576,12 +670,18 @@ pub fn upsert_message(conn: &mut Connection, session_id: &str, node: &Node) -> R
         role = role,
         content_bytes = content_bytes
         ; {
-            let sp = conn.savepoint().context("failed to open savepoint for upsert_message")?;
+            let sp = conn.savepoint().map_err(|source| DbError::Query {
+                context: "failed to open savepoint for upsert_message".to_owned(),
+                source,
+            })?;
             sp.execute(
                 "DELETE FROM messages WHERE session_id = ?1 AND id = ?2",
                 params![session_id, node.id as i64],
             )
-            .context("failed to delete message before upsert")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to delete message before upsert".to_owned(),
+                source,
+            })?;
             sp.execute(
                 "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -598,8 +698,14 @@ pub fn upsert_message(conn: &mut Connection, session_id: &str, node: &Node) -> R
                     node.message.pre_turn_action_points,
                 ],
             )
-            .context("failed to insert message during upsert")?;
-            sp.commit().context("failed to commit upsert_message savepoint")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to insert message during upsert".to_owned(),
+                source,
+            })?;
+            sp.commit().map_err(|source| DbError::Query {
+                context: "failed to commit upsert_message savepoint".to_owned(),
+                source,
+            })?;
             Ok(())
         }
     )
@@ -615,7 +721,10 @@ pub fn update_head(conn: &Connection, session_id: &str, head_id: Option<NodeId>)
             "UPDATE sessions SET head_id = ?1, updated_at = ?2 WHERE id = ?3",
             params![head_id.map(|h| h as i64), now, session_id],
         )
-        .context("failed to update session head");
+        .map_err(|source| DbError::Query {
+            context: "failed to update session head".to_owned(),
+            source,
+        });
     match &result {
         Ok(affected) => tracing::info!(
             session_id = session_id,
@@ -645,7 +754,10 @@ pub fn update_preferred_child(
             "UPDATE messages SET preferred_child_id = ?1 WHERE session_id = ?2 AND id = ?3",
             params![child_id as i64, session_id, parent_id as i64],
         )
-        .context("failed to update preferred_child");
+        .map_err(|source| DbError::Query {
+            context: "failed to update preferred_child".to_owned(),
+            source,
+        });
     match &result {
         Ok(affected) => tracing::info!(
             session_id = session_id,

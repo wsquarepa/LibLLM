@@ -1,7 +1,8 @@
 //! v7: Adds messages_fts (FTS5 external-content) and the three sync triggers.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v7" ; {
@@ -11,7 +12,10 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
                 [],
                 |row| row.get(0),
             )
-            .context("failed to check messages_fts existence")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to check messages_fts existence".to_owned(),
+                source,
+            })?;
 
         conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -37,7 +41,10 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
                  VALUES (new.rowid, new.content);
              END;",
         )
-        .context("failed to create messages_fts table and triggers")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to create messages_fts table and triggers".to_owned(),
+            source,
+        })?;
 
         // Backfill only when the table was just created. On an old-v5 database
         // the table already holds indexed content and a second pass would
@@ -48,7 +55,10 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
             conn.execute_batch(
                 "INSERT INTO messages_fts(rowid, content) SELECT rowid, content FROM messages;",
             )
-            .context("failed to backfill messages_fts")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to backfill messages_fts".to_owned(),
+                source,
+            })?;
         }
         Ok(())
     })

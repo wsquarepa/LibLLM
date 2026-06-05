@@ -1,8 +1,8 @@
 //! Worldbook CRUD operations with JSON-serialized entry storage.
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::session::now_iso8601;
 use libllm_core::worldinfo::WorldBook;
 
@@ -16,12 +16,18 @@ pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
         ; {
             let now = now_iso8601();
             let entries = serde_json::to_string(&book.entries)
-                .context("failed to serialize worldbook entries")?;
+                .map_err(|source| DbError::Json {
+                    context: "failed to serialize worldbook entries".to_owned(),
+                    source,
+                })?;
             conn.execute(
                 "INSERT INTO worldbooks (slug, name, entries, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![slug, book.name, entries, now, now],
             )
-            .context("failed to insert worldbook")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to insert worldbook".to_owned(),
+                source,
+            })?;
             Ok(())
         }
     )
@@ -29,7 +35,7 @@ pub fn insert_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
 
 pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.worldbook.load", slug = slug ; {
-        let book = conn
+        let (name, entries_json): (String, String) = conn
             .query_row(
                 "SELECT name, entries FROM worldbooks WHERE slug = ?1",
                 params![slug],
@@ -39,12 +45,16 @@ pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
                     Ok((name, entries_json))
                 },
             )
-            .with_context(|| format!("worldbook not found: {slug}"))
-            .and_then(|(name, entries_json)| {
-                let entries = serde_json::from_str(&entries_json)
-                    .context("failed to deserialize worldbook entries")?;
-                Ok(WorldBook { name, entries })
+            .map_err(|source| DbError::Query {
+                context: format!("worldbook not found: {slug}"),
+                source,
             })?;
+        let entries = serde_json::from_str(&entries_json)
+            .map_err(|source| DbError::Json {
+                context: "failed to deserialize worldbook entries".to_owned(),
+                source,
+            })?;
+        let book = WorldBook { name, entries };
         tracing::info!(slug = slug, entry_count = book.entries.len(), "db.worldbook.load");
         Ok(book)
     })
@@ -72,16 +82,22 @@ pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
         ; {
             let now = now_iso8601();
             let entries = serde_json::to_string(&book.entries)
-                .context("failed to serialize worldbook entries")?;
+                .map_err(|source| DbError::Json {
+                    context: "failed to serialize worldbook entries".to_owned(),
+                    source,
+                })?;
             let affected = conn
                 .execute(
                     "UPDATE worldbooks SET name = ?1, entries = ?2, updated_at = ?3 WHERE slug = ?4",
                     params![book.name, entries, now, slug],
                 )
-                .context("failed to update worldbook")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to update worldbook".to_owned(),
+                    source,
+                })?;
             tracing::info!(slug = slug, affected = affected, "db.worldbook.update");
             if affected == 0 {
-                anyhow::bail!("worldbook not found: {slug}");
+                return Err(DbError::WorldbookNotFound { slug: slug.to_owned() });
             }
             Ok(())
         }
@@ -92,10 +108,13 @@ pub fn delete_worldbook(conn: &Connection, slug: &str) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.worldbook.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM worldbooks WHERE slug = ?1", params![slug])
-            .context("failed to delete worldbook")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to delete worldbook".to_owned(),
+                source,
+            })?;
         tracing::info!(slug = slug, affected = affected, "db.worldbook.delete");
         if affected == 0 {
-            anyhow::bail!("worldbook not found: {slug}");
+            return Err(DbError::WorldbookNotFound { slug: slug.to_owned() });
         }
         Ok(())
     })

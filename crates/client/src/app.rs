@@ -642,7 +642,7 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
     let db_path = config::data_dir().join("data.db");
 
     if args.no_encrypt {
-        return Database::open(&db_path, None);
+        return Ok(Database::open(&db_path, None)?);
     }
 
     let passkey: String = match args.passkey.clone() {

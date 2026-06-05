@@ -510,7 +510,7 @@ fn create_and_edit_worldbook(app: &mut App) {
     if let Err(e) = app
         .db
         .as_ref()
-        .map(|db| db.insert_worldbook(&slug, &wb))
+        .map(|db| db.insert_worldbook(&slug, &wb).map_err(anyhow::Error::from))
         .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     {
         app.set_status(
@@ -696,7 +696,7 @@ fn save_worldbook_editor(app: &mut App) {
     let save_result = if is_rename {
         app.db
             .as_ref()
-            .map(|db| db.insert_worldbook(&slug, &wb))
+            .map(|db| db.insert_worldbook(&slug, &wb).map_err(anyhow::Error::from))
             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     } else {
         app.db
@@ -708,6 +708,7 @@ fn save_worldbook_editor(app: &mut App) {
                     db.insert_worldbook(&slug, &wb)
                 }
             })
+            .map(|r| r.map_err(anyhow::Error::from))
             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     };
     match save_result {
@@ -786,7 +787,7 @@ pub(in crate::tui) fn handle_worldbook_paste(
             match app
                 .db
                 .as_ref()
-                .map(|db| db.insert_worldbook(&slug, &wb))
+                .map(|db| db.insert_worldbook(&slug, &wb).map_err(anyhow::Error::from))
                 .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
             {
                 Ok(()) => {

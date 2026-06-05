@@ -3,9 +3,9 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+use crate::error::{DbError, Result};
 use libllm_core::character::CharacterCard;
 use libllm_core::crypto::DerivedKey;
 use libllm_core::persona::PersonaFile;
@@ -63,14 +63,20 @@ fn query_slug_name_pairs(
     err_context: &str,
 ) -> Result<Vec<(String, String)>> {
     let err_owned = err_context.to_owned();
-    let mut stmt = conn.prepare(sql).with_context(|| err_owned.clone())?;
+    let mut stmt = conn.prepare(sql).map_err(|source| DbError::Query {
+        context: err_owned.clone(),
+        source,
+    })?;
     let rows = stmt
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
-        .with_context(|| err_owned.clone())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!(e))
+        .map_err(|source| DbError::Query {
+            context: err_owned.clone(),
+            source,
+        })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(DbError::Sqlite)
 }
 
 /// Result set returned by `Database::execute_query`.
@@ -96,18 +102,30 @@ impl Database {
             encrypted = encrypted
             ; {
                 let conn = Connection::open(path)
-                    .with_context(|| format!("failed to open database: {}", path.display()))?;
+                    .map_err(|source| DbError::Query {
+                        context: format!("failed to open database: {}", path.display()),
+                        source,
+                    })?;
 
                 libllm_core::crypto::chmod_0600(path)
-                    .with_context(|| format!("failed to restrict permissions: {}", path.display()))?;
+                    .map_err(|source| DbError::Io {
+                        context: format!("failed to restrict permissions: {}", path.display()),
+                        source,
+                    })?;
 
                 if let Some(key) = key {
                     conn.execute_batch(&key.key_pragma())
-                        .context("failed to set database encryption key")?;
+                        .map_err(|source| DbError::Query {
+                            context: "failed to set database encryption key".to_owned(),
+                            source,
+                        })?;
                 }
 
                 conn.execute_batch("PRAGMA journal_mode = WAL;")
-                    .context("failed to enable WAL mode")?;
+                    .map_err(|source| DbError::Query {
+                        context: "failed to enable WAL mode".to_owned(),
+                        source,
+                    })?;
 
                 let path_wal = {
                     let mut s = path.as_os_str().to_owned();
@@ -120,18 +138,29 @@ impl Database {
                     std::path::PathBuf::from(s)
                 };
                 if path_wal.exists() {
-                    libllm_core::crypto::chmod_0600(&path_wal).with_context(|| {
-                        format!("failed to restrict permissions: {}", path_wal.display())
+                    libllm_core::crypto::chmod_0600(&path_wal).map_err(|source| DbError::Io {
+                        context: format!(
+                            "failed to restrict permissions: {}",
+                            path_wal.display()
+                        ),
+                        source,
                     })?;
                 }
                 if path_shm.exists() {
-                    libllm_core::crypto::chmod_0600(&path_shm).with_context(|| {
-                        format!("failed to restrict permissions: {}", path_shm.display())
+                    libllm_core::crypto::chmod_0600(&path_shm).map_err(|source| DbError::Io {
+                        context: format!(
+                            "failed to restrict permissions: {}",
+                            path_shm.display()
+                        ),
+                        source,
                     })?;
                 }
 
                 conn.execute_batch("PRAGMA foreign_keys = ON;")
-                    .context("failed to enable foreign keys")?;
+                    .map_err(|source| DbError::Query {
+                        context: "failed to enable foreign keys".to_owned(),
+                        source,
+                    })?;
 
                 migrations::run_migrations(&conn)?;
 
@@ -284,7 +313,10 @@ impl Database {
         libllm_core::timed_result!(tracing::Level::INFO, "db.rekey", ; {
             self.conn
                 .execute_batch(&new_key.rekey_pragma())
-                .context("failed to rekey database")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to rekey database".to_owned(),
+                    source,
+                })?;
             Ok(())
         })
     }
@@ -302,12 +334,21 @@ impl Database {
     /// `attempt to write a readonly database` when called on a connection
     /// opened with `PRAGMA query_only = ON`.
     pub fn execute_query(&self, sql: &str) -> Result<QueryRows> {
-        let mut stmt = self.conn.prepare(sql).context("failed to prepare query")?;
+        let mut stmt = self.conn.prepare(sql).map_err(|source| DbError::Query {
+            context: "failed to prepare query".to_owned(),
+            source,
+        })?;
         let headers: Vec<String> = stmt.column_names().into_iter().map(str::to_owned).collect();
         let column_count = headers.len();
         let mut rows = Vec::new();
-        let mut cursor = stmt.query([]).context("failed to execute query")?;
-        while let Some(row) = cursor.next().context("failed to read row")? {
+        let mut cursor = stmt.query([]).map_err(|source| DbError::Query {
+            context: "failed to execute query".to_owned(),
+            source,
+        })?;
+        while let Some(row) = cursor.next().map_err(|source| DbError::Query {
+            context: "failed to read row".to_owned(),
+            source,
+        })? {
             let mut values = Vec::with_capacity(column_count);
             for idx in 0..column_count {
                 values.push(row.get::<_, rusqlite::types::Value>(idx)?);
@@ -320,9 +361,10 @@ impl Database {
     /// Execute a single SQL statement that does not return rows.
     /// Returns the number of affected rows.
     pub fn execute_statement(&self, sql: &str) -> Result<usize> {
-        self.conn
-            .execute(sql, [])
-            .context("failed to execute statement")
+        self.conn.execute(sql, []).map_err(|source| DbError::Query {
+            context: "failed to execute statement".to_owned(),
+            source,
+        })
     }
 
     /// Number of rows affected by the most recent INSERT/UPDATE/DELETE
@@ -348,7 +390,10 @@ impl Database {
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
         self.conn
             .execute_batch(sql)
-            .context("failed to execute batch")
+            .map_err(|source| DbError::Query {
+                context: "failed to execute batch".to_owned(),
+                source,
+            })
     }
 
     pub fn is_template_dismissed(&self, template_hash: &str) -> Result<bool> {
@@ -366,11 +411,14 @@ impl Database {
     fn purge_table_in_txn(&self, table_name: &'static str, sql: &'static str) -> Result<u64> {
         self.conn
             .execute_batch("BEGIN IMMEDIATE")
-            .with_context(|| format!("{table_name}: begin txn"))?;
-        let affected = self
-            .conn
-            .execute(sql, [])
-            .with_context(|| format!("failed to purge {table_name}"));
+            .map_err(|source| DbError::Query {
+                context: format!("{table_name}: begin txn"),
+                source,
+            })?;
+        let affected = self.conn.execute(sql, []).map_err(|source| DbError::Query {
+            context: format!("failed to purge {table_name}"),
+            source,
+        });
         match affected {
             Ok(n) => {
                 if let Err(commit_err) = self.conn.execute_batch("COMMIT") {
@@ -382,7 +430,10 @@ impl Database {
                             "db.purge.rollback_failed"
                         );
                     }
-                    return Err(commit_err).with_context(|| format!("{table_name}: commit txn"));
+                    return Err(DbError::Query {
+                        context: format!("{table_name}: commit txn"),
+                        source: commit_err,
+                    });
                 }
                 Ok(n as u64)
             }
@@ -427,7 +478,7 @@ pub fn save_session_for_mode(
     match mode {
         SaveMode::None | SaveMode::PendingPasskey { .. } => Ok(()),
         SaveMode::Database { id } => {
-            let db = db.ok_or_else(|| anyhow::anyhow!("database not available for save"))?;
+            let db = db.ok_or(DbError::DatabaseNotAvailable)?;
             db.save_session(id, session)
         }
     }

@@ -1,10 +1,27 @@
 //! Character card CRUD operations against the SQLite characters table.
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::character::CharacterCard;
 use libllm_core::session::now_iso8601;
+
+/// Column tuple selected by `load_character`, in `SELECT` order. The trailing
+/// three columns are the author-note text, depth, and at-top flag.
+type CharacterRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    i64,
+);
 
 fn author_note_columns(card: &CharacterCard) -> (Option<&str>, i64, i64) {
     match card.author_note.as_ref() {
@@ -28,7 +45,10 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
             let now = now_iso8601();
             let alternate_greetings =
                 serde_json::to_string(&card.alternate_greetings)
-                    .context("failed to serialize alternate_greetings")?;
+                    .map_err(|source| DbError::Json {
+                        context: "failed to serialize alternate_greetings".to_owned(),
+                        source,
+                    })?;
             let (note_text, note_depth, note_at_top) = author_note_columns(card);
             conn.execute(
                 "INSERT INTO characters (slug, name, description, personality, scenario, first_mes, mes_example, system_prompt, post_history_instructions, alternate_greetings, created_at, updated_at, author_note, author_note_depth, author_note_at_top)
@@ -51,7 +71,10 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
                     note_at_top,
                 ],
             )
-            .context("failed to insert character")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to insert character".to_owned(),
+                source,
+            })?;
             Ok(())
         }
     )
@@ -59,88 +82,79 @@ pub fn insert_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
 
 pub fn load_character(conn: &Connection, slug: &str) -> Result<CharacterCard> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.character.load", slug = slug ; {
-        conn.query_row(
+        let (
+            name,
+            description,
+            personality,
+            scenario,
+            first_mes,
+            mes_example,
+            system_prompt,
+            post_history_instructions,
+            alternate_greetings_json,
+            author_note_text,
+            author_note_depth,
+            author_note_at_top,
+        ): CharacterRow = conn.query_row(
             "SELECT name, description, personality, scenario, first_mes, mes_example,
                     system_prompt, post_history_instructions, alternate_greetings,
                     author_note, author_note_depth, author_note_at_top
              FROM characters WHERE slug = ?1",
             params![slug],
             |row| {
-                let name: String = row.get(0)?;
-                let description: String = row.get(1)?;
-                let personality: String = row.get(2)?;
-                let scenario: String = row.get(3)?;
-                let first_mes: String = row.get(4)?;
-                let mes_example: String = row.get(5)?;
-                let system_prompt: String = row.get(6)?;
-                let post_history_instructions: String = row.get(7)?;
-                let alternate_greetings_json: String = row.get(8)?;
-                let author_note_text: Option<String> = row.get(9)?;
-                let author_note_depth: i64 = row.get(10)?;
-                let author_note_at_top: i64 = row.get(11)?;
                 Ok((
-                    name,
-                    description,
-                    personality,
-                    scenario,
-                    first_mes,
-                    mes_example,
-                    system_prompt,
-                    post_history_instructions,
-                    alternate_greetings_json,
-                    author_note_text,
-                    author_note_depth,
-                    author_note_at_top,
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
                 ))
             },
         )
-        .with_context(|| format!("character not found: {slug}"))
-        .and_then(
-            |(
-                name,
-                description,
-                personality,
-                scenario,
-                first_mes,
-                mes_example,
-                system_prompt,
-                post_history_instructions,
-                alternate_greetings_json,
-                author_note_text,
-                author_note_depth,
-                author_note_at_top,
-            )| {
-                let alternate_greetings: Vec<String> =
-                    serde_json::from_str(&alternate_greetings_json)
-                        .context("failed to deserialize alternate_greetings")?;
-                let depth = u32::try_from(author_note_depth).unwrap_or_else(|_| {
-                    tracing::warn!(
-                        slug = slug,
-                        raw = author_note_depth,
-                        "db.character.load: author_note_depth out of range, defaulting to {}",
-                        libllm_core::author_note::DEFAULT_DEPTH
-                    );
-                    libllm_core::author_note::DEFAULT_DEPTH
-                });
-                let author_note = libllm_core::author_note::AuthorNote::from_row_parts(
-                    author_note_text,
-                    depth,
-                    author_note_at_top != 0,
-                );
-                Ok(CharacterCard {
-                    name,
-                    description,
-                    personality,
-                    scenario,
-                    first_mes,
-                    mes_example,
-                    system_prompt,
-                    post_history_instructions,
-                    alternate_greetings,
-                    author_note,
-                })
-            },
-        )
+        .map_err(|source| DbError::Query {
+            context: format!("character not found: {slug}"),
+            source,
+        })?;
+
+        let alternate_greetings: Vec<String> =
+            serde_json::from_str(&alternate_greetings_json)
+                .map_err(|source| DbError::Json {
+                    context: "failed to deserialize alternate_greetings".to_owned(),
+                    source,
+                })?;
+        let depth = u32::try_from(author_note_depth).unwrap_or_else(|_| {
+            tracing::warn!(
+                slug = slug,
+                raw = author_note_depth,
+                "db.character.load: author_note_depth out of range, defaulting to {}",
+                libllm_core::author_note::DEFAULT_DEPTH
+            );
+            libllm_core::author_note::DEFAULT_DEPTH
+        });
+        let author_note = libllm_core::author_note::AuthorNote::from_row_parts(
+            author_note_text,
+            depth,
+            author_note_at_top != 0,
+        );
+        Ok(CharacterCard {
+            name,
+            description,
+            personality,
+            scenario,
+            first_mes,
+            mes_example,
+            system_prompt,
+            post_history_instructions,
+            alternate_greetings,
+            author_note,
+        })
     })
 }
 
@@ -167,7 +181,10 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
             let now = now_iso8601();
             let alternate_greetings =
                 serde_json::to_string(&card.alternate_greetings)
-                    .context("failed to serialize alternate_greetings")?;
+                    .map_err(|source| DbError::Json {
+                        context: "failed to serialize alternate_greetings".to_owned(),
+                        source,
+                    })?;
             let (note_text, note_depth, note_at_top) = author_note_columns(card);
             let affected = conn
                 .execute(
@@ -189,10 +206,13 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
                         slug,
                     ],
                 )
-                .context("failed to update character")?;
+                .map_err(|source| DbError::Query {
+                    context: "failed to update character".to_owned(),
+                    source,
+                })?;
             tracing::info!(slug = slug, affected = affected, "db.character.update");
             if affected == 0 {
-                anyhow::bail!("character not found: {slug}");
+                return Err(DbError::CharacterNotFound { slug: slug.to_owned() });
             }
             Ok(())
         }
@@ -203,10 +223,13 @@ pub fn delete_character(conn: &Connection, slug: &str) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.character.delete", slug = slug ; {
         let affected = conn
             .execute("DELETE FROM characters WHERE slug = ?1", params![slug])
-            .context("failed to delete character")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to delete character".to_owned(),
+                source,
+            })?;
         tracing::info!(slug = slug, affected = affected, "db.character.delete");
         if affected == 0 {
-            anyhow::bail!("character not found: {slug}");
+            return Err(DbError::CharacterNotFound { slug: slug.to_owned() });
         }
         Ok(())
     })

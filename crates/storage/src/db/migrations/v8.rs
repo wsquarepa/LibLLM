@@ -6,12 +6,16 @@
 //! into the new engine would freeze high-AP characters at the back of the queue
 //! indefinitely, so we zero them out on upgrade. Talkativeness values are unchanged.
 
-use anyhow::{Context, Result};
 use rusqlite::Connection;
+
+use crate::error::{DbError, Result};
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", phase = "v8" ; {
         conn.execute_batch("UPDATE session_characters SET action_points = 0;")
-            .context("failed to run migration v8")
+            .map_err(|source| DbError::Query {
+                context: "failed to run migration v8".to_owned(),
+                source,
+            })
     })
 }

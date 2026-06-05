@@ -180,7 +180,10 @@ fn create_and_edit_persona(app: &mut App) {
     if let Err(e) = app
         .db
         .as_ref()
-        .map(|db| db.insert_persona(&slug, &persona))
+        .map(|db| {
+            db.insert_persona(&slug, &persona)
+                .map_err(anyhow::Error::from)
+        })
         .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     {
         app.set_status(
@@ -264,7 +267,10 @@ pub(in crate::tui) fn handle_persona_paste(
     match app
         .db
         .as_ref()
-        .map(|db| db.insert_persona(&slug, &persona))
+        .map(|db| {
+            db.insert_persona(&slug, &persona)
+                .map_err(anyhow::Error::from)
+        })
         .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     {
         Ok(()) => {

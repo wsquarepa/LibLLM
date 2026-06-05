@@ -123,7 +123,10 @@ pub(in crate::tui) fn handle_system_prompt_dialog_key(
             if let Err(e) = app
                 .db
                 .as_ref()
-                .map(|db| db.insert_prompt(&slug, &prompt, false))
+                .map(|db| {
+                    db.insert_prompt(&slug, &prompt, false)
+                        .map_err(anyhow::Error::from)
+                })
                 .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
             {
                 app.set_status(
@@ -253,7 +256,10 @@ pub(in crate::tui) fn handle_system_prompt_paste(
     match app
         .db
         .as_ref()
-        .map(|db| db.insert_prompt(&slug, &prompt, false))
+        .map(|db| {
+            db.insert_prompt(&slug, &prompt, false)
+                .map_err(anyhow::Error::from)
+        })
         .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     {
         Ok(()) => {

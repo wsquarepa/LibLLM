@@ -1,9 +1,9 @@
 //! CRUD for the `file_summaries` table: per-session cached LLM summaries of
 //! attached file snapshots.
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::session::now_iso8601;
 
 pub use libllm_core::files::FileSummaryStatus;
@@ -33,7 +33,10 @@ pub fn insert_pending(
              VALUES (?1, ?2, ?3, '', 'pending', ?4, ?4)",
             params![session_id, content_hash, basename, now],
         )
-        .context("failed to insert file_summaries row")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to insert file_summaries row".to_owned(),
+            source,
+        })?;
     let inserted = changes == 1;
     if inserted {
         tracing::info!(
@@ -62,7 +65,10 @@ pub fn set_done(
              WHERE session_id = ?3 AND content_hash = ?4",
             params![summary, now, session_id, content_hash],
         )
-        .context("failed to set file_summaries done")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to set file_summaries done".to_owned(),
+            source,
+        })?;
     if n == 1 {
         tracing::info!(
             session_id = %session_id,
@@ -90,7 +96,10 @@ pub fn set_failed(conn: &Connection, session_id: &str, content_hash: &str) -> Re
              WHERE session_id = ?2 AND content_hash = ?3",
             params![now, session_id, content_hash],
         )
-        .context("failed to set file_summaries failed")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to set file_summaries failed".to_owned(),
+            source,
+        })?;
     if n == 1 {
         tracing::info!(
             session_id = %session_id,
@@ -128,14 +137,27 @@ pub fn lookup(
             },
         )
         .optional()
-        .context("failed to lookup file_summaries row")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to lookup file_summaries row".to_owned(),
+            source,
+        })?;
     match row {
         None => Ok(None),
-        Some((basename, summary, status)) => Ok(Some(FileSummaryRow {
-            basename,
-            summary,
-            status: FileSummaryStatus::parse(&status)?,
-        })),
+        Some((basename, summary, status)) => {
+            let status = FileSummaryStatus::parse(&status).map_err(|e| DbError::Query {
+                context: format!("invalid file_summaries.status value: {e}"),
+                source: rusqlite::Error::InvalidColumnType(
+                    2,
+                    status.clone(),
+                    rusqlite::types::Type::Text,
+                ),
+            })?;
+            Ok(Some(FileSummaryRow {
+                basename,
+                summary,
+                status,
+            }))
+        }
     }
 }
 

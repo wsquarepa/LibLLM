@@ -1,9 +1,9 @@
 //! Stores per-template-hash dismissals so the auto-template-detect popup
 //! does not re-prompt the user about a template they've already declined.
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
+use crate::error::{DbError, Result};
 use libllm_core::timed_result;
 
 pub fn is_dismissed(conn: &Connection, template_hash: &str) -> Result<bool> {
@@ -14,7 +14,10 @@ pub fn is_dismissed(conn: &Connection, template_hash: &str) -> Result<bool> {
                 params![template_hash],
                 |row| row.get(0),
             )
-            .context("failed to query dismissed_template_prompts")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to query dismissed_template_prompts".to_owned(),
+                source,
+            })?;
         Ok(exists)
     })
 }
@@ -23,7 +26,7 @@ pub fn record_dismissal(conn: &Connection, template_hash: &str) -> Result<()> {
     timed_result!(tracing::Level::INFO, "db.dismissed_template.record", hash = template_hash ; {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .context("system time before Unix epoch")?
+            .map_err(|_| DbError::SystemTimeBeforeEpoch)?
             .as_secs() as i64;
         conn.execute(
             "INSERT INTO dismissed_template_prompts (template_hash, dismissed_at) \
@@ -31,7 +34,10 @@ pub fn record_dismissal(conn: &Connection, template_hash: &str) -> Result<()> {
              ON CONFLICT(template_hash) DO UPDATE SET dismissed_at = excluded.dismissed_at",
             params![template_hash, now],
         )
-        .context("failed to record template dismissal")?;
+        .map_err(|source| DbError::Query {
+            context: "failed to record template dismissal".to_owned(),
+            source,
+        })?;
         Ok(())
     })
 }
@@ -40,7 +46,10 @@ pub fn clear_all(conn: &Connection) -> Result<u64> {
     timed_result!(tracing::Level::INFO, "db.dismissed_template.clear_all", ; {
         let affected = conn
             .execute("DELETE FROM dismissed_template_prompts", [])
-            .context("failed to clear dismissed_template_prompts")?;
+            .map_err(|source| DbError::Query {
+                context: "failed to clear dismissed_template_prompts".to_owned(),
+                source,
+            })?;
         Ok(affected as u64)
     })
 }

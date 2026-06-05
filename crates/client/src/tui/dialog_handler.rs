@@ -456,6 +456,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                             db.insert_persona(&new_slug, &persona)
                         }
                     })
+                    .map(|r| r.map_err(anyhow::Error::from))
                     .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
                 {
                     Ok(_) => {
@@ -562,6 +563,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                             .map(|db| {
                                 if original_name == new_name || old_slug == new_slug {
                                     db.update_prompt(&new_slug, &prompt)
+                                        .map_err(anyhow::Error::from)
                                 } else if db.load_prompt(&new_slug).is_ok() {
                                     anyhow::bail!(
                                         "name '{}' conflicts with an existing prompt after slug normalization",
@@ -569,6 +571,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                                     )
                                 } else {
                                     db.rename_prompt(&old_slug, &new_slug, &prompt)
+                                        .map_err(anyhow::Error::from)
                                 }
                             })
                             .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
@@ -650,6 +653,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                         db.insert_character(&new_slug, &card)
                     }
                 })
+                .map(|r| r.map_err(anyhow::Error::from))
                 .unwrap_or_else(|| Err(anyhow::anyhow!("no database")));
             match save_result {
                 Ok(()) => {

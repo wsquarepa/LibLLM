@@ -315,7 +315,10 @@ fn create_and_edit_character(app: &mut App) {
     if let Err(e) = app
         .db
         .as_ref()
-        .map(|db| db.insert_character(&slug, &card))
+        .map(|db| {
+            db.insert_character(&slug, &card)
+                .map_err(anyhow::Error::from)
+        })
         .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
     {
         app.set_status(
@@ -377,7 +380,10 @@ pub(in crate::tui) fn handle_character_paste(
             match app
                 .db
                 .as_ref()
-                .map(|db| db.insert_character(&slug, &card))
+                .map(|db| {
+                    db.insert_character(&slug, &card)
+                        .map_err(anyhow::Error::from)
+                })
                 .unwrap_or_else(|| Err(anyhow::anyhow!("no database")))
             {
                 Ok(()) => {

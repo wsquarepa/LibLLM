@@ -1,8 +1,9 @@
 //! v9: Rename `chat_policy` → `chat_mode`, drop `card_assembly`, add `scenario` column,
 //! and populate `scenario` from attached character cards for all existing sessions.
 
-use anyhow::Result;
 use rusqlite::{Connection, params};
+
+use crate::error::Result;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
     let needs_rename: bool = conn

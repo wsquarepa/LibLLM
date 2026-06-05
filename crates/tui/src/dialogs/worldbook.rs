@@ -142,7 +142,7 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                     app.config.worldbooks.push(name.clone());
                     app.invalidate_worldbook_cache();
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
-                    if let Err(e) = libllm::config::save(&app.config) {
+                    if let Err(e) = libllm_config::save(&app.config) {
                         app.set_status(
                             format!("Failed to save config: {e}"),
                             super::super::StatusLevel::Error,
@@ -152,7 +152,7 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                 WorldbookState::Global => {
                     app.config.worldbooks.retain(|n| n != &name);
                     app.invalidate_worldbook_cache();
-                    if let Err(e) = libllm::config::save(&app.config) {
+                    if let Err(e) = libllm_config::save(&app.config) {
                         app.set_status(
                             format!("Failed to save config: {e}"),
                             super::super::StatusLevel::Error,
@@ -163,7 +163,7 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
         }
         KeyCode::Right => {
             let name = app.worldbook_list[selected].clone();
-            let slug = libllm::character::slugify(&name);
+            let slug = libllm_core::character::slugify(&name);
             match app.db.as_ref().and_then(|db| db.load_worldbook(&slug).ok()) {
                 Some(wb) => {
                     app.worldbook_editor_original_name = wb.name.clone();
@@ -502,11 +502,11 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
 fn create_and_edit_worldbook(app: &mut App) {
     let existing: std::collections::HashSet<String> = app.worldbook_list.iter().cloned().collect();
     let new_name = super::generate_unique_name("worldbook", &existing);
-    let wb = libllm::worldinfo::WorldBook {
+    let wb = libllm_core::worldinfo::WorldBook {
         name: new_name.clone(),
         entries: Vec::new(),
     };
-    let slug = libllm::character::slugify(&new_name);
+    let slug = libllm_core::character::slugify(&new_name);
     if let Err(e) = app
         .db
         .as_ref()
@@ -531,7 +531,7 @@ fn create_and_edit_worldbook(app: &mut App) {
 }
 
 fn add_new_entry(app: &mut App) {
-    let new_entry = libllm::worldinfo::Entry {
+    let new_entry = libllm_core::worldinfo::Entry {
         keys: Vec::new(),
         secondary_keys: Vec::new(),
         selective: false,
@@ -559,7 +559,7 @@ fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: 
     app.focus = Focus::WorldbookEntryEditorDialog;
 }
 
-fn entry_to_values(entry: &libllm::worldinfo::Entry) -> Vec<String> {
+fn entry_to_values(entry: &libllm_core::worldinfo::Entry) -> Vec<String> {
     vec![
         entry.keys.join(", "),
         entry.content.clone(),
@@ -575,15 +575,15 @@ fn entry_to_values(entry: &libllm::worldinfo::Entry) -> Vec<String> {
 
 pub fn values_to_entry(
     values: &[String],
-    existing: &libllm::worldinfo::Entry,
-) -> libllm::worldinfo::Entry {
+    existing: &libllm_core::worldinfo::Entry,
+) -> libllm_core::worldinfo::Entry {
     let parse_keys = |s: &str| -> Vec<String> {
         s.split(',')
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
             .collect()
     };
-    libllm::worldinfo::Entry {
+    libllm_core::worldinfo::Entry {
         keys: parse_keys(&values[0]),
         content: values[1].clone(),
         selective: values[2].eq_ignore_ascii_case("true"),
@@ -628,8 +628,8 @@ pub(crate) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> Option<Ac
 fn worldbook_editor_is_dirty_inner(
     original_name: &str,
     current_name: &str,
-    original_entries: &[libllm::worldinfo::Entry],
-    current_entries: &[libllm::worldinfo::Entry],
+    original_entries: &[libllm_core::worldinfo::Entry],
+    current_entries: &[libllm_core::worldinfo::Entry],
 ) -> bool {
     original_name != current_name || original_entries != current_entries
 }
@@ -684,12 +684,12 @@ fn save_worldbook_editor(app: &mut App) {
         return;
     }
 
-    let wb = libllm::worldinfo::WorldBook {
+    let wb = libllm_core::worldinfo::WorldBook {
         name: new_name.clone(),
         entries: app.worldbook_editor_entries.clone(),
     };
-    let slug = libllm::character::slugify(&new_name);
-    let old_slug = libllm::character::slugify(&original);
+    let slug = libllm_core::character::slugify(&new_name);
+    let old_slug = libllm_core::character::slugify(&original);
     let is_rename = !original.is_empty() && original != new_name;
     let save_result = if is_rename {
         app.db
@@ -717,7 +717,7 @@ fn save_worldbook_editor(app: &mut App) {
                 }
                 if let Some(pos) = app.config.worldbooks.iter().position(|n| n == &original) {
                     app.config.worldbooks[pos] = new_name.clone();
-                    let _ = libllm::config::save(&app.config);
+                    let _ = libllm_config::save(&app.config);
                 }
                 if let Some(db) = app.db.as_ref() {
                     let _ = db.delete_worldbook(&old_slug);
@@ -763,7 +763,7 @@ pub(crate) fn handle_worldbook_paste(path: &std::path::Path, ext: &str, app: &mu
     match std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!(e))
         .and_then(|s| {
-            libllm::worldinfo::parse_worldbook_json(&s, &fallback_name)
+            libllm_core::worldinfo::parse_worldbook_json(&s, &fallback_name)
                 .map_err(|e| anyhow::anyhow!(e))
         }) {
         Ok(wb) => {
@@ -779,7 +779,7 @@ pub(crate) fn handle_worldbook_paste(path: &std::path::Path, ext: &str, app: &mu
                 return true;
             }
             let name = wb.name.clone();
-            let slug = libllm::character::slugify(&name);
+            let slug = libllm_core::character::slugify(&name);
             match app
                 .db
                 .as_ref()
@@ -820,8 +820,8 @@ mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    fn make_entry(keys: Vec<&str>) -> libllm::worldinfo::Entry {
-        libllm::worldinfo::Entry {
+    fn make_entry(keys: Vec<&str>) -> libllm_core::worldinfo::Entry {
+        libllm_core::worldinfo::Entry {
             keys: keys.into_iter().map(String::from).collect(),
             secondary_keys: Vec::new(),
             selective: false,

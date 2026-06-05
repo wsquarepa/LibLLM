@@ -34,18 +34,18 @@ use tui_textarea::TextArea;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use libllm::client::{ApiClient, StreamToken};
-use libllm::config::CliOverrides;
-use libllm::context::ContextManager;
-use libllm::preset::InstructPreset;
-use libllm::sampling::SamplingParams;
-use libllm::session::{SaveMode, Session};
+use libllm_core::config::CliOverrides;
+use libllm_core::context::ContextManager;
+use libllm_core::preset::InstructPreset;
+use libllm_core::sampling::SamplingParams;
+use libllm_core::session::{SaveMode, Session};
+use libllm_protocol::client::{ApiClient, StreamToken};
 
 pub use input::match_next_candidates;
 
 pub fn build_effective_system_prompt_standalone(
     session: &Session,
-    db: Option<&libllm::db::Database>,
+    db: Option<&libllm_storage::db::Database>,
 ) -> Option<String> {
     business::build_effective_system_prompt(session, db)
 }
@@ -57,7 +57,7 @@ pub fn build_effective_system_prompt_standalone(
 /// key for encrypted databases.
 pub struct SummarizerParams {
     pub db_path: Option<std::path::PathBuf>,
-    pub derived_key: Option<std::sync::Arc<libllm::crypto::DerivedKey>>,
+    pub derived_key: Option<std::sync::Arc<libllm_core::crypto::DerivedKey>>,
 }
 
 #[expect(
@@ -68,7 +68,7 @@ pub async fn run(
     client: ApiClient,
     session: &mut Session,
     save_mode: SaveMode,
-    db: Option<libllm::db::Database>,
+    db: Option<libllm_storage::db::Database>,
     instruct_preset: InstructPreset,
     sampling: SamplingParams,
     cli_overrides: CliOverrides,
@@ -94,10 +94,11 @@ pub async fn run(
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
     let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
 
-    let (tokenizer_tx, mut tokenizer_rx) = mpsc::channel::<libllm::tokenizer::TokenCountUpdate>(64);
-    let token_counter = libllm::tokenizer::TokenCounter::new_with_backend(
-        libllm::tokenizer::TokenizerBackend::Heuristic(
-            libllm::tokenizer::HeuristicTokenizer::standard(),
+    let (tokenizer_tx, mut tokenizer_rx) =
+        mpsc::channel::<libllm_protocol::tokenizer::TokenCountUpdate>(64);
+    let token_counter = libllm_protocol::tokenizer::TokenCounter::new_with_backend(
+        libllm_protocol::tokenizer::TokenizerBackend::Heuristic(
+            libllm_protocol::tokenizer::HeuristicTokenizer::standard(),
         ),
         tokenizer_tx.clone(),
     );
@@ -111,10 +112,10 @@ pub async fn run(
         instruct_preset.name.clone(),
     );
 
-    let config = libllm::config::load();
+    let config = libllm_config::load();
 
     let (file_summary_ready_tx, file_summary_ready_rx) =
-        tokio::sync::mpsc::unbounded_channel::<libllm::files::ReadyEvent>();
+        tokio::sync::mpsc::unbounded_channel::<libllm_core::files::ReadyEvent>();
 
     tracing::debug!(
         db_path_present = summarizer_params.db_path.is_some(),
@@ -139,7 +140,7 @@ pub async fn run(
             }
         };
 
-    let salt_exists = libllm::config::salt_path().exists();
+    let salt_exists = libllm_config::salt_path().exists();
     let initial_passkey_setup = save_mode.needs_passkey() && !salt_exists;
 
     let enabled_rule_count = config
@@ -147,7 +148,7 @@ pub async fn run(
         .iter()
         .filter(|r| r.enabled && r.compile_error.is_none())
         .count();
-    let compiled_regex = libllm::regex_rules::compile_rules(&config.regex);
+    let compiled_regex = libllm_core::regex_rules::compile_rules(&config.regex);
     let skipped_regex_rules = enabled_rule_count.saturating_sub(compiled_regex.len());
 
     let mut app = App {
@@ -170,7 +171,10 @@ pub async fn run(
         pending_save_trigger: None,
         stop_tokens: instruct_preset.stop_tokens(),
         reasoning_preset: config.reasoning_preset.as_deref().and_then(|n| {
-            libllm::preset::resolve_reasoning_preset(n, &libllm::config::reasoning_presets_dir())
+            libllm_core::preset::resolve_reasoning_preset(
+                n,
+                &libllm_config::reasoning_presets_dir(),
+            )
         }),
         instruct_preset,
         sampling,
@@ -355,7 +359,7 @@ pub async fn run(
     frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut needs_redraw = false;
 
-    libllm::timed_result!(tracing::Level::INFO, "startup.phase", phase = "first_draw" ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "startup.phase", phase = "first_draw" ; {
         terminal.draw(|f| render_frame(f, &mut app))
     })?;
     if app.skipped_regex_rules_pending_status > 0 {
@@ -426,14 +430,14 @@ pub async fn run(
                                     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
                                     let branch_ids = app.session.tree.current_branch_ids();
                                     let summary_boundary = branch_ids.len() - summary_aware.len();
-                                    let split_idx = libllm::context::drop_split_index(&summary_aware, dropped);
+                                    let split_idx = libllm_core::context::drop_split_index(&summary_aware, dropped);
                                     let insert_idx = summary_boundary + split_idx - 1;
                                     if split_idx > 0 && insert_idx < branch_ids.len() {
                                         let parent_node_id = branch_ids[insert_idx];
                                         app.session.tree.splice_between(
                                             parent_node_id,
-                                            libllm::session::Message::new(
-                                                libllm::session::Role::Summary,
+                                            libllm_core::session::Message::new(
+                                                libllm_core::session::Role::Summary,
                                                 summary_text,
                                             ),
                                         );
@@ -602,7 +606,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.textarea.clear_custom_highlight();
     let joined = app.textarea.lines().join("\n");
     if app.session.character.is_some() {
-        for prefix in libllm::side_character::header_prefix_ranges(&joined) {
+        for prefix in libllm_core::side_character::header_prefix_ranges(&joined) {
             app.textarea.custom_highlight(
                 ((prefix.line, prefix.start), (prefix.line, prefix.end)),
                 Style::default().fg(app.theme.side_character_fg),
@@ -611,7 +615,7 @@ fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         }
     }
     if app.config.files.enabled {
-        for r in libllm::files::file_reference_ranges(&joined) {
+        for r in libllm_core::files::file_reference_ranges(&joined) {
             app.textarea.custom_highlight(
                 ((r.line, r.start), (r.line, r.end)),
                 Style::default().fg(app.theme.file_reference_fg),
@@ -776,7 +780,7 @@ fn estimate_input_tokens(app: &mut App) -> usize {
 fn refresh_input_file_cache(app: &mut App, input: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut live: HashSet<PathBuf> = HashSet::new();
-    for r in libllm::files::file_reference_ranges(input) {
+    for r in libllm_core::files::file_reference_ranges(input) {
         let raw_path = r.path();
         if raw_path == "stdin" {
             continue;
@@ -811,7 +815,7 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
                     continue;
                 }
             };
-            let classified = match libllm::files::classify(&canonical, &bytes) {
+            let classified = match libllm_core::files::classify(&canonical, &bytes) {
                 Ok(c) => c,
                 Err(err) => {
                     tracing::debug!(path = %canonical.display(), error = %err, "tui.input_cache.classify_failed");
@@ -853,7 +857,7 @@ fn expand_at_path(raw: &str, cwd: &Path) -> PathBuf {
 
 fn estimate_input_tokens_from_text(
     input: &str,
-    token_counter: &libllm::tokenizer::TokenCounter,
+    token_counter: &libllm_protocol::tokenizer::TokenCounter,
 ) -> usize {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -1094,11 +1098,11 @@ fn render_base_theme_picker(f: &mut ratatui::Frame, app: &App, area: ratatui::la
 mod tests {
     use super::*;
 
-    fn heuristic_counter() -> libllm::tokenizer::TokenCounter {
+    fn heuristic_counter() -> libllm_protocol::tokenizer::TokenCounter {
         let (tx, _rx) = mpsc::channel(8);
-        libllm::tokenizer::TokenCounter::new_with_backend(
-            libllm::tokenizer::TokenizerBackend::Heuristic(
-                libllm::tokenizer::HeuristicTokenizer::standard(),
+        libllm_protocol::tokenizer::TokenCounter::new_with_backend(
+            libllm_protocol::tokenizer::TokenizerBackend::Heuristic(
+                libllm_protocol::tokenizer::HeuristicTokenizer::standard(),
             ),
             tx,
         )

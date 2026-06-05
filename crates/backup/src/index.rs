@@ -308,7 +308,7 @@ pub fn load_index(path: &Path) -> Result<BackupIndex> {
 /// Persists a `BackupIndex` to the given path using an atomic write.
 pub fn save_index(path: &Path, index: &BackupIndex) -> Result<()> {
     let data = serde_json::to_vec_pretty(index).map_err(BackupError::IndexSerialize)?;
-    libllm::crypto::write_atomic(path, &data).map_err(|source| BackupError::IndexWrite {
+    libllm_core::crypto::write_atomic(path, &data).map_err(|source| BackupError::IndexWrite {
         path: path.to_owned(),
         source,
     })
@@ -642,7 +642,7 @@ mod tests {
         let id = "20260421T010000.000Z".to_string();
         let filename = backup_filename(&id, BackupType::Base);
         let payload = crate::crypto::encrypt_payload(plaintext, &kek).unwrap();
-        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+        libllm_core::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
 
         let legacy = BackupIndex {
             version: 1,

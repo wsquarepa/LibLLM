@@ -4,7 +4,7 @@ use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Wrap};
 
-use libllm::session::NodeId;
+use libllm_core::session::NodeId;
 
 use super::ChatContentCache;
 

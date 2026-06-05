@@ -6,7 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::ListItem;
 
-use libllm::regex_rules::{RegexRule, Scope, Target};
+use libllm_core::regex_rules::{RegexRule, Scope, Target};
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::dialog_handler::return_to_input;
@@ -329,18 +329,18 @@ fn toggle_row(
 }
 
 fn compute_preview(draft: &RegexRule, sample: &str) -> String {
-    let preview = libllm::regex_rules::compile_rules(std::slice::from_ref(draft));
+    let preview = libllm_core::regex_rules::compile_rules(std::slice::from_ref(draft));
     if preview.is_empty() {
         return "(invalid pattern)".to_owned();
     }
     let scope = draft.scope.first().copied().unwrap_or(Scope::Display);
     let role = match draft.target.first().copied().unwrap_or(Target::User) {
-        Target::User => libllm::session::Role::User,
-        Target::Assistant => libllm::session::Role::Assistant,
-        Target::System => libllm::session::Role::System,
-        Target::Summary => libllm::session::Role::Summary,
+        Target::User => libllm_core::session::Role::User,
+        Target::Assistant => libllm_core::session::Role::Assistant,
+        Target::System => libllm_core::session::Role::System,
+        Target::Summary => libllm_core::session::Role::Summary,
     };
-    libllm::regex_rules::apply(&preview, scope, role, sample).into_owned()
+    libllm_core::regex_rules::apply(&preview, scope, role, sample).into_owned()
 }
 
 fn format_rule_summary(rule: &RegexRule) -> String {
@@ -678,14 +678,14 @@ pub(crate) fn perform_delete_selected(app: &mut App) {
 }
 
 pub(crate) fn save_and_recompile(app: &mut App) {
-    if let Err(err) = libllm::config::save(&app.config) {
+    if let Err(err) = libllm_config::save(&app.config) {
         app.set_status(
             format!("Failed to save config: {err}"),
             crate::types::StatusLevel::Error,
         );
         return;
     }
-    app.compiled_regex = libllm::regex_rules::compile_rules(&app.config.regex);
+    app.compiled_regex = libllm_core::regex_rules::compile_rules(&app.config.regex);
     app.invalidate_chat_caches();
 }
 

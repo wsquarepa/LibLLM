@@ -9,7 +9,7 @@ use super::{clear_centered, render_hints_below_dialog};
 use crate::business::refresh_sidebar;
 use crate::dialog_handler::return_to_input;
 use crate::{Action, App, DeleteContext, Focus};
-use libllm::session::{self, Message, Role};
+use libllm_core::session::{self, Message, Role};
 
 pub(crate) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
@@ -127,7 +127,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                         )
                     })
                     .collect();
-                if let Err(e) = libllm::group_chat::validate_group_chat_args(
+                if let Err(e) = libllm_core::group_chat::validate_group_chat_args(
                     &slugs,
                     &Default::default(),
                     &names_by_slug,
@@ -140,7 +140,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                     return None;
                 }
 
-                let cards: Vec<libllm::character::CharacterCard> = slugs
+                let cards: Vec<libllm_core::character::CharacterCard> = slugs
                     .iter()
                     .filter_map(|s| app.db.as_ref().and_then(|db| db.load_character(s).ok()))
                     .collect();
@@ -162,9 +162,9 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                 app.session.character = None;
                 app.session.characters = slugs
                     .iter()
-                    .map(|s| libllm::group_chat::CharacterAttachment::new(s.clone()))
+                    .map(|s| libllm_core::group_chat::CharacterAttachment::new(s.clone()))
                     .collect();
-                app.session.chat_mode = libllm::group_chat::ChatMode::default();
+                app.session.chat_mode = libllm_core::group_chat::ChatMode::default();
                 app.session.scenario = None;
 
                 crate::business::rebuild_character_cards_cache(app);
@@ -196,19 +196,21 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                     app.discard_pending_session_save();
                     app.session.tree.clear();
                     app.session.worldbooks.clear();
-                    let cfg = libllm::config::load();
+                    let cfg = libllm_config::load();
                     let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
-                    let tpl = libllm::preset::resolve_template_preset(
+                    let tpl = libllm_core::preset::resolve_template_preset(
                         tpl_name,
-                        &libllm::config::template_presets_dir(),
+                        &libllm_config::template_presets_dir(),
                     );
-                    app.session.system_prompt =
-                        Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
+                    app.session.system_prompt = Some(libllm_core::character::build_system_prompt(
+                        &card,
+                        Some(&tpl),
+                    ));
                     app.session.character = Some(card.name.clone());
                     app.session.characters =
-                        vec![libllm::group_chat::CharacterAttachment::new(slug)];
+                        vec![libllm_core::group_chat::CharacterAttachment::new(slug)];
                     app.session.scenario =
-                        libllm::group_chat::inherit_card_scenario(&card.scenario);
+                        libllm_core::group_chat::inherit_card_scenario(&card.scenario);
                     app.active_card_author_note = card.author_note.clone();
                     app.invalidate_chat_caches();
                     app.invalidate_worldbook_cache();
@@ -258,7 +260,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                         card.author_note
                             .as_ref()
                             .map(|n| n.depth.to_string())
-                            .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string()),
+                            .unwrap_or_else(|| libllm_core::author_note::DEFAULT_DEPTH.to_string()),
                         if card.author_note.as_ref().is_some_and(|n| n.at_top) {
                             "true".to_owned()
                         } else {
@@ -299,7 +301,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 fn create_and_edit_character(app: &mut App) {
     let existing: std::collections::HashSet<String> = app.character_names.iter().cloned().collect();
     let new_name = super::generate_unique_name("character", &existing);
-    let card = libllm::character::CharacterCard {
+    let card = libllm_core::character::CharacterCard {
         name: new_name.clone(),
         description: String::new(),
         personality: String::new(),
@@ -311,7 +313,7 @@ fn create_and_edit_character(app: &mut App) {
         alternate_greetings: Vec::new(),
         author_note: None,
     };
-    let slug = libllm::character::slugify(&new_name);
+    let slug = libllm_core::character::slugify(&new_name);
     if let Err(e) = app
         .db
         .as_ref()
@@ -341,7 +343,7 @@ fn create_and_edit_character(app: &mut App) {
         card.system_prompt,
         card.post_history_instructions,
         String::new(),
-        libllm::author_note::DEFAULT_DEPTH.to_string(),
+        libllm_core::author_note::DEFAULT_DEPTH.to_string(),
         "false".to_owned(),
     ];
     app.character_editor = Some(super::open_character_editor(values));
@@ -358,7 +360,7 @@ pub(crate) fn handle_character_paste(path: &std::path::Path, ext: &str, app: &mu
         return true;
     }
 
-    match libllm::character::import_card(path) {
+    match libllm_core::character::import_card(path) {
         Ok(card) => {
             if card.name.chars().count() > super::MAX_NAME_LENGTH {
                 app.set_status(
@@ -372,7 +374,7 @@ pub(crate) fn handle_character_paste(path: &std::path::Path, ext: &str, app: &mu
                 return true;
             }
             let name = card.name.clone();
-            let slug = libllm::character::slugify(&name);
+            let slug = libllm_core::character::slugify(&name);
             match app
                 .db
                 .as_ref()

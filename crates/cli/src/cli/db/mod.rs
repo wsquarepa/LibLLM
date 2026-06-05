@@ -12,7 +12,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use libllm::crypto::{self, DerivedKey};
+use libllm_core::crypto::{self, DerivedKey};
 
 use crate::cli::{Args, DbSubcommand};
 
@@ -25,7 +25,7 @@ pub struct DbContext {
 }
 
 pub fn dispatch(args: &Args, command: &DbSubcommand) -> Result<()> {
-    libllm::db::suppress_sqlcipher_log();
+    libllm_storage::db::suppress_sqlcipher_log();
     let ctx = resolve_context(args)?;
     match command {
         DbSubcommand::Sql {
@@ -40,7 +40,7 @@ pub fn dispatch(args: &Args, command: &DbSubcommand) -> Result<()> {
 }
 
 fn resolve_context(args: &Args) -> Result<DbContext> {
-    let data_dir = args.data.clone().unwrap_or_else(libllm::config::data_dir);
+    let data_dir = args.data.clone().unwrap_or_else(libllm_config::data_dir);
     let db_path = data_dir.join("data.db");
 
     if args.no_encrypt {

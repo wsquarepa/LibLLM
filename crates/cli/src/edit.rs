@@ -1,9 +1,8 @@
 //! External editor integration for character cards and worldbooks.
 
 use anyhow::Result;
-use libllm::character;
-use libllm::config;
-use libllm::db::Database;
+use libllm_core::character;
+use libllm_storage::db::Database;
 use std::io::Write;
 
 pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> {
@@ -32,7 +31,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
         _ => anyhow::bail!("Unknown content type: {kind}. Use 'character' or 'worldbook'."),
     };
 
-    let temp_dir = config::data_dir();
+    let temp_dir = libllm_config::data_dir();
     let temp_path = temp_dir.join(format!(".edit-{name}.json"));
 
     let mut opts = std::fs::OpenOptions::new();
@@ -48,7 +47,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
     tracing::debug!(phase = "write", result = "ok", path = %temp_path.display(), bytes = json_content.len(), "edit.temp_file");
 
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_owned());
-    let status = libllm::timed_result!(
+    let status = libllm_core::timed_result!(
         tracing::Level::INFO,
         "edit.editor",
         editor = editor.as_str() ;
@@ -108,7 +107,7 @@ pub fn handle_edit_command(kind: &str, name: &str, db: &Database) -> Result<()> 
             eprintln!("Saved character: {}", card.name);
         }
         "worldbook" | "book" | "wb" => {
-            let wb: libllm::worldinfo::WorldBook = serde_json::from_str(&edited)
+            let wb: libllm_core::worldinfo::WorldBook = serde_json::from_str(&edited)
                 .map_err(|e| anyhow::anyhow!("Invalid worldbook JSON: {e}"))?;
             let new_slug = character::slugify(&wb.name);
             if new_slug != slug {

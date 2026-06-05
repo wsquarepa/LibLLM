@@ -1,8 +1,8 @@
 //! File import for characters, worldbooks, personas, and system prompts.
 
 use anyhow::{Context, Result};
-use libllm::character;
-use libllm::db::Database;
+use libllm_core::character;
+use libllm_storage::db::Database;
 
 const MAX_IMPORT_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -66,7 +66,7 @@ pub fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            if libllm::worldinfo::parse_worldbook_json(&contents, &fallback_name).is_ok() {
+            if libllm_core::worldinfo::parse_worldbook_json(&contents, &fallback_name).is_ok() {
                 return Ok(ImportType::Worldbook);
             }
 
@@ -102,7 +102,7 @@ pub fn import_single_file(
         }
     };
     let path_str = path.display().to_string();
-    libllm::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "import.file",
         kind = kind,
@@ -133,7 +133,7 @@ pub fn import_single_file(
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_default();
-                let wb = libllm::worldinfo::parse_worldbook_json(&contents, &fallback_name)?;
+                let wb = libllm_core::worldinfo::parse_worldbook_json(&contents, &fallback_name)?;
                 let slug = character::slugify(&wb.name);
                 db.insert_worldbook(&slug, &wb)?;
                 Ok(format!("Imported worldbook: \"{}\" ({})", wb.name, slug))
@@ -160,7 +160,7 @@ pub fn import_single_file(
                         anyhow::anyhow!("{}: invalid filename for persona name", path.display())
                     })?;
                 let slug = character::slugify(&name);
-                let persona = libllm::persona::PersonaFile {
+                let persona = libllm_core::persona::PersonaFile {
                     name: name.clone(),
                     persona: contents,
                 };
@@ -189,7 +189,7 @@ pub fn import_single_file(
                         anyhow::anyhow!("{}: invalid filename for prompt name", path.display())
                     })?;
                 let slug = character::slugify(&name);
-                let prompt = libllm::system_prompt::SystemPromptFile {
+                let prompt = libllm_core::system_prompt::SystemPromptFile {
                     name: name.clone(),
                     content: contents,
                 };

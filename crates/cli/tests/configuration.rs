@@ -4,14 +4,13 @@
 )]
 mod common;
 
-use libllm::config::{self, Auth, Config};
-use libllm::migration;
 use libllm_cli::validation;
+use libllm_core::config::{Auth, Config};
 
 fn setup_data_dir() -> tempfile::TempDir {
     let dir = common::temp_dir();
-    config::set_data_dir(dir.path().to_path_buf()).ok();
-    config::ensure_dirs().unwrap();
+    libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm_config::ensure_dirs().unwrap();
     dir
 }
 
@@ -62,7 +61,7 @@ fn config_save_load_roundtrip() {
         worldbooks: vec!["lore.worldbook".to_owned()],
         tls_skip_verify: true,
         default_persona: Some("tester".to_owned()),
-        sampling: libllm::sampling::SamplingOverrides {
+        sampling: libllm_core::sampling::SamplingOverrides {
             temperature: Some(0.7),
             top_k: Some(40),
             ..Default::default()
@@ -70,8 +69,8 @@ fn config_save_load_roundtrip() {
         ..Config::default()
     };
 
-    config::save(&cfg).unwrap();
-    let loaded = config::load();
+    libllm_config::save(&cfg).unwrap();
+    let loaded = libllm_config::load();
 
     assert_eq!(loaded.api_url.as_deref(), Some("http://roundtrip.test/v1"));
     assert_eq!(loaded.api_url(), "http://roundtrip.test/v1");
@@ -90,10 +89,10 @@ fn config_missing_file_returns_default() {
     let dir = setup_data_dir();
     let _root = dir.path();
 
-    let bogus = config::data_dir().join("nonexistent_config.toml");
+    let bogus = libllm_config::data_dir().join("nonexistent_config.toml");
     assert!(!bogus.exists());
 
-    let cfg = config::load();
+    let cfg = libllm_config::load();
     assert!(
         cfg.api_url.is_none(),
         "missing config file should yield default (None) api_url, got {:?}",
@@ -108,9 +107,9 @@ fn config_partial_toml() {
     let _key = common::test_key(root);
 
     let partial = "api_url = \"http://partial.test/v1\"\n";
-    std::fs::write(config::config_path(), partial).unwrap();
+    std::fs::write(libllm_config::config_path(), partial).unwrap();
 
-    let loaded = config::load();
+    let loaded = libllm_config::load();
     assert_eq!(loaded.api_url.as_deref(), Some("http://partial.test/v1"));
     assert!(loaded.sampling.temperature.is_none());
     assert!(loaded.worldbooks.is_empty());
@@ -132,11 +131,11 @@ fn config_ensure_dirs_creates_data_directory() {
 
 #[test]
 fn summarization_config_defaults() {
-    let config: libllm::config::Config = toml::from_str("").unwrap();
+    let config: libllm_core::config::Config = toml::from_str("").unwrap();
     assert!(config.summarization.enabled);
     assert_eq!(
         config.summarization.context_size,
-        libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE
+        libllm_core::config::MAX_SUMMARIZATION_CONTEXT_SIZE
     );
     assert_eq!(config.summarization.trigger_percent, 90);
     assert_eq!(config.summarization.keep_last, 4);
@@ -155,7 +154,7 @@ trigger_percent = 10
 keep_last = 6
 prompt = "Custom prompt"
 "#;
-    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    let config: libllm_core::config::Config = toml::from_str(toml_str).unwrap();
     assert!(!config.summarization.enabled);
     assert_eq!(
         config.summarization.api_url.as_deref(),
@@ -173,7 +172,7 @@ fn summarization_trigger_percent_clamps_on_out_of_range() {
 [summarization]
 trigger_percent = 250
 "#;
-    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    let config: libllm_core::config::Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.summarization.trigger_percent, 250);
     assert_eq!(config.summarization.effective_trigger_percent(), 100);
 }
@@ -184,7 +183,7 @@ fn summarization_trigger_percent_clamps_zero() {
 [summarization]
 trigger_percent = 0
 "#;
-    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    let config: libllm_core::config::Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.summarization.trigger_percent, 0);
     assert_eq!(config.summarization.effective_trigger_percent(), 1);
 }
@@ -196,7 +195,7 @@ fn summarization_trigger_threshold_old_field_is_ignored() {
 [summarization]
 trigger_threshold = 42
 "#;
-    let config: libllm::config::Config = toml::from_str(toml_str).unwrap();
+    let config: libllm_core::config::Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.summarization.trigger_percent, 90);
 }
 
@@ -207,7 +206,7 @@ trigger_threshold = 42
 #[test]
 fn migrate_config_path_is_callable() {
     let _dir = setup_data_dir();
-    migration::migrate_config_path();
+    libllm_config::migrate_config();
 }
 
 #[test]
@@ -220,11 +219,11 @@ fn config_survives_migration() {
         api_url: Some("http://survive.test/v1".to_owned()),
         ..Config::default()
     };
-    config::save(&cfg).unwrap();
+    libllm_config::save(&cfg).unwrap();
 
-    migration::migrate_config_path();
+    libllm_config::migrate_config();
 
-    let loaded = config::load();
+    let loaded = libllm_config::load();
     assert_eq!(loaded.api_url.as_deref(), Some("http://survive.test/v1"));
 }
 
@@ -389,7 +388,7 @@ fn is_libllm_data_dir_detects_legacy_data() {
 
 #[test]
 fn theme_editor_covers_all_color_override_fields() {
-    let config = libllm::config::Config::default();
+    let config = libllm_core::config::Config::default();
     let dialog = libllm_tui::dialogs::open_theme_editor(&config);
     assert_eq!(dialog.sections().len(), 6, "expected 6 theme tabs");
     let color_field_count: usize = dialog
@@ -407,8 +406,8 @@ fn theme_editor_covers_all_color_override_fields() {
 #[test]
 fn theme_overrides_apply_round_trip() {
     let dir = common::temp_dir();
-    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
-    libllm::config::ensure_dirs().unwrap();
+    libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm_config::ensure_dirs().unwrap();
 
     let sections = vec![
         vec![
@@ -433,10 +432,10 @@ fn theme_overrides_apply_round_trip() {
         vec!["".to_owned(); 16],
     ];
 
-    let cfg = libllm::config::Config::default();
+    let cfg = libllm_core::config::Config::default();
     libllm_tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
 
-    let saved = libllm::config::load();
+    let saved = libllm_config::load();
     let overrides = saved.theme_colors.expect("expected overrides to persist");
     assert_eq!(overrides.user_character_fg.as_deref(), Some("#ff0000"));
     assert!(overrides.assistant_message_fg.is_none());
@@ -445,15 +444,15 @@ fn theme_overrides_apply_round_trip() {
 #[test]
 fn empty_theme_override_drops_to_none() {
     let dir = common::temp_dir();
-    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
-    libllm::config::ensure_dirs().unwrap();
+    libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm_config::ensure_dirs().unwrap();
 
-    let cfg = libllm::config::Config {
-        theme_colors: Some(libllm::config::ThemeColorOverrides {
+    let cfg = libllm_core::config::Config {
+        theme_colors: Some(libllm_core::config::ThemeColorOverrides {
             user_character_fg: Some("#ff0000".to_owned()),
             ..Default::default()
         }),
-        ..libllm::config::Config::default()
+        ..libllm_core::config::Config::default()
     };
 
     let sections = vec![
@@ -471,29 +470,29 @@ fn empty_theme_override_drops_to_none() {
     ];
 
     libllm_tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
-    let saved = libllm::config::load();
+    let saved = libllm_config::load();
     assert!(saved.theme_colors.is_none());
 }
 
 #[test]
 fn side_character_labels_round_trip() {
     let dir = common::temp_dir();
-    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
-    libllm::config::ensure_dirs().unwrap();
+    libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm_config::ensure_dirs().unwrap();
 
-    let cfg = libllm::config::Config {
-        theme_colors: Some(libllm::config::ThemeColorOverrides {
+    let cfg = libllm_core::config::Config {
+        theme_colors: Some(libllm_core::config::ThemeColorOverrides {
             side_character_fg: Some("#aa00aa".to_owned()),
             side_character_bg: Some("#001100".to_owned()),
             user_character_fg: Some("#00ff00".to_owned()),
             user_character_bg: Some("#110011".to_owned()),
             ..Default::default()
         }),
-        ..libllm::config::Config::default()
+        ..libllm_core::config::Config::default()
     };
-    libllm::config::save(&cfg).unwrap();
+    libllm_config::save(&cfg).unwrap();
 
-    let loaded = libllm::config::load();
+    let loaded = libllm_config::load();
     let overrides = loaded.theme_colors.expect("overrides should persist");
     assert_eq!(overrides.user_character_fg.as_deref(), Some("#00ff00"));
     assert_eq!(overrides.user_character_bg.as_deref(), Some("#110011"));
@@ -543,8 +542,8 @@ fn config_auth_roundtrip_bearer() {
         },
         ..Config::default()
     };
-    config::save(&cfg).unwrap();
-    let loaded = config::load();
+    libllm_config::save(&cfg).unwrap();
+    let loaded = libllm_config::load();
     assert_eq!(
         loaded.auth,
         Auth::Bearer {
@@ -564,8 +563,8 @@ fn config_auth_roundtrip_basic() {
         },
         ..Config::default()
     };
-    config::save(&cfg).unwrap();
-    let loaded = config::load();
+    libllm_config::save(&cfg).unwrap();
+    let loaded = libllm_config::load();
     assert_eq!(
         loaded.auth,
         Auth::Basic {
@@ -586,8 +585,8 @@ fn config_auth_roundtrip_header() {
         },
         ..Config::default()
     };
-    config::save(&cfg).unwrap();
-    let loaded = config::load();
+    libllm_config::save(&cfg).unwrap();
+    let loaded = libllm_config::load();
     assert_eq!(
         loaded.auth,
         Auth::Header {
@@ -608,8 +607,8 @@ fn config_auth_roundtrip_query() {
         },
         ..Config::default()
     };
-    config::save(&cfg).unwrap();
-    let loaded = config::load();
+    libllm_config::save(&cfg).unwrap();
+    let loaded = libllm_config::load();
     assert_eq!(
         loaded.auth,
         Auth::Query {
@@ -624,10 +623,10 @@ fn config_auth_defaults_to_none_for_missing_section() {
     let dir = setup_data_dir();
     let _key = common::test_key(dir.path());
     std::fs::write(
-        config::config_path(),
+        libllm_config::config_path(),
         "api_url = \"http://localhost:5001/v1\"\n",
     )
     .unwrap();
-    let loaded = config::load();
+    let loaded = libllm_config::load();
     assert_eq!(loaded.auth, Auth::None);
 }

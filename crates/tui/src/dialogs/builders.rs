@@ -336,7 +336,7 @@ const THEME_TAB_SELECTOR: &[usize] = &[0];
 const THEME_TAB_SEPARATOR: &[usize] = &[1];
 const THEME_TAB_ACTIONS: &[usize] = &[2, 3];
 
-pub(crate) const THEME_COLOR_TAB_LAYOUT: &[&[libllm::config::ColorLabel]] = &[
+pub(crate) const THEME_COLOR_TAB_LAYOUT: &[&[libllm_core::config::ColorLabel]] = &[
     MESSAGES_LABEL_IDS,
     BORDERS_STATUS_LABEL_IDS,
     UI_LABEL_IDS,
@@ -344,132 +344,132 @@ pub(crate) const THEME_COLOR_TAB_LAYOUT: &[&[libllm::config::ColorLabel]] = &[
     GROUP_CHARACTER_LABEL_IDS,
 ];
 
-const MESSAGES_LABEL_IDS: &[libllm::config::ColorLabel] = &[
-    libllm::config::ColorLabel::UserCharacterFg,
-    libllm::config::ColorLabel::UserCharacterBg,
-    libllm::config::ColorLabel::SideCharacterFg,
-    libllm::config::ColorLabel::SideCharacterBg,
-    libllm::config::ColorLabel::AssistantMessageFg,
-    libllm::config::ColorLabel::AssistantMessageBg,
-    libllm::config::ColorLabel::SystemMessage,
-    libllm::config::ColorLabel::Dialogue,
+const MESSAGES_LABEL_IDS: &[libllm_core::config::ColorLabel] = &[
+    libllm_core::config::ColorLabel::UserCharacterFg,
+    libllm_core::config::ColorLabel::UserCharacterBg,
+    libllm_core::config::ColorLabel::SideCharacterFg,
+    libllm_core::config::ColorLabel::SideCharacterBg,
+    libllm_core::config::ColorLabel::AssistantMessageFg,
+    libllm_core::config::ColorLabel::AssistantMessageBg,
+    libllm_core::config::ColorLabel::SystemMessage,
+    libllm_core::config::ColorLabel::Dialogue,
 ];
 const MESSAGES_LABELS: &[&str] = &[
-    libllm::config::ColorLabel::UserCharacterFg.name(),
-    libllm::config::ColorLabel::UserCharacterBg.name(),
-    libllm::config::ColorLabel::SideCharacterFg.name(),
-    libllm::config::ColorLabel::SideCharacterBg.name(),
-    libllm::config::ColorLabel::AssistantMessageFg.name(),
-    libllm::config::ColorLabel::AssistantMessageBg.name(),
-    libllm::config::ColorLabel::SystemMessage.name(),
-    libllm::config::ColorLabel::Dialogue.name(),
+    libllm_core::config::ColorLabel::UserCharacterFg.name(),
+    libllm_core::config::ColorLabel::UserCharacterBg.name(),
+    libllm_core::config::ColorLabel::SideCharacterFg.name(),
+    libllm_core::config::ColorLabel::SideCharacterBg.name(),
+    libllm_core::config::ColorLabel::AssistantMessageFg.name(),
+    libllm_core::config::ColorLabel::AssistantMessageBg.name(),
+    libllm_core::config::ColorLabel::SystemMessage.name(),
+    libllm_core::config::ColorLabel::Dialogue.name(),
 ];
 const MESSAGES_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7];
 
-const BORDERS_STATUS_LABEL_IDS: &[libllm::config::ColorLabel] = &[
-    libllm::config::ColorLabel::BorderFocused,
-    libllm::config::ColorLabel::BorderUnfocused,
-    libllm::config::ColorLabel::StatusBarFg,
-    libllm::config::ColorLabel::StatusBarBg,
-    libllm::config::ColorLabel::StatusErrorFg,
-    libllm::config::ColorLabel::StatusErrorBg,
-    libllm::config::ColorLabel::StatusInfoFg,
-    libllm::config::ColorLabel::StatusInfoBg,
-    libllm::config::ColorLabel::StatusWarningFg,
-    libllm::config::ColorLabel::StatusWarningBg,
+const BORDERS_STATUS_LABEL_IDS: &[libllm_core::config::ColorLabel] = &[
+    libllm_core::config::ColorLabel::BorderFocused,
+    libllm_core::config::ColorLabel::BorderUnfocused,
+    libllm_core::config::ColorLabel::StatusBarFg,
+    libllm_core::config::ColorLabel::StatusBarBg,
+    libllm_core::config::ColorLabel::StatusErrorFg,
+    libllm_core::config::ColorLabel::StatusErrorBg,
+    libllm_core::config::ColorLabel::StatusInfoFg,
+    libllm_core::config::ColorLabel::StatusInfoBg,
+    libllm_core::config::ColorLabel::StatusWarningFg,
+    libllm_core::config::ColorLabel::StatusWarningBg,
 ];
 const BORDERS_STATUS_LABELS: &[&str] = &[
-    libllm::config::ColorLabel::BorderFocused.name(),
-    libllm::config::ColorLabel::BorderUnfocused.name(),
-    libllm::config::ColorLabel::StatusBarFg.name(),
-    libllm::config::ColorLabel::StatusBarBg.name(),
-    libllm::config::ColorLabel::StatusErrorFg.name(),
-    libllm::config::ColorLabel::StatusErrorBg.name(),
-    libllm::config::ColorLabel::StatusInfoFg.name(),
-    libllm::config::ColorLabel::StatusInfoBg.name(),
-    libllm::config::ColorLabel::StatusWarningFg.name(),
-    libllm::config::ColorLabel::StatusWarningBg.name(),
+    libllm_core::config::ColorLabel::BorderFocused.name(),
+    libllm_core::config::ColorLabel::BorderUnfocused.name(),
+    libllm_core::config::ColorLabel::StatusBarFg.name(),
+    libllm_core::config::ColorLabel::StatusBarBg.name(),
+    libllm_core::config::ColorLabel::StatusErrorFg.name(),
+    libllm_core::config::ColorLabel::StatusErrorBg.name(),
+    libllm_core::config::ColorLabel::StatusInfoFg.name(),
+    libllm_core::config::ColorLabel::StatusInfoBg.name(),
+    libllm_core::config::ColorLabel::StatusWarningFg.name(),
+    libllm_core::config::ColorLabel::StatusWarningBg.name(),
 ];
 const BORDERS_STATUS_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-const UI_LABEL_IDS: &[libllm::config::ColorLabel] = &[
-    libllm::config::ColorLabel::NavCursorFg,
-    libllm::config::ColorLabel::NavCursorBg,
-    libllm::config::ColorLabel::HoverBg,
-    libllm::config::ColorLabel::SidebarHighlightFg,
-    libllm::config::ColorLabel::SidebarHighlightBg,
-    libllm::config::ColorLabel::Dimmed,
-    libllm::config::ColorLabel::CommandPickerFg,
-    libllm::config::ColorLabel::CommandPickerBg,
-    libllm::config::ColorLabel::SearchHighlightFg,
-    libllm::config::ColorLabel::SearchHighlightBg,
+const UI_LABEL_IDS: &[libllm_core::config::ColorLabel] = &[
+    libllm_core::config::ColorLabel::NavCursorFg,
+    libllm_core::config::ColorLabel::NavCursorBg,
+    libllm_core::config::ColorLabel::HoverBg,
+    libllm_core::config::ColorLabel::SidebarHighlightFg,
+    libllm_core::config::ColorLabel::SidebarHighlightBg,
+    libllm_core::config::ColorLabel::Dimmed,
+    libllm_core::config::ColorLabel::CommandPickerFg,
+    libllm_core::config::ColorLabel::CommandPickerBg,
+    libllm_core::config::ColorLabel::SearchHighlightFg,
+    libllm_core::config::ColorLabel::SearchHighlightBg,
 ];
 const UI_LABELS: &[&str] = &[
-    libllm::config::ColorLabel::NavCursorFg.name(),
-    libllm::config::ColorLabel::NavCursorBg.name(),
-    libllm::config::ColorLabel::HoverBg.name(),
-    libllm::config::ColorLabel::SidebarHighlightFg.name(),
-    libllm::config::ColorLabel::SidebarHighlightBg.name(),
-    libllm::config::ColorLabel::Dimmed.name(),
-    libllm::config::ColorLabel::CommandPickerFg.name(),
-    libllm::config::ColorLabel::CommandPickerBg.name(),
-    libllm::config::ColorLabel::SearchHighlightFg.name(),
-    libllm::config::ColorLabel::SearchHighlightBg.name(),
+    libllm_core::config::ColorLabel::NavCursorFg.name(),
+    libllm_core::config::ColorLabel::NavCursorBg.name(),
+    libllm_core::config::ColorLabel::HoverBg.name(),
+    libllm_core::config::ColorLabel::SidebarHighlightFg.name(),
+    libllm_core::config::ColorLabel::SidebarHighlightBg.name(),
+    libllm_core::config::ColorLabel::Dimmed.name(),
+    libllm_core::config::ColorLabel::CommandPickerFg.name(),
+    libllm_core::config::ColorLabel::CommandPickerBg.name(),
+    libllm_core::config::ColorLabel::SearchHighlightFg.name(),
+    libllm_core::config::ColorLabel::SearchHighlightBg.name(),
 ];
 const UI_COLOR_FIELDS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-const INDICATORS_LABEL_IDS: &[libllm::config::ColorLabel] = &[
-    libllm::config::ColorLabel::StreamingIndicator,
-    libllm::config::ColorLabel::ApiUnavailable,
-    libllm::config::ColorLabel::SummaryIndicator,
+const INDICATORS_LABEL_IDS: &[libllm_core::config::ColorLabel] = &[
+    libllm_core::config::ColorLabel::StreamingIndicator,
+    libllm_core::config::ColorLabel::ApiUnavailable,
+    libllm_core::config::ColorLabel::SummaryIndicator,
 ];
 const INDICATORS_LABELS: &[&str] = &[
-    libllm::config::ColorLabel::StreamingIndicator.name(),
-    libllm::config::ColorLabel::ApiUnavailable.name(),
-    libllm::config::ColorLabel::SummaryIndicator.name(),
+    libllm_core::config::ColorLabel::StreamingIndicator.name(),
+    libllm_core::config::ColorLabel::ApiUnavailable.name(),
+    libllm_core::config::ColorLabel::SummaryIndicator.name(),
 ];
 const INDICATORS_COLOR_FIELDS: &[usize] = &[0, 1, 2];
 
-const GROUP_CHARACTER_LABEL_IDS: &[libllm::config::ColorLabel] = &[
-    libllm::config::ColorLabel::GroupCharacterFg1,
-    libllm::config::ColorLabel::GroupCharacterFg2,
-    libllm::config::ColorLabel::GroupCharacterFg3,
-    libllm::config::ColorLabel::GroupCharacterFg4,
-    libllm::config::ColorLabel::GroupCharacterFg5,
-    libllm::config::ColorLabel::GroupCharacterFg6,
-    libllm::config::ColorLabel::GroupCharacterFg7,
-    libllm::config::ColorLabel::GroupCharacterFg8,
-    libllm::config::ColorLabel::GroupCharacterBg1,
-    libllm::config::ColorLabel::GroupCharacterBg2,
-    libllm::config::ColorLabel::GroupCharacterBg3,
-    libllm::config::ColorLabel::GroupCharacterBg4,
-    libllm::config::ColorLabel::GroupCharacterBg5,
-    libllm::config::ColorLabel::GroupCharacterBg6,
-    libllm::config::ColorLabel::GroupCharacterBg7,
-    libllm::config::ColorLabel::GroupCharacterBg8,
+const GROUP_CHARACTER_LABEL_IDS: &[libllm_core::config::ColorLabel] = &[
+    libllm_core::config::ColorLabel::GroupCharacterFg1,
+    libllm_core::config::ColorLabel::GroupCharacterFg2,
+    libllm_core::config::ColorLabel::GroupCharacterFg3,
+    libllm_core::config::ColorLabel::GroupCharacterFg4,
+    libllm_core::config::ColorLabel::GroupCharacterFg5,
+    libllm_core::config::ColorLabel::GroupCharacterFg6,
+    libllm_core::config::ColorLabel::GroupCharacterFg7,
+    libllm_core::config::ColorLabel::GroupCharacterFg8,
+    libllm_core::config::ColorLabel::GroupCharacterBg1,
+    libllm_core::config::ColorLabel::GroupCharacterBg2,
+    libllm_core::config::ColorLabel::GroupCharacterBg3,
+    libllm_core::config::ColorLabel::GroupCharacterBg4,
+    libllm_core::config::ColorLabel::GroupCharacterBg5,
+    libllm_core::config::ColorLabel::GroupCharacterBg6,
+    libllm_core::config::ColorLabel::GroupCharacterBg7,
+    libllm_core::config::ColorLabel::GroupCharacterBg8,
 ];
 const GROUP_CHARACTER_LABELS: &[&str] = &[
-    libllm::config::ColorLabel::GroupCharacterFg1.name(),
-    libllm::config::ColorLabel::GroupCharacterFg2.name(),
-    libllm::config::ColorLabel::GroupCharacterFg3.name(),
-    libllm::config::ColorLabel::GroupCharacterFg4.name(),
-    libllm::config::ColorLabel::GroupCharacterFg5.name(),
-    libllm::config::ColorLabel::GroupCharacterFg6.name(),
-    libllm::config::ColorLabel::GroupCharacterFg7.name(),
-    libllm::config::ColorLabel::GroupCharacterFg8.name(),
-    libllm::config::ColorLabel::GroupCharacterBg1.name(),
-    libllm::config::ColorLabel::GroupCharacterBg2.name(),
-    libllm::config::ColorLabel::GroupCharacterBg3.name(),
-    libllm::config::ColorLabel::GroupCharacterBg4.name(),
-    libllm::config::ColorLabel::GroupCharacterBg5.name(),
-    libllm::config::ColorLabel::GroupCharacterBg6.name(),
-    libllm::config::ColorLabel::GroupCharacterBg7.name(),
-    libllm::config::ColorLabel::GroupCharacterBg8.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg1.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg2.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg3.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg4.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg5.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg6.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg7.name(),
+    libllm_core::config::ColorLabel::GroupCharacterFg8.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg1.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg2.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg3.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg4.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg5.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg6.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg7.name(),
+    libllm_core::config::ColorLabel::GroupCharacterBg8.name(),
 ];
 const GROUP_CHARACTER_COLOR_FIELDS: &[usize] =
     &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
-pub fn open_theme_editor(config: &libllm::config::Config) -> TabbedFieldDialog<'static> {
+pub fn open_theme_editor(config: &libllm_core::config::Config) -> TabbedFieldDialog<'static> {
     let overrides = config.theme_colors.as_ref().cloned().unwrap_or_default();
 
     let base_theme = config.theme.clone().unwrap_or_else(|| "dark".to_owned());
@@ -543,14 +543,14 @@ mod tests {
 
     #[test]
     fn theme_editor_group_character_tab_round_trips_overrides() {
-        let overrides = libllm::config::ThemeColorOverrides {
+        let overrides = libllm_core::config::ThemeColorOverrides {
             group_character_fg_1: Some("#112233".to_owned()),
             group_character_bg_8: Some("#445566".to_owned()),
             ..Default::default()
         };
-        let config = libllm::config::Config {
+        let config = libllm_core::config::Config {
             theme_colors: Some(overrides),
-            ..libllm::config::Config::default()
+            ..libllm_core::config::Config::default()
         };
         let dialog = open_theme_editor(&config);
         let sections = dialog.sections();

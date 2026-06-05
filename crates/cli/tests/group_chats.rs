@@ -7,8 +7,8 @@ mod common;
 use std::process::Command;
 
 use common::{client_bin, import_card, import_persona, temp_dir};
-use libllm::group_chat::{CharacterAttachment, ChatMode, decide_next_speaker};
-use libllm::session::Session;
+use libllm_core::group_chat::{CharacterAttachment, ChatMode, decide_next_speaker};
+use libllm_core::session::Session;
 use libllm_tui::dialogs::chat_settings::{ChatSettingsDialog, Row};
 use libllm_tui::match_next_candidates;
 use rand::SeedableRng;
@@ -105,7 +105,7 @@ fn legacy_v4_solo_session_loads_with_v5_backfill() {
     let db_path = dir.path().join("sessions.db");
 
     // Open via Database::open, which runs all migrations and creates the current schema.
-    let db = libllm::db::Database::open(&db_path, None).unwrap();
+    let db = libllm_storage::db::Database::open(&db_path, None).unwrap();
 
     // Insert a solo session using only the legacy columns. No session_characters row is
     // written — this emulates a session written by an older binary before migrations ran.
@@ -393,7 +393,7 @@ fn legacy_v8_group_session_migrates_with_synthesized_scenario() {
         .expect("insert v8 data");
     }
 
-    let db = libllm::db::Database::open(&db_path, None).expect("open with v9 migration");
+    let db = libllm_storage::db::Database::open(&db_path, None).expect("open with v9 migration");
     let loaded = db.load_session("g1").expect("load migrated session");
 
     let expected = "[Scenario for Alice]\nAlice is hunting.\n[Scenario for Bob]\nBob is brewing.";
@@ -406,8 +406,8 @@ fn legacy_v8_group_session_migrates_with_synthesized_scenario() {
 
 #[test]
 fn scenario_editor_cancel_does_not_write_provisional_to_session() {
-    use libllm::group_chat::CharacterAttachment;
-    use libllm::session::Session;
+    use libllm_core::group_chat::CharacterAttachment;
+    use libllm_core::session::Session;
     use libllm_tui::dialogs::chat_settings::ChatSettingsDialog;
 
     let mut session = Session {
@@ -434,8 +434,8 @@ fn scenario_editor_cancel_does_not_write_provisional_to_session() {
 
 #[test]
 fn scenario_editor_save_commits_provisional_to_session() {
-    use libllm::group_chat::CharacterAttachment;
-    use libllm::session::Session;
+    use libllm_core::group_chat::CharacterAttachment;
+    use libllm_core::session::Session;
     use libllm_tui::dialogs::chat_settings::ChatSettingsDialog;
 
     let mut session = Session {

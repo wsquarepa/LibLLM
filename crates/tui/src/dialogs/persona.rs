@@ -114,9 +114,9 @@ pub(crate) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) -> Option<
                     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 
                     app.config.default_persona = Some(slug.clone());
-                    let mut cfg = libllm::config::load();
+                    let mut cfg = libllm_config::load();
                     cfg.default_persona = Some(slug.clone());
-                    if let Err(e) = libllm::config::save(&cfg) {
+                    if let Err(e) = libllm_config::save(&cfg) {
                         tracing::warn!(result = "error", error = %e, "config.default_persona");
                     }
 
@@ -172,11 +172,11 @@ fn open_persona_editor(app: &mut App, slug: &str) {
 fn create_and_edit_persona(app: &mut App) {
     let existing: std::collections::HashSet<String> = app.persona_names.iter().cloned().collect();
     let new_name = super::generate_unique_name("persona", &existing);
-    let persona = libllm::persona::PersonaFile {
+    let persona = libllm_core::persona::PersonaFile {
         name: new_name.clone(),
         persona: String::new(),
     };
-    let slug = libllm::character::slugify(&new_name);
+    let slug = libllm_core::character::slugify(&new_name);
     if let Err(e) = app
         .db
         .as_ref()
@@ -255,11 +255,11 @@ pub(crate) fn handle_persona_paste(path: &std::path::Path, ext: &str, app: &mut 
         }
     };
 
-    let persona = libllm::persona::PersonaFile {
+    let persona = libllm_core::persona::PersonaFile {
         name: name.clone(),
         persona: content,
     };
-    let slug = libllm::character::slugify(&name);
+    let slug = libllm_core::character::slugify(&name);
     match app
         .db
         .as_ref()

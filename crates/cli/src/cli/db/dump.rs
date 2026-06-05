@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use libllm::crypto::chmod_0600;
-use libllm::db::Database;
+use libllm_core::crypto::chmod_0600;
+use libllm_storage::db::Database;
 
 use super::exit;
 use super::{DbContext, confirm_yes, wal_liveness_check};

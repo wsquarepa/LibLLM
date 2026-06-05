@@ -8,7 +8,7 @@
 )]
 mod common;
 
-use libllm::db::migrations::run_migrations;
+use libllm_storage::db::migrations::run_migrations;
 use rusqlite::Connection;
 
 fn fresh_conn() -> Connection {
@@ -20,11 +20,11 @@ fn fresh_conn() -> Connection {
 #[test]
 fn clear_stores_empties_dismissed_template_prompts() {
     let conn = fresh_conn();
-    libllm::db::record_template_dismissal(&conn, "h1").unwrap();
-    libllm::db::record_template_dismissal(&conn, "h2").unwrap();
-    let removed = libllm::db::clear_dismissed_templates(&conn).unwrap();
+    libllm_storage::db::record_template_dismissal(&conn, "h1").unwrap();
+    libllm_storage::db::record_template_dismissal(&conn, "h2").unwrap();
+    let removed = libllm_storage::db::clear_dismissed_templates(&conn).unwrap();
     assert_eq!(removed, 2);
-    assert!(!libllm::db::is_template_dismissed(&conn, "h1").unwrap());
+    assert!(!libllm_storage::db::is_template_dismissed(&conn, "h1").unwrap());
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn regenerate_presets_restores_overwritten_files() {
     let dir = tempfile::TempDir::new().unwrap();
     let chatml_path = dir.path().join("ChatML.json");
     std::fs::write(&chatml_path, "garbage").unwrap();
-    let summary = libllm::preset::regenerate_builtins(dir.path());
+    let summary = libllm_core::preset::regenerate_builtins(dir.path());
     assert!(summary.failed.is_empty());
     let restored = std::fs::read_to_string(&chatml_path).unwrap();
     assert!(restored.contains("im_start") || restored.contains("ChatML"));

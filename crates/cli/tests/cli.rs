@@ -249,7 +249,10 @@ fn parse_auth_non_secret_flags_populate_cli_overrides() {
     ])
     .unwrap();
     let overrides = args.cli_overrides();
-    assert_eq!(overrides.auth_type, Some(libllm::config::AuthKind::Header));
+    assert_eq!(
+        overrides.auth_type,
+        Some(libllm_core::config::AuthKind::Header)
+    );
     assert_eq!(overrides.auth_basic_username.as_deref(), Some("alice"));
     assert_eq!(overrides.auth_header_name.as_deref(), Some("X-Api-Key"));
     assert_eq!(overrides.auth_query_name.as_deref(), Some("api_key"));

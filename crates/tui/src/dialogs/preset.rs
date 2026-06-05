@@ -159,13 +159,13 @@ fn apply_preset_selection(app: &mut App, chosen: String) {
 pub(crate) fn open_preset_picker(app: &mut App, kind: PresetKind) {
     let names = match kind {
         PresetKind::Template => {
-            libllm::preset::list_template_preset_names(&libllm::config::template_presets_dir())
+            libllm_core::preset::list_template_preset_names(&libllm_config::template_presets_dir())
         }
         PresetKind::Instruct => {
-            libllm::preset::list_instruct_preset_names(&libllm::config::instruct_presets_dir())
+            libllm_core::preset::list_instruct_preset_names(&libllm_config::instruct_presets_dir())
         }
         PresetKind::Reasoning => {
-            libllm::preset::list_reasoning_preset_names(&libllm::config::reasoning_presets_dir())
+            libllm_core::preset::list_reasoning_preset_names(&libllm_config::reasoning_presets_dir())
         }
     };
 
@@ -193,9 +193,9 @@ pub(crate) fn open_preset_picker(app: &mut App, kind: PresetKind) {
 fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {
     match kind {
         PresetKind::Template => {
-            let preset = libllm::preset::resolve_template_preset(
+            let preset = libllm_core::preset::resolve_template_preset(
                 name,
-                &libllm::config::template_presets_dir(),
+                &libllm_config::template_presets_dir(),
             );
             let values = vec![
                 preset.name.clone(),
@@ -207,13 +207,13 @@ fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {
             app.preset_editor_original_name = preset.name;
         }
         PresetKind::Instruct => {
-            let preset = libllm::preset::resolve_instruct_preset(
+            let preset = libllm_core::preset::resolve_instruct_preset(
                 name,
-                &libllm::config::instruct_presets_dir(),
+                &libllm_config::instruct_presets_dir(),
             );
             let stop_str = match &preset.stop_sequence {
-                libllm::preset::StopSequence::Single(s) => s.clone(),
-                libllm::preset::StopSequence::Multiple(v) => v.join(", "),
+                libllm_core::preset::StopSequence::Single(s) => s.clone(),
+                libllm_core::preset::StopSequence::Multiple(v) => v.join(", "),
             };
             let values = vec![
                 preset.name.clone(),
@@ -233,9 +233,9 @@ fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {
             app.preset_editor_original_name = preset.name;
         }
         PresetKind::Reasoning => {
-            if let Some(preset) = libllm::preset::resolve_reasoning_preset(
+            if let Some(preset) = libllm_core::preset::resolve_reasoning_preset(
                 name,
-                &libllm::config::reasoning_presets_dir(),
+                &libllm_config::reasoning_presets_dir(),
             ) {
                 let values = vec![
                     preset.name.clone(),
@@ -312,9 +312,9 @@ fn create_and_edit_preset(app: &mut App) {
 
 fn dir_for_kind(kind: PresetKind) -> std::path::PathBuf {
     match kind {
-        PresetKind::Template => libllm::config::template_presets_dir(),
-        PresetKind::Instruct => libllm::config::instruct_presets_dir(),
-        PresetKind::Reasoning => libllm::config::reasoning_presets_dir(),
+        PresetKind::Template => libllm_config::template_presets_dir(),
+        PresetKind::Instruct => libllm_config::instruct_presets_dir(),
+        PresetKind::Reasoning => libllm_config::reasoning_presets_dir(),
     }
 }
 
@@ -411,13 +411,13 @@ pub(crate) fn delete_preset(kind: PresetKind, name: &str) {
 pub(crate) fn refresh_preset_list(app: &mut App) {
     let names = match app.preset_picker_kind {
         PresetKind::Template => {
-            libllm::preset::list_template_preset_names(&libllm::config::template_presets_dir())
+            libllm_core::preset::list_template_preset_names(&libllm_config::template_presets_dir())
         }
         PresetKind::Instruct => {
-            libllm::preset::list_instruct_preset_names(&libllm::config::instruct_presets_dir())
+            libllm_core::preset::list_instruct_preset_names(&libllm_config::instruct_presets_dir())
         }
         PresetKind::Reasoning => {
-            libllm::preset::list_reasoning_preset_names(&libllm::config::reasoning_presets_dir())
+            libllm_core::preset::list_reasoning_preset_names(&libllm_config::reasoning_presets_dir())
         }
     };
     app.preset_picker_selected = app
@@ -433,9 +433,9 @@ mod tests {
     #[test]
     fn save_preset_does_not_delete_file_when_sanitized_names_collide() {
         let dir = tempfile::tempdir().expect("temp dir");
-        libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+        libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
 
-        let preset_dir = libllm::config::instruct_presets_dir();
+        let preset_dir = libllm_config::instruct_presets_dir();
         std::fs::create_dir_all(&preset_dir).expect("create preset dir");
 
         let values = vec![

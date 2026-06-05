@@ -678,7 +678,7 @@ impl<'a> TabbedFieldDialog<'a> {
 
         if is_color {
             let swatch_color = if value.is_empty() {
-                libllm::config::ColorLabel::from_name(label)
+                libllm_core::config::ColorLabel::from_name(label)
                     .map(|l| theme.color_at(l))
                     .unwrap_or(Color::Reset)
             } else {

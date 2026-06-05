@@ -4,7 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
-use libllm::session;
+use libllm_core::session;
 
 use super::App;
 
@@ -53,17 +53,17 @@ pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
         return;
     }
 
-    let transformed_messages: Vec<libllm::session::Message> = messages
+    let transformed_messages: Vec<libllm_core::session::Message> = messages
         .iter()
         .map(|m| {
-            let content = libllm::regex_rules::apply(
+            let content = libllm_core::regex_rules::apply(
                 &app.compiled_regex,
-                libllm::regex_rules::Scope::Export,
+                libllm_core::regex_rules::Scope::Export,
                 m.role,
                 &m.content,
             )
             .into_owned();
-            libllm::session::Message {
+            libllm_core::session::Message {
                 role: m.role,
                 content,
                 timestamp: m.timestamp.clone(),
@@ -73,7 +73,7 @@ pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
             }
         })
         .collect();
-    let messages: Vec<&libllm::session::Message> = transformed_messages.iter().collect();
+    let messages: Vec<&libllm_core::session::Message> = transformed_messages.iter().collect();
 
     let current_dir = match std::env::current_dir() {
         Ok(path) => path,
@@ -103,7 +103,7 @@ pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
             (!name.is_empty()).then_some(name)
         });
     let exported_at = session::now_iso8601();
-    let meta = libllm::export::ExportMeta {
+    let meta = libllm_core::export::ExportMeta {
         character,
         persona,
         model,
@@ -114,9 +114,9 @@ pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
 
     let preset = app.reasoning_preset.as_ref();
     let content = match format {
-        ExportFormat::Markdown => libllm::export::render_markdown(&messages, &meta, preset),
-        ExportFormat::Html => libllm::export::render_html(&messages, &meta, preset),
-        ExportFormat::Jsonl => libllm::export::render_jsonl(
+        ExportFormat::Markdown => libllm_core::export::render_markdown(&messages, &meta, preset),
+        ExportFormat::Html => libllm_core::export::render_html(&messages, &meta, preset),
+        ExportFormat::Jsonl => libllm_core::export::render_jsonl(
             &messages,
             character.unwrap_or("Assistant"),
             persona.unwrap_or("User"),

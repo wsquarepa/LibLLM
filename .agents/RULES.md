@@ -11,13 +11,12 @@ LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a 
 - `libllm-core` (`crates/core`) — pure domain: session tree, character/persona/world-info, presets, file-ingestion pipeline, crypto, config types. No database, network, async runtime, or process/global state.
 - `libllm-storage` (`crates/storage`) — SQLCipher database access, migrations, repositories, and FTS search. Depends on core.
 - `libllm-protocol` (`crates/protocol`) — the llama.cpp HTTP API client, tokenizer, and summarization orchestration. Depends on core.
-- `libllm-config` (`crates/config`) — process-boundary config: the data-directory resolution, the `DATA_DIR_OVERRIDE` global (with the `test-support` thread-local variant), and `config.toml` load/save. Depends on core.
-- `libllm` (`crates/libllm`) — a thin **facade** crate that re-exports the library crates under one `libllm::` path. Its `config` module merges `libllm-core`'s config types with `libllm-config`'s functions, so `libllm::config::Config` and `libllm::config::data_dir()` both resolve. Application crates depend on this facade.
-- `libllm-tui` (`crates/tui`) — the TUI: rendering, dialogs, input handling, view state, and the `FileSummarizer` orchestrator. Depends on the facade.
-- `libllm-cli` (`crates/cli`) — argument parsing, command dispatch, subcommands, startup orchestration (`app::run`), and the thin `src/main.rs`. Produces the `libllm` binary (via `[[bin]] name = "libllm"`). Depends on the facade and `libllm-tui`.
-- `backup` (`crates/backup`) — backup and recovery library.
+- `libllm-config` (`crates/config`) — process-boundary config: the data-directory resolution, the `DATA_DIR_OVERRIDE` global (with the `test-support` thread-local variant), and `config.toml` load/save. Note: config TYPES (`Config`, `Auth`, etc.) live in `libllm-core::config`; this crate holds the process-boundary FUNCTIONS (`data_dir`, `load`, `save`, `*_presets_dir`, ...). Depends on core.
+- `libllm-tui` (`crates/tui`) — the TUI: rendering, dialogs, input handling, view state, and the `FileSummarizer` orchestrator. Depends on core/storage/protocol/config.
+- `libllm-cli` (`crates/cli`) — argument parsing, command dispatch, subcommands, startup orchestration (`app::run`), and the thin `src/main.rs`. Produces the `libllm` binary (via `[[bin]] name = "libllm"`). Depends on `libllm-tui` and core/storage/protocol/config.
+- `backup` (`crates/backup`) — backup and recovery library. Depends on core.
 
-Dependencies flow inward: cli -> tui -> facade -> storage/protocol/config -> core. Core never depends on an outer crate. The `libllm` facade exists so application crates did not have to change import paths during the split.
+Dependencies flow inward: cli -> tui -> storage/protocol/config -> core. Core never depends on an outer crate. Application crates depend on the concrete library crates directly (`libllm_core`, `libllm_storage`, `libllm_protocol`, `libllm_config`) — there is no umbrella/facade crate.
 
 ## Build and Test
 

@@ -4,10 +4,10 @@
 )]
 mod common;
 
-use libllm::crypto;
-use libllm::db::Database;
-use libllm::group_chat::{CharacterAttachment, ChatMode};
-use libllm::session::{MessageTree, Role, Session};
+use libllm_core::crypto;
+use libllm_core::group_chat::{CharacterAttachment, ChatMode};
+use libllm_core::session::{MessageTree, Role, Session};
+use libllm_storage::db::Database;
 
 #[test]
 fn session_database_round_trip() {
@@ -132,7 +132,7 @@ fn session_metadata_fields_survive_round_trip() {
         persona: Some("Alice".to_string()),
         scenario: None,
         characters: Vec::new(),
-        chat_mode: libllm::group_chat::ChatMode::default(),
+        chat_mode: libllm_core::group_chat::ChatMode::default(),
         author_note: None,
     };
     db.insert_session("meta-1", &session).expect("insert meta");
@@ -256,7 +256,7 @@ fn session_round_trip_preserves_file_snapshot_nodes() {
     let db_path = dir.path().join("data.db");
     let mut db = Database::open(&db_path, None).expect("open db");
 
-    let snapshot_body = libllm::files::build_snapshot_body("notes.md", "hello\nworld");
+    let snapshot_body = libllm_core::files::build_snapshot_body("notes.md", "hello\nworld");
     let session = common::linear_session(vec![
         common::system_msg(&snapshot_body),
         common::user_msg("summarise @./notes.md please"),
@@ -268,9 +268,9 @@ fn session_round_trip_preserves_file_snapshot_nodes() {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].role, Role::System);
     assert_eq!(messages[0].content, snapshot_body);
-    assert!(libllm::files::is_snapshot(&messages[0].content));
+    assert!(libllm_core::files::is_snapshot(&messages[0].content));
     assert_eq!(
-        libllm::files::snapshot_basename(&messages[0].content).as_deref(),
+        libllm_core::files::snapshot_basename(&messages[0].content).as_deref(),
         Some("notes.md")
     );
     assert_eq!(messages[1].role, Role::User);
@@ -283,7 +283,7 @@ fn encrypted_session_round_trip_preserves_file_snapshot_nodes() {
     let db_path = dir.path().join("data.db");
     let key = common::test_key(dir.path());
 
-    let snapshot_body = libllm::files::build_snapshot_body("secret.md", "classified");
+    let snapshot_body = libllm_core::files::build_snapshot_body("secret.md", "classified");
     let session = common::linear_session(vec![
         common::system_msg(&snapshot_body),
         common::user_msg("decrypt @./secret.md"),
@@ -298,7 +298,7 @@ fn encrypted_session_round_trip_preserves_file_snapshot_nodes() {
         let messages = loaded.tree.branch_path();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, Role::System);
-        assert!(libllm::files::is_snapshot(&messages[0].content));
+        assert!(libllm_core::files::is_snapshot(&messages[0].content));
         assert!(messages[0].content.contains("<<<FILE secret.md>>>"));
         assert!(messages[0].content.contains("classified"));
     }

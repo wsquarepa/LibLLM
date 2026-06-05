@@ -2,7 +2,6 @@
 
 use crate::update;
 use anyhow::{Context, Result};
-use libllm::config;
 use std::io::{self, IsTerminal, Write};
 
 const LEGACY_DIRS: [&str; 5] = ["sessions", "characters", "worldinfo", "system", "personas"];
@@ -18,7 +17,7 @@ pub(crate) fn has_legacy_data(data_dir: &std::path::Path) -> bool {
 }
 
 pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) -> Result<()> {
-    let data_dir = config::data_dir();
+    let data_dir = libllm_config::data_dir();
     let db_path = data_dir.join("data.db");
     let db_exists = db_path.exists();
 
@@ -159,7 +158,7 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
     }
 
     let migrate_path_str = migrate_path.display().to_string();
-    let status = libllm::timed_result!(
+    let status = libllm_core::timed_result!(
         tracing::Level::INFO,
         "legacy.migration.run",
         path = migrate_path_str.as_str(),

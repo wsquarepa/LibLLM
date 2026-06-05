@@ -4,12 +4,12 @@
 )]
 mod common;
 
-use libllm::config::Config;
-use libllm::context::ContextManager;
-use libllm::group_chat::{CharacterAttachment, ChatMode};
-use libllm::session::{Message, MessageTree, Role, Session};
-use libllm::summarize::Summarizer;
 use libllm_cli::cli::CliOverrides;
+use libllm_core::config::Config;
+use libllm_core::context::ContextManager;
+use libllm_core::group_chat::{CharacterAttachment, ChatMode};
+use libllm_core::session::{Message, MessageTree, Role, Session};
+use libllm_protocol::summarize::Summarizer;
 use libllm_tui::business;
 use libllm_tui::dialogs::chat_settings::roll_back_provisional_group;
 
@@ -28,7 +28,7 @@ fn summarizer_includes_prior_summary_as_context() {
         None,
         "Instruction",
         &refs,
-        &libllm::files::NullFileSummaryLookup,
+        &libllm_core::files::NullFileSummaryLookup,
     );
     assert!(prompt.contains("Previous summary: Prior summary content"));
     assert!(prompt.contains("User: New message"));
@@ -91,7 +91,7 @@ fn empty_session() -> Session {
         persona: None,
         scenario: None,
         characters: Vec::new(),
-        chat_mode: libllm::group_chat::ChatMode::default(),
+        chat_mode: libllm_core::group_chat::ChatMode::default(),
         author_note: None,
     }
 }
@@ -135,7 +135,7 @@ fn load_tabbed_config_sections_override_precedence() {
 #[test]
 fn config_locked_by_section_tracks_sampling_overrides() {
     let overrides = CliOverrides {
-        sampling: libllm::sampling::SamplingOverrides {
+        sampling: libllm_core::sampling::SamplingOverrides {
             temperature: Some(0.5),
             ..Default::default()
         },
@@ -150,7 +150,7 @@ fn config_locked_by_section_tracks_sampling_overrides() {
 #[test]
 fn apply_tabbed_config_fields_preserves_locked() {
     let dir = tempfile::tempdir().unwrap();
-    libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+    libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
     let existing = Config {
         api_url: Some("http://preserve.me/v1".to_owned()),
         ..Config::default()
@@ -202,7 +202,7 @@ fn apply_tabbed_config_fields_preserves_locked() {
         ],
     ];
     business::apply_tabbed_config_fields(&sections, existing, &overrides).unwrap();
-    let saved = libllm::config::load();
+    let saved = libllm_config::load();
     assert_eq!(saved.api_url.as_deref(), Some("http://preserve.me/v1"));
 }
 
@@ -302,11 +302,11 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
 #[test]
 fn side_character_split_chains_three_user_nodes() {
     let raw = "User voice.\n\n[Alice]: hi.\n\n[Bob]: hello.";
-    let segments = libllm::side_character::split_user_input(raw);
+    let segments = libllm_core::side_character::split_user_input(raw);
     assert_eq!(segments.len(), 3);
 
     let mut tree = MessageTree::new();
-    let mut parent: Option<libllm::session::NodeId> = None;
+    let mut parent: Option<libllm_core::session::NodeId> = None;
     for seg in &segments {
         let id = tree.push(parent, Message::new(Role::User, seg.clone()));
         parent = Some(id);
@@ -367,7 +367,7 @@ fn remove_head_moves_head_to_parent() {
 
 #[test]
 fn display_regex_cache_clears_on_invalidate() {
-    use libllm::regex_rules::{RegexRule, Scope, Target};
+    use libllm_core::regex_rules::{RegexRule, Scope, Target};
     use std::collections::HashMap;
 
     let rule = RegexRule {
@@ -379,10 +379,10 @@ fn display_regex_cache_clears_on_invalidate() {
         enabled: true,
         compile_error: None,
     };
-    let compiled = libllm::regex_rules::compile_rules(&[rule]);
+    let compiled = libllm_core::regex_rules::compile_rules(&[rule]);
     assert_eq!(compiled.len(), 1, "valid rule should compile");
 
-    let mut cache: HashMap<libllm::session::NodeId, String> = HashMap::new();
+    let mut cache: HashMap<libllm_core::session::NodeId, String> = HashMap::new();
     cache.insert(0, "stale".to_owned());
 
     cache.clear();

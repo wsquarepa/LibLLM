@@ -2,14 +2,14 @@
 
 use tokio::sync::mpsc;
 
-use libllm::client::ApiClient;
-use libllm::db::Database;
-use libllm::preset::InstructPreset;
-use libllm::sampling::SamplingParams;
-use libllm::search::SearchHit;
-use libllm::session::{Message, MessageTree, NodeId, Role, SaveMode, Session, SessionEntry};
-use libllm::tokenizer::{TokenCountUpdate, TokenCounter};
-use libllm::worldinfo::{ActivatedEntry, RuntimeWorldBook};
+use libllm_core::preset::InstructPreset;
+use libllm_core::sampling::SamplingParams;
+use libllm_core::session::{Message, MessageTree, NodeId, Role, SaveMode, Session, SessionEntry};
+use libllm_core::worldinfo::{ActivatedEntry, RuntimeWorldBook};
+use libllm_protocol::client::ApiClient;
+use libllm_protocol::tokenizer::{TokenCountUpdate, TokenCounter};
+use libllm_storage::db::Database;
+use libllm_storage::search::SearchHit;
 
 use super::{App, BackgroundEvent};
 
@@ -21,7 +21,7 @@ pub fn non_empty(s: &str) -> Option<String> {
     }
 }
 
-pub use libllm::template::apply_template_vars;
+pub use libllm_core::template::apply_template_vars;
 
 /// Builds a sidebar-style display label for a group session, using card display names
 /// when available and falling back to attachment slugs.
@@ -85,9 +85,9 @@ pub fn build_effective_system_prompt(session: &Session, db: Option<&Database>) -
     let session_prompt = session.system_prompt.as_deref().unwrap_or("");
 
     let builtin_name = if is_character {
-        libllm::system_prompt::BUILTIN_ROLEPLAY
+        libllm_core::system_prompt::BUILTIN_ROLEPLAY
     } else {
-        libllm::system_prompt::BUILTIN_ASSISTANT
+        libllm_core::system_prompt::BUILTIN_ASSISTANT
     };
     let resolved_default = db.and_then(|db| db.load_prompt(builtin_name).ok().map(|p| p.content));
     let config_default = resolved_default.as_deref().unwrap_or("");
@@ -148,7 +148,10 @@ pub fn build_effective_system_prompt(session: &Session, db: Option<&Database>) -
     Some(result)
 }
 
-pub fn enabled_worldbook_names(session: &Session, cfg: &libllm::config::Config) -> Vec<String> {
+pub fn enabled_worldbook_names(
+    session: &Session,
+    cfg: &libllm_core::config::Config,
+) -> Vec<String> {
     let mut enabled = cfg.worldbooks.clone();
     for name in &session.worldbooks {
         if !enabled.iter().any(|existing| existing == name) {
@@ -199,7 +202,7 @@ pub fn inject_loaded_worldbook_entries(
 
     let mut all_activated: Vec<ActivatedEntry> = worldbooks
         .iter()
-        .flat_map(|wb| libllm::worldinfo::scan_runtime_entries(wb, &msg_texts))
+        .flat_map(|wb| libllm_core::worldinfo::scan_runtime_entries(wb, &msg_texts))
         .collect();
 
     if all_activated.is_empty() {
@@ -272,17 +275,17 @@ where
 }
 
 pub fn load_tabbed_config_sections(
-    cfg: &libllm::config::Config,
-    overrides: &libllm::config::CliOverrides,
+    cfg: &libllm_core::config::Config,
+    overrides: &libllm_core::config::CliOverrides,
 ) -> Vec<Vec<String>> {
-    let defaults = libllm::sampling::SamplingParams::default();
+    let defaults = libllm_core::sampling::SamplingParams::default();
 
     let general = vec![
         overrides
             .api_url
             .as_deref()
             .or(cfg.api_url.as_deref())
-            .unwrap_or(libllm::config::Config::default().api_url())
+            .unwrap_or(libllm_core::config::Config::default().api_url())
             .to_owned(),
         cfg.auth.kind().to_string(),
         cfg.template_preset
@@ -371,8 +374,8 @@ pub fn load_tabbed_config_sections(
         cfg.files.per_file_bytes.to_string(),
         cfg.files.per_message_bytes.to_string(),
         match cfg.files.summarize_mode {
-            libllm::config::FileSummarizeMode::Eager => "eager".to_owned(),
-            libllm::config::FileSummarizeMode::Lazy => "lazy".to_owned(),
+            libllm_core::config::FileSummarizeMode::Eager => "eager".to_owned(),
+            libllm_core::config::FileSummarizeMode::Lazy => "lazy".to_owned(),
         },
         cfg.files.summary_prompt.clone(),
     ];
@@ -381,7 +384,7 @@ pub fn load_tabbed_config_sections(
 }
 
 pub fn config_locked_fields_by_section(
-    overrides: &libllm::config::CliOverrides,
+    overrides: &libllm_core::config::CliOverrides,
 ) -> Vec<Vec<usize>> {
     let mut general: Vec<usize> = Vec::new();
     let mut sampling: Vec<usize> = Vec::new();
@@ -438,8 +441,8 @@ pub fn config_locked_fields_by_section(
 
 pub fn apply_tabbed_config_fields(
     sections: &[Vec<String>],
-    existing: libllm::config::Config,
-    overrides: &libllm::config::CliOverrides,
+    existing: libllm_core::config::Config,
+    overrides: &libllm_core::config::CliOverrides,
 ) -> anyhow::Result<()> {
     let locked = config_locked_fields_by_section(overrides);
     let general = &sections[0];
@@ -503,7 +506,7 @@ pub fn apply_tabbed_config_fields(
         parse_i64_clamped(&sampling[6], -1, 32767)
     };
 
-    let backup_cfg = libllm::config::BackupConfig {
+    let backup_cfg = libllm_core::config::BackupConfig {
         enabled: backup[0] == "true",
         keep_all_days: parse_u32_clamped(&backup[1], 0, 3650),
         keep_daily_days: parse_u32_clamped(&backup[2], 0, 3650),
@@ -517,25 +520,25 @@ pub fn apply_tabbed_config_fields(
     } else {
         Some(summarization[1].clone())
     };
-    let summarization_cfg = libllm::config::SummarizationConfig {
+    let summarization_cfg = libllm_core::config::SummarizationConfig {
         enabled: summarization[0] == "true",
         api_url: summarization_api_url,
         context_size: parse_usize_clamped(
             &summarization[2],
             512,
-            libllm::config::MAX_SUMMARIZATION_CONTEXT_SIZE,
+            libllm_core::config::MAX_SUMMARIZATION_CONTEXT_SIZE,
         ),
         trigger_percent: parse_u8_clamped(&summarization[3], 1, 100),
         keep_last: parse_usize_clamped(&summarization[4], 1, 100),
         prompt: summarization[5].clone(),
     };
 
-    let cfg = libllm::config::Config {
+    let cfg = libllm_core::config::Config {
         api_url,
         template_preset,
         instruct_preset,
         reasoning_preset,
-        sampling: libllm::sampling::SamplingOverrides {
+        sampling: libllm_core::sampling::SamplingOverrides {
             temperature,
             top_k,
             top_p,
@@ -554,23 +557,23 @@ pub fn apply_tabbed_config_fields(
         summarization: summarization_cfg,
         auth: existing.auth,
         regex: existing.regex,
-        files: libllm::config::FilesConfig {
+        files: libllm_core::config::FilesConfig {
             enabled: files_section[0] == "true",
             per_file_bytes: parse_usize_clamped(&files_section[1], 0, usize::MAX),
             per_message_bytes: parse_usize_clamped(&files_section[2], 0, usize::MAX),
             summarize_mode: match files_section.get(3).map(String::as_str) {
-                Some("lazy") => libllm::config::FileSummarizeMode::Lazy,
-                _ => libllm::config::FileSummarizeMode::Eager,
+                Some("lazy") => libllm_core::config::FileSummarizeMode::Lazy,
+                _ => libllm_core::config::FileSummarizeMode::Eager,
             },
             summary_prompt: match files_section.get(4) {
                 Some(s) => s.clone(),
-                None => libllm::config::FilesConfig::default().summary_prompt,
+                None => libllm_core::config::FilesConfig::default().summary_prompt,
             },
         },
         group_chat: existing.group_chat,
     };
 
-    Ok(libllm::config::save(&cfg)?)
+    Ok(libllm_config::save(&cfg)?)
 }
 
 fn parse_f64_clamped(s: &str, min: f64, max: f64) -> Option<f64> {
@@ -612,13 +615,13 @@ fn parse_u8_clamped(value: &str, min: u8, max: u8) -> u8 {
 struct EffectiveConnectionConfig {
     api_url: String,
     tls_skip_verify: bool,
-    auth: libllm::config::Auth,
+    auth: libllm_core::config::Auth,
 }
 
 impl EffectiveConnectionConfig {
     fn from_config(
-        cfg: &libllm::config::Config,
-        cli_overrides: &libllm::config::CliOverrides,
+        cfg: &libllm_core::config::Config,
+        cli_overrides: &libllm_core::config::CliOverrides,
     ) -> Self {
         Self {
             api_url: cli_overrides
@@ -627,7 +630,7 @@ impl EffectiveConnectionConfig {
                 .unwrap_or(cfg.api_url())
                 .to_owned(),
             tls_skip_verify: cli_overrides.tls_skip_verify || cfg.tls_skip_verify,
-            auth: libllm::config::resolve_auth(cfg, &cli_overrides.auth_overrides()),
+            auth: libllm_core::config::resolve_auth(cfg, &cli_overrides.auth_overrides()),
         }
     }
 
@@ -637,9 +640,9 @@ impl EffectiveConnectionConfig {
 }
 
 struct RuntimeReloadState {
-    config: libllm::config::Config,
+    config: libllm_core::config::Config,
     instruct_preset: InstructPreset,
-    reasoning_preset: Option<libllm::preset::ReasoningPreset>,
+    reasoning_preset: Option<libllm_core::preset::ReasoningPreset>,
     stop_tokens: Vec<String>,
     sampling: SamplingParams,
     summarization_enabled: bool,
@@ -648,25 +651,27 @@ struct RuntimeReloadState {
     connection: EffectiveConnectionConfig,
 }
 
-fn load_runtime_reload_state(cli_overrides: &libllm::config::CliOverrides) -> RuntimeReloadState {
-    let config = libllm::config::load();
+fn load_runtime_reload_state(
+    cli_overrides: &libllm_core::config::CliOverrides,
+) -> RuntimeReloadState {
+    let config = libllm_config::load();
     let preset_name = cli_overrides
         .template
         .as_deref()
         .or(config.instruct_preset.as_deref())
         .unwrap_or("Mistral V3-Tekken");
-    let instruct_preset = libllm::preset::resolve_instruct_preset(
+    let instruct_preset = libllm_core::preset::resolve_instruct_preset(
         preset_name,
-        &libllm::config::instruct_presets_dir(),
+        &libllm_config::instruct_presets_dir(),
     );
     let reasoning_preset = config.reasoning_preset.as_deref().and_then(|n| {
-        libllm::preset::resolve_reasoning_preset(n, &libllm::config::reasoning_presets_dir())
+        libllm_core::preset::resolve_reasoning_preset(n, &libllm_config::reasoning_presets_dir())
     });
 
     RuntimeReloadState {
         reasoning_preset,
         stop_tokens: instruct_preset.stop_tokens(),
-        sampling: libllm::sampling::SamplingParams::default()
+        sampling: libllm_core::sampling::SamplingParams::default()
             .with_overrides(&config.sampling)
             .with_overrides(&cli_overrides.sampling),
         summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
@@ -707,13 +712,13 @@ async fn emit_startup_probe_events(
     if !cli_override_template_set
         && let Some(server_template) = client.fetch_server_chat_template().await
     {
-        let instruct_dir = libllm::config::instruct_presets_dir();
-        let presets: Vec<libllm::preset::InstructPreset> =
-            libllm::preset::list_instruct_preset_names(&instruct_dir)
+        let instruct_dir = libllm_config::instruct_presets_dir();
+        let presets: Vec<libllm_core::preset::InstructPreset> =
+            libllm_core::preset::list_instruct_preset_names(&instruct_dir)
                 .into_iter()
-                .map(|n| libllm::preset::resolve_instruct_preset(&n, &instruct_dir))
+                .map(|n| libllm_core::preset::resolve_instruct_preset(&n, &instruct_dir))
                 .collect();
-        let outcome = libllm::preset::matching::pick_best_match(
+        let outcome = libllm_core::preset::matching::pick_best_match(
             &server_template,
             &presets,
             &current_preset_name,
@@ -721,7 +726,9 @@ async fn emit_startup_probe_events(
         let _ = bg_tx
             .send(BackgroundEvent::TemplateMatch {
                 outcome,
-                server_template_hash: libllm::preset::matching::template_hash(&server_template),
+                server_template_hash: libllm_core::preset::matching::template_hash(
+                    &server_template,
+                ),
             })
             .await;
     }
@@ -757,10 +764,10 @@ pub(super) fn spawn_context_probe(client: ApiClient, bg_tx: mpsc::Sender<Backgro
 }
 
 fn build_summarize_client(
-    config: &libllm::config::Config,
-    cli_overrides: &libllm::config::CliOverrides,
+    config: &libllm_core::config::Config,
+    cli_overrides: &libllm_core::config::CliOverrides,
 ) -> ApiClient {
-    let auth = libllm::config::resolve_auth(config, &cli_overrides.auth_overrides());
+    let auth = libllm_core::config::resolve_auth(config, &cli_overrides.auth_overrides());
     let url = summarize_api_url(config, cli_overrides);
     ApiClient::new(
         &url,
@@ -770,8 +777,8 @@ fn build_summarize_client(
 }
 
 pub(super) fn summarize_api_url(
-    config: &libllm::config::Config,
-    cli_overrides: &libllm::config::CliOverrides,
+    config: &libllm_core::config::Config,
+    cli_overrides: &libllm_core::config::CliOverrides,
 ) -> String {
     cli_overrides
         .api_url
@@ -782,10 +789,10 @@ pub(super) fn summarize_api_url(
 
 pub fn build_file_summarizer(
     db_path: &std::path::Path,
-    key: Option<&std::sync::Arc<libllm::crypto::DerivedKey>>,
-    config: &libllm::config::Config,
-    cli_overrides: &libllm::config::CliOverrides,
-    ready_tx: tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
+    key: Option<&std::sync::Arc<libllm_core::crypto::DerivedKey>>,
+    config: &libllm_core::config::Config,
+    cli_overrides: &libllm_core::config::CliOverrides,
+    ready_tx: tokio::sync::mpsc::UnboundedSender<libllm_core::files::ReadyEvent>,
 ) -> anyhow::Result<std::sync::Arc<crate::file_summarizer::FileSummarizer>> {
     use anyhow::Context as _;
     let conn = {
@@ -863,8 +870,8 @@ pub(super) fn apply_config(app: &mut App) {
 
 pub fn build_theme_color_overrides(
     sections: &[Vec<String>],
-) -> libllm::config::ThemeColorOverrides {
-    let mut overrides = libllm::config::ThemeColorOverrides::default();
+) -> libllm_core::config::ThemeColorOverrides {
+    let mut overrides = libllm_core::config::ThemeColorOverrides::default();
     for (tab_offset, labels) in crate::dialogs::THEME_COLOR_TAB_LAYOUT.iter().enumerate() {
         let section_idx = tab_offset + 1;
         for (field_idx, label) in labels.iter().enumerate() {
@@ -876,12 +883,12 @@ pub fn build_theme_color_overrides(
 
 pub fn apply_theme_color_sections(
     sections: &[Vec<String>],
-    existing: libllm::config::Config,
+    existing: libllm_core::config::Config,
 ) -> anyhow::Result<()> {
     let base_theme = sections[0][0].clone();
     let overrides = build_theme_color_overrides(sections);
 
-    let cfg = libllm::config::Config {
+    let cfg = libllm_core::config::Config {
         theme: Some(base_theme),
         theme_colors: if overrides.any_set() {
             Some(overrides)
@@ -891,7 +898,7 @@ pub fn apply_theme_color_sections(
         ..existing
     };
 
-    Ok(libllm::config::save(&cfg)?)
+    Ok(libllm_config::save(&cfg)?)
 }
 
 pub(super) fn load_active_persona(app: &mut App) {
@@ -924,9 +931,10 @@ pub(super) fn load_active_card_author_note(app: &mut App) {
         .character
         .as_deref()
         .and_then(|name| {
-            app.db
-                .as_ref()
-                .and_then(|db| db.load_character(&libllm::character::slugify(name)).ok())
+            app.db.as_ref().and_then(|db| {
+                db.load_character(&libllm_core::character::slugify(name))
+                    .ok()
+            })
         })
         .and_then(|card| card.author_note);
 }
@@ -1160,9 +1168,9 @@ fn find_node_for_message(tree: &MessageTree, message_id: i64) -> Option<NodeId> 
 mod tests {
     use super::*;
 
-    use libllm::config::CliOverrides;
-    use libllm::config::Config;
-    use libllm::session::Session;
+    use libllm_core::config::CliOverrides;
+    use libllm_core::config::Config;
+    use libllm_core::session::Session;
 
     #[test]
     fn non_empty_with_content() {
@@ -1243,12 +1251,12 @@ mod tests {
     #[test]
     fn runtime_reload_state_applies_summarization_and_connection_overrides() {
         let dir = tempfile::TempDir::new().unwrap();
-        libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+        libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
 
-        let cfg = libllm::config::Config {
+        let cfg = libllm_core::config::Config {
             api_url: Some("http://config.example/v1".to_owned()),
             tls_skip_verify: false,
-            summarization: libllm::config::SummarizationConfig {
+            summarization: libllm_core::config::SummarizationConfig {
                 enabled: true,
                 api_url: None,
                 context_size: 4096,
@@ -1256,15 +1264,15 @@ mod tests {
                 keep_last: 4,
                 prompt: "summarize".to_owned(),
             },
-            ..libllm::config::Config::default()
+            ..libllm_core::config::Config::default()
         };
-        libllm::config::save(&cfg).unwrap();
+        libllm_config::save(&cfg).unwrap();
 
         let cli_overrides = CliOverrides {
             api_url: Some("http://override.example/v1".to_owned()),
             template: None,
             tls_skip_verify: true,
-            sampling: libllm::sampling::SamplingOverrides::default(),
+            sampling: libllm_core::sampling::SamplingOverrides::default(),
             system_prompt: None,
             persona: None,
             characters: vec![],
@@ -1297,7 +1305,7 @@ mod tests {
     fn effective_connection_config_resolves_auth_overrides() {
         let cfg = Config {
             api_url: Some("http://config.example/v1".to_owned()),
-            auth: libllm::config::Auth::Bearer {
+            auth: libllm_core::config::Auth::Bearer {
                 token: "config-token".to_owned(),
             },
             ..Config::default()
@@ -1306,7 +1314,7 @@ mod tests {
             api_url: None,
             template: None,
             tls_skip_verify: false,
-            sampling: libllm::sampling::SamplingOverrides::default(),
+            sampling: libllm_core::sampling::SamplingOverrides::default(),
             system_prompt: None,
             persona: None,
             characters: vec![],
@@ -1317,7 +1325,7 @@ mod tests {
             author_note_depth: None,
             author_note_at_top: None,
             no_summarize: false,
-            auth_type: Some(libllm::config::AuthKind::Header),
+            auth_type: Some(libllm_core::config::AuthKind::Header),
             auth_basic_username: None,
             auth_basic_password: None,
             auth_bearer_token: None,
@@ -1332,7 +1340,7 @@ mod tests {
         assert_eq!(connection.api_url, "http://config.example/v1");
         assert_eq!(
             connection.auth,
-            libllm::config::Auth::Header {
+            libllm_core::config::Auth::Header {
                 name: "X-Test-Auth".to_owned(),
                 value: "override-value".to_owned(),
             }
@@ -1342,17 +1350,17 @@ mod tests {
     #[test]
     fn config_editor_round_trips_files_summarize_fields() {
         let dir = tempfile::TempDir::new().unwrap();
-        libllm::config::set_data_dir(dir.path().to_path_buf()).ok();
+        libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
 
-        let mut cfg = libllm::config::Config::default();
-        cfg.files.summarize_mode = libllm::config::FileSummarizeMode::Lazy;
+        let mut cfg = libllm_core::config::Config::default();
+        cfg.files.summarize_mode = libllm_core::config::FileSummarizeMode::Lazy;
         cfg.files.summary_prompt = "Custom file summary prompt.".to_owned();
 
         let no_overrides = CliOverrides {
             api_url: None,
             template: None,
             tls_skip_verify: false,
-            sampling: libllm::sampling::SamplingOverrides::default(),
+            sampling: libllm_core::sampling::SamplingOverrides::default(),
             system_prompt: None,
             persona: None,
             characters: vec![],
@@ -1376,11 +1384,11 @@ mod tests {
         let sections = load_tabbed_config_sections(&cfg, &no_overrides);
         apply_tabbed_config_fields(&sections, cfg, &no_overrides).unwrap();
 
-        let rebuilt = libllm::config::load();
+        let rebuilt = libllm_config::load();
 
         assert_eq!(
             rebuilt.files.summarize_mode,
-            libllm::config::FileSummarizeMode::Lazy
+            libllm_core::config::FileSummarizeMode::Lazy
         );
         assert_eq!(rebuilt.files.summary_prompt, "Custom file summary prompt.");
     }
@@ -1484,9 +1492,9 @@ mod tests {
     #[test]
     fn build_theme_color_overrides_preserves_group_character_overrides() {
         use crate::dialogs::open_theme_editor;
-        use libllm::config::ColorLabel;
+        use libllm_core::config::ColorLabel;
 
-        let overrides = libllm::config::ThemeColorOverrides {
+        let overrides = libllm_core::config::ThemeColorOverrides {
             group_character_fg_1: Some("#112233".to_owned()),
             group_character_bg_8: Some("#445566".to_owned()),
             ..Default::default()

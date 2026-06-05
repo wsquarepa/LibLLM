@@ -18,7 +18,7 @@ impl std::fmt::Display for DelimiterKind {
     }
 }
 
-/// Every failure mode of `libllm::files::resolve_all`. Each variant carries
+/// Every failure mode of `libllm_core::files::resolve_all`. Each variant carries
 /// enough context for the UI copy to name the offending file.
 #[derive(Debug)]
 pub enum FileError {

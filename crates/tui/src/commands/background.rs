@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use libllm::db::Database;
-use libllm::session::{self, SaveMode};
+use libllm_core::session::{self, SaveMode};
+use libllm_storage::db::Database;
 
 use crate::business;
 use crate::dialog_handler::return_to_input;
@@ -55,10 +55,10 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                     if let Err(e) = db.ensure_builtin_prompts() {
                         app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
                     }
-                    libllm::preset::ensure_default_presets(
-                        &libllm::config::instruct_presets_dir(),
-                        &libllm::config::reasoning_presets_dir(),
-                        &libllm::config::template_presets_dir(),
+                    libllm_core::preset::ensure_default_presets(
+                        &libllm_config::instruct_presets_dir(),
+                        &libllm_config::reasoning_presets_dir(),
+                        &libllm_config::template_presets_dir(),
                     );
                     let id = match &app.save_mode {
                         SaveMode::PendingPasskey { id } => id.clone(),
@@ -129,16 +129,16 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
             app.invalidate_worldbook_cache();
             app.invalidate_chat_render_cache();
             if app.set_passkey_is_initial {
-                let db_path = libllm::config::data_dir().join("data.db");
+                let db_path = libllm_config::data_dir().join("data.db");
                 match Database::open(&db_path, Some(&new_key)) {
                     Ok(db) => {
                         if let Err(e) = db.ensure_builtin_prompts() {
                             app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
                         }
-                        libllm::preset::ensure_default_presets(
-                            &libllm::config::instruct_presets_dir(),
-                            &libllm::config::reasoning_presets_dir(),
-                            &libllm::config::template_presets_dir(),
+                        libllm_core::preset::ensure_default_presets(
+                            &libllm_config::instruct_presets_dir(),
+                            &libllm_config::reasoning_presets_dir(),
+                            &libllm_config::template_presets_dir(),
                         );
                         let id = match &app.save_mode {
                             SaveMode::PendingPasskey { id } => id.clone(),
@@ -148,7 +148,7 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                         app.save_mode = SaveMode::Database { id };
                         business::load_active_persona(app);
                         business::load_active_card_author_note(app);
-                        if let Err(e) = libllm::config::save(&app.config) {
+                        if let Err(e) = libllm_config::save(&app.config) {
                             app.set_status(
                                 format!("Failed to write default config: {e}"),
                                 StatusLevel::Warning,
@@ -185,7 +185,7 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                 }
             } else {
                 if let Some(ref db) = app.db {
-                    let data_dir = libllm::config::data_dir();
+                    let data_dir = libllm_config::data_dir();
                     let old_passkey = app.resolved_passkey.clone();
                     let new_passkey = app.pending_new_passkey.take();
 
@@ -321,7 +321,7 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
             outcome,
             server_template_hash,
         } => {
-            use libllm::preset::matching::MatchOutcome;
+            use libllm_core::preset::matching::MatchOutcome;
             let (preset_name, score, is_best_guess) = match outcome {
                 MatchOutcome::Confident { preset, score } => (preset, score, false),
                 MatchOutcome::BestGuess { preset, score } => (preset, score, true),
@@ -357,9 +357,9 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                 return;
             }
 
-            let suggested = libllm::preset::resolve_instruct_preset(
+            let suggested = libllm_core::preset::resolve_instruct_preset(
                 &preset_name,
-                &libllm::config::instruct_presets_dir(),
+                &libllm_config::instruct_presets_dir(),
             );
             let state = TemplatePromptState {
                 suggested_preset: suggested,

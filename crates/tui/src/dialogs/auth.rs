@@ -9,7 +9,7 @@ use ratatui::widgets::Paragraph;
 use super::{LIST_DIALOG_TALL_PADDING, LIST_DIALOG_WIDTH};
 use super::{byte_pos_at_char, clear_centered, dialog_block, render_hints_below_dialog};
 use crate::types::{App, Focus, StatusLevel};
-use libllm::config::{Auth, AuthKind, AuthOverrides};
+use libllm_core::config::{Auth, AuthKind, AuthOverrides};
 
 const AUTH_DIALOG_WIDTH: u16 = 60;
 const AUTH_DIALOG_PADDING: u16 = 6;
@@ -454,14 +454,14 @@ pub(crate) fn close_and_persist(app: &mut App) {
         return;
     }
     let candidate = state.build_candidate_auth();
-    if let Err(e) = libllm::client::validate_auth(&candidate) {
+    if let Err(e) = libllm_protocol::client::validate_auth(&candidate) {
         app.set_status(format!("Auth: {e}"), StatusLevel::Error);
         app.auth_dialog = Some(state);
         return;
     }
     let mut cfg = app.config.clone();
     cfg.auth = candidate;
-    if let Err(e) = libllm::config::save(&cfg) {
+    if let Err(e) = libllm_config::save(&cfg) {
         app.set_status(format!("Failed to save auth: {e}"), StatusLevel::Error);
         app.auth_dialog = Some(state);
         return;

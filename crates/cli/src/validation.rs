@@ -35,7 +35,7 @@ pub fn is_libllm_data_dir(path: &Path, no_encrypt: bool) -> bool {
 /// marker rules applied by [`is_libllm_data_dir`].
 pub fn validate_data_dir(data_path: &Path, no_encrypt: bool) -> Result<bool> {
     let path_str = data_path.display().to_string();
-    libllm::timed_result!(tracing::Level::INFO, "validation.data_dir", path = path_str.as_str(), no_encrypt = no_encrypt ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "validation.data_dir", path = path_str.as_str(), no_encrypt = no_encrypt ; {
         if data_path.exists() {
             if !data_path.is_dir() {
                 tracing::warn!(phase = "summary", result = "error", reason = "not_a_dir", path = %data_path.display(), "validation.data_dir");

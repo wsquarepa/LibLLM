@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use libllm::character::CharacterCard;
-use libllm::crypto::DerivedKey;
-use libllm::persona::PersonaFile;
-use libllm::sampling::{SamplingOverrides, SamplingParams};
-use libllm::session::{Message, MessageTree, Role, Session};
-use libllm::system_prompt::SystemPromptFile;
-use libllm::worldinfo::{Entry, WorldBook};
+use libllm_core::character::CharacterCard;
+use libllm_core::crypto::DerivedKey;
+use libllm_core::persona::PersonaFile;
+use libllm_core::sampling::{SamplingOverrides, SamplingParams};
+use libllm_core::session::{Message, MessageTree, Role, Session};
+use libllm_core::system_prompt::SystemPromptFile;
+use libllm_core::worldinfo::{Entry, WorldBook};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -35,8 +35,8 @@ pub fn create_data_dirs(root: &Path) {
 /// (typically by opening a `Database` with the returned key).
 pub fn test_key(root: &Path) -> DerivedKey {
     let salt_path = root.join(".salt");
-    let salt = libllm::crypto::load_or_create_salt(&salt_path).expect("failed to create salt");
-    libllm::crypto::derive_key("test-passkey", &salt).expect("failed to derive key")
+    let salt = libllm_core::crypto::load_or_create_salt(&salt_path).expect("failed to create salt");
+    libllm_core::crypto::derive_key("test-passkey", &salt).expect("failed to derive key")
 }
 
 /// Build a user message.
@@ -73,7 +73,7 @@ pub fn linear_session(messages: Vec<Message>) -> Session {
         persona: None,
         scenario: None,
         characters: Vec::new(),
-        chat_mode: libllm::group_chat::ChatMode::default(),
+        chat_mode: libllm_core::group_chat::ChatMode::default(),
         author_note: None,
     }
 }
@@ -257,7 +257,7 @@ pub fn seed_search_db(rows: &[(&str, &str, &str)]) -> tempfile::TempDir {
     let dir = temp_dir();
     let db_path = dir.path().join("data.db");
     {
-        let _db = libllm::db::Database::open(&db_path, None).expect("open plain db");
+        let _db = libllm_storage::db::Database::open(&db_path, None).expect("open plain db");
     }
     let conn = rusqlite::Connection::open(&db_path).expect("open conn");
     let mut session_ids: std::collections::BTreeMap<String, i64> =

@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use libllm::db::{Database, QueryRows};
+use libllm_storage::db::{Database, QueryRows};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 

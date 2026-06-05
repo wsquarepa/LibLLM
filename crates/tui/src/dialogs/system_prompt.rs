@@ -112,11 +112,11 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
             let existing: std::collections::HashSet<String> =
                 app.system_prompt_list.iter().cloned().collect();
             let new_name = super::generate_unique_name("custom", &existing);
-            let prompt = libllm::system_prompt::SystemPromptFile {
+            let prompt = libllm_core::system_prompt::SystemPromptFile {
                 name: new_name.clone(),
                 content: String::new(),
             };
-            let slug = libllm::character::slugify(&new_name);
+            let slug = libllm_core::character::slugify(&new_name);
             if let Err(e) = app
                 .db
                 .as_ref()
@@ -138,8 +138,8 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
         }
         KeyCode::Backspace | KeyCode::Delete => {
             let name = app.system_prompt_list[selected].clone();
-            if name == libllm::system_prompt::BUILTIN_ASSISTANT
-                || name == libllm::system_prompt::BUILTIN_ROLEPLAY
+            if name == libllm_core::system_prompt::BUILTIN_ASSISTANT
+                || name == libllm_core::system_prompt::BUILTIN_ROLEPLAY
             {
                 app.set_status(
                     "Cannot delete built-in prompts.".to_owned(),
@@ -169,8 +169,8 @@ fn open_prompt_editor(app: &mut App, name: &str) {
         .unwrap_or_default();
 
     let values = vec![name.to_owned(), content];
-    let is_builtin = name == libllm::system_prompt::BUILTIN_ASSISTANT
-        || name == libllm::system_prompt::BUILTIN_ROLEPLAY;
+    let is_builtin = name == libllm_core::system_prompt::BUILTIN_ASSISTANT
+        || name == libllm_core::system_prompt::BUILTIN_ROLEPLAY;
 
     let mut dialog = super::open_system_prompt_editor(values);
     if is_builtin {
@@ -241,11 +241,11 @@ pub(crate) fn handle_system_prompt_paste(path: &std::path::Path, ext: &str, app:
         }
     };
 
-    let prompt = libllm::system_prompt::SystemPromptFile {
+    let prompt = libllm_core::system_prompt::SystemPromptFile {
         name: name.clone(),
         content,
     };
-    let slug = libllm::character::slugify(&name);
+    let slug = libllm_core::character::slugify(&name);
     match app
         .db
         .as_ref()

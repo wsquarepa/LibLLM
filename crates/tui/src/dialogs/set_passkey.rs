@@ -170,7 +170,7 @@ pub(crate) fn handle_set_passkey_key(
                 "change_passkey"
             };
 
-            let salt_path = libllm::config::salt_path();
+            let salt_path = libllm_config::salt_path();
 
             tokio::spawn(async move {
                 let event = match tokio::task::spawn_blocking(move || {

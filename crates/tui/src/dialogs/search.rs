@@ -1,9 +1,9 @@
 use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use libllm::db::Database;
-use libllm::search::query as search_query;
-use libllm::search::{self, SearchHit, strip_terminal_controls};
+use libllm_storage::db::Database;
+use libllm_storage::search::query as search_query;
+use libllm_storage::search::{self, SearchHit, strip_terminal_controls};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -61,7 +61,7 @@ impl SearchDialogState {
     }
 }
 
-pub(crate) const TUI_LIMIT: usize = libllm::search::DEFAULT_MAX_HITS;
+pub(crate) const TUI_LIMIT: usize = libllm_storage::search::DEFAULT_MAX_HITS;
 
 pub(crate) fn maybe_run_query(state: &mut SearchDialogState, db: &Database, now: Instant) {
     if !state.ready_for_query(now) {
@@ -487,13 +487,13 @@ mod tests {
         assert!(matches!(outcome, SearchDialogOutcome::Consumed));
     }
 
-    fn dummy_hit() -> libllm::search::SearchHit {
-        libllm::search::SearchHit {
+    fn dummy_hit() -> libllm_storage::search::SearchHit {
+        libllm_storage::search::SearchHit {
             session_id: "s".into(),
             session_display_name: "S".into(),
             message_id: 0,
             message_rowid: 0,
-            role: libllm::session::Role::User,
+            role: libllm_core::session::Role::User,
             timestamp: time::OffsetDateTime::now_utc(),
             snippet: String::new(),
             preview_text: String::new(),
@@ -503,10 +503,10 @@ mod tests {
 
     fn seed_db_for_tests(
         rows: &[(&str, &str, &str)],
-    ) -> (libllm::db::Database, tempfile::NamedTempFile) {
+    ) -> (libllm_storage::db::Database, tempfile::NamedTempFile) {
         let file = tempfile::NamedTempFile::new().unwrap();
         {
-            let _db = libllm::db::Database::open(file.path(), None).unwrap();
+            let _db = libllm_storage::db::Database::open(file.path(), None).unwrap();
         }
         let conn = rusqlite::Connection::open(file.path()).unwrap();
         let mut session_ids: std::collections::BTreeMap<String, i64> =
@@ -533,7 +533,7 @@ mod tests {
             *next_id += 1;
         }
         drop(conn);
-        let db = libllm::db::Database::open(file.path(), None).unwrap();
+        let db = libllm_storage::db::Database::open(file.path(), None).unwrap();
         (db, file)
     }
 
@@ -638,7 +638,7 @@ mod tests {
         state.hits = vec![{
             let mut hit = dummy_hit();
             hit.session_display_name = "feature-x".into();
-            hit.role = libllm::session::Role::User;
+            hit.role = libllm_core::session::Role::User;
             hit.snippet = "remember to \u{1}redact\u{2} PII".into();
             hit
         }];
@@ -679,7 +679,7 @@ mod tests {
         state.hits = vec![{
             let mut hit = dummy_hit();
             hit.session_display_name = "alpha".into();
-            hit.role = libllm::session::Role::Assistant;
+            hit.role = libllm_core::session::Role::Assistant;
             hit.preview_text =
                 "remember to \u{1}redact\u{2} PII before sending and document why".into();
             hit

@@ -7,7 +7,7 @@ mod common;
 use std::process::Command;
 
 use common::client_bin;
-use libllm::db::Database;
+use libllm_storage::db::Database;
 
 #[test]
 fn import_persona_from_txt() {

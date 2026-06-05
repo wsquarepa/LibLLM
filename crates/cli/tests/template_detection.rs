@@ -8,18 +8,18 @@
 )]
 mod common;
 
-use libllm::preset::matching::{
+use libllm_core::preset::matching::{
     BEST_GUESS_THRESHOLD, MatchOutcome, pick_best_match, template_hash,
 };
 
 const REAL_LLAMA3_TEMPLATE: &str =
     include_str!("../../core/src/preset/matching_fixtures/llama3.jinja");
 
-fn all_builtins() -> Vec<libllm::preset::InstructPreset> {
-    let dir = libllm::config::instruct_presets_dir();
-    libllm::preset::list_instruct_preset_names(&dir)
+fn all_builtins() -> Vec<libllm_core::preset::InstructPreset> {
+    let dir = libllm_config::instruct_presets_dir();
+    libllm_core::preset::list_instruct_preset_names(&dir)
         .into_iter()
-        .map(|n| libllm::preset::resolve_instruct_preset(&n, &dir))
+        .map(|n| libllm_core::preset::resolve_instruct_preset(&n, &dir))
         .collect()
 }
 
@@ -62,13 +62,13 @@ fn dismissal_gate_records_and_detects_dismissed_hash() {
     use rusqlite::Connection;
 
     let conn = Connection::open_in_memory().unwrap();
-    libllm::db::migrations::run_migrations(&conn).unwrap();
+    libllm_storage::db::migrations::run_migrations(&conn).unwrap();
 
     let hash = template_hash(REAL_LLAMA3_TEMPLATE);
 
-    assert!(!libllm::db::is_template_dismissed(&conn, &hash).unwrap());
+    assert!(!libllm_storage::db::is_template_dismissed(&conn, &hash).unwrap());
 
-    libllm::db::record_template_dismissal(&conn, &hash).unwrap();
+    libllm_storage::db::record_template_dismissal(&conn, &hash).unwrap();
 
-    assert!(libllm::db::is_template_dismissed(&conn, &hash).unwrap());
+    assert!(libllm_storage::db::is_template_dismissed(&conn, &hash).unwrap());
 }

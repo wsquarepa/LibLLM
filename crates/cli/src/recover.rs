@@ -254,7 +254,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     };
 
     let entry_type_str = entry.entry_type.to_string();
-    libllm::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "recover.restore",
         id = entry.id.as_str(),
@@ -338,7 +338,7 @@ fn cmd_verify(
     archived_passkey: Option<&str>,
     full: bool,
 ) -> Result<()> {
-    let result = libllm::timed_result!(
+    let result = libllm_core::timed_result!(
         tracing::Level::INFO,
         "recover.verify",
         full = full ;
@@ -427,7 +427,7 @@ fn cmd_restore(
     }
 
     let entry_type_str = entry.entry_type.to_string();
-    libllm::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "recover.restore",
         id = id,
@@ -442,14 +442,14 @@ fn cmd_restore(
 }
 
 fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>, interactive: bool) -> Result<()> {
-    libllm::timed_result!(tracing::Level::INFO, "recover.rebuild_index", ; {
+    libllm_core::timed_result!(tracing::Level::INFO, "recover.rebuild_index", ; {
         let backups_dir = data_dir.join("backups");
 
         if !backups_dir.exists() {
             bail!("backups directory does not exist: {}", backups_dir.display());
         }
 
-        let (rebuilt, warnings) = libllm::timed_result!(
+        let (rebuilt, warnings) = libllm_core::timed_result!(
             tracing::Level::INFO,
             "recover.resolve_backup_index",
             has_passkey = passkey.is_some() ;

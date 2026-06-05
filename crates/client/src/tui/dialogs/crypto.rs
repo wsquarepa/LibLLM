@@ -24,7 +24,7 @@ fn log_phase_with_error(
     kind: &str,
     phase: &str,
     elapsed: std::time::Duration,
-    error: &anyhow::Error,
+    error: &dyn std::fmt::Display,
 ) {
     let elapsed_ms = format!("{:.3}", elapsed.as_secs_f64() * 1000.0);
     tracing::warn!(kind, phase, result = "error", elapsed_ms, error = %error, "unlock.phase");

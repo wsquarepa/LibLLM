@@ -29,7 +29,7 @@ pub enum ConfigError {
     Write {
         path: PathBuf,
         #[source]
-        source: anyhow::Error,
+        source: libllm_core::crypto::CryptoError,
     },
 }
 

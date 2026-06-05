@@ -3,9 +3,73 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
 use argon2::Argon2;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+
+/// Errors from key derivation, salt management, and atomic file writes.
+#[derive(Debug, thiserror::Error)]
+pub enum CryptoError {
+    /// A salt file exists but is not exactly [`SALT_LEN`] bytes.
+    #[error("invalid salt file length for {path}: expected {expected} bytes, got {actual}")]
+    InvalidSaltLength {
+        path: PathBuf,
+        expected: usize,
+        actual: usize,
+    },
+    /// The salt file could not be read.
+    #[error("failed to read salt file {path}: {source}")]
+    ReadSaltFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A database exists without its salt, so minting a new one would orphan it.
+    #[error(
+        "refusing to create a new salt: {db_path} exists but {salt_path} is missing; \
+         the existing database would become undecryptable with a fresh salt"
+    )]
+    SaltMissingForExistingDb {
+        db_path: PathBuf,
+        salt_path: PathBuf,
+    },
+    /// The directory for the salt file could not be created.
+    #[error("failed to create directory for salt file {path}: {source}")]
+    CreateSaltDir {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The salt file could not be written.
+    #[error("failed to write salt file {path}: {source}")]
+    WriteSaltFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The salt file disappeared between a concurrent create and the re-read.
+    #[error("salt file vanished after concurrent create: {path}")]
+    SaltVanished { path: PathBuf },
+    /// Argon2id key derivation failed.
+    #[error("key derivation failed: {0}")]
+    KeyDerivation(argon2::Error),
+    /// A path passed to [`write_atomic`] has no file-name component.
+    #[error("path has no file name: {path}")]
+    NoFileName { path: PathBuf },
+    /// The temporary file for an atomic write could not be written.
+    #[error("failed to write temp file {path}: {source}")]
+    WriteTempFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The atomic rename of the temporary file over the target failed.
+    #[error("failed to replace file atomically {path}: {source}")]
+    AtomicRename {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
 const SALT_LEN: usize = 16;
 
@@ -122,7 +186,7 @@ impl DerivedKey {
 /// that database undecryptable). When two callers race to create the salt, the
 /// loser detects the existing file via `O_EXCL` and re-reads the winner's value
 /// so both end up with identical key material.
-pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
+pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN], CryptoError> {
     if let Some(salt) = read_salt_file(path)? {
         return Ok(salt);
     }
@@ -138,18 +202,19 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
                 db_path = %db_path.display(),
                 "crypto.salt",
             );
-            bail!(
-                "refusing to create a new salt: {} exists but {} is missing; \
-                 the existing database would become undecryptable with a fresh salt",
-                db_path.display(),
-                path.display()
-            );
+            return Err(CryptoError::SaltMissingForExistingDb {
+                db_path,
+                salt_path: path.to_path_buf(),
+            });
         }
     }
 
     let salt: [u8; SALT_LEN] = rand::random();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).context("failed to create directory for salt file")?;
+        std::fs::create_dir_all(parent).map_err(|source| CryptoError::CreateSaltDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
     }
     match create_restricted(path, &salt) {
         Ok(()) => {
@@ -162,15 +227,9 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
             Ok(salt)
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            let existing = read_salt_file(path)
-                .context(format!(
-                    "failed to re-read salt after concurrent create: {}",
-                    path.display()
-                ))?
-                .context(format!(
-                    "salt file vanished after AlreadyExists from create_new: {}",
-                    path.display()
-                ))?;
+            let existing = read_salt_file(path)?.ok_or_else(|| CryptoError::SaltVanished {
+                path: path.to_path_buf(),
+            })?;
             tracing::info!(
                 phase = "create",
                 result = "ok",
@@ -188,12 +247,15 @@ pub fn load_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN]> {
                 error = %err,
                 "crypto.salt",
             );
-            Err(err).context(format!("failed to write salt file: {}", path.display()))
+            Err(CryptoError::WriteSaltFile {
+                path: path.to_path_buf(),
+                source: err,
+            })
         }
     }
 }
 
-fn read_salt_file(path: &Path) -> Result<Option<[u8; SALT_LEN]>> {
+fn read_salt_file(path: &Path) -> Result<Option<[u8; SALT_LEN]>, CryptoError> {
     match std::fs::read(path) {
         Ok(data) => {
             if data.len() != SALT_LEN {
@@ -206,11 +268,11 @@ fn read_salt_file(path: &Path) -> Result<Option<[u8; SALT_LEN]>> {
                     expected = SALT_LEN,
                     "crypto.salt",
                 );
-                bail!(
-                    "invalid salt file length for {}: expected {SALT_LEN} bytes, got {}",
-                    path.display(),
-                    data.len()
-                );
+                return Err(CryptoError::InvalidSaltLength {
+                    path: path.to_path_buf(),
+                    expected: SALT_LEN,
+                    actual: data.len(),
+                });
             }
             let mut salt = [0u8; SALT_LEN];
             salt.copy_from_slice(&data);
@@ -232,7 +294,10 @@ fn read_salt_file(path: &Path) -> Result<Option<[u8; SALT_LEN]>> {
                 error = %err,
                 "crypto.salt",
             );
-            Err(err).context(format!("failed to read salt file: {}", path.display()))
+            Err(CryptoError::ReadSaltFile {
+                path: path.to_path_buf(),
+                source: err,
+            })
         }
     }
 }
@@ -240,7 +305,7 @@ fn read_salt_file(path: &Path) -> Result<Option<[u8; SALT_LEN]>> {
 /// Derives a 32-byte database encryption key from a passkey and 16-byte salt using Argon2id.
 ///
 /// Parameters come from [`argon2_params`]; see its docs for production vs. test values.
-pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
+pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey, CryptoError> {
     crate::timed_result!(
         tracing::Level::INFO,
         "crypto.derive",
@@ -259,21 +324,23 @@ pub fn derive_key(passkey: &str, salt: &[u8; SALT_LEN]) -> Result<DerivedKey> {
             let mut key_bytes = [0u8; 32];
             argon2
                 .hash_password_into(passkey.as_bytes(), salt, &mut key_bytes)
-                .map_err(|e| anyhow::anyhow!("key derivation failed: {e}"))?;
+                .map_err(CryptoError::KeyDerivation)?;
 
             Ok(DerivedKey { bytes: key_bytes })
         }
     )
 }
 
-fn temp_write_path(path: &Path) -> Result<PathBuf> {
+fn temp_write_path(path: &Path) -> Result<PathBuf, CryptoError> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let file_name = path
         .file_name()
-        .context(format!("path has no file name: {}", path.display()))?
+        .ok_or_else(|| CryptoError::NoFileName {
+            path: path.to_path_buf(),
+        })?
         .to_string_lossy();
     Ok(parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4())))
 }
@@ -282,7 +349,7 @@ fn temp_write_path(path: &Path) -> Result<PathBuf> {
 ///
 /// The temporary file is created with mode 0600 on Unix. If the rename fails, the
 /// temporary file is cleaned up and the error is returned.
-pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+pub fn write_atomic(path: &Path, data: &[u8]) -> Result<(), CryptoError> {
     let temp_path = temp_write_path(path)?;
 
     let path_str = path.display().to_string();
@@ -292,15 +359,15 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
         path = path_str.as_str(),
         bytes = data.len()
         ; {
-            create_restricted(&temp_path, data).context(format!(
-                "failed to write temp file: {}",
-                temp_path.display()
-            ))?;
+            create_restricted(&temp_path, data).map_err(|source| CryptoError::WriteTempFile {
+                path: temp_path.clone(),
+                source,
+            })?;
 
-            std::fs::rename(&temp_path, path).context(format!(
-                "failed to replace file atomically: {}",
-                path.display()
-            ))
+            std::fs::rename(&temp_path, path).map_err(|source| CryptoError::AtomicRename {
+                path: path.to_path_buf(),
+                source,
+            })
         }
     );
 

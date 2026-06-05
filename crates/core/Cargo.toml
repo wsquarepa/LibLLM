@@ -27,6 +27,7 @@ minijinja.workspace = true
 sha2.workspace = true
 strsim.workspace = true
 tar.workspace = true
+thiserror.workspace = true
 unicode-normalization.workspace = true
 walkdir.workspace = true
 zstd.workspace = true

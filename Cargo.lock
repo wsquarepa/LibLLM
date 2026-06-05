@@ -197,7 +197,6 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 name = "backup"
 version = "3.1.4"
 dependencies = [
- "anyhow",
  "argon2",
  "base64",
  "blake3",
@@ -1873,7 +1872,6 @@ dependencies = [
 name = "libllm-config"
 version = "3.1.4"
 dependencies = [
- "anyhow",
  "dirs",
  "libllm-core",
  "tempfile",
@@ -1903,6 +1901,7 @@ dependencies = [
  "sysinfo",
  "tar",
  "tempfile",
+ "thiserror 2.0.18",
  "time",
  "toml",
  "tracing",

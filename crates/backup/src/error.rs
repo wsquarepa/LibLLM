@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use libllm::crypto::CryptoError;
+
 /// All errors produced by the backup crate.
 #[derive(Debug, thiserror::Error)]
 pub enum BackupError {
@@ -31,7 +33,7 @@ pub enum BackupError {
     IndexWrite {
         path: PathBuf,
         #[source]
-        source: anyhow::Error,
+        source: CryptoError,
     },
 
     /// The index contains an entry with an unsafe filename (path traversal, absolute path, etc.).
@@ -79,7 +81,7 @@ pub enum BackupError {
     WriteBackupFile {
         path: PathBuf,
         #[source]
-        source: anyhow::Error,
+        source: CryptoError,
     },
 
     /// A backup file could not be read from disk.
@@ -176,7 +178,7 @@ pub enum BackupError {
 
     /// Restoring without passkey: the plaintext db write failed.
     #[error("failed to write restored database: {0}")]
-    WriteRestoredDatabase(#[source] anyhow::Error),
+    WriteRestoredDatabase(#[source] CryptoError),
 
     /// A temp file could not be created during encrypted restore.
     #[error("failed to create temp file for restore: {0}")]
@@ -289,7 +291,7 @@ pub enum BackupError {
     // ---- libllm::crypto forwarded errors ----
     /// A call into `libllm::crypto` (salt, key derivation, atomic write) failed.
     #[error("{0}")]
-    LibllmCrypto(#[source] anyhow::Error),
+    LibllmCrypto(#[source] CryptoError),
 
     // ---- rekey errors ----
     /// The rekey journal could not be serialized.
@@ -298,7 +300,7 @@ pub enum BackupError {
 
     /// Atomic write of the rekey journal failed.
     #[error("atomic write of rekey journal: {0}")]
-    RekeyJournalWrite(#[source] anyhow::Error),
+    RekeyJournalWrite(#[source] CryptoError),
 
     /// Reading the rekey journal file failed.
     #[error("read {path}: {source}")]
@@ -390,7 +392,7 @@ pub enum BackupError {
     MigrationStageFile {
         path: PathBuf,
         #[source]
-        source: anyhow::Error,
+        source: CryptoError,
     },
 
     /// Renaming a staged migrated file to its final location failed.
@@ -433,7 +435,7 @@ pub enum BackupError {
     MigrationV3RewriteFile {
         path: PathBuf,
         #[source]
-        source: anyhow::Error,
+        source: CryptoError,
     },
 
     /// Persisting the index after v3 migration reconciliation failed.

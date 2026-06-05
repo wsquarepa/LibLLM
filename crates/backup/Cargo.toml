@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 libllm.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
 clap.workspace = true
 serde.workspace = true

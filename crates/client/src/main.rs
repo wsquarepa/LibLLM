@@ -427,7 +427,7 @@ async fn main() -> Result<()> {
             .tree
             .push(Some(user_node), Message::new(Role::Assistant, response));
 
-        session.maybe_save(&save_mode, db.as_mut())?;
+        libllm::db::save_session_for_mode(&save_mode, &session, db.as_mut())?;
 
         if let Some(id) = save_mode.id() {
             eprintln!("Session: {id}");

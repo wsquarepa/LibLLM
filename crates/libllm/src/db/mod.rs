@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use crate::character::CharacterCard;
 use crate::crypto::DerivedKey;
 use crate::persona::PersonaFile;
-use crate::session::{Node, NodeId, Session};
+use crate::session::{Node, NodeId, SaveMode, Session};
 use crate::system_prompt::SystemPromptFile;
 use crate::worldinfo::WorldBook;
 
@@ -417,17 +417,112 @@ impl Database {
     }
 }
 
+/// Persists `session` according to `mode`, writing to `db` only when the mode is
+/// [`SaveMode::Database`]. Non-persisting modes succeed without touching storage.
+pub fn save_session_for_mode(
+    mode: &SaveMode,
+    session: &Session,
+    db: Option<&mut Database>,
+) -> Result<()> {
+    match mode {
+        SaveMode::None | SaveMode::PendingPasskey { .. } => Ok(()),
+        SaveMode::Database { id } => {
+            let db = db.ok_or_else(|| anyhow::anyhow!("database not available for save"))?;
+            db.save_session(id, session)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
 
     use super::Database;
     use crate::crypto::{derive_key, load_or_create_salt};
+    use crate::session::{Message, NodeId, Role, Session};
 
     fn make_key(dir: &TempDir) -> crate::crypto::DerivedKey {
         let salt_path = dir.path().join(".salt");
         let salt = load_or_create_salt(&salt_path).unwrap();
         derive_key("test-passkey", &salt).unwrap()
+    }
+
+    struct BranchingIds {
+        branch_parent: NodeId,
+        branch_leaf: NodeId,
+    }
+
+    fn build_branching_session() -> (Session, BranchingIds) {
+        let mut session = Session::default();
+        let root = session
+            .tree
+            .push(None, Message::new(Role::User, "root".to_owned()));
+        let intro = session.tree.push(
+            Some(root),
+            Message::new(Role::Assistant, "intro".to_owned()),
+        );
+        let branch_parent = session.tree.push(
+            Some(intro),
+            Message::new(Role::User, "branch here".to_owned()),
+        );
+        session.tree.push(
+            Some(branch_parent),
+            Message::new(Role::Assistant, "left branch".to_owned()),
+        );
+        session.tree.set_head(Some(branch_parent));
+
+        let right_branch = session.tree.push(
+            Some(branch_parent),
+            Message::new(Role::Assistant, "right branch".to_owned()),
+        );
+        let right_user = session.tree.push(
+            Some(right_branch),
+            Message::new(Role::User, "right follow-up".to_owned()),
+        );
+        let branch_leaf = session.tree.push(
+            Some(right_user),
+            Message::new(Role::Assistant, "right leaf".to_owned()),
+        );
+
+        (
+            session,
+            BranchingIds {
+                branch_parent,
+                branch_leaf,
+            },
+        )
+    }
+
+    #[test]
+    fn persists_preferred_branch_choices_via_database() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let mut db = Database::open(&db_path, None).unwrap();
+
+        let (session, ids) = build_branching_session();
+        db.insert_session("branch-test", &session).unwrap();
+        let mut loaded = db.load_session("branch-test").unwrap();
+
+        loaded.tree.switch_to(ids.branch_parent);
+        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+    }
+
+    #[test]
+    fn encrypted_db_load_rehydrates_preferred_branch_choices() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("encrypted.db");
+        let key = make_key(&dir);
+
+        let (session, ids) = build_branching_session();
+        let mut db = Database::open(&db_path, Some(&key)).unwrap();
+        db.insert_session("enc-branch-test", &session).unwrap();
+        drop(db);
+
+        let db = Database::open(&db_path, Some(&key)).unwrap();
+        let mut loaded = db.load_session("enc-branch-test").unwrap();
+
+        loaded.tree.switch_to(ids.branch_parent);
+        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
     }
 
     #[test]

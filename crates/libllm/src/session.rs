@@ -8,8 +8,6 @@ use std::time::Instant;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::db::Database;
-
 /// Controls whether and how a session is persisted to the database.
 #[derive(Clone)]
 pub enum SaveMode {
@@ -735,16 +733,6 @@ impl Session {
             self.tree.retreat_head();
         }
     }
-
-    pub fn maybe_save(&self, mode: &SaveMode, db: Option<&mut Database>) -> Result<()> {
-        match mode {
-            SaveMode::None | SaveMode::PendingPasskey { .. } => Ok(()),
-            SaveMode::Database { id } => {
-                let db = db.ok_or_else(|| anyhow::anyhow!("database not available for save"))?;
-                db.save_session(id, self)
-            }
-        }
-    }
 }
 
 pub fn generate_session_id() -> String {
@@ -807,11 +795,9 @@ fn is_leap(year: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::derive_key;
 
     struct BranchingIds {
         branch_parent: NodeId,
-        branch_leaf: NodeId,
     }
 
     fn build_branching_session() -> (Session, BranchingIds) {
@@ -842,32 +828,12 @@ mod tests {
             Some(right_branch),
             Message::new(Role::User, "right follow-up".to_owned()),
         );
-        let right_leaf = session.tree.push(
+        session.tree.push(
             Some(right_user),
             Message::new(Role::Assistant, "right leaf".to_owned()),
         );
 
-        (
-            session,
-            BranchingIds {
-                branch_parent,
-                branch_leaf: right_leaf,
-            },
-        )
-    }
-
-    #[test]
-    fn persists_preferred_branch_choices_via_database() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let db_path = dir.path().join("test.db");
-        let mut db = crate::db::Database::open(&db_path, None).unwrap();
-
-        let (session, ids) = build_branching_session();
-        db.insert_session("branch-test", &session).unwrap();
-        let mut loaded = db.load_session("branch-test").unwrap();
-
-        loaded.tree.switch_to(ids.branch_parent);
-        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
+        (session, BranchingIds { branch_parent })
     }
 
     #[test]
@@ -902,25 +868,6 @@ mod tests {
         assert!(session.tree.preferred_child.is_empty());
         assert_eq!(session.tree.current_deepest_branch_info(), None);
         assert_eq!(session.tree.current_last_assistant_preview(), None);
-    }
-
-    #[test]
-    fn encrypted_db_load_rehydrates_preferred_branch_choices() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let db_path = dir.path().join("encrypted.db");
-        let salt = [7u8; 16];
-        let key = derive_key("passkey", &salt).expect("key derivation should succeed");
-
-        let (session, ids) = build_branching_session();
-        let mut db = crate::db::Database::open(&db_path, Some(&key)).unwrap();
-        db.insert_session("enc-branch-test", &session).unwrap();
-        drop(db);
-
-        let db = crate::db::Database::open(&db_path, Some(&key)).unwrap();
-        let mut loaded = db.load_session("enc-branch-test").unwrap();
-
-        loaded.tree.switch_to(ids.branch_parent);
-        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
     }
 
     #[test]

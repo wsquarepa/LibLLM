@@ -36,9 +36,10 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     let border = "=".repeat(80);
     let subborder = "-".repeat(80);
 
-    writeln!(&mut out, "{}", border).unwrap();
-    writeln!(&mut out, "{}", header_line(ctx)).unwrap();
-    writeln!(&mut out, "{}", border).unwrap();
+    writeln!(&mut out, "{}", border).expect("writing to an in-memory String is infallible");
+    writeln!(&mut out, "{}", header_line(ctx))
+        .expect("writing to an in-memory String is infallible");
+    writeln!(&mut out, "{}", border).expect("writing to an in-memory String is infallible");
 
     write_row(&mut out, "Run mode", &ctx.runtime.run_mode);
     write_row(&mut out, "PID", &ctx.runtime.pid.to_string());
@@ -46,7 +47,7 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     write_row(&mut out, "Working dir", &ctx.runtime.working_dir);
     write_row(&mut out, "CLI args", &ctx.runtime.cli_args);
 
-    writeln!(&mut out, "{}", subborder).unwrap();
+    writeln!(&mut out, "{}", subborder).expect("writing to an in-memory String is infallible");
     write_row(&mut out, "Host", &ctx.system.host);
     write_row(
         &mut out,
@@ -76,12 +77,12 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
         &format_memory(ctx.system.total_memory_bytes),
     );
 
-    writeln!(&mut out, "{}", subborder).unwrap();
+    writeln!(&mut out, "{}", subborder).expect("writing to an in-memory String is infallible");
     write_row(&mut out, "Terminal", &format_terminal(ctx.terminal));
     write_row(&mut out, "Shell", &ctx.terminal.shell);
     write_row(&mut out, "Locale", &ctx.terminal.locale);
 
-    writeln!(&mut out, "{}", subborder).unwrap();
+    writeln!(&mut out, "{}", subborder).expect("writing to an in-memory String is infallible");
     write_row(&mut out, "Debug log", &ctx.runtime.debug_log_path);
     write_row(&mut out, "Timings", &ctx.runtime.timings_path);
     write_row(
@@ -93,9 +94,9 @@ pub(super) fn render(ctx: &BannerContext<'_>) -> String {
         ),
     );
 
-    writeln!(&mut out, "{}", border).unwrap();
-    writeln!(&mut out, "Events:").unwrap();
-    writeln!(&mut out).unwrap();
+    writeln!(&mut out, "{}", border).expect("writing to an in-memory String is infallible");
+    writeln!(&mut out, "Events:").expect("writing to an in-memory String is infallible");
+    writeln!(&mut out).expect("writing to an in-memory String is infallible");
     out
 }
 
@@ -121,7 +122,8 @@ fn build_descriptor(build: &BuildInfo) -> String {
 }
 
 fn write_row(out: &mut String, label: &str, value: &str) {
-    writeln!(out, " {:<13} {}", label, value).unwrap();
+    writeln!(out, " {:<13} {}", label, value)
+        .expect("writing to an in-memory String is infallible");
 }
 
 fn combined_os(os_name: &str, os_version: &str) -> String {

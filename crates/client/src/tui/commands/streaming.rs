@@ -55,7 +55,7 @@ pub(in crate::tui) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::worldinfo:
         );
     }
 
-    app.worldbook_cache.as_ref().unwrap().books.clone()
+    app.worldbook_cache.as_ref().expect("worldbook_cache is set to Some in the cache_stale branch just above, or was already Some").books.clone()
 }
 
 fn build_rendered_prompt_common<F>(
@@ -610,7 +610,7 @@ pub(in crate::tui) async fn continue_group_chat_loop(
             }
             let mode = app.session.chat_mode;
             let decision = {
-                let rng = app.group_chat_loop_rng.as_mut().unwrap();
+                let rng = app.group_chat_loop_rng.as_mut().expect("group_chat_loop_rng is Some, guarded by the is_none() early return at the top of this function");
                 libllm::group_chat::decide_next_speaker(&app.session.characters, mode, rng, None)
             };
             let Some(decision) = decision else {
@@ -637,7 +637,7 @@ pub(in crate::tui) async fn continue_group_chat_loop(
             };
             let mode = app.session.chat_mode;
             let decision = {
-                let rng = app.group_chat_loop_rng.as_mut().unwrap();
+                let rng = app.group_chat_loop_rng.as_mut().expect("group_chat_loop_rng is Some, guarded by the is_none() early return at the top of this function");
                 libllm::group_chat::decide_next_speaker(
                     &app.session.characters,
                     mode,
@@ -839,7 +839,7 @@ pub(in crate::tui) async fn handle_stream_token(
             app.auto_scroll = true;
         }
         StreamToken::Done(full_response) => {
-            let head = app.session.tree.head().unwrap();
+            let head = app.session.tree.head().expect("tree has a head node because a user message was pushed before the stream was started");
             let response_bytes = full_response.len();
             let is_continuation = app.is_continuation;
             let measured_seconds = libllm::thought::measured_thought_seconds(
@@ -850,7 +850,7 @@ pub(in crate::tui) async fn handle_stream_token(
                 let combined = match app.streaming_prefill.take() {
                     Some(prefill) => format!("{}{}", prefill, full_response.trim_start()),
                     None => {
-                        let existing = app.session.tree.node(head).unwrap().message.content.clone();
+                        let existing = app.session.tree.node(head).expect("head id was obtained from tree.head() and is a valid allocated node").message.content.clone();
                         format!("{}{}", existing, full_response)
                     }
                 };
@@ -868,7 +868,14 @@ pub(in crate::tui) async fn handle_stream_token(
                     .node(head)
                     .and_then(|node| node.message.thought_seconds);
                 let final_seconds = libllm::thought::resolve_thought_seconds(
-                    &app.session.tree.node(head).unwrap().message.content,
+                    &app.session
+                        .tree
+                        .node(head)
+                        .expect(
+                            "head id was obtained from tree.head() and is a valid allocated node",
+                        )
+                        .message
+                        .content,
                     current_seconds,
                     measured_seconds,
                     app.reasoning_preset.as_ref(),

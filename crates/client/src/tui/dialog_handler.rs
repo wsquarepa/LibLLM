@@ -374,10 +374,18 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
         DialogKind::Config => unreachable!(),
         DialogKind::Theme => unreachable!(),
         DialogKind::PresetEditor => {
-            if !app.preset_editor.as_ref().unwrap().has_changes() {
+            if !app
+                .preset_editor
+                .as_ref()
+                .expect("preset editor is present while its dialog is focused")
+                .has_changes()
+            {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
             } else {
-                let editor = app.preset_editor.as_ref().unwrap();
+                let editor = app
+                    .preset_editor
+                    .as_ref()
+                    .expect("preset editor is present while its dialog is focused");
                 let original_name = app.preset_editor_original_name.clone();
                 let edited_preset_name = editor.values[0].trim().to_owned();
                 match dialogs::preset::save_preset_from_editor(
@@ -419,12 +427,21 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             if is_cli_locked {
                 app.persona_editor = None;
                 return_to_input(app);
-            } else if !app.persona_editor.as_ref().unwrap().has_changes() {
+            } else if !app
+                .persona_editor
+                .as_ref()
+                .expect("persona editor is present while its dialog is focused")
+                .has_changes()
+            {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                 app.persona_editor = None;
                 app.focus = Focus::PersonaDialog;
             } else {
-                let values = &app.persona_editor.as_ref().unwrap().values;
+                let values = &app
+                    .persona_editor
+                    .as_ref()
+                    .expect("persona editor is present while its dialog is focused")
+                    .values;
                 let old_slug = app.persona_editor_slug.clone();
                 let persona = libllm::persona::PersonaFile {
                     name: values[0].clone(),
@@ -484,7 +501,12 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             None
         }
         DialogKind::AuthorNoteEditor => {
-            if !app.author_note_editor.as_ref().unwrap().has_changes() {
+            if !app
+                .author_note_editor
+                .as_ref()
+                .expect("author_note editor is present while its dialog is focused")
+                .has_changes()
+            {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                 app.author_note_editor = None;
                 return_to_input(app);
@@ -521,14 +543,23 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                 return None;
             }
 
-            if !app.system_prompt_editor.as_ref().unwrap().has_changes() {
+            if !app
+                .system_prompt_editor
+                .as_ref()
+                .expect("system_prompt editor is present while its dialog is focused")
+                .has_changes()
+            {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                 app.system_prompt_editor = None;
                 app.focus = app.system_editor_return_focus;
                 return None;
             }
 
-            let values = &app.system_prompt_editor.as_ref().unwrap().values;
+            let values = &app
+                .system_prompt_editor
+                .as_ref()
+                .expect("system_prompt editor is present while its dialog is focused")
+                .values;
             let new_name = values[0].clone();
             let content = values[1].clone();
             let original_name = app.system_editor_prompt_name.clone();
@@ -599,14 +630,23 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             None
         }
         DialogKind::CharacterEditor => {
-            if !app.character_editor.as_ref().unwrap().has_changes() {
+            if !app
+                .character_editor
+                .as_ref()
+                .expect("character editor is present while its dialog is focused")
+                .has_changes()
+            {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
                 app.character_editor = None;
                 app.focus = Focus::CharacterDialog;
                 return None;
             }
 
-            let values = &app.character_editor.as_ref().unwrap().values;
+            let values = &app
+                .character_editor
+                .as_ref()
+                .expect("character editor is present while its dialog is focused")
+                .values;
             let new_slug = libllm::character::slugify(&values[0]);
             if new_slug != app.character_editor_slug
                 && app.character_slugs.iter().any(|s| s == &new_slug)
@@ -698,10 +738,19 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             None
         }
         DialogKind::WorldbookEntryEditor => {
-            if !app.worldbook_entry_editor.as_ref().unwrap().has_changes() {
+            if !app
+                .worldbook_entry_editor
+                .as_ref()
+                .expect("worldbook_entry editor is present while its dialog is focused")
+                .has_changes()
+            {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
             } else {
-                let values = &app.worldbook_entry_editor.as_ref().unwrap().values;
+                let values = &app
+                    .worldbook_entry_editor
+                    .as_ref()
+                    .expect("worldbook_entry editor is present while its dialog is focused")
+                    .values;
                 let idx = app.worldbook_entry_editor_index;
                 if idx < app.worldbook_editor_entries.len() {
                     app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(

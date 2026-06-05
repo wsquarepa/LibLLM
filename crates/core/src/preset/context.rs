@@ -147,7 +147,8 @@ pub fn resolve_template_preset(name: &str, presets_dir: &Path) -> ContextPreset 
     if let Some(preset) = load_builtin_template(name) {
         return preset;
     }
-    load_builtin_template(DEFAULT_TEMPLATE_PRESET).unwrap()
+    load_builtin_template(DEFAULT_TEMPLATE_PRESET)
+        .expect("DEFAULT_TEMPLATE_PRESET is a compile-time builtin guaranteed to parse")
 }
 
 /// Returns all available context template preset names, merging user files with builtins.

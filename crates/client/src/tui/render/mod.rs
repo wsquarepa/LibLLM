@@ -789,8 +789,8 @@ pub fn render_chat(
     }
 
     let banner_height = measure_wrapped_height(&lines, area);
-    cache.as_mut().unwrap().banner_height = banner_height;
-    let cached = cache.as_ref().unwrap();
+    cache.as_mut().expect("cache is Some: either just assigned in the miss branch above or already Some in the hit branch").banner_height = banner_height;
+    let cached = cache.as_ref().expect("cache is Some: either just assigned in the miss branch above or already Some in the hit branch");
     let mut cumulative_height: u16 = banner_height;
 
     let static_height = cached

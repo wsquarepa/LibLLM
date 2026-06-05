@@ -604,7 +604,10 @@ fn html_format_line(line: &str) -> String {
             }
         }
 
-        let ch = escaped[i..].chars().next().unwrap();
+        let ch = escaped[i..]
+            .chars()
+            .next()
+            .expect("i is a valid char boundary with remaining chars");
         out.push(ch);
         i += ch.len_utf8();
     }

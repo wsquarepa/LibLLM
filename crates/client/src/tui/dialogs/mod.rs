@@ -439,7 +439,10 @@ impl<'a> FieldDialog<'a> {
             let mut spans = vec![Span::styled(format!("  {label:<22}"), label_style)];
 
             if show_placeholder {
-                let ph_text = self.placeholder.unwrap().0;
+                let ph_text = self
+                    .placeholder
+                    .expect("show_placeholder is only true when self.placeholder.is_some()")
+                    .0;
                 spans.push(Span::styled(ph_text, Style::default().fg(Color::DarkGray)));
             } else if show_cursor {
                 let chars: Vec<char> = display_value.chars().collect();
@@ -491,7 +494,7 @@ impl<'a> FieldDialog<'a> {
     }
 
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
-        let editor = self.editor.as_ref().unwrap();
+        let editor = self.editor.as_ref().expect("render_with_editor is only called when self.editing is true, which requires editor to be Some");
         let label = self.labels[self.selected];
         let editor_area = multiline_editor_content_rect(dialog);
         let new_top = crate::tui::events::update_scroll_top(
@@ -675,7 +678,10 @@ impl<'a> FieldDialog<'a> {
         let dialog = super::render::centered_rect(w, h, terminal_area);
         let editor_area = multiline_editor_content_rect(dialog);
         let scroll_top = self.editor_scroll_top.get();
-        let editor = self.editor.as_mut().unwrap();
+        let editor = self
+            .editor
+            .as_mut()
+            .expect("editor is Some, guarded by the is_none() early return above");
         if editor.selection_range().is_none() {
             editor.start_selection();
         }

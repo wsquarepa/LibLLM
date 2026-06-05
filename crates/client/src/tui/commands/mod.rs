@@ -432,7 +432,11 @@ fn cmd_branch(app: &mut App) {
     app.branch_dialog_items = siblings
         .iter()
         .map(|&sib_id| {
-            let node = app.session.tree.node(sib_id).unwrap();
+            let node = app
+                .session
+                .tree
+                .node(sib_id)
+                .expect("sib_id was obtained from tree.siblings_of() so it is a valid node id");
             let content = &node.message.content;
             let preview = if content.len() > BRANCH_PREVIEW_CHARS {
                 let end = content[..BRANCH_PREVIEW_CHARS]

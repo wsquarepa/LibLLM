@@ -287,7 +287,8 @@ pub fn resolve_instruct_preset(name: &str, presets_dir: &Path) -> InstructPreset
         return preset;
     }
 
-    load_builtin_instruct(DEFAULT_INSTRUCT_PRESET).unwrap()
+    load_builtin_instruct(DEFAULT_INSTRUCT_PRESET)
+        .expect("DEFAULT_INSTRUCT_PRESET is a compile-time builtin guaranteed to parse")
 }
 
 /// Returns all available instruct preset names, merging user files with builtins.

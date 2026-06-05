@@ -406,7 +406,7 @@ pub async fn run(
             }
             _ = frame_tick.tick() => {
                 if app.summary_receiver.is_some() {
-                    let completed = app.summary_receiver.as_mut().unwrap().try_recv();
+                    let completed = app.summary_receiver.as_mut().expect("summary_receiver is Some, checked by the enclosing is_some() guard").try_recv();
                     if let Ok(result) = completed {
                         let current_head = app.session.tree.head();
                         let expected_head = app.summary_branch_head;

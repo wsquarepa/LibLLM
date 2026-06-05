@@ -114,7 +114,9 @@ pub fn build_effective_system_prompt(session: &Session, db: Option<&Database>) -
         parts.push(base.to_owned());
     }
     if has_persona {
-        let pf = persona.as_ref().unwrap();
+        let pf = persona
+            .as_ref()
+            .expect("persona is Some, guarded by has_persona which checks is_some()");
         let name = if pf.name.is_empty() {
             "the user"
         } else {

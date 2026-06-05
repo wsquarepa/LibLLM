@@ -778,7 +778,10 @@ impl<'a> TabbedFieldDialog<'a> {
         let dialog = centered_rect(w, h, terminal_area);
         let editor_area = super::multiline_editor_content_rect(dialog);
         let scroll_top = self.editor_scroll_top.get();
-        let editor = self.editor.as_mut().unwrap();
+        let editor = self
+            .editor
+            .as_mut()
+            .expect("editor is Some, guarded by the is_none() early return above");
         if editor.selection_range().is_none() {
             editor.start_selection();
         }
@@ -844,7 +847,7 @@ impl<'a> TabbedFieldDialog<'a> {
     }
 
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
-        let editor = self.editor.as_ref().unwrap();
+        let editor = self.editor.as_ref().expect("render_with_editor is only called when self.editing is true, which requires editor to be Some");
         let tab = self.current_tab;
         let idx = self.sections[tab].selected;
         let label = self.sections[tab].labels[idx];

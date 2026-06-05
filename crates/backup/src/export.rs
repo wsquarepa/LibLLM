@@ -3,8 +3,9 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::Result;
 use libllm::crypto::DerivedKey;
+
+use crate::error::{BackupError, Result};
 
 /// Export a SQLite database (possibly encrypted with SQLCipher) to plaintext bytes.
 ///
@@ -13,16 +14,19 @@ use libllm::crypto::DerivedKey;
 ///
 /// Returns an error if the key is wrong, the database is corrupt, or any I/O fails.
 pub fn export_plaintext_db(db_path: &Path, key: Option<&DerivedKey>) -> Result<Vec<u8>> {
-    let src = rusqlite::Connection::open(db_path)?;
+    let src = rusqlite::Connection::open(db_path).map_err(BackupError::ExportOpenDatabase)?;
 
     if let Some(derived_key) = key {
-        src.execute_batch(&derived_key.key_pragma())?;
-        src.query_row("SELECT count(*) FROM sqlite_master;", [], |_| Ok(()))?;
+        src.execute_batch(&derived_key.key_pragma())
+            .map_err(BackupError::ExportDatabaseStatement)?;
+        src.query_row("SELECT count(*) FROM sqlite_master;", [], |_| Ok(()))
+            .map_err(BackupError::ExportDatabaseStatement)?;
     }
 
-    src.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    src.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(BackupError::ExportDatabaseStatement)?;
 
-    let dest_file = tempfile::NamedTempFile::new()?;
+    let dest_file = tempfile::NamedTempFile::new().map_err(BackupError::ExportCreateTempFile)?;
     let dest_path = dest_file.path().to_path_buf();
 
     if key.is_some() {
@@ -30,20 +34,25 @@ pub fn export_plaintext_db(db_path: &Path, key: Option<&DerivedKey>) -> Result<V
         // The canonical approach is to attach a plaintext destination and use sqlcipher_export.
         let dest_path_str = dest_path
             .to_str()
-            .ok_or_else(|| anyhow::anyhow!("temp file path is not valid UTF-8"))?;
+            .ok_or(BackupError::ExportTempPathNotUtf8)?;
         src.execute_batch(&format!(
             "ATTACH DATABASE '{}' AS plaintext KEY '';\
              SELECT sqlcipher_export('plaintext');\
              DETACH DATABASE plaintext;",
             dest_path_str.replace('\'', "''"),
-        ))?;
+        ))
+        .map_err(BackupError::ExportDatabaseStatement)?;
     } else {
-        let mut dest = rusqlite::Connection::open(&dest_path)?;
-        let backup = rusqlite::backup::Backup::new(&src, &mut dest)?;
-        backup.run_to_completion(100, Duration::ZERO, None)?;
+        let mut dest =
+            rusqlite::Connection::open(&dest_path).map_err(BackupError::ExportOpenDatabase)?;
+        let backup =
+            rusqlite::backup::Backup::new(&src, &mut dest).map_err(BackupError::ExportBackupApi)?;
+        backup
+            .run_to_completion(100, Duration::ZERO, None)
+            .map_err(BackupError::ExportBackupApi)?;
     }
 
-    let bytes = std::fs::read(&dest_path)?;
+    let bytes = std::fs::read(&dest_path).map_err(BackupError::ExportReadBytes)?;
     Ok(bytes)
 }
 

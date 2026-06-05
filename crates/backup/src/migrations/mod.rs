@@ -1,6 +1,6 @@
-use anyhow::{Context, Result};
 use std::path::Path;
 
+use crate::error::{BackupError, Result};
 use crate::index::{BackupIndex, SCHEMA_VERSION};
 
 mod v2;
@@ -17,9 +17,11 @@ pub fn run_migrations(
     while index.version < SCHEMA_VERSION {
         let next = index.version + 1;
         match next {
-            2 => v2::migrate(index, backups_dir, kek).context("v1 -> v2 migration failed")?,
-            3 => v3::migrate(index, backups_dir, kek).context("v2 -> v3 migration failed")?,
-            other => anyhow::bail!("no migration registered for version {other}"),
+            2 => v2::migrate(index, backups_dir, kek)
+                .map_err(|e| BackupError::MigrationV1ToV2(Box::new(e)))?,
+            3 => v3::migrate(index, backups_dir, kek)
+                .map_err(|e| BackupError::MigrationV2ToV3(Box::new(e)))?,
+            other => return Err(BackupError::MigrationUnknownVersion { version: other }),
         }
         stamp_version(index, next);
     }

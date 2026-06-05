@@ -2,11 +2,11 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use chrono::Utc;
 use rand::Rng;
 
 use crate::BackupConfig;
+use crate::error::{BackupError, Result};
 use crate::index::{
     BackupEntry, BackupIndex, BackupType, FingerprintField, WrappedDek, backup_filename,
     generate_backup_id, is_safe_backup_filename, open_index, parse_backup_filename, save_index,
@@ -23,15 +23,16 @@ pub fn create_snapshot(
 ) -> Result<()> {
     let db_path = data_dir.join("data.db");
     let backups_dir = data_dir.join("backups");
-    std::fs::create_dir_all(&backups_dir).context("failed to create backups directory")?;
+    std::fs::create_dir_all(&backups_dir).map_err(BackupError::CreateBackupsDir)?;
 
     let index_path = backups_dir.join("index.json");
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
     let mut index = open_index(&index_path, backup_key.as_ref())?;
     let db_key: Option<libllm::crypto::DerivedKey> = match passkey {
         Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            Some(libllm::crypto::derive_key(pk, &salt)?)
+            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))
+                .map_err(BackupError::LibllmCrypto)?;
+            Some(libllm::crypto::derive_key(pk, &salt).map_err(BackupError::LibllmCrypto)?)
         }
         None => None,
     };
@@ -89,8 +90,12 @@ pub fn create_snapshot(
 
     let (id, filename, file_path) = unique_backup_id(&backups_dir, backup_type);
 
-    libllm::crypto::write_atomic(&file_path, &stored)
-        .with_context(|| format!("failed to write backup file: {}", file_path.display()))?;
+    libllm::crypto::write_atomic(&file_path, &stored).map_err(|source| {
+        BackupError::WriteBackupFile {
+            path: file_path.clone(),
+            source,
+        }
+    })?;
 
     let file_hash = crate::hash::hash_bytes(&stored);
 
@@ -168,8 +173,7 @@ fn build_payload(
     chain_dek: &Option<[u8; 32]>,
     config: &BackupConfig,
 ) -> Result<(BackupType, Vec<u8>)> {
-    let compress_as_base =
-        || crate::diff::compress(plaintext).context("failed to compress base payload");
+    let compress_as_base = || crate::diff::compress(plaintext);
 
     let Some(latest_base) = index.latest_base() else {
         return Ok((BackupType::Base, compress_as_base()?));
@@ -180,8 +184,11 @@ fn build_payload(
     }
 
     let base_file_path = backups_dir.join(&latest_base.filename);
-    let base_file_bytes = std::fs::read(&base_file_path)
-        .with_context(|| format!("failed to read base file: {}", base_file_path.display()))?;
+    let base_file_bytes =
+        std::fs::read(&base_file_path).map_err(|source| BackupError::ReadBackupFile {
+            filename: latest_base.filename.clone(),
+            source,
+        })?;
 
     let decrypted = match chain_dek {
         Some(dek) => {
@@ -231,24 +238,24 @@ pub fn rebuild_index(
 ) -> Result<(BackupIndex, Vec<String>)> {
     let data_dir = backups_dir
         .parent()
-        .with_context(|| format!("backups_dir has no parent: {}", backups_dir.display()))?;
+        .ok_or_else(|| BackupError::BackupsDirNoParent {
+            path: backups_dir.to_owned(),
+        })?;
 
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
     let dir_is_encrypted = data_dir.join(".salt").exists();
 
     let mut file_entries: Vec<(std::time::SystemTime, String, String, BackupType)> = Vec::new();
 
-    for dir_entry in std::fs::read_dir(backups_dir).with_context(|| {
-        format!(
-            "failed to read backups directory: {}",
-            backups_dir.display()
-        )
-    })? {
-        let dir_entry = dir_entry.with_context(|| {
-            format!(
-                "failed to read directory entry in {}",
-                backups_dir.display()
-            )
+    for dir_entry in
+        std::fs::read_dir(backups_dir).map_err(|source| BackupError::ReadBackupsDir {
+            path: backups_dir.to_owned(),
+            source,
+        })?
+    {
+        let dir_entry = dir_entry.map_err(|source| BackupError::ReadDirEntry {
+            path: backups_dir.to_owned(),
+            source,
         })?;
 
         let filename = dir_entry.file_name().to_string_lossy().into_owned();
@@ -543,13 +550,13 @@ pub fn rebuild_index(
 }
 
 fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {
-    let base = index
-        .latest_base()
-        .ok_or_else(|| anyhow::anyhow!("diff created without a base"))?;
-    let wrapped = base
-        .wrapped_dek
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("base entry {} missing wrapped DEK", base.id))?;
+    let base = index.latest_base().ok_or(BackupError::DiffWithoutBase)?;
+    let wrapped =
+        base.wrapped_dek
+            .as_ref()
+            .ok_or_else(|| BackupError::BaseEntryMissingWrappedDek {
+                id: base.id.clone(),
+            })?;
     crate::crypto::unwrap_dek(wrapped, kek)
 }
 

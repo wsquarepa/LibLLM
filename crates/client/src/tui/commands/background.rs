@@ -19,7 +19,7 @@ fn prepare_backup_rekey(
     let old_kek = backup::crypto::resolve_backup_key(data_dir, Some(old_passkey))?;
     let new_kek = backup::crypto::resolve_backup_key(data_dir, Some(new_passkey))?;
     match (old_kek, new_kek) {
-        (Some(ok), Some(nk)) => backup::rekey::prepare_rekey(data_dir, &ok, &nk),
+        (Some(ok), Some(nk)) => Ok(backup::rekey::prepare_rekey(data_dir, &ok, &nk)?),
         _ => Ok(()),
     }
 }

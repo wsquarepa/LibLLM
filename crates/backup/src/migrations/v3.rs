@@ -1,6 +1,6 @@
-use anyhow::{Context, Result, bail};
 use std::path::Path;
 
+use crate::error::{BackupError, Result};
 use crate::index::{BackupIndex, BackupType, save_index};
 
 /// v2 -> v3: rewrite each encrypted base file into the self-describing header
@@ -15,10 +15,7 @@ pub(super) fn migrate(
 ) -> Result<()> {
     let has_encrypted = index.entries.iter().any(|e| e.encrypted);
     if has_encrypted && kek.is_none() {
-        bail!(
-            "cannot migrate encrypted backup index to v3 without a KEK: \
-             re-run with a passkey set (LIBLLM_PASSKEY or --passkey)"
-        );
+        return Err(BackupError::MigrationV3EncryptedNoKek);
     }
 
     let index_path = backups_dir.join("index.json");
@@ -34,7 +31,10 @@ pub(super) fn migrate(
             .find_entry(&base_id)
             .expect("base_id was collected from the same index");
         let path = backups_dir.join(&entry.filename);
-        let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+        let bytes = std::fs::read(&path).map_err(|source| BackupError::MigrationReadFile {
+            path: path.clone(),
+            source,
+        })?;
 
         if crate::format::decode_base_blob(&bytes).is_some() {
             // The file already carries a header (e.g. a prior run wrote it but
@@ -50,19 +50,30 @@ pub(super) fn migrate(
             if entry.stored_size != correct_size || entry.file_hash != correct_hash {
                 entry.stored_size = correct_size;
                 entry.file_hash = correct_hash;
-                save_index(&index_path, index).with_context(|| {
-                    format!("persist index after reconciling metadata for {base_id}")
+                save_index(&index_path, index).map_err(|source| {
+                    BackupError::MigrationV3PersistReconciled {
+                        id: base_id.clone(),
+                        source: Box::new(source),
+                    }
                 })?;
             }
             continue;
         }
 
-        let wrapped = entry.wrapped_dek.clone().ok_or_else(|| {
-            anyhow::anyhow!("base {base_id} is encrypted but has no wrapped DEK to embed at v3")
-        })?;
+        let wrapped =
+            entry
+                .wrapped_dek
+                .clone()
+                .ok_or_else(|| BackupError::MigrationV3MissingWrappedDek {
+                    id: base_id.clone(),
+                })?;
         let new_blob = crate::format::encode_base_blob(&wrapped, &bytes);
-        libllm::crypto::write_atomic(&path, &new_blob)
-            .with_context(|| format!("rewrite {} with header", path.display()))?;
+        libllm::crypto::write_atomic(&path, &new_blob).map_err(|source| {
+            BackupError::MigrationV3RewriteFile {
+                path: path.clone(),
+                source,
+            }
+        })?;
 
         let entry = index
             .entries
@@ -74,8 +85,12 @@ pub(super) fn migrate(
 
         // Persist per base so a mid-migration crash leaves completed files flagged
         // (decode_base_blob is Some), which the idempotency guard skips on retry.
-        save_index(&index_path, index)
-            .with_context(|| format!("persist index after embedding header for {base_id}"))?;
+        save_index(&index_path, index).map_err(|source| {
+            BackupError::MigrationV3PersistEmbedded {
+                id: base_id.clone(),
+                source: Box::new(source),
+            }
+        })?;
     }
 
     Ok(())

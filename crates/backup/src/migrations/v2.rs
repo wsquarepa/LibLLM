@@ -1,7 +1,7 @@
-use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{compute_kek_fingerprint, decrypt_payload, encrypt_payload, wrap_dek};
+use crate::error::{BackupError, Result};
 use crate::index::{BackupIndex, BackupType, FingerprintField, save_index};
 
 pub(super) fn migrate(
@@ -43,23 +43,43 @@ fn migrate_encrypted(index: &mut BackupIndex, backups_dir: &Path, kek: &[u8; 32]
         for entry_id in &chain_ids {
             let entry = index
                 .find_entry(entry_id)
-                .with_context(|| format!("entry {entry_id} missing from index"))?;
+                .expect("entry_id was collected from the same index");
             let src = backups_dir.join(&entry.filename);
             let ciphertext =
-                std::fs::read(&src).with_context(|| format!("read {}", src.display()))?;
-            let plaintext = decrypt_payload(&ciphertext, kek)
-                .with_context(|| format!("decrypt {entry_id} with current KEK"))?;
-            let new_blob = encrypt_payload(&plaintext, &dek)
-                .with_context(|| format!("re-encrypt {entry_id} under DEK"))?;
+                std::fs::read(&src).map_err(|source| BackupError::MigrationReadFile {
+                    path: src.clone(),
+                    source,
+                })?;
+            let plaintext = decrypt_payload(&ciphertext, kek).map_err(|source| {
+                BackupError::MigrationDecrypt {
+                    id: entry_id.clone(),
+                    source: Box::new(source),
+                }
+            })?;
+            let new_blob = encrypt_payload(&plaintext, &dek).map_err(|source| {
+                BackupError::MigrationReEncrypt {
+                    id: entry_id.clone(),
+                    source: Box::new(source),
+                }
+            })?;
             let dst_tmp = backups_dir.join(format!("{}.tmp", entry.filename));
-            libllm::crypto::write_atomic(&dst_tmp, &new_blob)
-                .with_context(|| format!("stage {}", dst_tmp.display()))?;
+            libllm::crypto::write_atomic(&dst_tmp, &new_blob).map_err(|source| {
+                BackupError::MigrationStageFile {
+                    path: dst_tmp.clone(),
+                    source,
+                }
+            })?;
             staged.push((dst_tmp, src));
         }
 
         for (tmp, final_path) in staged {
-            std::fs::rename(&tmp, &final_path)
-                .with_context(|| format!("rename {} -> {}", tmp.display(), final_path.display()))?;
+            std::fs::rename(&tmp, &final_path).map_err(|source| {
+                BackupError::MigrationRenameFile {
+                    src: tmp.clone(),
+                    dst: final_path.clone(),
+                    source,
+                }
+            })?;
         }
 
         let wrapped = wrap_dek(&dek, kek)?;
@@ -75,8 +95,10 @@ fn migrate_encrypted(index: &mut BackupIndex, backups_dir: &Path, kek: &[u8; 32]
         // completed chains flagged (wrapped_dek.is_some()) in the on-disk
         // index, which the idempotency guard at the top of this loop uses
         // to skip them on retry.
-        save_index(&index_path, index)
-            .with_context(|| format!("persist index after chain {root_id}"))?;
+        save_index(&index_path, index).map_err(|source| BackupError::MigrationPersistIndex {
+            chain_id: root_id.clone(),
+            source: Box::new(source),
+        })?;
     }
 
     Ok(())
@@ -88,10 +110,7 @@ fn migrate_unencrypted(index: &mut BackupIndex) -> Result<()> {
     // the index contains encrypted entries, the caller failed to supply a KEK
     // — refuse rather than silently stamp a half-migrated index.
     if index.entries.iter().any(|e| e.encrypted) {
-        anyhow::bail!(
-            "cannot migrate encrypted backup index without a KEK: \
-             re-run with a passkey set (LIBLLM_PASSKEY or --passkey)"
-        );
+        return Err(BackupError::MigrationEncryptedNoKek);
     }
     Ok(())
 }

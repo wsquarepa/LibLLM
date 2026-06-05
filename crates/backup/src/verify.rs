@@ -2,9 +2,8 @@
 
 use std::path::Path;
 
-use anyhow::Result;
-
-use crate::index::open_index;
+use crate::error::Result;
+use crate::index::{FingerprintField, open_index};
 
 /// Summary of a backup verification run: how many entries were checked and any errors found.
 pub struct VerifyResult {
@@ -104,19 +103,17 @@ pub fn verify_chain(
         let chain_root = chain[0];
         let effective_kek: Option<[u8; 32]> = match &chain_root.kek_fingerprint {
             None => backup_key,
-            Some(crate::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
-                backup_key
-            }
+            Some(FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => backup_key,
             Some(_) if backup_key.is_none() => backup_key,
             Some(other) => {
                 if archived_passkey.is_none() {
                     let msg = match other {
-                        crate::index::FingerprintField::Known(fp) => format!(
+                        FingerprintField::Known(fp) => format!(
                             "chain {} is archived under passkey fingerprint {fp}; \
                              provide --archived-passkey to verify",
                             chain_root.id
                         ),
-                        crate::index::FingerprintField::Unknown => format!(
+                        FingerprintField::Unknown => format!(
                             "chain {} has no recorded passkey fingerprint; \
                              provide --archived-passkey to verify",
                             chain_root.id

@@ -2,10 +2,10 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
 use zeroize::Zeroizing;
 
-use crate::index::{BackupEntry, open_index};
+use crate::error::{BackupError, Result};
+use crate::index::{BackupEntry, FingerprintField, open_index};
 
 /// Replays a backup chain (base + diffs) and returns the resulting plaintext bytes.
 ///
@@ -20,15 +20,18 @@ pub(crate) fn replay_chain(
     if backup_key.is_none()
         && let Some(encrypted) = chain.iter().find(|e| e.encrypted)
     {
-        bail!(
-            "backup entry {} is encrypted but no passkey was provided",
-            encrypted.id
-        );
+        return Err(BackupError::EncryptedWithoutPasskey {
+            id: encrypted.id.clone(),
+        });
     }
 
     let base_entry = chain[0];
-    let base_bytes = std::fs::read(backups_dir.join(&base_entry.filename))
-        .with_context(|| format!("failed to read base backup: {}", base_entry.filename))?;
+    let base_bytes = std::fs::read(backups_dir.join(&base_entry.filename)).map_err(|source| {
+        BackupError::ReplayReadBase {
+            filename: base_entry.filename.clone(),
+            source,
+        }
+    })?;
 
     // Resolve the chain DEK and the base payload slice. Precedence: self-describing
     // header (type 3) -> index wrapped_dek (type 2) -> legacy KEK-direct (type 1).
@@ -66,8 +69,13 @@ pub(crate) fn replay_chain(
     let mut plaintext = crate::diff::decompress(&base_decrypted)?;
 
     for diff_entry in &chain[1..] {
-        let diff_bytes = std::fs::read(backups_dir.join(&diff_entry.filename))
-            .with_context(|| format!("failed to read diff backup: {}", diff_entry.filename))?;
+        let diff_bytes =
+            std::fs::read(backups_dir.join(&diff_entry.filename)).map_err(|source| {
+                BackupError::ReplayReadDiff {
+                    filename: diff_entry.filename.clone(),
+                    source,
+                }
+            })?;
 
         let diff_decrypted = match chain_dek.as_ref() {
             Some(key) => crate::crypto::decrypt_payload(&diff_bytes, key)?,
@@ -108,26 +116,31 @@ pub fn restore_to_point(
     let current_fp = backup_key
         .as_ref()
         .map(crate::crypto::compute_kek_fingerprint);
-    let target_entry = index
-        .find_entry(target_id)
-        .ok_or_else(|| anyhow::anyhow!("unknown backup id: {target_id}"))?;
-    let root = if target_entry.entry_type == crate::index::BackupType::Base {
-        target_entry
-    } else {
-        let base_id = target_entry
-            .base_id
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("diff {} has no base_id", target_entry.id))?;
+    let target_entry =
         index
-            .find_entry(base_id)
-            .ok_or_else(|| anyhow::anyhow!("chain root {base_id} missing"))?
-    };
+            .find_entry(target_id)
+            .ok_or_else(|| BackupError::RestoreUnknownId {
+                id: target_id.to_owned(),
+            })?;
+    let root =
+        if target_entry.entry_type == crate::index::BackupType::Base {
+            target_entry
+        } else {
+            let base_id = target_entry.base_id.as_deref().ok_or_else(|| {
+                BackupError::RestoreDiffNoBaseId {
+                    id: target_entry.id.clone(),
+                }
+            })?;
+            index
+                .find_entry(base_id)
+                .ok_or_else(|| BackupError::RestoreChainRootMissing {
+                    id: base_id.to_owned(),
+                })?
+        };
 
     let effective_kek: Option<[u8; 32]> = match &root.kek_fingerprint {
         None => backup_key,
-        Some(crate::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
-            backup_key
-        }
+        Some(FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => backup_key,
         Some(_) if backup_key.is_none() => {
             // No passkey was given at all; let replay_chain produce the standard
             // "encrypted but no passkey" error rather than the archived-chain error.
@@ -139,27 +152,23 @@ pub fn restore_to_point(
         }
     };
 
-    let chain = index
-        .chain_to(target_id)
-        .with_context(|| format!("backup id not found or chain is broken: {target_id}"))?;
+    let chain = index.chain_to(target_id)?;
 
-    let plaintext = replay_chain(&backups_dir, &chain, &effective_kek)
-        .context("failed to replay backup chain")?;
+    let plaintext = replay_chain(&backups_dir, &chain, &effective_kek)?;
 
     let target_entry = chain.last().expect("chain is non-empty");
     let actual_hash = crate::hash::hash_bytes(&plaintext);
     if actual_hash != target_entry.plaintext_hash {
-        bail!(
-            "hash mismatch after chain replay: expected {}, got {actual_hash}",
-            target_entry.plaintext_hash
-        );
+        return Err(BackupError::RestoreHashMismatch {
+            expected: target_entry.plaintext_hash.clone(),
+            actual: actual_hash,
+        });
     }
 
     let db_path = data_dir.join("data.db");
     if db_path.exists() {
         let pre_restore_dir = data_dir.join("pre_restore");
-        std::fs::create_dir_all(&pre_restore_dir)
-            .context("failed to create pre_restore directory")?;
+        std::fs::create_dir_all(&pre_restore_dir).map_err(BackupError::CreatePreRestoreDir)?;
         let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
         let safety_path = pre_restore_dir.join(format!("pre-restore-{timestamp}.db"));
         let tmp_path = {
@@ -167,37 +176,38 @@ pub fn restore_to_point(
             s.push(".tmp");
             std::path::PathBuf::from(s)
         };
-        std::fs::copy(&db_path, &tmp_path).context("stage pre-restore safety backup")?;
-        std::fs::rename(&tmp_path, &safety_path).context("commit pre-restore safety backup")?;
+        std::fs::copy(&db_path, &tmp_path).map_err(BackupError::StagePreRestoreBackup)?;
+        std::fs::rename(&tmp_path, &safety_path).map_err(BackupError::CommitPreRestoreBackup)?;
     }
 
     match passkey {
         None => {
             libllm::crypto::write_atomic(&db_path, &plaintext)
-                .context("failed to write restored database")?;
+                .map_err(BackupError::WriteRestoredDatabase)?;
         }
         Some(pk) => {
             let temp_plain =
-                tempfile::NamedTempFile::new().context("failed to create temp file for restore")?;
+                tempfile::NamedTempFile::new().map_err(BackupError::RestoreTempFile)?;
             let temp_plain_path = temp_plain.path().to_path_buf();
             std::fs::write(&temp_plain_path, &plaintext)
-                .context("failed to write plaintext to temp file")?;
+                .map_err(BackupError::RestoreTempFileWrite)?;
 
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
-            let db_key = libllm::crypto::derive_key(pk, &salt)?;
+            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))
+                .map_err(BackupError::LibllmCrypto)?;
+            let db_key =
+                libllm::crypto::derive_key(pk, &salt).map_err(BackupError::LibllmCrypto)?;
 
             // Remove the existing DB file so the destination connection creates a fresh
             // unencrypted database. We then use sqlcipher_export to write an encrypted copy.
             if db_path.exists() {
-                std::fs::remove_file(&db_path)
-                    .context("failed to remove existing database before encrypted restore")?;
+                std::fs::remove_file(&db_path).map_err(BackupError::RemoveExistingDatabase)?;
             }
 
             // Open the plaintext source and export it directly into an encrypted destination.
             // SQLCipher's backup API does not support plaintext->encrypted transfers, so we use
             // ATTACH + sqlcipher_export which is the canonical SQLCipher migration path.
             let src = rusqlite::Connection::open(&temp_plain_path)
-                .context("failed to open plaintext temp db")?;
+                .map_err(BackupError::OpenPlaintextTempDb)?;
             let key_hex = db_key.hex();
             let attach_sql = Zeroizing::new(format!(
                 "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\
@@ -207,27 +217,22 @@ pub fn restore_to_point(
                 &*key_hex,
             ));
             src.execute_batch(&attach_sql)
-                .context("failed to export plaintext database as encrypted")?;
+                .map_err(BackupError::ExportAsEncrypted)?;
         }
     }
 
     Ok(())
 }
 
-fn archived_chain_error(
-    target_id: &str,
-    fingerprint: &crate::index::FingerprintField,
-) -> anyhow::Error {
+fn archived_chain_error(target_id: &str, fingerprint: &FingerprintField) -> BackupError {
     match fingerprint {
-        crate::index::FingerprintField::Known(fp) => anyhow::anyhow!(
-            "backup chain {target_id} is archived under passkey fingerprint {fp}. \
-             Provide that passkey with --archived-passkey (or LIBLLM_ARCHIVED_PASSKEY) to restore."
-        ),
-        crate::index::FingerprintField::Unknown => anyhow::anyhow!(
-            "backup chain {target_id} has no recorded passkey fingerprint \
-             (likely produced by `rebuild index` on a blob from a different passkey). \
-             Provide the originating passkey with --archived-passkey to restore."
-        ),
+        FingerprintField::Known(fp) => BackupError::ArchivedChainKnown {
+            target_id: target_id.to_owned(),
+            fingerprint: fp.clone(),
+        },
+        FingerprintField::Unknown => BackupError::ArchivedChainUnknown {
+            target_id: target_id.to_owned(),
+        },
     }
 }
 

@@ -1,7 +1,8 @@
 //! Binary diff and zstd compression for incremental backup payloads.
 
-use anyhow::{Context, Result};
-use std::io::{Cursor, Read};
+use std::io::Read;
+
+use crate::error::{BackupError, Result};
 
 const ZSTD_COMPRESSION_LEVEL: i32 = 3;
 
@@ -14,21 +15,22 @@ pub const MAX_DECOMPRESSED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// Computes a bsdiff binary patch from `old` to `new`.
 pub fn compute_diff(old: &[u8], new: &[u8]) -> Result<Vec<u8>> {
     let mut patch = Vec::new();
-    bsdiff::diff(old, new, &mut patch)?;
+    bsdiff::diff(old, new, &mut patch).map_err(BackupError::DiffCompute)?;
     Ok(patch)
 }
 
 /// Applies a bsdiff patch to `old`, producing the reconstructed `new` content.
 pub fn apply_patch(old: &[u8], patch: &[u8]) -> Result<Vec<u8>> {
-    let mut cursor = Cursor::new(patch);
+    let mut cursor = std::io::Cursor::new(patch);
     let mut output = Vec::new();
-    bsdiff::patch(old, &mut cursor, &mut output)?;
+    bsdiff::patch(old, &mut cursor, &mut output).map_err(BackupError::PatchApply)?;
     Ok(output)
 }
 
 /// Compresses data with zstd at the default backup compression level (3).
 pub fn compress(data: &[u8]) -> Result<Vec<u8>> {
-    let compressed = zstd::encode_all(data, ZSTD_COMPRESSION_LEVEL)?;
+    let compressed =
+        zstd::encode_all(data, ZSTD_COMPRESSION_LEVEL).map_err(BackupError::Compress)?;
     Ok(compressed)
 }
 
@@ -41,18 +43,15 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn decompress_with_cap(data: &[u8], cap: u64) -> Result<Vec<u8>> {
-    let mut decoder =
-        zstd::stream::Decoder::new(data).context("failed to initialize zstd decoder")?;
+    let mut decoder = zstd::stream::Decoder::new(data).map_err(BackupError::DecompressInit)?;
     let mut out = Vec::new();
     let read = (&mut decoder)
         .take(cap + 1)
         .read_to_end(&mut out)
-        .context("failed to decompress backup payload")?;
-    anyhow::ensure!(
-        read as u64 <= cap,
-        "decompressed backup payload exceeds {} byte cap",
-        cap
-    );
+        .map_err(BackupError::DecompressRead)?;
+    if read as u64 > cap {
+        return Err(BackupError::DecompressTooLarge { cap });
+    }
     Ok(out)
 }
 

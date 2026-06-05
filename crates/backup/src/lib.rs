@@ -2,6 +2,7 @@
 
 pub mod crypto;
 pub mod diff;
+pub mod error;
 pub mod export;
 pub mod format;
 pub mod hash;
@@ -13,4 +14,5 @@ pub mod retention;
 pub mod snapshot;
 pub mod verify;
 
+pub use error::BackupError;
 pub use libllm::config::BackupConfig;

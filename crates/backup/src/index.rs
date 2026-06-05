@@ -4,19 +4,20 @@ use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::error::{BackupError, Result};
 
 mod base64_bytes {
     use base64::engine::{Engine, general_purpose::STANDARD};
     use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
-    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> std::result::Result<S::Ok, S::Error> {
         s.serialize_str(&STANDARD.encode(bytes))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Vec<u8>, D::Error> {
         let value = serde_json::Value::deserialize(d)?;
         match value {
             serde_json::Value::String(s) => STANDARD.decode(&s).map_err(D::Error::custom),
@@ -61,7 +62,7 @@ pub enum FingerprintField {
 }
 
 impl serde::Serialize for FingerprintField {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         match self {
             FingerprintField::Known(hex) => s.serialize_str(&format!("known:{hex}")),
             FingerprintField::Unknown => s.serialize_str("unknown"),
@@ -70,7 +71,7 @@ impl serde::Serialize for FingerprintField {
 }
 
 impl<'de> serde::Deserialize<'de> for FingerprintField {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
         let raw = String::deserialize(d)?;
         if raw == "unknown" {
             return Ok(FingerprintField::Unknown);
@@ -176,7 +177,9 @@ impl BackupIndex {
 
         let target = self
             .find_entry(target_id)
-            .with_context(|| format!("backup id not found in index: {target_id}"))?;
+            .ok_or_else(|| BackupError::ChainEntryNotFound {
+                id: target_id.to_owned(),
+            })?;
 
         let mut chain: Vec<&BackupEntry> = Vec::new();
         let mut visited: HashSet<&str> = HashSet::new();
@@ -184,28 +187,31 @@ impl BackupIndex {
 
         loop {
             if !visited.insert(current.id.as_str()) {
-                anyhow::bail!("cycle detected in backup chain at id: {}", current.id);
+                return Err(BackupError::ChainCycle {
+                    id: current.id.clone(),
+                });
             }
             if chain.len() >= MAX_CHAIN_DEPTH {
-                anyhow::bail!(
-                    "backup chain exceeds maximum depth of {MAX_CHAIN_DEPTH} at id: {}",
-                    current.id
-                );
+                return Err(BackupError::ChainTooDeep {
+                    max: MAX_CHAIN_DEPTH,
+                    id: current.id.clone(),
+                });
             }
             chain.push(current);
             match current.entry_type {
                 BackupType::Base => break,
                 BackupType::Diff => {
-                    let base_id = current
-                        .base_id
-                        .as_deref()
-                        .with_context(|| format!("diff entry {} has no base_id", current.id))?;
-                    current = self.find_entry(base_id).with_context(|| {
-                        format!(
-                            "base_id {} referenced by {} not found in index",
-                            base_id, current.id
-                        )
+                    let base_id = current.base_id.as_deref().ok_or_else(|| {
+                        BackupError::DiffMissingBaseId {
+                            id: current.id.clone(),
+                        }
                     })?;
+                    current =
+                        self.find_entry(base_id)
+                            .ok_or_else(|| BackupError::ChainBaseNotFound {
+                                base_id: base_id.to_owned(),
+                                referencing_id: current.id.clone(),
+                            })?;
                 }
             }
         }
@@ -274,18 +280,25 @@ pub fn load_index(path: &Path) -> Result<BackupIndex> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(BackupIndex::new()),
-        Err(err) => {
-            return Err(err)
-                .with_context(|| format!("failed to read index file: {}", path.display()));
+        Err(source) => {
+            return Err(BackupError::IndexRead {
+                path: path.to_owned(),
+                source,
+            });
         }
     };
 
-    let index: BackupIndex = serde_json::from_slice(&data)
-        .with_context(|| format!("failed to parse index file: {}", path.display()))?;
+    let index: BackupIndex =
+        serde_json::from_slice(&data).map_err(|source| BackupError::IndexParse {
+            path: path.to_owned(),
+            source,
+        })?;
 
     for entry in &index.entries {
         if !is_safe_backup_filename(&entry.filename) {
-            anyhow::bail!("backup index contains unsafe filename: {}", entry.filename);
+            return Err(BackupError::UnsafeFilename {
+                filename: entry.filename.clone(),
+            });
         }
     }
 
@@ -294,9 +307,11 @@ pub fn load_index(path: &Path) -> Result<BackupIndex> {
 
 /// Persists a `BackupIndex` to the given path using an atomic write.
 pub fn save_index(path: &Path, index: &BackupIndex) -> Result<()> {
-    let data = serde_json::to_vec_pretty(index).context("failed to serialize index")?;
-    libllm::crypto::write_atomic(path, &data)
-        .with_context(|| format!("failed to write index file: {}", path.display()))
+    let data = serde_json::to_vec_pretty(index).map_err(BackupError::IndexSerialize)?;
+    libllm::crypto::write_atomic(path, &data).map_err(|source| BackupError::IndexWrite {
+        path: path.to_owned(),
+        source,
+    })
 }
 
 /// Loads an index and runs pending migrations in place. Persists the migrated
@@ -304,12 +319,14 @@ pub fn save_index(path: &Path, index: &BackupIndex) -> Result<()> {
 /// unencrypted data dirs, or ops that will only read raw file hashes) pass
 /// `None`; in that case only the unencrypted migration branch runs.
 pub fn open_index(path: &Path, kek: Option<&[u8; 32]>) -> Result<BackupIndex> {
-    let backups_dir = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("index path {} has no parent", path.display()))?;
+    let backups_dir = path.parent().ok_or_else(|| BackupError::IndexNoParent {
+        path: path.to_owned(),
+    })?;
     let data_dir = backups_dir
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("backups dir {} has no parent", backups_dir.display()))?;
+        .ok_or_else(|| BackupError::BackupsDirNoParent {
+            path: backups_dir.to_owned(),
+        })?;
     crate::rekey::recover_journal_if_present(data_dir, kek)?;
     let mut index = load_index(path)?;
     let starting_version = index.version;
@@ -685,7 +702,7 @@ mod wrapped_dek_tests {
         // default Vec<u8> encoding). This test proves the backward-compatible
         // deserializer accepts that legacy format.
         let json = r#"{"blob":[222,173,190,239]}"#;
-        let result: Result<WrappedDek, _> = serde_json::from_str(json);
+        let result: std::result::Result<WrappedDek, _> = serde_json::from_str(json);
         let w = result.expect("legacy byte-array format must deserialize without error");
         assert_eq!(w.blob, vec![0xde, 0xad, 0xbe, 0xef]);
     }
@@ -700,7 +717,7 @@ mod wrapped_dek_tests {
     #[test]
     fn rejects_invalid_blob_type() {
         let json = r#"{"blob":42}"#;
-        let result: Result<WrappedDek, _> = serde_json::from_str(json);
+        let result: std::result::Result<WrappedDek, _> = serde_json::from_str(json);
         assert!(result.is_err(), "numeric blob must be rejected");
     }
 }

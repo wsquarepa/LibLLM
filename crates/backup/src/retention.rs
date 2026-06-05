@@ -3,10 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, IsoWeek, Utc};
 
 use crate::BackupConfig;
+use crate::error::{BackupError, Result};
 use crate::index::{BackupEntry, BackupIndex, BackupType};
 
 /// Returns IDs of entries that should be pruned based on the thinning schedule.
@@ -148,7 +148,7 @@ pub fn apply_prune(
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 removed_indices.insert(idx);
             }
-            Err(err) => {
+            Err(source) => {
                 // Flush already-deleted entries into the in-memory index before
                 // returning so the index is consistent with the disk state.
                 let mut i = 0;
@@ -157,8 +157,10 @@ pub fn apply_prune(
                     i += 1;
                     keep
                 });
-                return Err(err)
-                    .with_context(|| format!("delete pruned backup {}", file_path.display()));
+                return Err(BackupError::DeleteBackupFile {
+                    path: file_path,
+                    source,
+                });
             }
         }
     }

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use crate::error::{BackupError, Result};
 
 /// Returns the BLAKE3 hash of `data` as a 64-character lowercase hex string.
 pub fn hash_bytes(data: &[u8]) -> String {
@@ -14,11 +14,15 @@ pub fn hash_bytes(data: &[u8]) -> String {
 /// Copies the file through the hasher with `std::io::copy` so large files
 /// (multi-hundred-MB backups) are not materialized into a heap buffer.
 pub fn hash_file(path: &Path) -> Result<String> {
-    let mut file = std::fs::File::open(path)
-        .with_context(|| format!("failed to open file: {}", path.display()))?;
+    let mut file = std::fs::File::open(path).map_err(|source| BackupError::HashOpenFile {
+        path: path.to_owned(),
+        source,
+    })?;
     let mut hasher = blake3::Hasher::new();
-    std::io::copy(&mut file, &mut hasher)
-        .with_context(|| format!("failed to read file: {}", path.display()))?;
+    std::io::copy(&mut file, &mut hasher).map_err(|source| BackupError::HashReadFile {
+        path: path.to_owned(),
+        source,
+    })?;
     Ok(hasher.finalize().to_hex().to_string())
 }
 

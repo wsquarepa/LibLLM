@@ -3,7 +3,6 @@
 use std::fmt::Write;
 use std::path::Path;
 
-use anyhow::{Result, bail};
 use argon2::Argon2;
 use chacha20poly1305::{
     XChaCha20Poly1305,
@@ -13,6 +12,7 @@ use hkdf::Hkdf;
 use rand::Rng;
 use sha2::Sha256;
 
+use crate::error::{BackupError, Result};
 use crate::index::WrappedDek;
 
 const NONCE_LEN: usize = 24;
@@ -47,7 +47,7 @@ pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
     let mut key_bytes = [0u8; 32];
     argon2
         .hash_password_into(passkey.as_bytes(), &derived_salt, &mut key_bytes)
-        .map_err(|e| anyhow::anyhow!("key derivation failed: {e}"))?;
+        .map_err(BackupError::KeyDerivation)?;
 
     Ok(key_bytes)
 }
@@ -59,7 +59,8 @@ pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
 pub fn resolve_backup_key(data_dir: &Path, passkey: Option<&str>) -> Result<Option<[u8; 32]>> {
     match passkey {
         Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))?;
+            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))
+                .map_err(BackupError::LibllmCrypto)?;
             Ok(Some(derive_backup_key(pk, &salt)?))
         }
         None => Ok(None),
@@ -77,7 +78,7 @@ pub fn encrypt_payload(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
 
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
-        .map_err(|e| anyhow::anyhow!("encryption failed: {e}"))?;
+        .map_err(BackupError::Encrypt)?;
 
     let mut output = Vec::with_capacity(NONCE_LEN + ciphertext.len());
     output.extend_from_slice(nonce_bytes.as_ref());
@@ -91,10 +92,10 @@ pub fn encrypt_payload(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
 /// short or if authentication fails.
 pub fn decrypt_payload(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
     if data.len() < MIN_CIPHERTEXT_LEN {
-        bail!(
-            "ciphertext too short: expected at least {MIN_CIPHERTEXT_LEN} bytes, got {}",
-            data.len()
-        );
+        return Err(BackupError::CiphertextTooShort {
+            expected: MIN_CIPHERTEXT_LEN,
+            actual: data.len(),
+        });
     }
 
     let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
@@ -103,7 +104,7 @@ pub fn decrypt_payload(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
 
     cipher
         .decrypt(nonce, ciphertext.as_ref())
-        .map_err(|e| anyhow::anyhow!("decryption failed: {e}"))
+        .map_err(BackupError::Decrypt)
 }
 
 const FINGERPRINT_CONTEXT: &[u8] = b"libllm-backup-kek-fingerprint-v1";
@@ -142,10 +143,9 @@ pub fn wrap_dek(dek: &[u8; 32], kek: &[u8; 32]) -> Result<WrappedDek> {
 pub fn unwrap_dek(wrapped: &WrappedDek, kek: &[u8; 32]) -> Result<[u8; 32]> {
     let bytes = decrypt_payload(&wrapped.blob, kek)?;
     if bytes.len() != 32 {
-        anyhow::bail!(
-            "unwrapped DEK has wrong length: got {}, expected 32",
-            bytes.len()
-        );
+        return Err(BackupError::UnwrappedDekWrongLength {
+            actual: bytes.len(),
+        });
     }
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes);

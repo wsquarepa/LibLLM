@@ -1,8 +1,8 @@
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::crypto::{compute_kek_fingerprint, unwrap_dek, wrap_dek};
+use crate::error::{BackupError, Result};
 use crate::index::{BackupType, FingerprintField, WrappedDek, open_index, save_index};
 
 pub const JOURNAL_FILENAME: &str = ".rekey.journal";
@@ -23,9 +23,9 @@ pub fn sidecar_path(backups_dir: &Path) -> PathBuf {
 }
 
 pub fn write_journal(backups_dir: &Path, journal: &RekeyJournal) -> Result<()> {
-    let bytes = serde_json::to_vec_pretty(journal).context("serialize rekey journal")?;
+    let bytes = serde_json::to_vec_pretty(journal).map_err(BackupError::RekeyJournalSerialize)?;
     libllm::crypto::write_atomic(&journal_path(backups_dir), &bytes)
-        .context("atomic write of rekey journal")
+        .map_err(BackupError::RekeyJournalWrite)
 }
 
 pub fn read_journal(backups_dir: &Path) -> Result<Option<RekeyJournal>> {
@@ -33,19 +33,28 @@ pub fn read_journal(backups_dir: &Path) -> Result<Option<RekeyJournal>> {
     if !p.exists() {
         return Ok(None);
     }
-    let bytes = std::fs::read(&p).with_context(|| format!("read {}", p.display()))?;
-    let j: RekeyJournal = serde_json::from_slice(&bytes).context("parse rekey journal")?;
+    let bytes = std::fs::read(&p).map_err(|source| BackupError::RekeyJournalRead {
+        path: p.clone(),
+        source,
+    })?;
+    let j: RekeyJournal = serde_json::from_slice(&bytes).map_err(BackupError::RekeyJournalParse)?;
     Ok(Some(j))
 }
 
 pub fn delete_journal(backups_dir: &Path) -> Result<()> {
     let p = journal_path(backups_dir);
     if p.exists() {
-        std::fs::remove_file(&p).with_context(|| format!("remove {}", p.display()))?;
+        std::fs::remove_file(&p).map_err(|source| BackupError::RekeyRemoveFile {
+            path: p.clone(),
+            source,
+        })?;
     }
     let s = sidecar_path(backups_dir);
     if s.exists() {
-        std::fs::remove_file(&s).with_context(|| format!("remove {}", s.display()))?;
+        std::fs::remove_file(&s).map_err(|source| BackupError::RekeyRemoveFile {
+            path: s.clone(),
+            source,
+        })?;
     }
     Ok(())
 }
@@ -82,12 +91,17 @@ pub fn prepare_rekey(data_dir: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) ->
         if stored_fp != &old_fp {
             continue;
         }
-        let wrapped = entry
-            .wrapped_dek
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("active chain {} missing wrapped DEK", entry.id))?;
-        let dek = unwrap_dek(wrapped, old_kek)
-            .with_context(|| format!("unwrap DEK of active chain {}", entry.id))?;
+        let wrapped =
+            entry
+                .wrapped_dek
+                .as_ref()
+                .ok_or_else(|| BackupError::RekeyMissingWrappedDek {
+                    id: entry.id.clone(),
+                })?;
+        let dek = unwrap_dek(wrapped, old_kek).map_err(|source| BackupError::RekeyUnwrapDek {
+            id: entry.id.clone(),
+            source: Box::new(source),
+        })?;
         let new_wrapped = wrap_dek(&dek, new_kek)?;
         rewrapped.push((entry.id.clone(), new_wrapped));
     }
@@ -106,7 +120,8 @@ pub fn prepare_rekey(data_dir: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) ->
         root.kek_fingerprint = Some(FingerprintField::Known(new_fp.clone()));
     }
 
-    std::fs::copy(&index_path, sidecar_path(&backups_dir)).context("stage index.json.pre-rekey")?;
+    std::fs::copy(&index_path, sidecar_path(&backups_dir))
+        .map_err(BackupError::RekeyStageIndexSidecar)?;
     write_journal(&backups_dir, &RekeyJournal { old_fp, new_fp })?;
     save_index(&index_path, &index)?;
     Ok(())
@@ -124,11 +139,14 @@ pub fn rollback_rekey(data_dir: &Path) -> Result<()> {
     let sidecar = sidecar_path(&backups_dir);
     if sidecar.exists() {
         std::fs::rename(&sidecar, backups_dir.join("index.json"))
-            .context("restore index.json from sidecar")?;
+            .map_err(BackupError::RekeyRestoreIndexSidecar)?;
     }
     let j = journal_path(&backups_dir);
     if j.exists() {
-        std::fs::remove_file(&j).context("remove journal during rollback")?;
+        std::fs::remove_file(&j).map_err(|source| BackupError::RekeyRemoveFile {
+            path: j.clone(),
+            source,
+        })?;
     }
     Ok(())
 }
@@ -145,19 +163,19 @@ pub fn recover_journal_if_present(data_dir: &Path, current_kek: Option<&[u8; 32]
             // crash between sidecar-copy and journal-write in a prior attempt.
             let sidecar = sidecar_path(&backups_dir);
             if sidecar.exists() {
-                std::fs::remove_file(&sidecar)
-                    .with_context(|| format!("remove orphan sidecar {}", sidecar.display()))?;
+                std::fs::remove_file(&sidecar).map_err(|source| {
+                    BackupError::RemoveOrphanSidecar {
+                        path: sidecar.clone(),
+                        source,
+                    }
+                })?;
             }
             Ok(())
         }
         Some(journal) => {
             let fp = match current_kek {
                 Some(k) => compute_kek_fingerprint(k),
-                None => {
-                    anyhow::bail!(
-                        "rekey journal found but no KEK supplied; run with the passkey active at rekey time"
-                    );
-                }
+                None => return Err(BackupError::RekeyJournalNoKek),
             };
             if fp == journal.new_fp {
                 delete_journal(&backups_dir)?;
@@ -167,17 +185,16 @@ pub fn recover_journal_if_present(data_dir: &Path, current_kek: Option<&[u8; 32]
                 rollback_rekey(data_dir)?;
                 return Ok(());
             }
-            anyhow::bail!(
-                "rekey journal present but current passkey fingerprint ({fp}) matches neither \
-                 old_fp ({}) nor new_fp ({}); cannot auto-recover. \
-                 To abandon the rekey manually: (1) rename '{}' over '{}' to restore the \
-                 pre-rekey index, (2) delete '{}' to remove the journal.",
-                journal.old_fp,
-                journal.new_fp,
-                sidecar_path(&backups_dir).display(),
-                backups_dir.join("index.json").display(),
-                journal_path(&backups_dir).display(),
-            )
+            Err(BackupError::RekeyJournalUnresolvable(Box::new(
+                crate::error::RekeyJournalUnresolvable {
+                    current: fp,
+                    old_fp: journal.old_fp.clone(),
+                    new_fp: journal.new_fp.clone(),
+                    sidecar: sidecar_path(&backups_dir),
+                    index: backups_dir.join("index.json"),
+                    journal: journal_path(&backups_dir),
+                },
+            )))
         }
     }
 }

@@ -57,6 +57,7 @@ strsim = "0.11"
 sysinfo = "0.39"
 tar = "0.4"
 tempfile = "3"
+thiserror = "2"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 toml = "1.1.0"

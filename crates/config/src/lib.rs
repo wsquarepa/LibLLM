@@ -6,11 +6,32 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-#[cfg(not(feature = "test-support"))]
-use anyhow::anyhow;
-use anyhow::{Context, Result};
-
 use libllm_core::config::Config;
+
+/// Errors from process-boundary config operations.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    /// `set_data_dir` was called more than once in a production process.
+    #[error("data directory override already set")]
+    DataDirAlreadySet,
+    /// The data directory could not be created.
+    #[error("failed to create data directory {path}: {source}")]
+    CreateDataDir {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The config could not be serialized to TOML.
+    #[error("failed to serialize config: {0}")]
+    Serialize(#[source] toml::ser::Error),
+    /// The config file could not be written to disk.
+    #[error("failed to write config {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: anyhow::Error,
+    },
+}
 
 #[cfg(not(feature = "test-support"))]
 static DATA_DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -26,14 +47,14 @@ thread_local! {
 }
 
 #[cfg(not(feature = "test-support"))]
-pub fn set_data_dir(path: PathBuf) -> Result<()> {
+pub fn set_data_dir(path: PathBuf) -> Result<(), ConfigError> {
     DATA_DIR_OVERRIDE
         .set(path)
-        .map_err(|_| anyhow!("data directory override already set"))
+        .map_err(|_| ConfigError::DataDirAlreadySet)
 }
 
 #[cfg(feature = "test-support")]
-pub fn set_data_dir(path: PathBuf) -> Result<()> {
+pub fn set_data_dir(path: PathBuf) -> Result<(), ConfigError> {
     DATA_DIR_OVERRIDE.with(|cell| {
         *cell.borrow_mut() = Some(path);
     });
@@ -76,8 +97,9 @@ pub fn template_presets_dir() -> PathBuf {
     data_dir().join("presets").join("template")
 }
 
-pub fn ensure_dirs() -> Result<()> {
-    std::fs::create_dir_all(data_dir()).context("failed to create data directory")
+pub fn ensure_dirs() -> Result<(), ConfigError> {
+    let dir = data_dir();
+    std::fs::create_dir_all(&dir).map_err(|source| ConfigError::CreateDataDir { path: dir, source })
 }
 
 pub fn config_path() -> PathBuf {
@@ -161,10 +183,10 @@ pub fn load() -> Config {
 }
 
 /// Serializes and atomically writes the config to `config.toml` in the data directory.
-pub fn save(cfg: &Config) -> Result<()> {
+pub fn save(cfg: &Config) -> Result<(), ConfigError> {
     let path = config_path();
     let serialize_start = Instant::now();
-    let toml_str = toml::to_string_pretty(cfg).context("failed to serialize config")?;
+    let toml_str = toml::to_string_pretty(cfg).map_err(ConfigError::Serialize)?;
     let serialize_elapsed_ms = serialize_start.elapsed().as_secs_f64() * 1000.0;
     let path_str = path.display().to_string();
     tracing::info!(
@@ -183,7 +205,7 @@ pub fn save(cfg: &Config) -> Result<()> {
         bytes = toml_str.len()
         ; {
             libllm_core::crypto::write_atomic(&path, toml_str.as_bytes())
-                .context(format!("failed to write config: {}", path.display()))
+                .map_err(|source| ConfigError::Write { path: path.clone(), source })
         }
     )
 }

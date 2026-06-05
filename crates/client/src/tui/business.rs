@@ -566,7 +566,7 @@ pub fn apply_tabbed_config_fields(
         group_chat: existing.group_chat,
     };
 
-    libllm::config::save(&cfg)
+    Ok(libllm::config::save(&cfg)?)
 }
 
 fn parse_f64_clamped(s: &str, min: f64, max: f64) -> Option<f64> {
@@ -887,7 +887,7 @@ pub fn apply_theme_color_sections(
         ..existing
     };
 
-    libllm::config::save(&cfg)
+    Ok(libllm::config::save(&cfg)?)
 }
 
 pub(super) fn load_active_persona(app: &mut App) {

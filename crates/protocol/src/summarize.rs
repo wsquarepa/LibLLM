@@ -2,10 +2,54 @@
 
 use std::time::Instant;
 
-use crate::client::ApiClient;
-use crate::sampling::SamplingParams;
-use crate::session::{Message, Role};
 use anyhow::Result;
+
+use crate::client::ApiClient;
+use crate::tokenizer::TokenCounter;
+use libllm_core::files::{FileError, ResolvedFile};
+use libllm_core::sampling::SamplingParams;
+use libllm_core::session::{Message, Role};
+
+/// Matches `run_summary_task`'s `SamplingParams.max_tokens` — the reserved space for
+/// the response in the file-summary completion call.
+pub const MAX_SUMMARY_RESPONSE_TOKENS: usize = 512;
+
+/// Extra headroom to absorb per-flavor tokenizer quirks (BOS/EOS, chat-template wrapping).
+pub const SAFETY_PAD: usize = 32;
+
+/// Returns `Ok(())` if the resolved file can be summarized under `context_size` tokens.
+/// Returns `Err(FileError::TooLargeForSummary { .. })` if the file is too large to fit,
+/// or `Err(FileError::SummaryTokenize { .. })` if the tokenize call itself fails.
+///
+/// Tokenizes the exact prompt `run_summary_task` would send, so the check is
+/// self-consistent with the real call and cache-warms the counter.
+pub async fn check_file_fits(
+    counter: &TokenCounter,
+    file: &ResolvedFile,
+    instruction: &str,
+    context_size: usize,
+) -> Result<(), FileError> {
+    let prompt = format!(
+        "--- FILE ---\n{}\n--- END FILE ---\n\n{}\n\nSummary:",
+        file.body, instruction,
+    );
+    let prompt_tokens = counter
+        .count_authoritative(&prompt)
+        .await
+        .map_err(|source| FileError::SummaryTokenize {
+            path: file.canonical_path.clone(),
+            source,
+        })?;
+    let limit = context_size.saturating_sub(MAX_SUMMARY_RESPONSE_TOKENS + SAFETY_PAD);
+    if prompt_tokens > limit {
+        return Err(FileError::TooLargeForSummary {
+            path: file.canonical_path.clone(),
+            tokens: prompt_tokens,
+            limit,
+        });
+    }
+    Ok(())
+}
 
 /// Stop tokens that terminate summary generation when the model starts hallucinating
 /// additional roleplay turns that mimic the conversation block's `User:`/`Assistant:` labels.
@@ -38,7 +82,7 @@ impl Summarizer {
         scenario: Option<&str>,
         instruction: &str,
         messages: &[&Message],
-        file_summaries: &dyn crate::files::FileSummaryLookup,
+        file_summaries: &dyn libllm_core::files::FileSummaryLookup,
     ) -> String {
         let mut prompt = String::new();
         if let Some(s) = scenario
@@ -77,17 +121,17 @@ impl Summarizer {
         messages: &[&'a Message],
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
-        file_summaries: &dyn crate::files::FileSummaryLookup,
+        file_summaries: &dyn libllm_core::files::FileSummaryLookup,
     ) -> Result<Vec<&'a Message>> {
         if messages.is_empty() {
             return Ok(Vec::new());
         }
 
-        let droppable = crate::context::droppable_count(messages);
+        let droppable = libllm_core::context::droppable_count(messages);
         let max_drop = droppable.saturating_sub(1);
 
         let render_at = |k: usize| -> String {
-            let subset = crate::context::drop_oldest_non_summary(messages, k);
+            let subset = libllm_core::context::drop_oldest_non_summary(messages, k);
             Self::format_prompt(scenario, instruction, &subset, file_summaries)
         };
 
@@ -114,7 +158,9 @@ impl Summarizer {
             }
         }
 
-        Ok(crate::context::drop_oldest_non_summary(messages, best))
+        Ok(libllm_core::context::drop_oldest_non_summary(
+            messages, best,
+        ))
     }
 
     pub async fn summarize(
@@ -123,7 +169,7 @@ impl Summarizer {
         messages: &[&Message],
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
-        file_summaries: &dyn crate::files::FileSummaryLookup,
+        file_summaries: &dyn libllm_core::files::FileSummaryLookup,
     ) -> Result<String> {
         let start = Instant::now();
         tracing::info!(
@@ -190,22 +236,29 @@ impl Summarizer {
     }
 }
 
-fn render_message_content(msg: &Message, lookup: &dyn crate::files::FileSummaryLookup) -> String {
+fn render_message_content(
+    msg: &Message,
+    lookup: &dyn libllm_core::files::FileSummaryLookup,
+) -> String {
     if msg.role != Role::System {
         return msg.content.clone();
     }
-    let Some(basename) = crate::files::snapshot_basename(&msg.content) else {
+    let Some(basename) = libllm_core::files::snapshot_basename(&msg.content) else {
         return msg.content.clone();
     };
-    let inner = crate::files::snapshot_inner_text(&msg.content);
-    let hash = crate::files::content_hash_hex(inner.as_bytes());
+    let inner = libllm_core::files::snapshot_inner_text(&msg.content);
+    let hash = libllm_core::files::content_hash_hex(inner.as_bytes());
     let lookup_result = lookup.lookup(&hash);
     let branch = match &lookup_result {
-        Some(s) if s.status == crate::files::FileSummaryStatus::Done && !s.summary.is_empty() => {
+        Some(s)
+            if s.status == libllm_core::files::FileSummaryStatus::Done && !s.summary.is_empty() =>
+        {
             "substituted"
         }
-        Some(s) if s.status == crate::files::FileSummaryStatus::Done => "placeholder_empty",
-        Some(s) if s.status == crate::files::FileSummaryStatus::Failed => "placeholder_failed",
+        Some(s) if s.status == libllm_core::files::FileSummaryStatus::Done => "placeholder_empty",
+        Some(s) if s.status == libllm_core::files::FileSummaryStatus::Failed => {
+            "placeholder_failed"
+        }
         Some(_) => "placeholder_pending",
         None => "placeholder_missing",
     };
@@ -217,7 +270,7 @@ fn render_message_content(msg: &Message, lookup: &dyn crate::files::FileSummaryL
     );
     match lookup_result {
         Some(summary)
-            if summary.status == crate::files::FileSummaryStatus::Done
+            if summary.status == libllm_core::files::FileSummaryStatus::Done
                 && !summary.summary.is_empty() =>
         {
             format!(
@@ -232,7 +285,7 @@ fn render_message_content(msg: &Message, lookup: &dyn crate::files::FileSummaryL
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::files::NullFileSummaryLookup;
+    use libllm_core::files::NullFileSummaryLookup;
 
     #[test]
     fn format_prompt_basic() {
@@ -324,7 +377,9 @@ mod tests {
         assert!(!trimmed.is_empty());
     }
 
-    use crate::files::{FileSummary, FileSummaryLookup, FileSummaryStatus, build_snapshot_body};
+    use libllm_core::files::{
+        FileSummary, FileSummaryLookup, FileSummaryStatus, build_snapshot_body,
+    };
     use std::collections::HashMap;
 
     struct MapLookup(HashMap<String, FileSummary>);
@@ -344,8 +399,8 @@ mod tests {
         ];
         let refs: Vec<&Message> = msgs.iter().collect();
 
-        let inner = crate::files::snapshot_inner_text(&snapshot_body);
-        let hash = crate::files::content_hash_hex(inner.as_bytes());
+        let inner = libllm_core::files::snapshot_inner_text(&snapshot_body);
+        let hash = libllm_core::files::content_hash_hex(inner.as_bytes());
         let mut map = HashMap::new();
         map.insert(
             hash,
@@ -389,8 +444,8 @@ mod tests {
         let msgs = [Message::new(Role::System, snapshot_body.clone())];
         let refs: Vec<&Message> = msgs.iter().collect();
 
-        let inner = crate::files::snapshot_inner_text(&snapshot_body);
-        let hash = crate::files::content_hash_hex(inner.as_bytes());
+        let inner = libllm_core::files::snapshot_inner_text(&snapshot_body);
+        let hash = libllm_core::files::content_hash_hex(inner.as_bytes());
         let mut map = HashMap::new();
         map.insert(
             hash,
@@ -431,5 +486,81 @@ mod tests {
         let prompt =
             Summarizer::format_prompt(Some("   \n  "), "Summarize.", &refs, &NullFileSummaryLookup);
         assert!(!prompt.contains("Scenario:"));
+    }
+
+    fn heuristic_token_counter() -> (
+        crate::tokenizer::TokenCounter,
+        tokio::sync::mpsc::Receiver<crate::tokenizer::TokenCountUpdate>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        let counter = crate::tokenizer::TokenCounter::new_with_backend(
+            crate::tokenizer::TokenizerBackend::Heuristic(
+                crate::tokenizer::HeuristicTokenizer::standard(),
+            ),
+            tx,
+        );
+        (counter, rx)
+    }
+
+    fn small_file(body: &str) -> libllm_core::files::ResolvedFile {
+        libllm_core::files::ResolvedFile {
+            raw_token: "@notes.md".to_owned(),
+            canonical_path: std::path::PathBuf::from("/tmp/notes.md"),
+            basename: "notes.md".to_owned(),
+            body: body.to_owned(),
+            byte_size: body.len(),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_file_fits_accepts_small_file() {
+        let (counter, _rx) = heuristic_token_counter();
+        let file = small_file("hello world");
+        let result = check_file_fits(&counter, &file, "Summarize this file.", 4096).await;
+        assert!(result.is_ok(), "expected small file to fit, got {result:?}");
+    }
+
+    #[tokio::test]
+    async fn check_file_fits_rejects_when_prompt_exceeds_limit() {
+        let (counter, _rx) = heuristic_token_counter();
+        let file = small_file(&"a".repeat(100_000));
+        let result = check_file_fits(&counter, &file, "Summarize this file.", 4096).await;
+        let err = result.expect_err("expected TooLargeForSummary");
+        match err {
+            libllm_core::files::FileError::TooLargeForSummary { tokens, limit, .. } => {
+                assert!(
+                    tokens > limit,
+                    "tokens {tokens} should exceed limit {limit}"
+                );
+            }
+            other => panic!("expected TooLargeForSummary, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_file_fits_uses_instruction_length_dynamically() {
+        let (counter, _rx) = heuristic_token_counter();
+        let file = small_file(&"a".repeat(12_000));
+        let short = check_file_fits(&counter, &file, "Summarize.", 4096).await;
+        assert!(
+            short.is_err(),
+            "12k-char body must not fit in 4096-token context"
+        );
+
+        let ok = check_file_fits(&counter, &file, "Summarize.", 131_072).await;
+        assert!(ok.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_file_fits_rejects_when_context_size_below_response_reserve() {
+        let (counter, _rx) = heuristic_token_counter();
+        let file = small_file("tiny");
+        let result = check_file_fits(&counter, &file, "Summarize.", 100).await;
+        match result {
+            Err(libllm_core::files::FileError::TooLargeForSummary { limit, .. }) => {
+                assert_eq!(limit, 0)
+            }
+            other => panic!("expected TooLargeForSummary with limit=0, got {other:?}"),
+        }
     }
 }

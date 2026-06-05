@@ -10,8 +10,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use crate::config::{Auth, AuthKind};
-use crate::sampling::SamplingParams;
+use libllm_core::config::{Auth, AuthKind};
+use libllm_core::sampling::SamplingParams;
 
 #[derive(Debug)]
 pub enum AuthError {
@@ -900,7 +900,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         let count = client.tokenize("hello world", true).await.unwrap();
         assert_eq!(count, 5);
@@ -916,7 +916,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         assert!(client.tokenize("hello", true).await.is_err());
     }
@@ -934,7 +934,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         let count = client.tokenize_kobold("Hello, world!").await.unwrap();
         assert_eq!(count, 5);
@@ -950,7 +950,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         assert!(client.tokenize_kobold("hello").await.is_err());
     }
@@ -967,7 +967,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         assert!(client.tokenize_kobold("hello").await.is_err());
     }
@@ -985,7 +985,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         let template = client.fetch_server_chat_template().await;
         assert!(template.is_some());
@@ -1004,7 +1004,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         assert!(client.fetch_server_chat_template().await.is_none());
     }
@@ -1021,7 +1021,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
 
         assert_eq!(
             client.fetch_server_chat_template().await.as_deref(),

@@ -1863,6 +1863,7 @@ name = "libllm"
 version = "3.1.4"
 dependencies = [
  "libllm-core",
+ "libllm-protocol",
  "libllm-storage",
 ]
 
@@ -1874,17 +1875,12 @@ dependencies = [
  "argon2",
  "base64",
  "dirs",
- "futures",
- "futures-util",
  "hex",
  "infer",
- "lru 0.18.0",
  "minijinja",
  "pdf-extract",
  "rand 0.10.1",
  "regex",
- "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1900,10 +1896,28 @@ dependencies = [
  "unicode-normalization",
  "uuid",
  "walkdir",
- "wiremock",
  "xxhash-rust",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "libllm-protocol"
+version = "3.1.4"
+dependencies = [
+ "anyhow",
+ "futures",
+ "futures-util",
+ "libllm-core",
+ "lru 0.18.0",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "wiremock",
+ "xxhash-rust",
 ]
 
 [[package]]

@@ -282,7 +282,7 @@ impl FileSummarizer {
         file: &libllm::files::ResolvedFile,
         context_size: usize,
     ) -> Result<(), FileError> {
-        libllm::files::check_file_fits(counter, file, &self.prompt, context_size).await
+        libllm::summarize::check_file_fits(counter, file, &self.prompt, context_size).await
     }
 
     #[cfg(test)]

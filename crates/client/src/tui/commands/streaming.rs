@@ -712,7 +712,7 @@ pub(in crate::tui) async fn start_streaming(
     if app.config.summarization.enabled && app.file_summarizer.is_some() {
         let context_size = app.context_mgr.token_limit();
         for file in &resolved {
-            if let Err(err) = libllm::files::check_file_fits(
+            if let Err(err) = libllm::summarize::check_file_fits(
                 &app.token_counter,
                 file,
                 &app.config.files.summary_prompt,

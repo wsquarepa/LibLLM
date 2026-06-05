@@ -460,7 +460,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
 
         let counter = TokenCounter::new(client, tx).await;
@@ -489,7 +489,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
 
         let counter = TokenCounter::new(client, tx).await;
@@ -511,7 +511,7 @@ mod tests {
             .mount(&server)
             .await;
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let counter = TokenCounter::new(client, tx).await;
 
@@ -534,7 +534,7 @@ mod tests {
             .await;
 
         let base = format!("{}/v1", server.uri());
-        let client = ApiClient::new(&base, false, crate::config::Auth::None);
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
 
         let counter = TokenCounter::new(client, tx).await;

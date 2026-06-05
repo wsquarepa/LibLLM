@@ -1,0 +1,25 @@
+[package]
+name = "libllm-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+libllm-core = { workspace = true }
+anyhow.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+lru.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+xxhash-rust.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true
+
+[lints]
+workspace = true

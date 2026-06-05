@@ -4,11 +4,13 @@
 //! `libllm-protocol` (HTTP client).
 
 pub use libllm_core::{
-    archive, author_note, character, client, commands, config, context, crypto, crypto_provider,
-    diagnostics, export, files, group_chat, migration, persona, preset, regex_rules, sampling,
-    session, side_character, summarize, system_prompt, template, thought, tokenizer, worldinfo,
+    archive, author_note, character, commands, config, context, crypto, diagnostics, export, files,
+    group_chat, migration, persona, preset, regex_rules, sampling, session, side_character,
+    system_prompt, template, thought, worldinfo,
 };
 
 pub use libllm_core::timed_result;
+
+pub use libllm_protocol::{client, crypto_provider, summarize, tokenizer};
 
 pub use libllm_storage::{db, search};

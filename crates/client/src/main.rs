@@ -359,7 +359,7 @@ async fn main() -> Result<()> {
             let token_counter =
                 libllm::tokenizer::TokenCounter::new(client.clone(), refresh_tx).await;
             for file in &resolved_files {
-                if let Err(err) = libllm::files::check_file_fits(
+                if let Err(err) = libllm::summarize::check_file_fits(
                     &token_counter,
                     file,
                     &cfg.files.summary_prompt,

@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 libllm-core = { workspace = true }
+libllm-protocol = { workspace = true }
 libllm-storage = { workspace = true }
 
 [features]

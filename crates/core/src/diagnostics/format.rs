@@ -16,7 +16,9 @@ const STRIP_PREFIXES: &[&str] = &[
     "libllm_core::",
     "libllm_storage::",
     "libllm_protocol::",
-    "client::",
+    "libllm_config::",
+    "libllm_tui::",
+    "libllm_cli::",
 ];
 
 pub(super) struct FileLayer {
@@ -211,17 +213,17 @@ mod tests {
 
     #[test]
     fn target_strips_client_prefix_and_pads() {
-        let rendered = format_target("client::tui::render");
+        let rendered = format_target("libllm_tui::render");
         assert_eq!(rendered.chars().count(), TARGET_WIDTH);
-        assert!(rendered.starts_with("tui::render"));
+        assert!(rendered.starts_with("render"));
     }
 
     #[test]
     fn target_truncates_with_ellipsis_when_too_long() {
-        let rendered = format_target("client::tui::dialogs::delete_confirmation");
+        let rendered = format_target("libllm_tui::dialogs::delete_confirmation_panel");
         assert_eq!(rendered.chars().count(), TARGET_WIDTH);
         assert!(rendered.ends_with('…'));
-        assert!(rendered.starts_with("tui::dialogs::delete_con"));
+        assert!(rendered.starts_with("dialogs::delete_con"));
     }
 
     #[test]

@@ -1,7 +1,11 @@
 [package]
-name = "client"
+name = "libllm-cli"
 version.workspace = true
 edition.workspace = true
+
+[[bin]]
+name = "libllm"
+path = "src/main.rs"
 
 [dependencies]
 libllm.workspace = true

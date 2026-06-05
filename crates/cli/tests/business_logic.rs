@@ -4,12 +4,12 @@
 )]
 mod common;
 
-use client::cli::CliOverrides;
 use libllm::config::Config;
 use libllm::context::ContextManager;
 use libllm::group_chat::{CharacterAttachment, ChatMode};
 use libllm::session::{Message, MessageTree, Role, Session};
 use libllm::summarize::Summarizer;
+use libllm_cli::cli::CliOverrides;
 use libllm_tui::business;
 use libllm_tui::dialogs::chat_settings::roll_back_provisional_group;
 

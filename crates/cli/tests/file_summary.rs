@@ -304,7 +304,7 @@ async fn fresh_encrypted_session_schedules_after_unlock_save() {
 
     let mut config = libllm::config::Config::default();
     config.summarization.api_url = Some(mock.uri());
-    let cli_overrides = client::cli::CliOverrides::default();
+    let cli_overrides = libllm_cli::cli::CliOverrides::default();
     let (tx, mut rx) = mpsc::unbounded_channel();
     let summarizer = libllm_tui::business::build_file_summarizer(
         &db_path,
@@ -341,7 +341,7 @@ fn build_file_summarizer_opens_encrypted_db() {
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let config = libllm::config::Config::default();
-    let cli_overrides = client::cli::CliOverrides::default();
+    let cli_overrides = libllm_cli::cli::CliOverrides::default();
 
     let summarizer = libllm_tui::business::build_file_summarizer(
         &db_path,

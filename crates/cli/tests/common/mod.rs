@@ -212,7 +212,7 @@ pub fn write_json_file(path: &Path, json: &str) {
 ///
 /// Used by integration tests that spawn the CLI as a subprocess.
 pub fn client_bin() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_BIN_EXE_client"))
+    std::path::PathBuf::from(env!("CARGO_BIN_EXE_libllm"))
 }
 
 /// Read a file to a string (panics on failure, test-only).

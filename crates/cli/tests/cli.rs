@@ -8,7 +8,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use clap::Parser;
-use client::cli::{Args, Command, RecoverCommand};
+use libllm_cli::cli::{Args, Command, RecoverCommand};
 
 #[test]
 fn parse_message_flag() {
@@ -197,24 +197,24 @@ fn parse_update_list_flag_rejected() {
 #[test]
 fn recover_non_interactive_without_subcommand_returns_ok() {
     let dummy_dir = PathBuf::from("/tmp/libllm-test-recover-noop");
-    let result = client::recover::run_with_interactivity(&dummy_dir, None, None, false);
+    let result = libllm_cli::recover::run_with_interactivity(&dummy_dir, None, None, false);
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 }
 
 #[test]
 fn parse_auth_type_accepts_bearer() {
     let args = Args::try_parse_from(["libllm", "--auth-type", "bearer"]).unwrap();
-    assert_eq!(args.auth_type, Some(client::cli::AuthKindArg::Bearer));
+    assert_eq!(args.auth_type, Some(libllm_cli::cli::AuthKindArg::Bearer));
 }
 
 #[test]
 fn parse_auth_type_accepts_all_variants() {
     for (flag, expected) in [
-        ("none", client::cli::AuthKindArg::None),
-        ("basic", client::cli::AuthKindArg::Basic),
-        ("bearer", client::cli::AuthKindArg::Bearer),
-        ("header", client::cli::AuthKindArg::Header),
-        ("query", client::cli::AuthKindArg::Query),
+        ("none", libllm_cli::cli::AuthKindArg::None),
+        ("basic", libllm_cli::cli::AuthKindArg::Basic),
+        ("bearer", libllm_cli::cli::AuthKindArg::Bearer),
+        ("header", libllm_cli::cli::AuthKindArg::Header),
+        ("query", libllm_cli::cli::AuthKindArg::Query),
     ] {
         let args = Args::try_parse_from(["libllm", "--auth-type", flag]).unwrap();
         assert_eq!(args.auth_type, Some(expected));

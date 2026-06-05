@@ -515,39 +515,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "client"
-version = "3.1.4"
-dependencies = [
- "anyhow",
- "backup",
- "chrono",
- "clap",
- "crossterm",
- "dialoguer",
- "dirs",
- "futures-util",
- "libllm",
- "libllm-tui",
- "rand 0.10.1",
- "regex",
- "reqwest",
- "rpassword",
- "rusqlite",
- "rustyline",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
- "time",
- "tokio",
- "toml",
- "tracing",
- "uuid",
- "wiremock",
- "zeroize",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1864,6 +1831,39 @@ dependencies = [
  "libllm-core",
  "libllm-protocol",
  "libllm-storage",
+]
+
+[[package]]
+name = "libllm-cli"
+version = "3.1.4"
+dependencies = [
+ "anyhow",
+ "backup",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dialoguer",
+ "dirs",
+ "futures-util",
+ "libllm",
+ "libllm-tui",
+ "rand 0.10.1",
+ "regex",
+ "reqwest",
+ "rpassword",
+ "rusqlite",
+ "rustyline",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+ "wiremock",
+ "zeroize",
 ]
 
 [[package]]

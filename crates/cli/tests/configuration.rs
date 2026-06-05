@@ -4,9 +4,9 @@
 )]
 mod common;
 
-use client::validation;
 use libllm::config::{self, Auth, Config};
 use libllm::migration;
+use libllm_cli::validation;
 
 fn setup_data_dir() -> tempfile::TempDir {
     let dir = common::temp_dir();
@@ -504,7 +504,7 @@ fn side_character_labels_round_trip() {
 #[test]
 fn log_filter_without_debug_is_a_parse_error() {
     use clap::Parser;
-    let result = client::cli::Args::try_parse_from(["libllm", "--log-filter", "info"]);
+    let result = libllm_cli::cli::Args::try_parse_from(["libllm", "--log-filter", "info"]);
     assert!(
         result.is_err(),
         "expected parse failure but parsing succeeded"
@@ -519,7 +519,7 @@ fn log_filter_without_debug_is_a_parse_error() {
 #[test]
 fn log_filter_with_debug_parses() {
     use clap::Parser;
-    let result = client::cli::Args::try_parse_from([
+    let result = libllm_cli::cli::Args::try_parse_from([
         "libllm",
         "--debug",
         "/tmp/x.log",

@@ -6,10 +6,12 @@ mod common;
 
 use std::path::PathBuf;
 
-use client::import::{ImportType, detect_import_type, handle_import_command, import_single_file};
 use libllm::db::Database;
 use libllm::preset::InstructPreset;
 use libllm::session::{Message, Role};
+use libllm_cli::import::{
+    ImportType, detect_import_type, handle_import_command, import_single_file,
+};
 
 #[test]
 fn import_character_from_json() {

@@ -1,4 +1,8 @@
-//! Shared library for LibLLM: types, API client, and preset management.
+//! Pure domain layer for LibLLM: conversation/session types, characters,
+//! personas, world info, presets, the file-ingestion pipeline, crypto, and
+//! configuration types. This crate performs no database access, no network I/O,
+//! and holds no process-global state; outer crates (`libllm-storage`,
+//! `libllm-protocol`, `libllm-config`) build those concerns on top of it.
 
 pub mod archive;
 pub mod author_note;

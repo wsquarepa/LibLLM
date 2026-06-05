@@ -24,8 +24,8 @@ const BACKUP_CONTEXT: &str = "libllm-backup-v1";
 ///
 /// Combines the salt with the context string "libllm-backup-v1" via blake3 to produce
 /// a domain-separated 16-byte salt, then runs Argon2id with the parameters returned by
-/// [`libllm::crypto::argon2_params`]. The resulting key is intentionally distinct from
-/// the DB key produced by `libllm::crypto::derive_key` even when given the same passkey
+/// [`libllm_core::crypto::argon2_params`]. The resulting key is intentionally distinct from
+/// the DB key produced by `libllm_core::crypto::derive_key` even when given the same passkey
 /// and salt.
 pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
     let derived_salt: [u8; 16] = {
@@ -41,7 +41,7 @@ pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        libllm::crypto::argon2_params(),
+        libllm_core::crypto::argon2_params(),
     );
 
     let mut key_bytes = [0u8; 32];
@@ -59,7 +59,7 @@ pub fn derive_backup_key(passkey: &str, salt: &[u8; 16]) -> Result<[u8; 32]> {
 pub fn resolve_backup_key(data_dir: &Path, passkey: Option<&str>) -> Result<Option<[u8; 32]>> {
     match passkey {
         Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))
+            let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt"))
                 .map_err(BackupError::LibllmCrypto)?;
             Ok(Some(derive_backup_key(pk, &salt)?))
         }
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn derive_backup_key_differs_from_db_key() {
         let backup_key = derive_backup_key(TEST_PASSKEY, TEST_SALT).expect("backup key");
-        let db_key = libllm::crypto::derive_key(TEST_PASSKEY, TEST_SALT).expect("db key");
+        let db_key = libllm_core::crypto::derive_key(TEST_PASSKEY, TEST_SALT).expect("db key");
         assert_ne!(backup_key, *db_key.as_bytes());
     }
 

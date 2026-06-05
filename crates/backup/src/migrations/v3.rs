@@ -68,7 +68,7 @@ pub(super) fn migrate(
                     id: base_id.clone(),
                 })?;
         let new_blob = crate::format::encode_base_blob(&wrapped, &bytes);
-        libllm::crypto::write_atomic(&path, &new_blob).map_err(|source| {
+        libllm_core::crypto::write_atomic(&path, &new_blob).map_err(|source| {
             BackupError::MigrationV3RewriteFile {
                 path: path.clone(),
                 source,
@@ -102,7 +102,7 @@ mod tests {
     use crate::crypto::{encrypt_payload, generate_dek, resolve_backup_key, wrap_dek};
     use crate::index::{BackupEntry, BackupIndex, BackupType, backup_filename, save_index};
     use chrono::Utc;
-    use libllm::crypto::write_atomic;
+    use libllm_core::crypto::write_atomic;
     use tempfile::TempDir;
 
     fn type2_base(data_dir: &std::path::Path, kek: &[u8; 32], id: &str) -> (BackupEntry, Vec<u8>) {

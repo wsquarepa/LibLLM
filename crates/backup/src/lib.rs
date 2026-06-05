@@ -15,4 +15,4 @@ pub mod snapshot;
 pub mod verify;
 
 pub use error::BackupError;
-pub use libllm::config::BackupConfig;
+pub use libllm_core::config::BackupConfig;

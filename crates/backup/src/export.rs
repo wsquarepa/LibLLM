@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use libllm::crypto::DerivedKey;
+use libllm_core::crypto::DerivedKey;
 
 use crate::error::{BackupError, Result};
 
@@ -96,8 +96,8 @@ mod tests {
     #[test]
     fn export_encrypted_db_returns_plaintext_sqlite() {
         let dir = TempDir::new().unwrap();
-        let salt = libllm::crypto::load_or_create_salt(&dir.path().join(".salt")).unwrap();
-        let key = libllm::crypto::derive_key("test-passkey", &salt).unwrap();
+        let salt = libllm_core::crypto::load_or_create_salt(&dir.path().join(".salt")).unwrap();
+        let key = libllm_core::crypto::derive_key("test-passkey", &salt).unwrap();
         let db_path = create_encrypted_db(&dir, &key);
 
         let bytes = export_plaintext_db(&db_path, Some(&key)).unwrap();
@@ -108,9 +108,9 @@ mod tests {
     #[test]
     fn export_encrypted_db_with_wrong_key_fails() {
         let dir = TempDir::new().unwrap();
-        let salt = libllm::crypto::load_or_create_salt(&dir.path().join(".salt")).unwrap();
-        let key = libllm::crypto::derive_key("correct-passkey", &salt).unwrap();
-        let wrong_key = libllm::crypto::derive_key("wrong-passkey", &salt).unwrap();
+        let salt = libllm_core::crypto::load_or_create_salt(&dir.path().join(".salt")).unwrap();
+        let key = libllm_core::crypto::derive_key("correct-passkey", &salt).unwrap();
+        let wrong_key = libllm_core::crypto::derive_key("wrong-passkey", &salt).unwrap();
         let db_path = create_encrypted_db(&dir, &key);
 
         let result = export_plaintext_db(&db_path, Some(&wrong_key));

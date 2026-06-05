@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
-use libllm::sampling::SamplingOverrides;
+use libllm_core::sampling::SamplingOverrides;
 
-/// Client-side wrapper around `libllm::config::AuthKind` for clap's `ValueEnum` parsing.
+/// Client-side wrapper around `libllm_core::config::AuthKind` for clap's `ValueEnum` parsing.
 /// Keeps CLI-framework concerns out of the `libllm` crate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 #[clap(rename_all = "lowercase")]
@@ -22,14 +22,14 @@ pub enum AuthKindArg {
     Query,
 }
 
-impl From<AuthKindArg> for libllm::config::AuthKind {
+impl From<AuthKindArg> for libllm_core::config::AuthKind {
     fn from(arg: AuthKindArg) -> Self {
         match arg {
-            AuthKindArg::None => libllm::config::AuthKind::None,
-            AuthKindArg::Basic => libllm::config::AuthKind::Basic,
-            AuthKindArg::Bearer => libllm::config::AuthKind::Bearer,
-            AuthKindArg::Header => libllm::config::AuthKind::Header,
-            AuthKindArg::Query => libllm::config::AuthKind::Query,
+            AuthKindArg::None => libllm_core::config::AuthKind::None,
+            AuthKindArg::Basic => libllm_core::config::AuthKind::Basic,
+            AuthKindArg::Bearer => libllm_core::config::AuthKind::Bearer,
+            AuthKindArg::Header => libllm_core::config::AuthKind::Header,
+            AuthKindArg::Query => libllm_core::config::AuthKind::Query,
         }
     }
 }
@@ -46,7 +46,7 @@ pub enum ChatModeArg {
     Directed,
 }
 
-impl From<ChatModeArg> for libllm::group_chat::ChatMode {
+impl From<ChatModeArg> for libllm_core::group_chat::ChatMode {
     fn from(v: ChatModeArg) -> Self {
         match v {
             ChatModeArg::ActionValue => Self::ActionValue,
@@ -187,7 +187,7 @@ pub enum Command {
     },
 }
 
-pub use libllm::config::CliOverrides;
+pub use libllm_core::config::CliOverrides;
 
 /// Parses a `"slug=value,slug=value"` talkativeness override string into a map.
 ///
@@ -238,7 +238,7 @@ pub fn validate_group_chat_args(
     talkativeness: &HashMap<String, f32>,
     card_names_by_slug: &HashMap<String, String>,
 ) -> anyhow::Result<()> {
-    libllm::group_chat::validate_group_chat_args(characters, talkativeness, card_names_by_slug)
+    libllm_core::group_chat::validate_group_chat_args(characters, talkativeness, card_names_by_slug)
         .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
@@ -381,7 +381,7 @@ pub struct Args {
     #[arg(long)]
     pub debug: Option<PathBuf>,
 
-    /// EnvFilter directive for the debug log (e.g. "info,libllm::db=debug"). Requires --debug.
+    /// EnvFilter directive for the debug log (e.g. "info,libllm_storage::db=debug"). Requires --debug.
     #[arg(long, requires = "debug")]
     pub log_filter: Option<String>,
 
@@ -419,7 +419,7 @@ impl Args {
             tls_skip_verify: self.tls_skip_verify,
             sampling: self.sampling_overrides(),
             system_prompt: self.system_prompt.clone(),
-            persona: self.persona.as_deref().map(libllm::character::slugify),
+            persona: self.persona.as_deref().map(libllm_core::character::slugify),
             characters: self.character.clone(),
             chat_mode: if self.character.len() >= 2 {
                 Some(self.chat_mode.into())

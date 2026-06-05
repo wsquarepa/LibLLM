@@ -1,6 +1,6 @@
 //! Startup maintenance tasks and runtime picker state reloading.
 
-use libllm::session::SaveMode;
+use libllm_core::session::SaveMode;
 
 use super::App;
 

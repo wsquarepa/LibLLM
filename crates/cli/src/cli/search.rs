@@ -3,9 +3,9 @@
 use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};
-use libllm::crypto;
-use libllm::db::Database;
-use libllm::search::{self, query as search_query, strip_terminal_controls};
+use libllm_core::crypto;
+use libllm_storage::db::Database;
+use libllm_storage::search::{self, query as search_query, strip_terminal_controls};
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::Args;
@@ -14,7 +14,7 @@ const HIGHLIGHT_OPEN: char = '\u{1}';
 const HIGHLIGHT_CLOSE: char = '\u{2}';
 
 pub fn dispatch(args: &Args, query: &str, limit: usize, json: bool, full: bool) -> Result<()> {
-    libllm::db::suppress_sqlcipher_log();
+    libllm_storage::db::suppress_sqlcipher_log();
     let db = open_db(args)?;
     let compiled = match search_query::compile(query, &db) {
         Ok(c) => c,
@@ -34,7 +34,7 @@ pub fn dispatch(args: &Args, query: &str, limit: usize, json: bool, full: bool) 
 }
 
 fn open_db(args: &Args) -> Result<Database> {
-    let data_dir = args.data.clone().unwrap_or_else(libllm::config::data_dir);
+    let data_dir = args.data.clone().unwrap_or_else(libllm_config::data_dir);
     let db_path = data_dir.join("data.db");
 
     let key = if args.no_encrypt {

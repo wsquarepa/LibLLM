@@ -16,7 +16,7 @@ pub(crate) fn spawn_destroy_all(
     tokio::spawn(async move {
         let snapshot_path_for_task = snapshot_path.clone();
         let result = tokio::task::spawn_blocking(move || {
-            libllm::archive::snapshot_data_dir(&data_dir, &snapshot_path_for_task, "backups")
+            libllm_core::archive::snapshot_data_dir(&data_dir, &snapshot_path_for_task, "backups")
                 .map(|_bytes| crate::types::DangerSummary::SnapshotPath(snapshot_path_for_task))
                 .map_err(|e| e.to_string())
         })
@@ -59,7 +59,7 @@ pub(crate) fn handle_op_complete(
 }
 
 fn destroy_all_finalize(app: &mut App, snapshot_path: std::path::PathBuf) {
-    let data_dir = libllm::config::data_dir();
+    let data_dir = libllm_config::data_dir();
 
     // Drop owned references before deletion — FileSummarizer holds a second DB connection.
     // Other tasks holding Arcs may keep the file alive briefly; acceptable for the destroy path.
@@ -94,7 +94,7 @@ pub(crate) fn dispatch_sync(app: &mut App, op: DangerOp) -> Result<DangerSummary
         }
         DangerOp::RegeneratePresets => {
             let summary =
-                libllm::preset::regenerate_builtins(&libllm::config::instruct_presets_dir());
+                libllm_core::preset::regenerate_builtins(&libllm_config::instruct_presets_dir());
             Ok(DangerSummary::PresetsWritten {
                 written: summary.written,
                 failed: summary.failed.len(),

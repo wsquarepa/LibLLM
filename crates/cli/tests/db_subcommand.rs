@@ -8,8 +8,8 @@ use std::io::Write as _;
 use std::process::{Command, Stdio};
 
 use common::client_bin;
-use libllm::db::Database;
-use libllm::persona::PersonaFile;
+use libllm_core::persona::PersonaFile;
+use libllm_storage::db::Database;
 
 fn seed_plain_db(path: &std::path::Path) {
     let db = Database::open(path, None).expect("open plain db");
@@ -537,7 +537,7 @@ fn dump_handles_output_path_with_tmp_extension() {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    let dumped = libllm::db::Database::open(&out, None).expect("open dump");
+    let dumped = libllm_storage::db::Database::open(&out, None).expect("open dump");
     let personas = dumped.list_personas().expect("list");
     assert_eq!(personas.len(), 1);
     assert_eq!(personas[0].0, "alice");
@@ -723,7 +723,7 @@ fn sql_rejects_query_only_pragma_in_read_only_mode() {
 
 #[test]
 fn db_dump_import_round_trips_group_session() {
-    use libllm::group_chat::{CharacterAttachment, ChatMode};
+    use libllm_core::group_chat::{CharacterAttachment, ChatMode};
 
     let src = common::temp_dir();
     let src_data = src.path();
@@ -731,7 +731,7 @@ fn db_dump_import_round_trips_group_session() {
         let mut db = Database::open(&src_data.join("data.db"), None).expect("open src db");
         db.insert_session(
             "g1",
-            &libllm::session::Session {
+            &libllm_core::session::Session {
                 characters: vec![
                     CharacterAttachment::new("alice"),
                     CharacterAttachment::new("bob"),

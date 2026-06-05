@@ -12,8 +12,10 @@ use super::types::{
 
 impl App<'_> {
     pub(super) fn can_persist_session(&self) -> bool {
-        matches!(self.save_mode, libllm::session::SaveMode::Database { .. })
-            && self.db.is_some()
+        matches!(
+            self.save_mode,
+            libllm_core::session::SaveMode::Database { .. }
+        ) && self.db.is_some()
             && self.session_has_user_message()
     }
 
@@ -22,7 +24,7 @@ impl App<'_> {
             .tree
             .nodes()
             .iter()
-            .any(|node| node.message.role == libllm::session::Role::User)
+            .any(|node| node.message.role == libllm_core::session::Role::User)
     }
 
     pub(super) fn tick_reject_flashes(&mut self) -> bool {
@@ -116,7 +118,8 @@ impl App<'_> {
         if self.compiled_regex.is_empty() {
             return;
         }
-        let ids: Vec<libllm::session::NodeId> = self.session.tree.current_branch_ids().to_vec();
+        let ids: Vec<libllm_core::session::NodeId> =
+            self.session.tree.current_branch_ids().to_vec();
         for id in ids {
             if self.display_regex_cache.contains_key(&id) {
                 continue;
@@ -125,9 +128,9 @@ impl App<'_> {
                 continue;
             };
             let role = node.message.role;
-            let transformed = libllm::regex_rules::apply(
+            let transformed = libllm_core::regex_rules::apply(
                 &self.compiled_regex,
-                libllm::regex_rules::Scope::Display,
+                libllm_core::regex_rules::Scope::Display,
                 role,
                 &node.message.content,
             )
@@ -136,7 +139,10 @@ impl App<'_> {
         }
     }
 
-    pub(super) fn display_content_for(&self, node_id: libllm::session::NodeId) -> Option<&str> {
+    pub(super) fn display_content_for(
+        &self,
+        node_id: libllm_core::session::NodeId,
+    ) -> Option<&str> {
         if self.compiled_regex.is_empty() {
             return None;
         }
@@ -211,8 +217,11 @@ impl App<'_> {
 
         let session_id = self.save_mode.id().map(str::to_owned);
         let start = std::time::Instant::now();
-        let result =
-            libllm::db::save_session_for_mode(&self.save_mode, self.session, self.db.as_mut());
+        let result = libllm_storage::db::save_session_for_mode(
+            &self.save_mode,
+            self.session,
+            self.db.as_mut(),
+        );
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         match result {

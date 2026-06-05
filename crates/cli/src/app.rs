@@ -1,15 +1,13 @@
 //! Application entry point and startup orchestration for the LibLLM client.
 
-use libllm::character;
-use libllm::client::ApiClient;
-use libllm::config;
-use libllm::crypto;
-use libllm::db::Database;
-use libllm::diagnostics;
-use libllm::migration;
-use libllm::preset;
-use libllm::sampling;
-use libllm::session;
+use libllm_core::character;
+use libllm_core::crypto;
+use libllm_core::diagnostics;
+use libllm_core::preset;
+use libllm_core::sampling;
+use libllm_core::session;
+use libllm_protocol::client::ApiClient;
+use libllm_storage::db::Database;
 
 use crate::cli;
 use crate::edit;
@@ -32,7 +30,7 @@ use cli::Args;
 use session::{Message, Role, SaveMode};
 
 pub async fn run() -> anyhow::Result<()> {
-    libllm::crypto_provider::install_default_crypto_provider();
+    libllm_protocol::crypto_provider::install_default_crypto_provider();
     let args = Args::parse();
 
     if args.version {
@@ -52,7 +50,7 @@ pub async fn run() -> anyhow::Result<()> {
     {
         const CHANNEL: &str = env!("LIBLLM_CHANNEL");
         if CHANNEL == "unknown" && args.data.is_none() {
-            let default_data_dir = config::data_dir();
+            let default_data_dir = libllm_config::data_dir();
             execute!(
                 io::stderr(),
                 SetAttribute(Attribute::Bold),
@@ -73,10 +71,10 @@ pub async fn run() -> anyhow::Result<()> {
 
     if let Some(ref data_path) = args.data {
         let is_existing_dir = validation::validate_data_dir(data_path, args.no_encrypt)?;
-        config::set_data_dir(data_path.clone())?;
+        libllm_config::set_data_dir(data_path.clone())?;
 
         if is_existing_dir {
-            let is_encrypted_dir = config::salt_path().exists();
+            let is_encrypted_dir = libllm_config::salt_path().exists();
             if is_encrypted_dir && args.no_encrypt {
                 anyhow::bail!("Data directory is encrypted; --no-encrypt cannot be used with it.");
             }
@@ -109,11 +107,11 @@ pub async fn run() -> anyhow::Result<()> {
         filter_env: filter_env.as_deref(),
     })?;
 
-    libllm::timed_result!(
+    libllm_core::timed_result!(
         tracing::Level::INFO,
         "startup.phase",
         phase = "ensure_dirs" ;
-        { config::ensure_dirs() }
+        { libllm_config::ensure_dirs() }
     )?;
 
     if let Some(cli::Command::Update { branch, yes }) = &args.command {
@@ -125,7 +123,7 @@ pub async fn run() -> anyhow::Result<()> {
             .data
             .as_deref()
             .map(std::path::Path::to_path_buf)
-            .unwrap_or_else(config::data_dir);
+            .unwrap_or_else(libllm_config::data_dir);
         let passkey = resolve_recover_passkey(&args, &data_dir)?;
         return recover::run(&data_dir, passkey.as_deref(), command.as_ref());
     }
@@ -144,7 +142,7 @@ pub async fn run() -> anyhow::Result<()> {
         return cli::search::dispatch(&args, query, *limit, *json, *full);
     }
 
-    migration::migrate_config_path();
+    libllm_config::migrate_config();
 
     legacy_migration::check_and_run_migration(args.no_encrypt, args.passkey.as_deref()).await?;
 
@@ -160,7 +158,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let cfg = {
         let _span = tracing::info_span!("startup.phase", phase = "config_load").entered();
-        config::load()
+        libllm_config::load()
     };
 
     let api_url = args.api_url.as_deref().unwrap_or_else(|| cfg.api_url());
@@ -178,7 +176,7 @@ pub async fn run() -> anyhow::Result<()> {
         )?;
     }
     let cli_overrides = args.cli_overrides();
-    let auth = libllm::config::resolve_auth(&cfg, &cli_overrides.auth_overrides());
+    let auth = libllm_core::config::resolve_auth(&cfg, &cli_overrides.auth_overrides());
     let client = ApiClient::new(api_url, tls_skip_verify, auth);
 
     let preset_name = args
@@ -187,20 +185,22 @@ pub async fn run() -> anyhow::Result<()> {
         .or(cfg.instruct_preset.as_deref())
         .unwrap_or("Mistral V3-Tekken");
     let instruct_preset =
-        preset::resolve_instruct_preset(preset_name, &config::instruct_presets_dir());
+        preset::resolve_instruct_preset(preset_name, &libllm_config::instruct_presets_dir());
     let reasoning_preset = cfg
         .reasoning_preset
         .as_deref()
-        .and_then(|n| preset::resolve_reasoning_preset(n, &config::reasoning_presets_dir()));
+        .and_then(|n| preset::resolve_reasoning_preset(n, &libllm_config::reasoning_presets_dir()));
     let template_preset_name = cfg.template_preset.as_deref().unwrap_or("Default");
-    let template_preset =
-        preset::resolve_template_preset(template_preset_name, &config::template_presets_dir());
+    let template_preset = preset::resolve_template_preset(
+        template_preset_name,
+        &libllm_config::template_presets_dir(),
+    );
 
     let sampling = sampling::SamplingParams::default()
         .with_overrides(&cfg.sampling)
         .with_overrides(&args.sampling_overrides());
 
-    let (mut session, mut save_mode, mut db, summarizer_db_path, summarizer_key) = libllm::timed_result!(
+    let (mut session, mut save_mode, mut db, summarizer_db_path, summarizer_key) = libllm_core::timed_result!(
         tracing::Level::INFO,
         "startup.phase",
         phase = "resolve_session" ;
@@ -222,7 +222,7 @@ pub async fn run() -> anyhow::Result<()> {
             && let Some(ref db) = db
         {
             session.system_prompt = db
-                .load_prompt(libllm::system_prompt::BUILTIN_ASSISTANT)
+                .load_prompt(libllm_core::system_prompt::BUILTIN_ASSISTANT)
                 .ok()
                 .map(|p| p.content);
         }
@@ -231,11 +231,11 @@ pub async fn run() -> anyhow::Result<()> {
             if text.trim().is_empty() {
                 session.author_note = None;
             } else {
-                session.author_note = Some(libllm::author_note::AuthorNote {
+                session.author_note = Some(libllm_core::author_note::AuthorNote {
                     text: text.clone(),
                     depth: args
                         .note_depth
-                        .unwrap_or(libllm::author_note::DEFAULT_DEPTH),
+                        .unwrap_or(libllm_core::author_note::DEFAULT_DEPTH),
                     at_top: args.note_top,
                 });
             }
@@ -249,7 +249,7 @@ pub async fn run() -> anyhow::Result<()> {
             let mut card_names_by_slug = std::collections::HashMap::new();
             let mut loaded_cards: Vec<(String, character::CharacterCard)> = Vec::new();
             for slug in &args.character {
-                let card = libllm::timed_result!(
+                let card = libllm_core::timed_result!(
                     tracing::Level::INFO,
                     "startup.phase",
                     phase = "resolve_character",
@@ -293,7 +293,8 @@ pub async fn run() -> anyhow::Result<()> {
 
             let mut characters = Vec::new();
             for (slug, _) in &loaded_cards {
-                let mut attachment = libllm::group_chat::CharacterAttachment::new(slug.clone());
+                let mut attachment =
+                    libllm_core::group_chat::CharacterAttachment::new(slug.clone());
                 if let Some(t) = talkativeness_overrides.get(slug.as_str()) {
                     attachment.talkativeness = *t;
                 }
@@ -324,7 +325,7 @@ pub async fn run() -> anyhow::Result<()> {
             let attachment = if bytes.is_empty() {
                 None
             } else {
-                match libllm::files::stdin_attachment(bytes, &cfg.files) {
+                match libllm_core::files::stdin_attachment(bytes, &cfg.files) {
                     Ok(rf) => Some(rf),
                     Err(err) => {
                         eprintln!("{err}");
@@ -344,7 +345,7 @@ pub async fn run() -> anyhow::Result<()> {
 
         let cwd = std::env::current_dir().context("read current working directory")?;
         let prepended = stdin_attachment.into_iter().collect::<Vec<_>>();
-        let resolved_files = match libllm::files::resolve_with_prepended_resolved(
+        let resolved_files = match libllm_core::files::resolve_with_prepended_resolved(
             prepended, &text, &cwd, &cfg.files,
         ) {
             Ok(v) => v,
@@ -357,9 +358,9 @@ pub async fn run() -> anyhow::Result<()> {
         if cfg.summarization.enabled && !resolved_files.is_empty() {
             let (refresh_tx, _refresh_rx) = tokio::sync::mpsc::channel(8);
             let token_counter =
-                libllm::tokenizer::TokenCounter::new(client.clone(), refresh_tx).await;
+                libllm_protocol::tokenizer::TokenCounter::new(client.clone(), refresh_tx).await;
             for file in &resolved_files {
-                if let Err(err) = libllm::summarize::check_file_fits(
+                if let Err(err) = libllm_protocol::summarize::check_file_fits(
                     &token_counter,
                     file,
                     &cfg.files.summary_prompt,
@@ -374,7 +375,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
 
         let system_messages =
-            match libllm::files::assemble_snapshot_messages(resolved_files, &cfg.files) {
+            match libllm_core::files::assemble_snapshot_messages(resolved_files, &cfg.files) {
                 Ok(v) => v,
                 Err(err) => {
                     eprintln!("{err}");
@@ -399,7 +400,7 @@ pub async fn run() -> anyhow::Result<()> {
             .map(|m| match m.role {
                 Role::User => Message {
                     role: m.role,
-                    content: libllm::files::rewrite_user_message(&m.content),
+                    content: libllm_core::files::rewrite_user_message(&m.content),
                     timestamp: m.timestamp.clone(),
                     thought_seconds: m.thought_seconds,
                     speaker: m.speaker.clone(),
@@ -430,13 +431,17 @@ pub async fn run() -> anyhow::Result<()> {
             .tree
             .push(Some(user_node), Message::new(Role::Assistant, response));
 
-        libllm::db::save_session_for_mode(&save_mode, &session, db.as_mut())?;
+        libllm_storage::db::save_session_for_mode(&save_mode, &session, db.as_mut())?;
 
         if let Some(id) = save_mode.id() {
             eprintln!("Session: {id}");
         }
 
-        try_backup(&config::data_dir(), args.passkey.as_deref(), &cfg.backup);
+        try_backup(
+            &libllm_config::data_dir(),
+            args.passkey.as_deref(),
+            &cfg.backup,
+        );
 
         return Ok(());
     }
@@ -459,9 +464,9 @@ pub async fn run() -> anyhow::Result<()> {
     .await?;
 
     let effective_passkey = resolved_passkey.as_deref().or(args.passkey.as_deref());
-    let current_config = config::load();
+    let current_config = libllm_config::load();
     try_backup(
-        &config::data_dir(),
+        &libllm_config::data_dir(),
         effective_passkey,
         &current_config.backup,
     );
@@ -507,15 +512,15 @@ fn resolve_session(args: &Args) -> Result<ResolvedSession> {
         ));
     }
 
-    let db_path = config::data_dir().join("data.db");
+    let db_path = libllm_config::data_dir().join("data.db");
 
     if args.no_encrypt {
         let db = Database::open(&db_path, None)?;
         db.ensure_builtin_prompts()?;
         preset::ensure_default_presets(
-            &config::instruct_presets_dir(),
-            &config::reasoning_presets_dir(),
-            &config::template_presets_dir(),
+            &libllm_config::instruct_presets_dir(),
+            &libllm_config::reasoning_presets_dir(),
+            &libllm_config::template_presets_dir(),
         );
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
@@ -538,16 +543,16 @@ fn resolve_session(args: &Args) -> Result<ResolvedSession> {
     }
 
     if let Some(ref passkey) = args.passkey {
-        let salt = crypto::load_or_create_salt(&config::salt_path())?;
+        let salt = crypto::load_or_create_salt(&libllm_config::salt_path())?;
         let key = crypto::derive_key(passkey, &salt)?;
         let key_arc = std::sync::Arc::new(key);
         let db = Database::open(&db_path, Some(&*key_arc))
             .context("Wrong passkey (or corrupt database).")?;
         db.ensure_builtin_prompts()?;
         preset::ensure_default_presets(
-            &config::instruct_presets_dir(),
-            &config::reasoning_presets_dir(),
-            &config::template_presets_dir(),
+            &libllm_config::instruct_presets_dir(),
+            &libllm_config::reasoning_presets_dir(),
+            &libllm_config::template_presets_dir(),
         );
         let id = session::generate_session_id();
         if let Some(ref uuid) = args.continue_session {
@@ -640,7 +645,7 @@ fn resolve_recover_passkey(args: &Args, data_dir: &std::path::Path) -> Result<Op
 }
 
 fn resolve_edit_db(args: &Args) -> Result<Database> {
-    let db_path = config::data_dir().join("data.db");
+    let db_path = libllm_config::data_dir().join("data.db");
 
     if args.no_encrypt {
         return Ok(Database::open(&db_path, None)?);
@@ -654,7 +659,7 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
         }
     };
 
-    let salt = crypto::load_or_create_salt(&config::salt_path())?;
+    let salt = crypto::load_or_create_salt(&libllm_config::salt_path())?;
     let key = crypto::derive_key(&passkey, &salt)?;
     Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")
 }
@@ -662,7 +667,7 @@ fn resolve_edit_db(args: &Args) -> Result<Database> {
 fn try_backup(
     data_dir: &std::path::Path,
     passkey: Option<&str>,
-    config: &libllm::config::BackupConfig,
+    config: &libllm_core::config::BackupConfig,
 ) {
     if !config.enabled {
         return;
@@ -683,12 +688,12 @@ fn try_backup(
 
 #[cfg(debug_assertions)]
 fn debug_trigger_destroy_all() -> Result<()> {
-    let data_dir = config::data_dir();
+    let data_dir = libllm_config::data_dir();
     let snapshot_path = std::env::temp_dir().join(format!(
         "libllm-{}.tar.zst",
         Utc::now().format("%Y%m%d-%H%M%S-debug")
     ));
-    libllm::archive::snapshot_data_dir(&data_dir, &snapshot_path, "backups")
+    libllm_core::archive::snapshot_data_dir(&data_dir, &snapshot_path, "backups")
         .map_err(|e| anyhow::anyhow!("snapshot failed: {e}"))?;
     std::fs::remove_dir_all(&data_dir).map_err(|e| anyhow::anyhow!("delete failed: {e}"))?;
     eprintln!(
@@ -710,7 +715,7 @@ mod tests {
         std::fs::write(data_dir.join("data.db"), b"not a real database").expect("write data.db");
         std::fs::write(data_dir.join(".salt"), b"salt-bytes").expect("write .salt");
 
-        let config = libllm::config::BackupConfig::default();
+        let config = libllm_core::config::BackupConfig::default();
         try_backup(data_dir, None, &config);
 
         assert!(

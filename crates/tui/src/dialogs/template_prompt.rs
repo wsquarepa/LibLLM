@@ -119,13 +119,13 @@ pub(crate) fn render_template_prompt(
 }
 
 fn preset_summary_lines(
-    preset: &libllm::preset::InstructPreset,
+    preset: &libllm_core::preset::InstructPreset,
     width: usize,
     expanded: bool,
 ) -> Vec<Line<'static>> {
     let stop_display = match &preset.stop_sequence {
-        libllm::preset::StopSequence::Single(s) => s.clone(),
-        libllm::preset::StopSequence::Multiple(v) => v.join(" | "),
+        libllm_core::preset::StopSequence::Single(s) => s.clone(),
+        libllm_core::preset::StopSequence::Multiple(v) => v.join(" | "),
     };
 
     let candidates: [(&str, String); 7] = [
@@ -191,9 +191,9 @@ mod tests {
 
     fn fixture_state() -> TemplatePromptState {
         TemplatePromptState {
-            suggested_preset: libllm::preset::resolve_instruct_preset(
+            suggested_preset: libllm_core::preset::resolve_instruct_preset(
                 "ChatML",
-                &libllm::config::instruct_presets_dir(),
+                &libllm_config::instruct_presets_dir(),
             ),
             score: 0.99,
             is_best_guess: false,

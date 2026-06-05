@@ -11,7 +11,7 @@ mod common;
 
 use std::process::Command;
 
-use libllm::db::Database;
+use libllm_storage::db::Database;
 
 #[cfg(not(target_os = "windows"))]
 #[test]

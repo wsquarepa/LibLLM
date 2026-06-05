@@ -6,12 +6,12 @@ mod common;
 
 use std::path::PathBuf;
 
-use libllm::db::Database;
-use libllm::preset::InstructPreset;
-use libllm::session::{Message, Role};
 use libllm_cli::import::{
     ImportType, detect_import_type, handle_import_command, import_single_file,
 };
+use libllm_core::preset::InstructPreset;
+use libllm_core::session::{Message, Role};
+use libllm_storage::db::Database;
 
 #[test]
 fn import_character_from_json() {
@@ -168,7 +168,7 @@ fn detect_import_type_txt_without_kind_errors() {
 
 #[test]
 fn rendered_prompt_contains_wrapped_body_and_basename_substitution() {
-    let snapshot_body = libllm::files::build_snapshot_body("notes.md", "hello");
+    let snapshot_body = libllm_core::files::build_snapshot_body("notes.md", "hello");
     let messages = [
         Message::new(Role::System, snapshot_body.clone()),
         Message::new(Role::User, "summarise @./notes.md".to_owned()),
@@ -178,7 +178,7 @@ fn rendered_prompt_contains_wrapped_body_and_basename_substitution() {
         .map(|m| match m.role {
             Role::User => Message {
                 role: m.role,
-                content: libllm::files::rewrite_user_message(&m.content),
+                content: libllm_core::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
                 thought_seconds: m.thought_seconds,
                 speaker: m.speaker.clone(),
@@ -215,8 +215,8 @@ fn rendered_prompt_contains_wrapped_body_and_basename_substitution() {
 
 #[test]
 fn rendered_prompt_preserves_snapshot_for_multiple_files_in_order() {
-    let a_body = libllm::files::build_snapshot_body("a.md", "alpha");
-    let b_body = libllm::files::build_snapshot_body("b.md", "beta");
+    let a_body = libllm_core::files::build_snapshot_body("a.md", "alpha");
+    let b_body = libllm_core::files::build_snapshot_body("b.md", "beta");
     let messages = [
         Message::new(Role::System, a_body),
         Message::new(Role::System, b_body),
@@ -227,7 +227,7 @@ fn rendered_prompt_preserves_snapshot_for_multiple_files_in_order() {
         .map(|m| match m.role {
             Role::User => Message {
                 role: m.role,
-                content: libllm::files::rewrite_user_message(&m.content),
+                content: libllm_core::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
                 thought_seconds: m.thought_seconds,
                 speaker: m.speaker.clone(),

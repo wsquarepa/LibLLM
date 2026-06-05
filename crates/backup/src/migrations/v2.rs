@@ -63,7 +63,7 @@ fn migrate_encrypted(index: &mut BackupIndex, backups_dir: &Path, kek: &[u8; 32]
                 }
             })?;
             let dst_tmp = backups_dir.join(format!("{}.tmp", entry.filename));
-            libllm::crypto::write_atomic(&dst_tmp, &new_blob).map_err(|source| {
+            libllm_core::crypto::write_atomic(&dst_tmp, &new_blob).map_err(|source| {
                 BackupError::MigrationStageFile {
                     path: dst_tmp.clone(),
                     source,
@@ -144,7 +144,7 @@ mod tests {
         save_index,
     };
     use chrono::Utc;
-    use libllm::crypto::write_atomic;
+    use libllm_core::crypto::write_atomic;
     use tempfile::TempDir;
 
     fn fake_payload(plaintext: &[u8], key: &[u8; 32]) -> Vec<u8> {

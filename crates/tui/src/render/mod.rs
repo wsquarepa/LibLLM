@@ -14,7 +14,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
-use libllm::session::{NodeId, Role};
+use libllm_core::session::{NodeId, Role};
 
 use super::App;
 use super::input::match_next_candidates;
@@ -88,11 +88,11 @@ fn render_assistant_lines(
     content: &str,
     thought_seconds: Option<u32>,
     theme: &Theme,
-    preset: Option<&libllm::preset::ReasoningPreset>,
+    preset: Option<&libllm_core::preset::ReasoningPreset>,
     collapse_completed: bool,
     highlight_incomplete_thought: bool,
 ) -> Vec<Line<'static>> {
-    let split = libllm::thought::split_first_think_block(content, preset);
+    let split = libllm_core::thought::split_first_think_block(content, preset);
 
     let Some(thought) = split.thought else {
         return render_indented_text_lines(
@@ -160,10 +160,10 @@ fn render_assistant_lines(
 
 fn format_file_snapshot_block(
     content: &str,
-    summary: Option<&libllm::files::FileSummary>,
+    summary: Option<&libllm_core::files::FileSummary>,
     summarization_enabled: bool,
 ) -> Vec<String> {
-    let basename = libllm::files::snapshot_basename(content).unwrap_or_default();
+    let basename = libllm_core::files::snapshot_basename(content).unwrap_or_default();
     let inner_size = inner_snapshot_size(content);
     let header = format!("--- File: {basename} ({}) ---", format_bytes(inner_size));
 
@@ -180,13 +180,15 @@ fn format_file_snapshot_block(
     }
 
     let body_line = match summary {
-        Some(s) if s.status == libllm::files::FileSummaryStatus::Done && !s.summary.is_empty() => {
+        Some(s)
+            if s.status == libllm_core::files::FileSummaryStatus::Done && !s.summary.is_empty() =>
+        {
             format!("Summary: {}", s.summary)
         }
-        Some(s) if s.status == libllm::files::FileSummaryStatus::Done => {
+        Some(s) if s.status == libllm_core::files::FileSummaryStatus::Done => {
             "Summary: (empty)".to_owned()
         }
-        Some(s) if s.status == libllm::files::FileSummaryStatus::Failed => {
+        Some(s) if s.status == libllm_core::files::FileSummaryStatus::Failed => {
             "Summary: (unavailable)".to_owned()
         }
         Some(_) | None => "Summary: (generating...)".to_owned(),
@@ -264,7 +266,7 @@ pub struct ChatRenderState<'a> {
 }
 
 pub struct TokenDisplayParams {
-    pub token_state: libllm::tokenizer::CountState,
+    pub token_state: libllm_protocol::tokenizer::CountState,
     pub is_heuristic: bool,
     pub budget: usize,
     pub trigger_percent: u8,
@@ -572,7 +574,7 @@ pub fn render_chat(
                 };
                 let msg = &node.message;
                 let side = if msg.role == Role::User && app.session.character.is_some() {
-                    libllm::side_character::parse_side_character_block(&msg.content)
+                    libllm_core::side_character::parse_side_character_block(&msg.content)
                 } else {
                     None
                 };
@@ -632,7 +634,7 @@ pub fn render_chat(
                         )
                     }
                     Role::System => {
-                        let label = if libllm::files::is_snapshot(&msg.content) {
+                        let label = if libllm_core::files::is_snapshot(&msg.content) {
                             "File".to_owned()
                         } else {
                             "System".to_owned()
@@ -667,9 +669,10 @@ pub fn render_chat(
                             .fg(app.theme.summary_indicator)
                             .add_modifier(Modifier::DIM),
                     ))]
-                } else if msg.role == Role::System && libllm::files::is_snapshot(&msg.content) {
-                    let inner = libllm::files::snapshot_inner_text(&msg.content);
-                    let hash = libllm::files::content_hash_hex(inner.as_bytes());
+                } else if msg.role == Role::System && libllm_core::files::is_snapshot(&msg.content)
+                {
+                    let inner = libllm_core::files::snapshot_inner_text(&msg.content);
+                    let hash = libllm_core::files::content_hash_hex(inner.as_bytes());
                     let summary = match (app.save_mode.id(), app.file_summarizer.as_ref()) {
                         (Some(sid), Some(s)) => s.lookup(sid, &hash),
                         _ => None,
@@ -851,10 +854,10 @@ pub fn render_chat(
                     .add_modifier(Modifier::BOLD),
             )]));
         }
-        let buffer_after_regex = libllm::regex_rules::apply(
+        let buffer_after_regex = libllm_core::regex_rules::apply(
             &app.compiled_regex,
-            libllm::regex_rules::Scope::Display,
-            libllm::session::Role::Assistant,
+            libllm_core::regex_rules::Scope::Display,
+            libllm_core::session::Role::Assistant,
             &app.streaming_buffer,
         );
         let streaming_speaker: Option<String> = app
@@ -867,10 +870,13 @@ pub fn render_chat(
         let buffer = if app.is_continuation {
             raw_buffer
         } else {
-            libllm::thought::normalize_assistant_content(&raw_buffer, app.reasoning_preset.as_ref())
-                .into_owned()
+            libllm_core::thought::normalize_assistant_content(
+                &raw_buffer,
+                app.reasoning_preset.as_ref(),
+            )
+            .into_owned()
         };
-        let thought_seconds = libllm::thought::measured_thought_seconds(
+        let thought_seconds = libllm_core::thought::measured_thought_seconds(
             app.stream_started_at,
             app.stream_first_think_closed_at,
         );
@@ -992,9 +998,9 @@ pub fn render_chat(
             Style::default().fg(app.theme.api_unavailable)
         };
         let (count, from_estimate) = match token_state {
-            libllm::tokenizer::CountState::Authoritative(n) => (n, false),
-            libllm::tokenizer::CountState::Stale(n) => (n, false),
-            libllm::tokenizer::CountState::Estimated(n) => (n, true),
+            libllm_protocol::tokenizer::CountState::Authoritative(n) => (n, false),
+            libllm_protocol::tokenizer::CountState::Stale(n) => (n, false),
+            libllm_protocol::tokenizer::CountState::Estimated(n) => (n, true),
         };
         let show_est_prefix = from_estimate || is_heuristic;
         let prefix = if show_est_prefix { "Est. " } else { "" };
@@ -1096,8 +1102,8 @@ fn estimate_note_tokens(text: &str) -> usize {
 }
 
 fn format_depth_marker(
-    session: Option<&libllm::author_note::AuthorNote>,
-    card: Option<&libllm::author_note::AuthorNote>,
+    session: Option<&libllm_core::author_note::AuthorNote>,
+    card: Option<&libllm_core::author_note::AuthorNote>,
 ) -> String {
     let session_top = session.is_some_and(|n| n.at_top);
     let card_top = card.is_some_and(|n| n.at_top);
@@ -1276,7 +1282,7 @@ pub fn render_next_arg_picker(f: &mut ratatui::Frame, app: &App, arg: &str, chat
 
 pub fn render_command_picker(f: &mut ratatui::Frame, app: &App, prefix: &str, chat_area: Rect) {
     let hidden: &[&str] = &[];
-    let matches = libllm::commands::matching_commands(
+    let matches = libllm_core::commands::matching_commands(
         prefix.split_whitespace().next().unwrap_or("/"),
         hidden,
     );
@@ -1393,11 +1399,11 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_shows_done_summary_on_second_line() {
-        let body = libllm::files::build_snapshot_body("notes.md", "hello");
-        let summary = libllm::files::FileSummary {
+        let body = libllm_core::files::build_snapshot_body("notes.md", "hello");
+        let summary = libllm_core::files::FileSummary {
             basename: "notes.md".to_owned(),
             summary: "Cached summary.".to_owned(),
-            status: libllm::files::FileSummaryStatus::Done,
+            status: libllm_core::files::FileSummaryStatus::Done,
         };
         let lines = format_file_snapshot_block(&body, Some(&summary), true);
         assert_eq!(lines.len(), 2);
@@ -1407,11 +1413,11 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_shows_generating_for_pending() {
-        let body = libllm::files::build_snapshot_body("x.md", "hello");
-        let summary = libllm::files::FileSummary {
+        let body = libllm_core::files::build_snapshot_body("x.md", "hello");
+        let summary = libllm_core::files::FileSummary {
             basename: "x.md".to_owned(),
             summary: "".to_owned(),
-            status: libllm::files::FileSummaryStatus::Pending,
+            status: libllm_core::files::FileSummaryStatus::Pending,
         };
         let lines = format_file_snapshot_block(&body, Some(&summary), true);
         assert_eq!(lines.len(), 2);
@@ -1420,11 +1426,11 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_shows_unavailable_for_failed() {
-        let body = libllm::files::build_snapshot_body("x.md", "hello");
-        let summary = libllm::files::FileSummary {
+        let body = libllm_core::files::build_snapshot_body("x.md", "hello");
+        let summary = libllm_core::files::FileSummary {
             basename: "x.md".to_owned(),
             summary: "".to_owned(),
-            status: libllm::files::FileSummaryStatus::Failed,
+            status: libllm_core::files::FileSummaryStatus::Failed,
         };
         let lines = format_file_snapshot_block(&body, Some(&summary), true);
         assert_eq!(lines.len(), 2);
@@ -1433,11 +1439,11 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_shows_empty_for_done_empty() {
-        let body = libllm::files::build_snapshot_body("x.md", "hello");
-        let summary = libllm::files::FileSummary {
+        let body = libllm_core::files::build_snapshot_body("x.md", "hello");
+        let summary = libllm_core::files::FileSummary {
             basename: "x.md".to_owned(),
             summary: "".to_owned(),
-            status: libllm::files::FileSummaryStatus::Done,
+            status: libllm_core::files::FileSummaryStatus::Done,
         };
         let lines = format_file_snapshot_block(&body, Some(&summary), true);
         assert_eq!(lines.len(), 2);
@@ -1446,7 +1452,7 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_single_line_when_summarization_disabled() {
-        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let body = libllm_core::files::build_snapshot_body("x.md", "hello");
         let lines = format_file_snapshot_block(&body, None, false);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].starts_with("--- File: x.md ("));
@@ -1454,7 +1460,7 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_generating_when_no_row() {
-        let body = libllm::files::build_snapshot_body("x.md", "hello");
+        let body = libllm_core::files::build_snapshot_body("x.md", "hello");
         let lines = format_file_snapshot_block(&body, None, true);
         assert_eq!(lines.len(), 2);
         assert!(lines[1].contains("Summary: (generating...)"));
@@ -1462,7 +1468,7 @@ mod tests {
 
     #[test]
     fn format_file_snapshot_block_uses_kb_for_midsize() {
-        let body = libllm::files::build_snapshot_body("big.md", &"x".repeat(20_000));
+        let body = libllm_core::files::build_snapshot_body("big.md", &"x".repeat(20_000));
         let lines = format_file_snapshot_block(&body, None, false);
         assert!(lines[0].contains(" KB"));
     }
@@ -1477,13 +1483,13 @@ mod tests {
 
     #[test]
     fn inner_snapshot_size_matches_body_length() {
-        let body = libllm::files::build_snapshot_body("x.md", "hello\nworld");
+        let body = libllm_core::files::build_snapshot_body("x.md", "hello\nworld");
         let size = inner_snapshot_size(&body);
         assert_eq!(size, "hello\nworld".len());
     }
 
-    fn deepseek_preset() -> libllm::preset::ReasoningPreset {
-        libllm::preset::ReasoningPreset {
+    fn deepseek_preset() -> libllm_core::preset::ReasoningPreset {
+        libllm_core::preset::ReasoningPreset {
             name: "DeepSeek".to_owned(),
             prefix: "<think>\n".to_owned(),
             suffix: "\n</think>".to_owned(),

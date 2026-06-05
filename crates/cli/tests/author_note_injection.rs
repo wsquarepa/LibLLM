@@ -2,8 +2,8 @@
 //! `inject_author_notes` lands the synthetic system message at the expected
 //! position in the assembled message list.
 
-use libllm::author_note::{AuthorNote, inject_author_notes};
-use libllm::session::{Message, Role};
+use libllm_core::author_note::{AuthorNote, inject_author_notes};
+use libllm_core::session::{Message, Role};
 
 #[expect(
     dead_code,
@@ -61,9 +61,9 @@ fn at_top_overrides_a_high_depth() {
 
 #[test]
 fn card_author_note_loaded_when_session_character_is_display_name() {
-    use libllm::author_note::AuthorNote;
-    use libllm::character::CharacterCard;
-    use libllm::db::Database;
+    use libllm_core::author_note::AuthorNote;
+    use libllm_core::character::CharacterCard;
+    use libllm_storage::db::Database;
 
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
@@ -85,10 +85,10 @@ fn card_author_note_loaded_when_session_character_is_display_name() {
         post_history_instructions: String::new(),
         alternate_greetings: vec![],
     };
-    let slug = libllm::character::slugify(&card.name);
+    let slug = libllm_core::character::slugify(&card.name);
     db.insert_character(&slug, &card).unwrap();
 
-    let slug_of_display = libllm::character::slugify("Alice Example");
+    let slug_of_display = libllm_core::character::slugify("Alice Example");
     let loaded = db.load_character(&slug_of_display).unwrap();
 
     assert_eq!(
@@ -100,6 +100,12 @@ fn card_author_note_loaded_when_session_character_is_display_name() {
 
 #[test]
 fn slugify_is_idempotent_on_slug() {
-    assert_eq!(libllm::character::slugify("alice-example"), "alice-example");
-    assert_eq!(libllm::character::slugify("Alice Example"), "alice-example");
+    assert_eq!(
+        libllm_core::character::slugify("alice-example"),
+        "alice-example"
+    );
+    assert_eq!(
+        libllm_core::character::slugify("Alice Example"),
+        "alice-example"
+    );
 }

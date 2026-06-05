@@ -182,7 +182,7 @@ pub fn restore_to_point(
 
     match passkey {
         None => {
-            libllm::crypto::write_atomic(&db_path, &plaintext)
+            libllm_core::crypto::write_atomic(&db_path, &plaintext)
                 .map_err(BackupError::WriteRestoredDatabase)?;
         }
         Some(pk) => {
@@ -192,10 +192,10 @@ pub fn restore_to_point(
             std::fs::write(&temp_plain_path, &plaintext)
                 .map_err(BackupError::RestoreTempFileWrite)?;
 
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))
+            let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt"))
                 .map_err(BackupError::LibllmCrypto)?;
             let db_key =
-                libllm::crypto::derive_key(pk, &salt).map_err(BackupError::LibllmCrypto)?;
+                libllm_core::crypto::derive_key(pk, &salt).map_err(BackupError::LibllmCrypto)?;
 
             // Remove the existing DB file so the destination connection creates a fresh
             // unencrypted database. We then use sqlcipher_export to write an encrypted copy.
@@ -364,7 +364,7 @@ mod tests {
         let payload = crate::crypto::encrypt_payload(&compressed, &dek).unwrap();
         let id = "20260601T070000.000Z".to_string();
         let filename = crate::index::backup_filename(&id, crate::index::BackupType::Base);
-        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+        libllm_core::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
         let wrapped = crate::crypto::wrap_dek(&dek, &kek).unwrap();
 
         let index = crate::index::BackupIndex {
@@ -398,8 +398,8 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let data_dir = dir.path();
 
-        let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
-        let key = libllm::crypto::derive_key("pw", &salt).unwrap();
+        let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
+        let key = libllm_core::crypto::derive_key("pw", &salt).unwrap();
         let db_path = data_dir.join("data.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(&key.key_pragma()).unwrap();
@@ -458,7 +458,7 @@ mod archived_tests {
         let dek = [7u8; 32];
         let id = "20260421T030000.000Z".to_string();
         let filename = backup_filename(&id, BackupType::Base);
-        libllm::crypto::write_atomic(
+        libllm_core::crypto::write_atomic(
             &backups_dir.join(&filename),
             &encrypt_payload(b"x", &dek).unwrap(),
         )

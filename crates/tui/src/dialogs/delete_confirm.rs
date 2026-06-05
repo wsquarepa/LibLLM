@@ -192,9 +192,9 @@ fn delete_selected_session(app: &mut App) {
 
     if is_current {
         app.discard_pending_session_save();
-        *app.session = libllm::session::Session {
+        *app.session = libllm_core::session::Session {
             persona: app.config.default_persona.clone(),
-            ..libllm::session::Session::default()
+            ..libllm_core::session::Session::default()
         };
         business::load_active_persona(app);
         business::load_active_card_author_note(app);
@@ -202,7 +202,7 @@ fn delete_selected_session(app: &mut App) {
         app.invalidate_worldbook_cache();
         app.chat_scroll = 0;
         app.auto_scroll = true;
-        let new_id = libllm::session::generate_session_id();
+        let new_id = libllm_core::session::generate_session_id();
         app.save_mode.set_id(new_id);
     }
 
@@ -257,7 +257,7 @@ fn delete_persona(app: &mut App, slug: &str) {
 }
 
 fn delete_system_prompt(app: &mut App, name: &str) {
-    let slug = libllm::character::slugify(name);
+    let slug = libllm_core::character::slugify(name);
     if let Some(ref db) = app.db
         && let Err(e) = db.delete_prompt(&slug)
     {
@@ -275,7 +275,7 @@ fn delete_system_prompt(app: &mut App, name: &str) {
     );
 }
 
-fn delete_chat_message(app: &mut App, node_id: libllm::session::NodeId) {
+fn delete_chat_message(app: &mut App, node_id: libllm_core::session::NodeId) {
     let prev_head = app.session.tree.head();
     let existed = app.session.tree.remove_node(node_id);
     if !existed {
@@ -300,7 +300,7 @@ fn delete_chat_message(app: &mut App, node_id: libllm::session::NodeId) {
 }
 
 fn delete_worldbook(app: &mut App, name: &str) {
-    let slug = libllm::character::slugify(name);
+    let slug = libllm_core::character::slugify(name);
     if let Some(ref db) = app.db
         && let Err(e) = db.delete_worldbook(&slug)
     {
@@ -313,7 +313,7 @@ fn delete_worldbook(app: &mut App, name: &str) {
 
     app.config.worldbooks.retain(|n| n != name);
     app.session.worldbooks.retain(|n| n != name);
-    if let Err(e) = libllm::config::save(&app.config) {
+    if let Err(e) = libllm_config::save(&app.config) {
         app.set_status(
             format!("Failed to save config: {e}"),
             super::super::StatusLevel::Error,

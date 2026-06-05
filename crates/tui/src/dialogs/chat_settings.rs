@@ -5,11 +5,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use libllm::group_chat::{
+use libllm_core::group_chat::{
     CharacterAttachment, ChatMode, normalized_talkativeness, notch_to_talkativeness,
     talkativeness_notches, talkativeness_to_notch,
 };
-use libllm::session::{MessageTree, Session};
+use libllm_core::session::{MessageTree, Session};
 
 use crate::theme::Theme;
 
@@ -273,7 +273,7 @@ impl ChatSettingsDialog {
                 let new_talk = notch_to_talkativeness(new_notch, notches);
                 session.characters[index].talkativeness = new_talk;
                 session.characters[index].action_points =
-                    libllm::group_chat::base_action_value(new_talk);
+                    libllm_core::group_chat::base_action_value(new_talk);
             }
         }
     }

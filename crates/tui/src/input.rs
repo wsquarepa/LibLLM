@@ -5,7 +5,7 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
 use tui_textarea::TextArea;
 
-use libllm::session::{self, Role, Session};
+use libllm_core::session::{self, Role, Session};
 
 use super::{Action, App, StatusLevel};
 
@@ -61,7 +61,7 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if picker_active {
         let prefix = app.textarea.lines()[0].as_str();
         let hidden: &[&str] = &[];
-        let matches = libllm::commands::matching_commands(
+        let matches = libllm_core::commands::matching_commands(
             prefix.split_whitespace().next().unwrap_or("/"),
             hidden,
         );
@@ -240,7 +240,7 @@ fn recall_last_message(app: &mut App) {
 }
 
 fn file_ref_paths(raw: &str) -> Vec<String> {
-    libllm::files::file_reference_ranges(raw)
+    libllm_core::files::file_reference_ranges(raw)
         .into_iter()
         .filter(|r| r.path() != "stdin")
         .map(|r| r.path().to_owned())
@@ -254,9 +254,9 @@ fn file_ref_paths(raw: &str) -> Vec<String> {
 /// refs differ from the recalled content, so the fresh file chain
 /// replaces the stale one instead of chaining below it.
 pub(super) fn retreat_past_snapshot_chain(
-    tree: &libllm::session::MessageTree,
-    start: Option<libllm::session::NodeId>,
-) -> Option<libllm::session::NodeId> {
+    tree: &libllm_core::session::MessageTree,
+    start: Option<libllm_core::session::NodeId>,
+) -> Option<libllm_core::session::NodeId> {
     let mut current = start;
     while let Some(id) = current {
         let node = tree.node(id)?;
@@ -266,7 +266,9 @@ pub(super) fn retreat_past_snapshot_chain(
         {
             return Some(id);
         }
-        if node.message.role == Role::System && libllm::files::is_snapshot(&node.message.content) {
+        if node.message.role == Role::System
+            && libllm_core::files::is_snapshot(&node.message.content)
+        {
             current = node.parent;
             continue;
         }
@@ -276,9 +278,9 @@ pub(super) fn retreat_past_snapshot_chain(
 }
 
 pub(super) fn resolve_retry_user(
-    tree: &libllm::session::MessageTree,
-    cursor: libllm::session::NodeId,
-) -> Option<libllm::session::NodeId> {
+    tree: &libllm_core::session::MessageTree,
+    cursor: libllm_core::session::NodeId,
+) -> Option<libllm_core::session::NodeId> {
     let node = tree.node(cursor)?;
     match node.message.role {
         Role::User => Some(cursor),
@@ -496,7 +498,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 && let Some(node) = app.session.tree.node(node_id)
             {
                 let is_file_snapshot = node.message.role == Role::System
-                    && libllm::files::is_snapshot(&node.message.content);
+                    && libllm_core::files::is_snapshot(&node.message.content);
                 if is_file_snapshot {
                     app.set_status(
                         "Cannot edit file snapshots.".to_owned(),
@@ -828,10 +830,13 @@ mod picker_open_tests {
 #[cfg(test)]
 mod recall_walk_tests {
     use super::retreat_past_snapshot_chain;
-    use libllm::session::{Message, MessageTree, Role};
+    use libllm_core::session::{Message, MessageTree, Role};
 
     fn snapshot(name: &str, body: &str) -> Message {
-        Message::new(Role::System, libllm::files::build_snapshot_body(name, body))
+        Message::new(
+            Role::System,
+            libllm_core::files::build_snapshot_body(name, body),
+        )
     }
 
     #[test]
@@ -925,10 +930,13 @@ mod sibling_index_tests {
 #[cfg(test)]
 mod retry_resolve_tests {
     use super::resolve_retry_user;
-    use libllm::session::{Message, MessageTree, Role};
+    use libllm_core::session::{Message, MessageTree, Role};
 
     fn snapshot(name: &str, body: &str) -> Message {
-        Message::new(Role::System, libllm::files::build_snapshot_body(name, body))
+        Message::new(
+            Role::System,
+            libllm_core::files::build_snapshot_body(name, body),
+        )
     }
 
     #[test]

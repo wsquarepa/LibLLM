@@ -5,25 +5,25 @@ use std::collections::HashMap;
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use libllm::client::StreamToken;
-use libllm::group_chat::ChatMode;
-use libllm::preset::InstructPreset;
-use libllm::session::{Message, Role};
+use libllm_core::group_chat::ChatMode;
+use libllm_core::preset::InstructPreset;
+use libllm_core::session::{Message, Role};
+use libllm_protocol::client::StreamToken;
 
 use crate::business;
 use crate::types::{SaveTrigger, StatusLevel, WorldbookCache};
 
 use super::App;
 
-struct SnapshotFileSummaryLookup(HashMap<String, libllm::files::FileSummary>);
+struct SnapshotFileSummaryLookup(HashMap<String, libllm_core::files::FileSummary>);
 
-impl libllm::files::FileSummaryLookup for SnapshotFileSummaryLookup {
-    fn lookup(&self, content_hash: &str) -> Option<libllm::files::FileSummary> {
+impl libllm_core::files::FileSummaryLookup for SnapshotFileSummaryLookup {
+    fn lookup(&self, content_hash: &str) -> Option<libllm_core::files::FileSummary> {
         self.0.get(content_hash).cloned()
     }
 }
 
-pub(crate) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
+pub(crate) fn loaded_worldbooks(app: &mut App) -> Vec<libllm_core::worldinfo::RuntimeWorldBook> {
     let enabled_names = business::enabled_worldbook_names(app.session, &app.config);
     let cache_stale = app
         .worldbook_cache
@@ -60,12 +60,12 @@ pub(crate) fn loaded_worldbooks(app: &mut App) -> Vec<libllm::worldinfo::Runtime
 
 fn build_rendered_prompt_common<F>(app: &crate::App, dropped: usize, render: F) -> (String, usize)
 where
-    F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
+    F: FnOnce(&InstructPreset, &[&libllm_core::session::Message], Option<&str>) -> String,
 {
     let worldbooks = cached_worldbooks(app);
     let branch_path = app.session.tree.branch_path();
     let context_messages = app.context_mgr.summary_aware_path(&branch_path);
-    let trimmed = libllm::context::drop_oldest_non_summary(&context_messages, dropped);
+    let trimmed = libllm_core::context::drop_oldest_non_summary(&context_messages, dropped);
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
     let user_name = app.active_persona_name.as_deref().unwrap_or("User");
     let injected =
@@ -91,7 +91,7 @@ where
         .as_deref()
         .and_then(|name| {
             let db = app.db.as_ref()?;
-            let slug = libllm::character::slugify(name);
+            let slug = libllm_core::character::slugify(name);
             match db.load_character(&slug) {
                 Ok(card) => Some(card),
                 Err(err) => {
@@ -108,37 +108,37 @@ where
         })
         .and_then(|card| card.author_note);
 
-    libllm::author_note::inject_author_notes(
+    libllm_core::author_note::inject_author_notes(
         &mut injected,
         card_note.as_ref(),
         app.session.author_note.as_ref(),
     );
 
-    let injected: Vec<libllm::session::Message> = injected
+    let injected: Vec<libllm_core::session::Message> = injected
         .into_iter()
         .map(|m| {
             // File-snapshot system messages have their delimiter structure validated
             // at attach time. Applying PromptSend rules to them can transform escaped
             // content into exact delimiter lines, bypassing that validation.
-            if libllm::files::is_snapshot(&m.content) {
+            if libllm_core::files::is_snapshot(&m.content) {
                 return m;
             }
-            let new_content = libllm::regex_rules::apply(
+            let new_content = libllm_core::regex_rules::apply(
                 &app.compiled_regex,
-                libllm::regex_rules::Scope::PromptSend,
+                libllm_core::regex_rules::Scope::PromptSend,
                 m.role,
                 &m.content,
             )
             .into_owned();
-            libllm::session::Message {
+            libllm_core::session::Message {
                 content: new_content,
                 ..m
             }
         })
         .map(|m| match m.role {
-            libllm::session::Role::User => libllm::session::Message {
+            libllm_core::session::Role::User => libllm_core::session::Message {
                 role: m.role,
-                content: libllm::files::rewrite_user_message(&m.content),
+                content: libllm_core::files::rewrite_user_message(&m.content),
                 timestamp: m.timestamp.clone(),
                 thought_seconds: m.thought_seconds,
                 speaker: m.speaker.clone(),
@@ -148,7 +148,7 @@ where
         })
         .collect();
     let message_count = injected.len();
-    let injected_refs: Vec<&libllm::session::Message> = injected.iter().collect();
+    let injected_refs: Vec<&libllm_core::session::Message> = injected.iter().collect();
     let rendered = render(
         &app.instruct_preset,
         &injected_refs,
@@ -219,15 +219,17 @@ fn build_rendered_prompt_common_with_nudge<F>(
     render: F,
 ) -> (String, usize)
 where
-    F: FnOnce(&InstructPreset, &[&libllm::session::Message], Option<&str>) -> String,
+    F: FnOnce(&InstructPreset, &[&libllm_core::session::Message], Option<&str>) -> String,
 {
     build_rendered_prompt_common(app, dropped, |preset, refs, sys| {
         let Some(nudge_text) = nudge.as_deref() else {
             return render(preset, refs, sys);
         };
-        let nudge_msg =
-            libllm::session::Message::new(libllm::session::Role::System, nudge_text.to_owned());
-        let mut with_nudge: Vec<&libllm::session::Message> = refs.to_vec();
+        let nudge_msg = libllm_core::session::Message::new(
+            libllm_core::session::Role::System,
+            nudge_text.to_owned(),
+        );
+        let mut with_nudge: Vec<&libllm_core::session::Message> = refs.to_vec();
         if with_nudge.is_empty() {
             with_nudge.push(&nudge_msg);
         } else {
@@ -241,7 +243,7 @@ where
 /// Read-only view of the worldbook cache for `build_rendered_prompt*`. The cache is
 /// always populated by a prior `loaded_worldbooks` call in the same request path; a miss
 /// yields an empty slice, which is a correct (if degraded) rendering.
-fn cached_worldbooks(app: &crate::App) -> Vec<libllm::worldinfo::RuntimeWorldBook> {
+fn cached_worldbooks(app: &crate::App) -> Vec<libllm_core::worldinfo::RuntimeWorldBook> {
     app.worldbook_cache
         .as_ref()
         .map(|cache| cache.books.clone())
@@ -252,7 +254,7 @@ fn cached_worldbooks(app: &crate::App) -> Vec<libllm::worldinfo::RuntimeWorldBoo
 /// `counter.count_authoritative(&render(k)).await? ≤ budget`. Returns `max_drop` if no
 /// value satisfies the budget (defensive fallback; the caller logs this as a warning).
 pub(crate) async fn find_smallest_drop<F>(
-    counter: &libllm::tokenizer::TokenCounter,
+    counter: &libllm_protocol::tokenizer::TokenCounter,
     budget: usize,
     max_drop: usize,
     render: &F,
@@ -327,10 +329,10 @@ fn push_user_segments(app: &mut App<'_>, content: &str) {
     for c in app.session.characters.iter_mut() {
         c.spoke_this_round = false;
     }
-    libllm::group_chat::renormalize_action_values(&mut app.session.characters);
+    libllm_core::group_chat::renormalize_action_values(&mut app.session.characters);
     let mut parent = app.session.tree.head();
     let segments: Vec<String> = if app.session.character.is_some() {
-        libllm::side_character::split_user_input(content)
+        libllm_core::side_character::split_user_input(content)
     } else {
         vec![content.to_owned()]
     };
@@ -359,7 +361,7 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     let budget = app.context_mgr.token_limit();
     let branch_path = app.session.tree.branch_path();
     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-    let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
 
     let render = |k: usize| -> String { build_rendered_prompt(app, k).0 };
 
@@ -436,7 +438,7 @@ pub(crate) async fn stream_into_message(
     let budget = app.context_mgr.token_limit();
     let branch_path = app.session.tree.branch_path();
     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-    let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
 
     let render = |k: usize| -> String {
         build_rendered_prompt_with_system(app, k, &system, nudge.as_deref()).0
@@ -492,8 +494,10 @@ pub(super) async fn run_one_group_turn(
         .as_deref()
         .unwrap_or("Default")
         .to_owned();
-    let template =
-        libllm::preset::resolve_template_preset(&tpl_name, &libllm::config::template_presets_dir());
+    let template = libllm_core::preset::resolve_template_preset(
+        &tpl_name,
+        &libllm_config::template_presets_dir(),
+    );
 
     let persona = app
         .session
@@ -504,21 +508,26 @@ pub(super) async fn run_one_group_turn(
     let base_system_prompt = app.session.system_prompt.clone().or_else(|| {
         app.db
             .as_ref()
-            .and_then(|db| db.load_prompt(libllm::system_prompt::BUILTIN_ROLEPLAY).ok())
+            .and_then(|db| {
+                db.load_prompt(libllm_core::system_prompt::BUILTIN_ROLEPLAY)
+                    .ok()
+            })
             .map(|p| p.content)
             .filter(|s| !s.is_empty())
     });
     let nudge_template = app.config.group_chat.nudge_prompt.clone();
 
-    let prompt = match libllm::group_chat::build_turn_prompt(libllm::group_chat::TurnPromptInputs {
-        session: app.session,
-        cards: &app.character_cards_cache,
-        persona: persona.as_ref(),
-        template: Some(&template),
-        speaker_slug,
-        base_system_prompt: base_system_prompt.as_deref(),
-        nudge_template: Some(nudge_template.as_str()),
-    }) {
+    let prompt = match libllm_core::group_chat::build_turn_prompt(
+        libllm_core::group_chat::TurnPromptInputs {
+            session: app.session,
+            cards: &app.character_cards_cache,
+            persona: persona.as_ref(),
+            template: Some(&template),
+            speaker_slug,
+            base_system_prompt: base_system_prompt.as_deref(),
+            nudge_template: Some(nudge_template.as_str()),
+        },
+    ) {
         Ok(p) => p,
         Err(e) => {
             app.set_status(
@@ -561,7 +570,7 @@ pub(crate) async fn start_group_chat_loop(app: &mut App<'_>, sender: &mpsc::Send
     app.group_chat_loop_rng = Some(rand::make_rng());
     app.group_chat_consecutive = 0;
     app.group_chat_max_consecutive = app.config.group_chat.effective_max_consecutive_turns();
-    app.group_chat_remaining_budget = libllm::group_chat::DEFAULT_TURN_TIME_BUDGET;
+    app.group_chat_remaining_budget = libllm_core::group_chat::DEFAULT_TURN_TIME_BUDGET;
     continue_group_chat_loop(app, sender).await;
 }
 
@@ -601,7 +610,12 @@ pub(crate) async fn continue_group_chat_loop(
             let mode = app.session.chat_mode;
             let decision = {
                 let rng = app.group_chat_loop_rng.as_mut().expect("group_chat_loop_rng is Some, guarded by the is_none() early return at the top of this function");
-                libllm::group_chat::decide_next_speaker(&app.session.characters, mode, rng, None)
+                libllm_core::group_chat::decide_next_speaker(
+                    &app.session.characters,
+                    mode,
+                    rng,
+                    None,
+                )
             };
             let Some(decision) = decision else {
                 tracing::debug!(
@@ -628,7 +642,7 @@ pub(crate) async fn continue_group_chat_loop(
             let mode = app.session.chat_mode;
             let decision = {
                 let rng = app.group_chat_loop_rng.as_mut().expect("group_chat_loop_rng is Some, guarded by the is_none() early return at the top of this function");
-                libllm::group_chat::decide_next_speaker(
+                libllm_core::group_chat::decide_next_speaker(
                     &app.session.characters,
                     mode,
                     rng,
@@ -653,7 +667,7 @@ pub(crate) async fn continue_group_chat_loop(
     }
 }
 
-fn apply_decision(app: &mut App<'_>, decision: &libllm::group_chat::TurnDecision) {
+fn apply_decision(app: &mut App<'_>, decision: &libllm_core::group_chat::TurnDecision) {
     for (slug, av) in &decision.updated_action_points {
         if let Some(c) = app.session.characters.iter_mut().find(|c| &c.slug == slug) {
             c.action_points = *av;
@@ -687,9 +701,10 @@ pub(crate) async fn start_streaming(
         "start_streaming called with blank content"
     );
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let resolved = match libllm::files::resolve_all_resolved(content, &cwd, &app.config.files) {
+    let resolved = match libllm_core::files::resolve_all_resolved(content, &cwd, &app.config.files)
+    {
         Ok(v) => v,
-        Err(libllm::files::FileError::Collision { path, kind }) => {
+        Err(libllm_core::files::FileError::Collision { path, kind }) => {
             crate::dialogs::injection_warning::open(app, &path, kind);
             return;
         }
@@ -702,7 +717,7 @@ pub(crate) async fn start_streaming(
     if app.config.summarization.enabled && app.file_summarizer.is_some() {
         let context_size = app.context_mgr.token_limit();
         for file in &resolved {
-            if let Err(err) = libllm::summarize::check_file_fits(
+            if let Err(err) = libllm_protocol::summarize::check_file_fits(
                 &app.token_counter,
                 file,
                 &app.config.files.summary_prompt,
@@ -716,17 +731,17 @@ pub(crate) async fn start_streaming(
         }
     }
 
-    let sys_messages = match libllm::files::assemble_snapshot_messages(resolved, &app.config.files)
-    {
-        Ok(v) => v,
-        Err(err) => {
-            app.set_status(err.to_string(), crate::types::StatusLevel::Error);
-            return;
-        }
-    };
+    let sys_messages =
+        match libllm_core::files::assemble_snapshot_messages(resolved, &app.config.files) {
+            Ok(v) => v,
+            Err(err) => {
+                app.set_status(err.to_string(), crate::types::StatusLevel::Error);
+                return;
+            }
+        };
     app.clear_input_textarea_if_holds(content);
     match (
-        app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
+        app.config.files.summarize_mode == libllm_core::config::FileSummarizeMode::Eager,
         app.config.summarization.enabled,
         app.save_mode.id(),
         app.file_summarizer.as_ref(),
@@ -747,7 +762,7 @@ pub(crate) async fn start_streaming(
             "files.summary.eager_schedule.skipped"
         ),
         (true, true, Some(session_id), Some(summarizer)) => {
-            let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+            let to_summarize = libllm_core::files::files_to_summarize_from_messages(&sys_messages);
             tracing::info!(
                 session_id = %session_id,
                 file_count = to_summarize.len(),
@@ -832,7 +847,7 @@ pub(crate) async fn handle_stream_token(
             let head = app.session.tree.head().expect("tree has a head node because a user message was pushed before the stream was started");
             let response_bytes = full_response.len();
             let is_continuation = app.is_continuation;
-            let measured_seconds = libllm::thought::measured_thought_seconds(
+            let measured_seconds = libllm_core::thought::measured_thought_seconds(
                 app.stream_started_at,
                 app.stream_first_think_closed_at,
             );
@@ -844,9 +859,9 @@ pub(crate) async fn handle_stream_token(
                         format!("{}{}", existing, full_response)
                     }
                 };
-                let combined = libllm::regex_rules::apply(
+                let combined = libllm_core::regex_rules::apply(
                     &app.compiled_regex,
-                    libllm::regex_rules::Scope::PromptRecv,
+                    libllm_core::regex_rules::Scope::PromptRecv,
                     Role::Assistant,
                     &combined,
                 )
@@ -857,7 +872,7 @@ pub(crate) async fn handle_stream_token(
                     .tree
                     .node(head)
                     .and_then(|node| node.message.thought_seconds);
-                let final_seconds = libllm::thought::resolve_thought_seconds(
+                let final_seconds = libllm_core::thought::resolve_thought_seconds(
                     &app.session
                         .tree
                         .node(head)
@@ -875,19 +890,19 @@ pub(crate) async fn handle_stream_token(
                     .set_message_thought_seconds(head, final_seconds);
                 app.is_continuation = false;
             } else {
-                let stored_content = libllm::thought::normalize_assistant_content(
+                let stored_content = libllm_core::thought::normalize_assistant_content(
                     &full_response,
                     app.reasoning_preset.as_ref(),
                 )
                 .into_owned();
-                let stored_content = libllm::regex_rules::apply(
+                let stored_content = libllm_core::regex_rules::apply(
                     &app.compiled_regex,
-                    libllm::regex_rules::Scope::PromptRecv,
+                    libllm_core::regex_rules::Scope::PromptRecv,
                     Role::Assistant,
                     &stored_content,
                 )
                 .into_owned();
-                let final_seconds = libllm::thought::resolve_thought_seconds(
+                let final_seconds = libllm_core::thought::resolve_thought_seconds(
                     &stored_content,
                     None,
                     measured_seconds,
@@ -921,7 +936,8 @@ pub(crate) async fn handle_stream_token(
                 let threshold_tokens = context_size * trigger_percent as usize / 100;
                 let branch_path = app.session.tree.branch_path();
                 let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-                let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+                let max_drop =
+                    libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
                 let (full_prompt, _) = build_rendered_prompt(app, 0);
                 let actual_tokens = match app.token_counter.count_authoritative(&full_prompt).await
                 {
@@ -947,10 +963,10 @@ pub(crate) async fn handle_stream_token(
                     );
                 } else {
                     let keep_last = app.config.summarization.keep_last;
-                    let droppable = libllm::context::droppable_count(&summary_aware);
+                    let droppable = libllm_core::context::droppable_count(&summary_aware);
                     let dropped = droppable.saturating_sub(keep_last).min(max_drop);
                     let summary_boundary = branch_path.len() - summary_aware.len();
-                    let split_idx = libllm::context::drop_split_index(&summary_aware, dropped);
+                    let split_idx = libllm_core::context::drop_split_index(&summary_aware, dropped);
                     let messages_to_summarize: Vec<Message> = branch_path
                         [summary_boundary..summary_boundary + split_idx]
                         .iter()
@@ -970,8 +986,9 @@ pub(crate) async fn handle_stream_token(
                             "stream.summary.schedule"
                         );
                         let session_id_for_summarizer = app.save_mode.id().map(str::to_owned);
-                        let files_to_wait_on =
-                            libllm::files::files_to_summarize_from_messages(&messages_to_summarize);
+                        let files_to_wait_on = libllm_core::files::files_to_summarize_from_messages(
+                            &messages_to_summarize,
+                        );
 
                         if !files_to_wait_on.is_empty() {
                             if let (Some(session_id), Some(summarizer_svc)) = (
@@ -1003,12 +1020,12 @@ pub(crate) async fn handle_stream_token(
                             }
                         }
 
-                        let summaries_snapshot: HashMap<String, libllm::files::FileSummary> =
+                        let summaries_snapshot: HashMap<String, libllm_core::files::FileSummary> =
                             if let (Some(session_id), Some(summarizer_svc)) = (
                                 session_id_for_summarizer.as_deref(),
                                 app.file_summarizer.as_ref(),
                             ) {
-                                let snapshot: HashMap<String, libllm::files::FileSummary> =
+                                let snapshot: HashMap<String, libllm_core::files::FileSummary> =
                                     files_to_wait_on
                                         .iter()
                                         .filter_map(|f| {
@@ -1036,16 +1053,16 @@ pub(crate) async fn handle_stream_token(
 
                         let summarize_api_url =
                             crate::business::summarize_api_url(&app.config, &app.cli_overrides);
-                        let summarizer_auth = libllm::config::resolve_auth(
+                        let summarizer_auth = libllm_core::config::resolve_auth(
                             &app.config,
                             &app.cli_overrides.auth_overrides(),
                         );
-                        let summarizer_client = libllm::client::ApiClient::new(
+                        let summarizer_client = libllm_protocol::client::ApiClient::new(
                             &summarize_api_url,
                             app.config.tls_skip_verify || app.cli_overrides.tls_skip_verify,
                             summarizer_auth,
                         );
-                        let summarizer = libllm::summarize::Summarizer::new(
+                        let summarizer = libllm_protocol::summarize::Summarizer::new(
                             summarizer_client,
                             app.config.summarization.prompt.clone(),
                         );
@@ -1109,7 +1126,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_smallest_drop_binary_search() {
-        use libllm::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
+        use libllm_protocol::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
 
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let counter = TokenCounter::new_with_backend(
@@ -1130,7 +1147,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_smallest_drop_zero_when_fits() {
-        use libllm::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
+        use libllm_protocol::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let counter = TokenCounter::new_with_backend(
             TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
@@ -1163,7 +1180,7 @@ mod tests {
 
     #[test]
     fn rewrite_user_message_pass_substitutes_at_tokens_on_user_role_only() {
-        use libllm::session::{Message, Role};
+        use libllm_core::session::{Message, Role};
 
         let original = [
             Message::new(Role::User, "@./notes.md please".to_owned()),
@@ -1176,7 +1193,7 @@ mod tests {
             .map(|m| match m.role {
                 Role::User => Message {
                     role: m.role,
-                    content: libllm::files::rewrite_user_message(&m.content),
+                    content: libllm_core::files::rewrite_user_message(&m.content),
                     timestamp: m.timestamp.clone(),
                     thought_seconds: m.thought_seconds,
                     speaker: m.speaker.clone(),

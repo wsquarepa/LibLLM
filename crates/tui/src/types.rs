@@ -4,13 +4,13 @@ use ratatui::layout::Rect;
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
-use libllm::client::ApiClient;
-use libllm::config::CliOverrides;
-use libllm::context::ContextManager;
-use libllm::preset::{InstructPreset, ReasoningPreset};
-use libllm::sampling::SamplingParams;
-use libllm::session::{NodeId, SaveMode, Session, SessionEntry};
-use libllm::worldinfo::RuntimeWorldBook;
+use libllm_core::config::CliOverrides;
+use libllm_core::context::ContextManager;
+use libllm_core::preset::{InstructPreset, ReasoningPreset};
+use libllm_core::sampling::SamplingParams;
+use libllm_core::session::{NodeId, SaveMode, Session, SessionEntry};
+use libllm_core::worldinfo::RuntimeWorldBook;
+use libllm_protocol::client::ApiClient;
 
 use super::dialogs;
 use super::render;
@@ -63,11 +63,11 @@ pub(super) enum Focus {
 pub(super) enum Action {
     SendMessage(String),
     EditMessage {
-        node_id: libllm::session::NodeId,
+        node_id: libllm_core::session::NodeId,
         content: String,
     },
     SlashCommand(String, String),
-    JumpToSearchHit(libllm::search::SearchHit),
+    JumpToSearchHit(libllm_storage::search::SearchHit),
     Quit,
     OpenChatSettings,
     UnsavedWarningResolved(crate::dialogs::unsaved_warning::UnsavedButton),
@@ -138,18 +138,18 @@ pub(super) struct UnlockDebugState {
 
 pub(super) enum BackgroundEvent {
     KeyDerived(
-        std::sync::Arc<libllm::crypto::DerivedKey>,
+        std::sync::Arc<libllm_core::crypto::DerivedKey>,
         std::path::PathBuf,
     ),
     KeyDeriveFailed(String),
-    PasskeySet(std::sync::Arc<libllm::crypto::DerivedKey>),
+    PasskeySet(std::sync::Arc<libllm_core::crypto::DerivedKey>),
     PasskeySetFailed(String),
     ModelFetched(std::result::Result<String, String>),
     ServerContextSize(usize),
-    TokenizerReloaded(libllm::tokenizer::TokenCounter),
-    TokenCountReady(libllm::tokenizer::TokenCountUpdate),
+    TokenizerReloaded(libllm_protocol::tokenizer::TokenCounter),
+    TokenCountReady(libllm_protocol::tokenizer::TokenCountUpdate),
     TemplateMatch {
-        outcome: libllm::preset::matching::MatchOutcome,
+        outcome: libllm_core::preset::matching::MatchOutcome,
         server_template_hash: String,
     },
     DangerOpComplete(DangerOp, std::result::Result<DangerSummary, String>),
@@ -175,7 +175,7 @@ pub(super) enum DangerSummary {
 
 #[derive(Debug, Clone)]
 pub(super) struct TemplatePromptState {
-    pub(super) suggested_preset: libllm::preset::InstructPreset,
+    pub(super) suggested_preset: libllm_core::preset::InstructPreset,
     pub(super) score: f64,
     pub(super) is_best_guess: bool,
     pub(super) server_template_hash: String,
@@ -233,7 +233,7 @@ pub(super) struct App<'a> {
     pub(super) session: &'a mut Session,
     pub(super) version_status: &'static str,
     pub(super) save_mode: SaveMode,
-    pub(super) db: Option<libllm::db::Database>,
+    pub(super) db: Option<libllm_storage::db::Database>,
     pub(super) session_dirty: bool,
     pub(super) pending_save_deadline: Option<std::time::Instant>,
     pub(super) pending_save_trigger: Option<SaveTrigger>,
@@ -335,8 +335,8 @@ pub(super) struct App<'a> {
 
     pub(super) character_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) character_editor_slug: String,
-    pub(super) worldbook_editor_entries: Vec<libllm::worldinfo::Entry>,
-    pub(super) worldbook_editor_original_entries: Vec<libllm::worldinfo::Entry>,
+    pub(super) worldbook_editor_entries: Vec<libllm_core::worldinfo::Entry>,
+    pub(super) worldbook_editor_original_entries: Vec<libllm_core::worldinfo::Entry>,
     pub(super) worldbook_editor_name: String,
     pub(super) worldbook_editor_original_name: String,
     pub(super) worldbook_editor_name_selected: bool,
@@ -345,12 +345,12 @@ pub(super) struct App<'a> {
     pub(super) worldbook_entry_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) worldbook_entry_editor_index: usize,
 
-    pub(super) compiled_regex: Vec<libllm::regex_rules::CompiledRule>,
-    pub(super) display_regex_cache: std::collections::HashMap<libllm::session::NodeId, String>,
+    pub(super) compiled_regex: Vec<libllm_core::regex_rules::CompiledRule>,
+    pub(super) display_regex_cache: std::collections::HashMap<libllm_core::session::NodeId, String>,
     pub(super) chat_content_cache: Option<render::ChatContentCache>,
-    pub(super) cached_token_count: Option<libllm::tokenizer::CountState>,
-    pub(super) token_counter: libllm::tokenizer::TokenCounter,
-    pub(super) tokenizer_tx: mpsc::Sender<libllm::tokenizer::TokenCountUpdate>,
+    pub(super) cached_token_count: Option<libllm_protocol::tokenizer::CountState>,
+    pub(super) token_counter: libllm_protocol::tokenizer::TokenCounter,
+    pub(super) tokenizer_tx: mpsc::Sender<libllm_protocol::tokenizer::TokenCountUpdate>,
     pub(super) sidebar_cache: Option<render::SidebarCache>,
     pub(super) sidebar_age_refresh_at: std::time::Instant,
     pub(super) raw_edit_node: Option<NodeId>,
@@ -364,12 +364,12 @@ pub(super) struct App<'a> {
     pub(super) delete_context: DeleteContext,
     pub(super) active_persona_name: Option<String>,
     pub(super) active_persona_desc: Option<String>,
-    pub(super) active_card_author_note: Option<libllm::author_note::AuthorNote>,
+    pub(super) active_card_author_note: Option<libllm_core::author_note::AuthorNote>,
     pub(super) persona_slugs: Vec<String>,
     pub(super) persona_names: Vec<String>,
     pub(super) persona_selected: usize,
     pub(super) persona_editor_slug: String,
-    pub(super) config: libllm::config::Config,
+    pub(super) config: libllm_core::config::Config,
     pub(super) theme: theme::Theme,
     pub(super) cli_overrides: CliOverrides,
     pub(super) worldbook_cache: Option<WorldbookCache>,
@@ -390,9 +390,10 @@ pub(super) struct App<'a> {
     /// push a fresh one.
     pub(super) recall_refs: Option<Vec<String>>,
     pub(super) file_summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>>,
-    pub(super) file_summary_ready_tx: tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
+    pub(super) file_summary_ready_tx:
+        tokio::sync::mpsc::UnboundedSender<libllm_core::files::ReadyEvent>,
     pub(super) file_summary_ready_rx:
-        tokio::sync::mpsc::UnboundedReceiver<libllm::files::ReadyEvent>,
+        tokio::sync::mpsc::UnboundedReceiver<libllm_core::files::ReadyEvent>,
     /// Monotonic counter bumped on each file-summary completion so that the
     /// next render sees `scroll_dirty` and re-snaps to the new bottom.
     pub(super) file_summary_revision: u64,
@@ -407,7 +408,7 @@ pub(super) struct App<'a> {
     pub(super) scenario_scroll_top: u16,
     pub(super) is_group_chat_creation_pending: bool,
     pub(super) character_cards_cache:
-        std::collections::HashMap<String, libllm::character::CharacterCard>,
+        std::collections::HashMap<String, libllm_core::character::CharacterCard>,
     /// Active RNG for the in-progress group-chat action-point loop. `None` when no group-chat
     /// loop is running. Set before the first turn, cleared after the loop ends.
     pub(super) group_chat_loop_rng: Option<rand::rngs::StdRng>,

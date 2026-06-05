@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 
 use anyhow::{Context, Result};
-use libllm::db::Database;
+use libllm_storage::db::Database;
 
 use super::DbContext;
 use super::format::Format;

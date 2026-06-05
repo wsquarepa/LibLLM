@@ -28,11 +28,11 @@ pub fn create_snapshot(
     let index_path = backups_dir.join("index.json");
     let backup_key = crate::crypto::resolve_backup_key(data_dir, passkey)?;
     let mut index = open_index(&index_path, backup_key.as_ref())?;
-    let db_key: Option<libllm::crypto::DerivedKey> = match passkey {
+    let db_key: Option<libllm_core::crypto::DerivedKey> = match passkey {
         Some(pk) => {
-            let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt"))
+            let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt"))
                 .map_err(BackupError::LibllmCrypto)?;
-            Some(libllm::crypto::derive_key(pk, &salt).map_err(BackupError::LibllmCrypto)?)
+            Some(libllm_core::crypto::derive_key(pk, &salt).map_err(BackupError::LibllmCrypto)?)
         }
         None => None,
     };
@@ -90,7 +90,7 @@ pub fn create_snapshot(
 
     let (id, filename, file_path) = unique_backup_id(&backups_dir, backup_type);
 
-    libllm::crypto::write_atomic(&file_path, &stored).map_err(|source| {
+    libllm_core::crypto::write_atomic(&file_path, &stored).map_err(|source| {
         BackupError::WriteBackupFile {
             path: file_path.clone(),
             source,
@@ -408,7 +408,8 @@ pub fn rebuild_index(
                             };
 
                             let new_blob = crate::format::encode_base_blob(&wrapped, &payload);
-                            if let Err(e) = libllm::crypto::write_atomic(&file_path, &new_blob) {
+                            if let Err(e) = libllm_core::crypto::write_atomic(&file_path, &new_blob)
+                            {
                                 let msg = format!(
                                     "skipping {filename}: failed to persist re-encrypted file: {e}"
                                 );
@@ -577,8 +578,8 @@ mod tests {
     }
 
     fn setup_encrypted_test_db(dir: &std::path::Path, passkey: &str) -> std::path::PathBuf {
-        let salt = libllm::crypto::load_or_create_salt(&dir.join(".salt")).unwrap();
-        let key = libllm::crypto::derive_key(passkey, &salt).unwrap();
+        let salt = libllm_core::crypto::load_or_create_salt(&dir.join(".salt")).unwrap();
+        let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
         let db_path = dir.join("data.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(&key.key_pragma()).unwrap();
@@ -790,7 +791,7 @@ mod tests {
         // The 128 bytes of zeros are not valid XChaCha20-Poly1305 ciphertext.
         let id = "20260421T040000.000Z".to_string();
         let filename = crate::index::backup_filename(&id, BackupType::Base);
-        libllm::crypto::write_atomic(&backups_dir.join(&filename), &[0u8; 128]).unwrap();
+        libllm_core::crypto::write_atomic(&backups_dir.join(&filename), &[0u8; 128]).unwrap();
 
         let (idx, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
 
@@ -831,8 +832,8 @@ mod tests {
         let diff_blob = crate::crypto::encrypt_payload(b"db-snapshot-diff-content", &kek).unwrap();
         let base_path = backups_dir.join(&base_filename);
         let diff_path = backups_dir.join(&diff_filename);
-        libllm::crypto::write_atomic(&base_path, &base_blob).unwrap();
-        libllm::crypto::write_atomic(&diff_path, &diff_blob).unwrap();
+        libllm_core::crypto::write_atomic(&base_path, &base_blob).unwrap();
+        libllm_core::crypto::write_atomic(&diff_path, &diff_blob).unwrap();
 
         // Set the base file's mtime earlier than the diff so that rebuild_index processes
         // the base before the diff (it sorts by mtime).
@@ -1076,7 +1077,7 @@ mod tests {
         let payload = crate::crypto::encrypt_payload(b"orphaned-db-bytes", &dek).unwrap();
         let id = "20260601T000000.000Z".to_string();
         let filename = crate::index::backup_filename(&id, BackupType::Base);
-        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+        libllm_core::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
 
         let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
 
@@ -1105,7 +1106,7 @@ mod tests {
         let blob = crate::crypto::encrypt_payload(&compressed, &kek).unwrap();
         let id = "20260601T080000.000Z".to_string();
         let filename = crate::index::backup_filename(&id, BackupType::Base);
-        libllm::crypto::write_atomic(&backups_dir.join(&filename), &blob).unwrap();
+        libllm_core::crypto::write_atomic(&backups_dir.join(&filename), &blob).unwrap();
 
         let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
         assert!(

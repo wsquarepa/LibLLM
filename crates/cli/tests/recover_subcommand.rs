@@ -9,9 +9,9 @@ use std::process::Command;
 use backup::index::load_index;
 use backup::snapshot::create_snapshot;
 use common::client_bin;
-use libllm::config::BackupConfig;
-use libllm::db::Database;
-use libllm::persona::PersonaFile;
+use libllm_core::config::BackupConfig;
+use libllm_core::persona::PersonaFile;
+use libllm_storage::db::Database;
 
 fn seed_db(path: &std::path::Path) {
     let db = Database::open(path, None).expect("open plain db");
@@ -348,15 +348,15 @@ fn recover_refuses_legacy_dir_with_data_db_and_no_salt() {
 fn recover_list_labels_archived_chain() {
     let dir_a = common::temp_dir();
     let data_dir_a = dir_a.path();
-    let salt_a =
-        libllm::crypto::load_or_create_salt(&data_dir_a.join(".salt")).expect("create dir_a salt");
-    let key_a = libllm::crypto::derive_key("pw-a", &salt_a).expect("derive dir_a key");
+    let salt_a = libllm_core::crypto::load_or_create_salt(&data_dir_a.join(".salt"))
+        .expect("create dir_a salt");
+    let key_a = libllm_core::crypto::derive_key("pw-a", &salt_a).expect("derive dir_a key");
     let db_path_a = data_dir_a.join("data.db");
     {
         let db = Database::open(&db_path_a, Some(&key_a)).expect("open encrypted dir_a db");
         db.insert_persona(
             "alice",
-            &libllm::persona::PersonaFile {
+            &libllm_core::persona::PersonaFile {
                 name: "alice".to_owned(),
                 persona: "curious".to_owned(),
             },
@@ -367,9 +367,9 @@ fn recover_list_labels_archived_chain() {
 
     let dir_b = common::temp_dir();
     let data_dir_b = dir_b.path();
-    let salt_b =
-        libllm::crypto::load_or_create_salt(&data_dir_b.join(".salt")).expect("create dir_b salt");
-    let key_b = libllm::crypto::derive_key("pw-b", &salt_b).expect("derive dir_b key");
+    let salt_b = libllm_core::crypto::load_or_create_salt(&data_dir_b.join(".salt"))
+        .expect("create dir_b salt");
+    let key_b = libllm_core::crypto::derive_key("pw-b", &salt_b).expect("derive dir_b key");
     {
         let _db = Database::open(&data_dir_b.join("data.db"), Some(&key_b))
             .expect("create dir_b encrypted db");
@@ -449,8 +449,9 @@ fn recover_rebuild_index_refuses_regression_and_backs_up() {
     let data_dir = dir.path();
 
     // Build an encrypted backup so the index has one base entry.
-    let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
-    let key = libllm::crypto::derive_key("pw", &salt).expect("derive key");
+    let salt =
+        libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
+    let key = libllm_core::crypto::derive_key("pw", &salt).expect("derive key");
     {
         let db = Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");
         db.insert_persona(
@@ -512,8 +513,9 @@ fn recover_rebuild_index_recovers_encrypted_backup_end_to_end() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
 
-    let salt = libllm::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
-    let key = libllm::crypto::derive_key("pw", &salt).expect("derive key");
+    let salt =
+        libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).expect("create salt");
+    let key = libllm_core::crypto::derive_key("pw", &salt).expect("derive key");
     {
         let db = Database::open(&data_dir.join("data.db"), Some(&key)).expect("open enc db");
         db.insert_persona(

@@ -2,7 +2,7 @@
 
 use ratatui::style::Color;
 
-use libllm::config::{ColorLabel, Config, ThemeColorOverrides};
+use libllm_core::config::{ColorLabel, Config, ThemeColorOverrides};
 
 #[derive(PartialEq)]
 pub struct Theme {
@@ -395,7 +395,7 @@ pub fn parse_color(s: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libllm::config::{Config, ThemeColorOverrides};
+    use libllm_core::config::{Config, ThemeColorOverrides};
 
     #[test]
     fn parse_color_named() {

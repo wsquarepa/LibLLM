@@ -2,7 +2,7 @@
 //!
 //! Drives scheduling, persistence, and ready-event broadcasting for the
 //! file-summary cache feature. Pure types and lookup traits live in
-//! `libllm::files`; this module owns only the stateful orchestrator that
+//! `libllm_core::files`; this module owns only the stateful orchestrator that
 //! depends on both the database and the HTTP client.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -13,12 +13,12 @@ use anyhow::Result;
 use rusqlite::Connection;
 use tokio::sync::mpsc;
 
-use libllm::client::ApiClient;
-use libllm::db::file_summaries;
-use libllm::files::{
+use libllm_core::files::{
     FileError, FileSummary, FileSummaryStatus, FileToSummarize, ReadyEvent, SessionScopedLookup,
 };
-use libllm::sampling::SamplingParams;
+use libllm_core::sampling::SamplingParams;
+use libllm_protocol::client::ApiClient;
+use libllm_storage::db::file_summaries;
 
 const SUMMARY_STOP_TOKENS: &[&str] = &["\nUser:", "\nAssistant:", "\nSystem:"];
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -278,11 +278,11 @@ impl FileSummarizer {
     /// Thin wrapper that checks a resolved file against the summarizer's configured prompt.
     pub async fn check_fits(
         &self,
-        counter: &libllm::tokenizer::TokenCounter,
-        file: &libllm::files::ResolvedFile,
+        counter: &libllm_protocol::tokenizer::TokenCounter,
+        file: &libllm_core::files::ResolvedFile,
         context_size: usize,
     ) -> Result<(), FileError> {
-        libllm::summarize::check_file_fits(counter, file, &self.prompt, context_size).await
+        libllm_protocol::summarize::check_file_fits(counter, file, &self.prompt, context_size).await
     }
 
     #[cfg(test)]
@@ -407,7 +407,7 @@ async fn run_summary_task(
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use libllm::files::{FileSummaryStatus, FileToSummarize};
+    use libllm_core::files::{FileSummaryStatus, FileToSummarize};
     use rusqlite::Connection;
     use tokio::sync::mpsc;
 
@@ -416,7 +416,7 @@ mod tests {
     fn summarizer_conn() -> Arc<Mutex<Connection>> {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        libllm::db::migrations::run_migrations(&conn).unwrap();
+        libllm_storage::db::migrations::run_migrations(&conn).unwrap();
         conn.execute(
             "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s1', 'now', 'now')",
             [],
@@ -431,7 +431,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let summarizer = FileSummarizer::new(
             Arc::clone(&conn),
-            libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+            libllm_protocol::client::ApiClient::new(
+                "http://127.0.0.1:1",
+                true,
+                libllm_core::config::Auth::None,
+            ),
             "summarize this".to_owned(),
             tx,
         );
@@ -442,7 +446,7 @@ mod tests {
         };
         summarizer.schedule("s1", &file);
 
-        let row = libllm::db::file_summaries::lookup(&conn.lock().unwrap(), "s1", "h1")
+        let row = libllm_storage::db::file_summaries::lookup(&conn.lock().unwrap(), "s1", "h1")
             .unwrap()
             .unwrap();
         assert_eq!(row.status, FileSummaryStatus::Pending);
@@ -454,7 +458,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let summarizer = FileSummarizer::new(
             Arc::clone(&conn),
-            libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+            libllm_protocol::client::ApiClient::new(
+                "http://127.0.0.1:1",
+                true,
+                libllm_core::config::Auth::None,
+            ),
             "summarize this".to_owned(),
             tx,
         );
@@ -480,7 +488,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let summarizer = FileSummarizer::new(
             Arc::clone(&conn),
-            libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+            libllm_protocol::client::ApiClient::new(
+                "http://127.0.0.1:1",
+                true,
+                libllm_core::config::Auth::None,
+            ),
             "summarize this".to_owned(),
             tx,
         );
@@ -502,7 +514,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let summarizer = FileSummarizer::new(
             Arc::clone(&conn),
-            libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+            libllm_protocol::client::ApiClient::new(
+                "http://127.0.0.1:1",
+                true,
+                libllm_core::config::Auth::None,
+            ),
             "summarize this".to_owned(),
             tx,
         );
@@ -515,7 +531,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let mut summarizer = FileSummarizer::new(
             Arc::clone(&conn),
-            libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+            libllm_protocol::client::ApiClient::new(
+                "http://127.0.0.1:1",
+                true,
+                libllm_core::config::Auth::None,
+            ),
             "summarize this".to_owned(),
             tx,
         );
@@ -531,7 +551,7 @@ mod tests {
             .ensure_ready("s1", std::slice::from_ref(&file))
             .await
             .unwrap();
-        let row = libllm::db::file_summaries::lookup(&conn.lock().unwrap(), "s1", "h1")
+        let row = libllm_storage::db::file_summaries::lookup(&conn.lock().unwrap(), "s1", "h1")
             .unwrap()
             .unwrap();
         assert_ne!(row.status, FileSummaryStatus::Pending);
@@ -543,14 +563,18 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let summarizer = FileSummarizer::new(
             Arc::clone(&conn),
-            libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+            libllm_protocol::client::ApiClient::new(
+                "http://127.0.0.1:1",
+                true,
+                libllm_core::config::Auth::None,
+            ),
             "summarize this".to_owned(),
             tx,
         );
         {
             let guard = conn.lock().unwrap();
-            libllm::db::file_summaries::insert_pending(&guard, "s1", "h1", "a.md").unwrap();
-            libllm::db::file_summaries::set_done(&guard, "s1", "h1", "cached").unwrap();
+            libllm_storage::db::file_summaries::insert_pending(&guard, "s1", "h1", "a.md").unwrap();
+            libllm_storage::db::file_summaries::set_done(&guard, "s1", "h1", "cached").unwrap();
         }
 
         let file = FileToSummarize {

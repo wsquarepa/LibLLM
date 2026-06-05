@@ -7,13 +7,13 @@
 )]
 mod common;
 
-use libllm::db::file_summaries::{self, FileSummaryStatus};
-use libllm::files::{
+use libllm_core::files::{
     FileToSummarize, NullFileSummaryLookup, build_snapshot_body, content_hash_hex,
     snapshot_inner_text,
 };
-use libllm::session::{Message, Role};
-use libllm::summarize::Summarizer;
+use libllm_core::session::{Message, Role};
+use libllm_protocol::summarize::Summarizer;
+use libllm_storage::db::file_summaries::{self, FileSummaryStatus};
 use libllm_tui::file_summarizer::FileSummarizer;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 fn setup_summarizer_conn(session_id: &str) -> Arc<Mutex<Connection>> {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    libllm::db::migrations::run_migrations(&conn).unwrap();
+    libllm_storage::db::migrations::run_migrations(&conn).unwrap();
     conn.execute(
         "INSERT INTO sessions (id, created_at, updated_at) VALUES (?1, 'now', 'now')",
         rusqlite::params![session_id],
@@ -38,7 +38,7 @@ async fn eager_schedule_transitions_to_done_with_mocked_summary() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new(&mock.uri(), true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(&mock.uri(), true, libllm_core::config::Auth::None),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -70,7 +70,7 @@ async fn permanent_failure_transitions_to_failed() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new(&mock.uri(), true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(&mock.uri(), true, libllm_core::config::Auth::None),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -101,7 +101,7 @@ async fn ensure_ready_waits_for_pending_then_resolves() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new(&mock.uri(), true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(&mock.uri(), true, libllm_core::config::Auth::None),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -131,7 +131,7 @@ async fn summary_substitution_in_summarize_prompt_hides_raw_body() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new(&mock.uri(), true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(&mock.uri(), true, libllm_core::config::Auth::None),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -156,7 +156,7 @@ async fn summary_substitution_in_summarize_prompt_hides_raw_body() {
         Message::new(Role::Assistant, "reply".to_owned()),
     ];
     let refs: Vec<&Message> = msgs.iter().collect();
-    let lookup = libllm::files::ScopedFileSummaryLookup {
+    let lookup = libllm_core::files::ScopedFileSummaryLookup {
         session_id: "s1",
         resolver: &summarizer,
     };
@@ -172,7 +172,7 @@ async fn failed_summary_produces_placeholder_in_prompt() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new(&mock.uri(), true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(&mock.uri(), true, libllm_core::config::Auth::None),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -193,7 +193,7 @@ async fn failed_summary_produces_placeholder_in_prompt() {
 
     let msgs = [Message::new(Role::System, snapshot_body)];
     let refs: Vec<&Message> = msgs.iter().collect();
-    let lookup = libllm::files::ScopedFileSummaryLookup {
+    let lookup = libllm_core::files::ScopedFileSummaryLookup {
         session_id: "s1",
         resolver: &summarizer,
     };
@@ -242,7 +242,11 @@ async fn lookup_on_empty_session_returns_none() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(
+            "http://127.0.0.1:1",
+            true,
+            libllm_core::config::Auth::None,
+        ),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -261,7 +265,11 @@ async fn no_rows_when_schedule_is_never_called() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let _summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(
+            "http://127.0.0.1:1",
+            true,
+            libllm_core::config::Auth::None,
+        ),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -281,13 +289,13 @@ async fn fresh_encrypted_session_schedules_after_unlock_save() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("data.db");
     let salt = [0u8; 16];
-    let key = Arc::new(libllm::crypto::derive_key("test-passkey", &salt).unwrap());
+    let key = Arc::new(libllm_core::crypto::derive_key("test-passkey", &salt).unwrap());
     let session_id = "fresh-session";
 
     {
-        let mut db = libllm::db::Database::open(&db_path, Some(&key)).unwrap();
-        let empty_session = libllm::session::Session {
-            tree: libllm::session::MessageTree::new(),
+        let mut db = libllm_storage::db::Database::open(&db_path, Some(&key)).unwrap();
+        let empty_session = libllm_core::session::Session {
+            tree: libllm_core::session::MessageTree::new(),
             model: None,
             template: None,
             system_prompt: None,
@@ -296,13 +304,13 @@ async fn fresh_encrypted_session_schedules_after_unlock_save() {
             persona: None,
             scenario: None,
             characters: Vec::new(),
-            chat_mode: libllm::group_chat::ChatMode::default(),
+            chat_mode: libllm_core::group_chat::ChatMode::default(),
             author_note: None,
         };
         db.save_session(session_id, &empty_session).unwrap();
     }
 
-    let mut config = libllm::config::Config::default();
+    let mut config = libllm_core::config::Config::default();
     config.summarization.api_url = Some(mock.uri());
     let cli_overrides = libllm_cli::cli::CliOverrides::default();
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -335,12 +343,12 @@ fn build_file_summarizer_opens_encrypted_db() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("data.db");
     let salt = [0u8; 16];
-    let key = Arc::new(libllm::crypto::derive_key("test-passkey", &salt).unwrap());
+    let key = Arc::new(libllm_core::crypto::derive_key("test-passkey", &salt).unwrap());
 
-    let _ = libllm::db::Database::open(&db_path, Some(&key)).unwrap();
+    let _ = libllm_storage::db::Database::open(&db_path, Some(&key)).unwrap();
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let config = libllm::config::Config::default();
+    let config = libllm_core::config::Config::default();
     let cli_overrides = libllm_cli::cli::CliOverrides::default();
 
     let summarizer = libllm_tui::business::build_file_summarizer(
@@ -365,7 +373,11 @@ async fn schedule_remains_live_without_shutdown() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(
+            "http://127.0.0.1:1",
+            true,
+            libllm_core::config::Auth::None,
+        ),
         "Summarize the file.".to_owned(),
         tx,
     );
@@ -406,7 +418,11 @@ async fn shutdown_then_schedule_drops_work() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let summarizer = FileSummarizer::new(
         Arc::clone(&conn),
-        libllm::client::ApiClient::new("http://127.0.0.1:1", true, libllm::config::Auth::None),
+        libllm_protocol::client::ApiClient::new(
+            "http://127.0.0.1:1",
+            true,
+            libllm_core::config::Auth::None,
+        ),
         "Summarize the file.".to_owned(),
         tx,
     );

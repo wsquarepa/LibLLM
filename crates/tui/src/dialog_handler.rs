@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::style::Style;
 use tui_textarea::TextArea;
 
-use libllm::session::{Message, Role};
+use libllm_core::session::{Message, Role};
 
 use super::types::*;
 use super::{business, dialogs, maintenance};
@@ -34,9 +34,9 @@ pub(super) fn cancel_generation(app: &mut App) {
                     format!("{}{}", existing, app.streaming_buffer)
                 }
             };
-            let combined = libllm::regex_rules::apply(
+            let combined = libllm_core::regex_rules::apply(
                 &app.compiled_regex,
-                libllm::regex_rules::Scope::PromptRecv,
+                libllm_core::regex_rules::Scope::PromptRecv,
                 Role::Assistant,
                 &combined,
             )
@@ -47,11 +47,11 @@ pub(super) fn cancel_generation(app: &mut App) {
                 .tree
                 .node(head)
                 .and_then(|node| node.message.thought_seconds);
-            let measured_seconds = libllm::thought::measured_thought_seconds(
+            let measured_seconds = libllm_core::thought::measured_thought_seconds(
                 app.stream_started_at,
                 app.stream_first_think_closed_at,
             );
-            let final_seconds = libllm::thought::resolve_thought_seconds(
+            let final_seconds = libllm_core::thought::resolve_thought_seconds(
                 &app.session
                     .tree
                     .node(head)
@@ -74,20 +74,20 @@ pub(super) fn cancel_generation(app: &mut App) {
             return;
         };
         let stored_content =
-            libllm::thought::normalize_assistant_content(&raw, app.reasoning_preset.as_ref())
+            libllm_core::thought::normalize_assistant_content(&raw, app.reasoning_preset.as_ref())
                 .into_owned();
-        let stored_content = libllm::regex_rules::apply(
+        let stored_content = libllm_core::regex_rules::apply(
             &app.compiled_regex,
-            libllm::regex_rules::Scope::PromptRecv,
+            libllm_core::regex_rules::Scope::PromptRecv,
             Role::Assistant,
             &stored_content,
         )
         .into_owned();
-        let measured_seconds = libllm::thought::measured_thought_seconds(
+        let measured_seconds = libllm_core::thought::measured_thought_seconds(
             app.stream_started_at,
             app.stream_first_think_closed_at,
         );
-        let thought_seconds = libllm::thought::resolve_thought_seconds(
+        let thought_seconds = libllm_core::thought::resolve_thought_seconds(
             &stored_content,
             None,
             measured_seconds,
@@ -304,7 +304,7 @@ pub(super) fn handle_field_dialog_key(
                         section.values = section.original_values.clone();
                     }
                 }
-                app.config = libllm::config::load();
+                app.config = libllm_config::load();
                 app.theme = crate::theme::resolve_theme(&app.config);
                 app.invalidate_chat_render_cache();
                 app.theme_dialog = None;
@@ -399,9 +399,9 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                             } else {
                                 &edited_preset_name
                             };
-                            app.instruct_preset = libllm::preset::resolve_instruct_preset(
+                            app.instruct_preset = libllm_core::preset::resolve_instruct_preset(
                                 resolve_name,
-                                &libllm::config::instruct_presets_dir(),
+                                &libllm_config::instruct_presets_dir(),
                             );
                             app.stop_tokens = app.instruct_preset.stop_tokens();
                         }
@@ -436,12 +436,12 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                     .expect("persona editor is present while its dialog is focused")
                     .values;
                 let old_slug = app.persona_editor_slug.clone();
-                let persona = libllm::persona::PersonaFile {
+                let persona = libllm_core::persona::PersonaFile {
                     name: values[0].clone(),
                     persona: values[1].clone(),
                 };
 
-                let new_slug = libllm::character::slugify(&persona.name);
+                let new_slug = libllm_core::character::slugify(&persona.name);
                 if new_slug != old_slug && app.persona_slugs.iter().any(|s| s == &new_slug) {
                     app.set_status(
                         format!("Name '{}' is already in use.", persona.name),
@@ -512,17 +512,17 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             let depth_str = values
                 .get(1)
                 .cloned()
-                .unwrap_or_else(|| libllm::author_note::DEFAULT_DEPTH.to_string());
+                .unwrap_or_else(|| libllm_core::author_note::DEFAULT_DEPTH.to_string());
             let at_top_str = values.get(2).cloned().unwrap_or_else(|| "false".to_owned());
 
             let depth = depth_str
                 .trim()
                 .parse::<u32>()
-                .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+                .unwrap_or(libllm_core::author_note::DEFAULT_DEPTH);
             let at_top = at_top_str == "true";
 
             app.session.author_note =
-                libllm::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);
+                libllm_core::author_note::AuthorNote::from_row_parts(Some(text), depth, at_top);
             app.mark_session_dirty(SaveTrigger::Debounced, false);
             app.invalidate_chat_caches();
             return_to_input(app);
@@ -575,12 +575,12 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             app.mark_session_dirty(SaveTrigger::Debounced, false);
 
             if !original_name.is_empty() {
-                let prompt = libllm::system_prompt::SystemPromptFile {
+                let prompt = libllm_core::system_prompt::SystemPromptFile {
                     name: new_name.clone(),
                     content,
                 };
-                let new_slug = libllm::character::slugify(&new_name);
-                let old_slug = libllm::character::slugify(&original_name);
+                let new_slug = libllm_core::character::slugify(&new_name);
+                let old_slug = libllm_core::character::slugify(&original_name);
                 let save_result = app
                             .db
                             .as_ref()
@@ -640,7 +640,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                 .as_ref()
                 .expect("character editor is present while its dialog is focused")
                 .values;
-            let new_slug = libllm::character::slugify(&values[0]);
+            let new_slug = libllm_core::character::slugify(&values[0]);
             if new_slug != app.character_editor_slug
                 && app.character_slugs.iter().any(|s| s == &new_slug)
             {
@@ -654,9 +654,9 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             let note_depth = values
                 .get(9)
                 .and_then(|s| s.trim().parse::<u32>().ok())
-                .unwrap_or(libllm::author_note::DEFAULT_DEPTH);
+                .unwrap_or(libllm_core::author_note::DEFAULT_DEPTH);
             let note_at_top = values.get(10).is_some_and(|s| s == "true");
-            let card = libllm::character::CharacterCard {
+            let card = libllm_core::character::CharacterCard {
                 name: values[0].clone(),
                 description: values[1].clone(),
                 personality: values[2].clone(),
@@ -666,7 +666,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                 system_prompt: values[6].clone(),
                 post_history_instructions: values[7].clone(),
                 alternate_greetings: Vec::new(),
-                author_note: libllm::author_note::AuthorNote::from_row_parts(
+                author_note: libllm_core::author_note::AuthorNote::from_row_parts(
                     values.get(8).cloned(),
                     note_depth,
                     note_at_top,
@@ -706,17 +706,18 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                     app.character_editor_slug = new_slug.clone();
                     app.set_status(format!("Saved character: {}", card.name), StatusLevel::Info);
                     let is_active = app.session.character.as_deref().is_some_and(|name| {
-                        libllm::character::slugify(name) == app.character_editor_slug
+                        libllm_core::character::slugify(name) == app.character_editor_slug
                     });
                     if is_active {
-                        let cfg = libllm::config::load();
+                        let cfg = libllm_config::load();
                         let tpl_name = cfg.template_preset.as_deref().unwrap_or("Default");
-                        let tpl = libllm::preset::resolve_template_preset(
+                        let tpl = libllm_core::preset::resolve_template_preset(
                             tpl_name,
-                            &libllm::config::template_presets_dir(),
+                            &libllm_config::template_presets_dir(),
                         );
-                        app.session.system_prompt =
-                            Some(libllm::character::build_system_prompt(&card, Some(&tpl)));
+                        app.session.system_prompt = Some(
+                            libllm_core::character::build_system_prompt(&card, Some(&tpl)),
+                        );
                         app.session.character = Some(card.name.clone());
                         app.active_card_author_note = card.author_note.clone();
                         app.invalidate_chat_caches();
@@ -821,7 +822,7 @@ pub(super) fn commit_config_dialog(app: &mut App) {
     if !has_changes {
         app.set_status("No changes found.".to_owned(), StatusLevel::Info);
     } else {
-        let existing = libllm::config::load();
+        let existing = libllm_config::load();
         if let Err(e) =
             business::apply_tabbed_config_fields(&sections, existing, &app.cli_overrides)
         {
@@ -845,11 +846,11 @@ pub(super) fn commit_theme_dialog(app: &mut App) {
         Some(d) => d.sections().iter().map(|s| s.values.clone()).collect(),
         None => return,
     };
-    let existing = libllm::config::load();
+    let existing = libllm_config::load();
     if let Err(e) = business::apply_theme_color_sections(&sections, existing) {
         app.set_status(format!("Failed to save theme: {e}"), StatusLevel::Error);
     } else {
-        app.config = libllm::config::load();
+        app.config = libllm_config::load();
         app.theme = crate::theme::resolve_theme(&app.config);
         app.invalidate_chat_render_cache();
     }
@@ -858,7 +859,7 @@ pub(super) fn commit_theme_dialog(app: &mut App) {
 }
 
 pub(super) fn discard_theme_dialog(app: &mut App) {
-    app.config = libllm::config::load();
+    app.config = libllm_config::load();
     app.theme = crate::theme::resolve_theme(&app.config);
     app.invalidate_chat_render_cache();
     app.theme_dialog = None;

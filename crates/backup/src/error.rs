@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use libllm::crypto::CryptoError;
+use libllm_core::crypto::CryptoError;
 
 /// All errors produced by the backup crate.
 #[derive(Debug, thiserror::Error)]
@@ -288,8 +288,8 @@ pub enum BackupError {
     #[error("unwrapped DEK has wrong length: got {actual}, expected 32")]
     UnwrappedDekWrongLength { actual: usize },
 
-    // ---- libllm::crypto forwarded errors ----
-    /// A call into `libllm::crypto` (salt, key derivation, atomic write) failed.
+    // ---- libllm_core::crypto forwarded errors ----
+    /// A call into `libllm_core::crypto` (salt, key derivation, atomic write) failed.
     #[error("{0}")]
     LibllmCrypto(#[source] CryptoError),
 

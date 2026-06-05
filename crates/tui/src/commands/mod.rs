@@ -15,8 +15,8 @@ pub(super) use streaming::{
 
 use tokio::sync::mpsc;
 
-use libllm::client::StreamToken;
-use libllm::session::{self, Role, SaveMode};
+use libllm_core::session::{self, Role, SaveMode};
+use libllm_protocol::client::StreamToken;
 
 use super::business::{self, refresh_sidebar};
 use super::{App, Focus, StatusLevel, dialogs};
@@ -27,7 +27,7 @@ pub(super) async fn handle_slash_command(
     app: &mut App<'_>,
     sender: mpsc::Sender<StreamToken>,
 ) {
-    let cmd = libllm::commands::resolve_alias(cmd);
+    let cmd = libllm_core::commands::resolve_alias(cmd);
     tracing::debug!(cmd, has_arg = !arg.is_empty(), "tui.command");
     match cmd {
         "/quit" => cmd_quit(app),
@@ -70,7 +70,7 @@ fn cmd_clear(app: &mut App) {
     app.session.worldbooks.clear();
     app.session.persona = None;
     app.session.characters = vec![];
-    app.session.chat_mode = libllm::group_chat::ChatMode::default();
+    app.session.chat_mode = libllm_core::group_chat::ChatMode::default();
     app.character_cards_cache.clear();
     app.session.author_note = None;
     app.active_persona_name = None;
@@ -212,7 +212,7 @@ async fn cmd_continue(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamT
 
 /// Walks the current branch (head → root) and returns the most recent node whose
 /// assistant message was authored by `slug`, or `None` if no such message exists.
-fn most_recent_speaker_node(app: &App<'_>, slug: &str) -> Option<libllm::session::NodeId> {
+fn most_recent_speaker_node(app: &App<'_>, slug: &str) -> Option<libllm_core::session::NodeId> {
     let branch = app.session.tree.current_branch_ids();
     for &node_id in branch.iter().rev() {
         if let Some(node) = app.session.tree.node(node_id)
@@ -256,8 +256,10 @@ async fn start_group_continuation(
         .as_deref()
         .unwrap_or("Default")
         .to_owned();
-    let template =
-        libllm::preset::resolve_template_preset(&tpl_name, &libllm::config::template_presets_dir());
+    let template = libllm_core::preset::resolve_template_preset(
+        &tpl_name,
+        &libllm_config::template_presets_dir(),
+    );
     let persona = app
         .session
         .persona
@@ -266,21 +268,26 @@ async fn start_group_continuation(
     let base_system_prompt = app.session.system_prompt.clone().or_else(|| {
         app.db
             .as_ref()
-            .and_then(|db| db.load_prompt(libllm::system_prompt::BUILTIN_ROLEPLAY).ok())
+            .and_then(|db| {
+                db.load_prompt(libllm_core::system_prompt::BUILTIN_ROLEPLAY)
+                    .ok()
+            })
             .map(|p| p.content)
             .filter(|s| !s.is_empty())
     });
     let nudge_template = app.config.group_chat.nudge_prompt.clone();
 
-    let prompt = match libllm::group_chat::build_turn_prompt(libllm::group_chat::TurnPromptInputs {
-        session: app.session,
-        cards: &app.character_cards_cache,
-        persona: persona.as_ref(),
-        template: Some(&template),
-        speaker_slug,
-        base_system_prompt: base_system_prompt.as_deref(),
-        nudge_template: Some(nudge_template.as_str()),
-    }) {
+    let prompt = match libllm_core::group_chat::build_turn_prompt(
+        libllm_core::group_chat::TurnPromptInputs {
+            session: app.session,
+            cards: &app.character_cards_cache,
+            persona: persona.as_ref(),
+            template: Some(&template),
+            speaker_slug,
+            base_system_prompt: base_system_prompt.as_deref(),
+            nudge_template: Some(nudge_template.as_str()),
+        },
+    ) {
         Ok(p) => p,
         Err(e) => {
             app.set_status(
@@ -328,7 +335,7 @@ async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>
     let budget = app.context_mgr.token_limit();
     let branch_path = app.session.tree.branch_path();
     let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-    let max_drop = libllm::context::droppable_count(&summary_aware).saturating_sub(1);
+    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
 
     let render = |k: usize| -> String { streaming::build_rendered_prompt_continuation(app, k).0 };
 
@@ -395,7 +402,7 @@ fn cmd_system(app: &mut App) {
 }
 
 fn cmd_config(app: &mut App) {
-    let cfg = libllm::config::load();
+    let cfg = libllm_config::load();
     let sections = business::load_tabbed_config_sections(&cfg, &app.cli_overrides);
     let locked = business::config_locked_fields_by_section(&app.cli_overrides);
     app.config_dialog = Some(dialogs::open_config_editor(sections, locked));
@@ -492,7 +499,7 @@ fn cmd_note(app: &mut App) {
         Some(note) => (note.text.clone(), note.depth.to_string(), note.at_top),
         None => (
             String::new(),
-            libllm::author_note::DEFAULT_DEPTH.to_string(),
+            libllm_core::author_note::DEFAULT_DEPTH.to_string(),
             false,
         ),
     };
@@ -593,7 +600,7 @@ fn cmd_passkey(app: &mut App) {
 fn cmd_theme(app: &mut App, arg: &str) {
     let arg = arg.trim();
     if arg.is_empty() {
-        let cfg = libllm::config::load();
+        let cfg = libllm_config::load();
         app.theme_dialog = Some(dialogs::open_theme_editor(&cfg));
         app.focus = Focus::ThemeDialog;
         return;
@@ -612,7 +619,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
     app.theme = super::theme::resolve_theme(&app.config);
     app.invalidate_chat_render_cache();
 
-    if let Err(err) = libllm::config::save(&app.config) {
+    if let Err(err) = libllm_config::save(&app.config) {
         app.set_status(
             format!("Theme applied but failed to save config: {err}"),
             StatusLevel::Warning,
@@ -705,7 +712,7 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
     if needle.is_empty() {
         if matches!(
             app.session.chat_mode,
-            libllm::group_chat::ChatMode::Directed
+            libllm_core::group_chat::ChatMode::Directed
         ) {
             app.set_status(
                 "directed mode: use /next <name>".to_owned(),
@@ -737,8 +744,8 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
 }
 
 fn resolve_speaker_by_name(
-    chars: &[libllm::group_chat::CharacterAttachment],
-    card_cache: &std::collections::HashMap<String, libllm::character::CharacterCard>,
+    chars: &[libllm_core::group_chat::CharacterAttachment],
+    card_cache: &std::collections::HashMap<String, libllm_core::character::CharacterCard>,
     needle: &str,
 ) -> Option<String> {
     let cast: Vec<(&str, &str)> = chars
@@ -790,7 +797,7 @@ fn cmd_report(app: &mut App) {
         return;
     }
 
-    match libllm::diagnostics::copy_current_log_to(&output_path) {
+    match libllm_core::diagnostics::copy_current_log_to(&output_path) {
         Ok(()) => {
             let output_path_str = output_path.display().to_string();
             tracing::info!(
@@ -818,8 +825,8 @@ fn cmd_report(app: &mut App) {
 mod tests {
     use std::collections::HashMap;
 
-    use libllm::character::CharacterCard;
-    use libllm::group_chat::CharacterAttachment;
+    use libllm_core::character::CharacterCard;
+    use libllm_core::group_chat::CharacterAttachment;
 
     use super::resolve_speaker_by_name;
 

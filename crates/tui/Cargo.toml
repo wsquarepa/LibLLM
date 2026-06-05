@@ -7,7 +7,10 @@ edition.workspace = true
 name = "libllm_tui"
 
 [dependencies]
-libllm.workspace = true
+libllm-core.workspace = true
+libllm-storage.workspace = true
+libllm-protocol.workspace = true
+libllm-config.workspace = true
 backup.workspace = true
 anyhow.workspace = true
 arboard.workspace = true
@@ -28,7 +31,8 @@ tui-textarea-2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-libllm = { workspace = true, features = ["test-support"] }
+libllm-core = { workspace = true, features = ["test-support"] }
+libllm-config = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 
 [lints]

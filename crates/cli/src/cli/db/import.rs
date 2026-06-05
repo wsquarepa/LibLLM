@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use libllm::config::BackupConfig;
+use libllm_core::config::BackupConfig;
 
 use super::exit;
 use super::{DbContext, confirm_yes, wal_liveness_check};
@@ -17,7 +17,7 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
     }
 
     let plain_version = read_schema_version(path)?;
-    let expected = libllm::db::CURRENT_VERSION;
+    let expected = libllm_storage::db::CURRENT_VERSION;
     if plain_version != expected {
         eprintln!(
             "plaintext schema version {plain_version} does not match \
@@ -106,7 +106,7 @@ fn read_schema_version(path: &Path) -> Result<i64> {
 fn build_replacement(
     tmp_path: &Path,
     plain_path: &Path,
-    key: Option<&libllm::crypto::DerivedKey>,
+    key: Option<&libllm_core::crypto::DerivedKey>,
 ) -> Result<()> {
     let conn = rusqlite::Connection::open(tmp_path)
         .with_context(|| format!("failed to open tmp db: {}", tmp_path.display()))?;

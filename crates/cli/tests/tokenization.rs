@@ -9,8 +9,8 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use libllm::client::ApiClient;
-use libllm::tokenizer::{TokenCounter, TokenizerKind};
+use libllm_protocol::client::ApiClient;
+use libllm_protocol::tokenizer::{TokenCounter, TokenizerKind};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -26,7 +26,7 @@ async fn server_backend_selected_when_tokenize_available() {
         .await;
 
     let base = format!("{}/v1", server.uri());
-    let client = ApiClient::new(&base, false, libllm::config::Auth::None);
+    let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let counter = TokenCounter::new(client, tx).await;
     assert_eq!(counter.kind(), TokenizerKind::Server);
@@ -42,7 +42,7 @@ async fn heuristic_backend_selected_on_404() {
         .await;
 
     let base = format!("{}/v1", server.uri());
-    let client = ApiClient::new(&base, false, libllm::config::Auth::None);
+    let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let counter = TokenCounter::new(client, tx).await;
     assert_eq!(counter.kind(), TokenizerKind::Heuristic);
@@ -65,7 +65,7 @@ async fn count_authoritative_calls_server_on_miss_and_caches_on_hit() {
         .await;
 
     let base = format!("{}/v1", server.uri());
-    let client = ApiClient::new(&base, false, libllm::config::Auth::None);
+    let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let counter = TokenCounter::new(client, tx).await;
 

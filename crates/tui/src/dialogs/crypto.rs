@@ -1,7 +1,7 @@
 //! Background key derivation and database open/rekey for passkey dialogs.
 
 use crate::BackgroundEvent;
-use libllm::crypto::DerivedKey;
+use libllm_core::crypto::DerivedKey;
 
 fn log_phase(kind: &str, phase: &str, result: &str, elapsed: std::time::Duration) {
     let elapsed_ms = format!("{:.3}", elapsed.as_secs_f64() * 1000.0);
@@ -47,7 +47,7 @@ where
     let total_start = std::time::Instant::now();
 
     let salt_start = std::time::Instant::now();
-    let salt_result = libllm::crypto::load_or_create_salt(&salt_path);
+    let salt_result = libllm_core::crypto::load_or_create_salt(&salt_path);
     log_phase_with_path(
         debug_kind,
         "salt",
@@ -64,7 +64,7 @@ where
     };
 
     let derive_start = std::time::Instant::now();
-    let derive_result = libllm::crypto::derive_key(&passkey, &salt);
+    let derive_result = libllm_core::crypto::derive_key(&passkey, &salt);
     log_phase(
         debug_kind,
         "argon2",
@@ -89,13 +89,13 @@ mod tests {
     use super::*;
 
     // `derive_key_blocking` must use the caller-provided `salt_path` rather
-    // than re-resolving it through `libllm::config::salt_path()`. Running the
+    // than re-resolving it through `libllm_config::salt_path()`. Running the
     // function on a thread that does not share the caller's
     // `DATA_DIR_OVERRIDE` proves the parameter is honoured.
     #[test]
     fn derive_key_blocking_uses_caller_provided_salt_path() {
         let data_dir = tempfile::tempdir().unwrap();
-        libllm::config::set_data_dir(data_dir.path().to_path_buf()).ok();
+        libllm_config::set_data_dir(data_dir.path().to_path_buf()).ok();
 
         let target_dir = tempfile::tempdir().unwrap();
         let target_salt_path = target_dir.path().join(".salt");

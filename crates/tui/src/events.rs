@@ -7,7 +7,7 @@ use ratatui::layout::{Position, Rect};
 use tokio::sync::mpsc;
 use tui_textarea::{CursorMove, TextArea};
 
-use libllm::client::StreamToken;
+use libllm_protocol::client::StreamToken;
 
 use crate::dialogs::chat_settings::ChatSettingsAction;
 use crate::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
@@ -127,7 +127,7 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
 /// If `raw` resolves to an existing, supported file, return the
 /// canonical `@<path>` string to insert. Otherwise return `None` so the
 /// caller falls through to raw paste. Silent on any resolution failure.
-fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> Option<String> {
+fn paste_as_file_reference(raw: &str, config: &libllm_core::config::FilesConfig) -> Option<String> {
     if !config.enabled {
         return None;
     }
@@ -142,7 +142,7 @@ fn paste_as_file_reference(raw: &str, config: &libllm::config::FilesConfig) -> O
         return None;
     }
     let bytes = std::fs::read(&canonical).ok()?;
-    libllm::files::classify(&canonical, &bytes).ok()?;
+    libllm_core::files::classify(&canonical, &bytes).ok()?;
     let display = canonical.to_string_lossy();
     format_at_token(&display)
 }
@@ -336,7 +336,7 @@ pub(super) async fn process_action(
 }
 
 fn file_ref_paths(raw: &str) -> Vec<String> {
-    libllm::files::file_reference_ranges(raw)
+    libllm_core::files::file_reference_ranges(raw)
         .into_iter()
         .filter(|r| r.path() != "stdin")
         .map(|r| r.path().to_owned())
@@ -345,7 +345,7 @@ fn file_ref_paths(raw: &str) -> Vec<String> {
 
 pub(crate) fn handle_edit_message(
     app: &mut App<'_>,
-    node_id: libllm::session::NodeId,
+    node_id: libllm_core::session::NodeId,
     content: String,
 ) {
     let (old_role, old_content, old_thought_seconds) = match app.session.tree.node(node_id) {
@@ -366,8 +366,8 @@ pub(crate) fn handle_edit_message(
     let file_refs_unchanged = file_ref_paths(&old_content) == file_ref_paths(&content);
 
     if file_refs_unchanged {
-        let resolved_thought_seconds = if old_role == libllm::session::Role::Assistant {
-            libllm::thought::resolve_thought_seconds(
+        let resolved_thought_seconds = if old_role == libllm_core::session::Role::Assistant {
+            libllm_core::thought::resolve_thought_seconds(
                 &content,
                 old_thought_seconds,
                 None,
@@ -392,9 +392,9 @@ pub(crate) fn handle_edit_message(
     }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let sys_messages = match libllm::files::resolve_all(&content, &cwd, &app.config.files) {
+    let sys_messages = match libllm_core::files::resolve_all(&content, &cwd, &app.config.files) {
         Ok(v) => v,
-        Err(libllm::files::FileError::Collision { path, kind }) => {
+        Err(libllm_core::files::FileError::Collision { path, kind }) => {
             crate::dialogs::injection_warning::open(app, &path, kind);
             return;
         }
@@ -405,7 +405,7 @@ pub(crate) fn handle_edit_message(
     };
 
     match (
-        app.config.files.summarize_mode == libllm::config::FileSummarizeMode::Eager,
+        app.config.files.summarize_mode == libllm_core::config::FileSummarizeMode::Eager,
         app.config.summarization.enabled,
         app.save_mode.id(),
         app.file_summarizer.as_ref(),
@@ -426,7 +426,7 @@ pub(crate) fn handle_edit_message(
             "files.summary.eager_schedule.skipped"
         ),
         (true, true, Some(session_id), Some(summarizer)) => {
-            let to_summarize = libllm::files::files_to_summarize_from_messages(&sys_messages);
+            let to_summarize = libllm_core::files::files_to_summarize_from_messages(&sys_messages);
             tracing::info!(
                 session_id = %session_id,
                 file_count = to_summarize.len(),
@@ -447,7 +447,7 @@ pub(crate) fn handle_edit_message(
     }
     let new_user = app.session.tree.push(
         parent,
-        libllm::session::Message::new(libllm::session::Role::User, content),
+        libllm_core::session::Message::new(libllm_core::session::Role::User, content),
     );
 
     app.session.tree.switch_to(new_user);
@@ -684,7 +684,7 @@ fn handle_key(
                 if let Some(state) = app.danger_typed_confirm.take() {
                     crate::commands::danger::spawn_destroy_all(
                         app.bg_tx.clone(),
-                        libllm::config::data_dir(),
+                        libllm_config::data_dir(),
                         state.snapshot_path,
                         app.file_summarizer.clone(),
                     );
@@ -707,9 +707,9 @@ fn handle_key(
                 let preset_name = preset.name.clone();
                 app.instruct_preset = preset;
                 app.stop_tokens = app.instruct_preset.stop_tokens();
-                let mut config = libllm::config::load();
+                let mut config = libllm_config::load();
                 config.instruct_preset = Some(preset_name.clone());
-                if let Err(err) = libllm::config::save(&config) {
+                if let Err(err) = libllm_config::save(&config) {
                     tracing::warn!(result = "error", error = %err, "template_prompt.config_save_failed");
                     app.set_status(
                         "Preset switched for session; couldn't save to config".to_owned(),
@@ -1491,7 +1491,7 @@ mod paste_tests {
 
     #[test]
     fn non_file_paste_returns_none() {
-        let cfg = libllm::config::FilesConfig::default();
+        let cfg = libllm_core::config::FilesConfig::default();
         assert!(paste_as_file_reference("not a path", &cfg).is_none());
     }
 
@@ -1500,7 +1500,7 @@ mod paste_tests {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("a.md");
         std::fs::write(&p, "hello").unwrap();
-        let cfg = libllm::config::FilesConfig::default();
+        let cfg = libllm_core::config::FilesConfig::default();
         let out = paste_as_file_reference(p.to_str().unwrap(), &cfg).unwrap();
         assert!(out.starts_with("@"));
         assert!(out.contains("a.md"));
@@ -1511,7 +1511,7 @@ mod paste_tests {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("bin");
         std::fs::write(&p, [0x89u8, 0x50, 0x4E, 0x47, 0, 0, 0, 0]).unwrap();
-        let cfg = libllm::config::FilesConfig::default();
+        let cfg = libllm_core::config::FilesConfig::default();
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }
 
@@ -1520,11 +1520,11 @@ mod paste_tests {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("a.md");
         std::fs::write(&p, "hello").unwrap();
-        let cfg = libllm::config::FilesConfig {
+        let cfg = libllm_core::config::FilesConfig {
             enabled: false,
             per_file_bytes: 524_288,
             per_message_bytes: 4_194_304,
-            ..libllm::config::FilesConfig::default()
+            ..libllm_core::config::FilesConfig::default()
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }
@@ -1534,11 +1534,11 @@ mod paste_tests {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("big.md");
         std::fs::write(&p, vec![b'x'; 2000]).unwrap();
-        let cfg = libllm::config::FilesConfig {
+        let cfg = libllm_core::config::FilesConfig {
             enabled: true,
             per_file_bytes: 1000,
             per_message_bytes: 4_194_304,
-            ..libllm::config::FilesConfig::default()
+            ..libllm_core::config::FilesConfig::default()
         };
         assert!(paste_as_file_reference(p.to_str().unwrap(), &cfg).is_none());
     }
@@ -1548,7 +1548,7 @@ mod paste_tests {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("Lecture 29 notes.md");
         std::fs::write(&p, "body").unwrap();
-        let cfg = libllm::config::FilesConfig::default();
+        let cfg = libllm_core::config::FilesConfig::default();
         let out =
             paste_as_file_reference(p.to_str().unwrap(), &cfg).expect("spaced path should paste");
         assert!(out.starts_with(r#"@""#));
@@ -1561,7 +1561,7 @@ mod paste_tests {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("plain.md");
         std::fs::write(&p, "body").unwrap();
-        let cfg = libllm::config::FilesConfig::default();
+        let cfg = libllm_core::config::FilesConfig::default();
         let out = paste_as_file_reference(p.to_str().unwrap(), &cfg).unwrap();
         assert!(out.starts_with('@'));
         assert!(!out.starts_with(r#"@""#));

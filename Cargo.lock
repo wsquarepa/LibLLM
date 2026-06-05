@@ -205,7 +205,7 @@ dependencies = [
  "chrono",
  "clap",
  "hkdf",
- "libllm",
+ "libllm-core",
  "rand 0.10.1",
  "rusqlite",
  "serde",
@@ -1824,16 +1824,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
-name = "libllm"
-version = "3.1.4"
-dependencies = [
- "libllm-config",
- "libllm-core",
- "libllm-protocol",
- "libllm-storage",
-]
-
-[[package]]
 name = "libllm-cli"
 version = "3.1.4"
 dependencies = [
@@ -1845,7 +1835,10 @@ dependencies = [
  "dialoguer",
  "dirs",
  "futures-util",
- "libllm",
+ "libllm-config",
+ "libllm-core",
+ "libllm-protocol",
+ "libllm-storage",
  "libllm-tui",
  "rand 0.10.1",
  "regex",
@@ -1955,7 +1948,10 @@ dependencies = [
  "crossterm",
  "dirs",
  "futures-util",
- "libllm",
+ "libllm-config",
+ "libllm-core",
+ "libllm-protocol",
+ "libllm-storage",
  "rand 0.10.1",
  "ratatui",
  "regex",

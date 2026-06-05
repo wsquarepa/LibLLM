@@ -88,12 +88,12 @@ pub(crate) fn handle_passkey_key(
             let passkey = app.passkey_input.clone();
             if !matches!(
                 &app.save_mode,
-                libllm::session::SaveMode::PendingPasskey { .. }
+                libllm_core::session::SaveMode::PendingPasskey { .. }
             ) {
                 return None;
             }
-            let db_path = libllm::config::data_dir().join("data.db");
-            let salt_path = libllm::config::salt_path();
+            let db_path = libllm_config::data_dir().join("data.db");
+            let salt_path = libllm_config::salt_path();
             app.resolved_passkey = Some(passkey.clone());
             app.passkey_input.clear();
             app.passkey_error.clear();
@@ -108,7 +108,7 @@ pub(crate) fn handle_passkey_key(
                     super::derive_key_blocking(salt_path, passkey, "unlock", |derived_key| {
                         let verify_start = std::time::Instant::now();
                         let verify_result =
-                            libllm::db::Database::open(&db_path, Some(&derived_key));
+                            libllm_storage::db::Database::open(&db_path, Some(&derived_key));
                         let verify_status = if verify_result.is_ok() {
                             "ok"
                         } else {

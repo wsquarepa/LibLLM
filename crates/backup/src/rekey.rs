@@ -24,7 +24,7 @@ pub fn sidecar_path(backups_dir: &Path) -> PathBuf {
 
 pub fn write_journal(backups_dir: &Path, journal: &RekeyJournal) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(journal).map_err(BackupError::RekeyJournalSerialize)?;
-    libllm::crypto::write_atomic(&journal_path(backups_dir), &bytes)
+    libllm_core::crypto::write_atomic(&journal_path(backups_dir), &bytes)
         .map_err(BackupError::RekeyJournalWrite)
 }
 
@@ -232,7 +232,7 @@ mod tests {
         let id = "20260421T020000.000Z".to_string();
         let filename = backup_filename(&id, BackupType::Base);
         let payload = encrypt_payload(b"hi", &dek).unwrap();
-        libllm::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
+        libllm_core::crypto::write_atomic(&backups_dir.join(&filename), &payload).unwrap();
         let entry = BackupEntry {
             id: id.clone(),
             entry_type: BackupType::Base,

@@ -1,5 +1,5 @@
 [workspace]
-members = ["libllm", "client", "backup"]
+members = ["crates/libllm", "crates/client", "crates/backup"]
 resolver = "3"
 
 [workspace.package]
@@ -14,8 +14,8 @@ unsafe_op_in_unsafe_fn = "deny"
 allow_attributes = "deny"
 
 [workspace.dependencies]
-libllm = { path = "libllm" }
-backup = { path = "backup" }
+libllm = { path = "crates/libllm" }
+backup = { path = "crates/backup" }
 
 anyhow = "1"
 arboard = "3"

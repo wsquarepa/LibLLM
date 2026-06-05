@@ -28,7 +28,7 @@ pub use snapshot::{
 };
 pub use summary::{
     FileSummary, FileSummaryLookup, FileSummaryStatus, FileToSummarize, NullFileSummaryLookup,
-    ReadyEvent, ScopedFileSummaryLookup, SessionScopedLookup,
+    ParseFileSummaryStatusError, ReadyEvent, ScopedFileSummaryLookup, SessionScopedLookup,
 };
 
 /// Content-addressed hash of `bytes`, rendered as lowercase hex.

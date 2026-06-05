@@ -2,7 +2,6 @@
 //! by rendering both sides over a fixed canonical conversation, normalizing the result,
 //! and scoring with normalized Levenshtein distance.
 
-use anyhow::{Context, Result};
 use minijinja::{Environment, UndefinedBehavior, Value};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -102,6 +101,19 @@ impl CanonicalContext {
     }
 }
 
+/// Error returned when rendering a Jinja chat template fails.
+#[derive(Debug, thiserror::Error)]
+pub enum RenderTemplateError {
+    #[error("failed to parse server chat_template: {0}")]
+    Parse(minijinja::Error),
+
+    #[error("failed to render server chat_template: {0}")]
+    Render(minijinja::Error),
+
+    #[error("rendered chat_template output exceeds {max_bytes} bytes")]
+    OutputTooLarge { max_bytes: usize },
+}
+
 const RENDER_FUEL: u64 = 1_000_000;
 
 // minijinja's fuel cap counts VM instructions, not allocated bytes. String-repeat
@@ -116,12 +128,12 @@ const MAX_RENDER_BYTES: usize = 1024 * 1024;
 /// Fuel cap of `RENDER_FUEL` instructions blocks crafted templates that expand
 /// unboundedly (e.g. `{{ 'A' * 50000000 }}`). Real templates consume under 5 000
 /// instructions; 1 000 000 is a 200x safety margin.
-pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
+pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String, RenderTemplateError> {
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Lenient);
     env.set_fuel(Some(RENDER_FUEL));
     env.add_template("chat", template)
-        .context("failed to parse server chat_template")?;
+        .map_err(RenderTemplateError::Parse)?;
     let tmpl = env.get_template("chat").expect("just added");
     let value = Value::from_serialize(serde_json::json!({
         "messages": ctx.messages,
@@ -129,14 +141,12 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String> {
         "eos_token": ctx.eos_token,
         "add_generation_prompt": ctx.add_generation_prompt,
     }));
-    let rendered = tmpl
-        .render(value)
-        .context("failed to render server chat_template")?;
-    anyhow::ensure!(
-        rendered.len() <= MAX_RENDER_BYTES,
-        "rendered chat_template output exceeds {} bytes",
-        MAX_RENDER_BYTES
-    );
+    let rendered = tmpl.render(value).map_err(RenderTemplateError::Render)?;
+    if rendered.len() > MAX_RENDER_BYTES {
+        return Err(RenderTemplateError::OutputTooLarge {
+            max_bytes: MAX_RENDER_BYTES,
+        });
+    }
     Ok(rendered)
 }
 

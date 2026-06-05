@@ -156,8 +156,17 @@ impl ChatMode {
 
 use std::collections::HashMap;
 
-use anyhow::{Result, anyhow, ensure};
 use rand::{Rng, RngExt};
+
+/// Error returned when building a group-chat turn prompt fails.
+#[derive(Debug, thiserror::Error)]
+pub enum BuildTurnPromptError {
+    #[error("speaker {0} is not attached to this session")]
+    SpeakerNotAttached(String),
+
+    #[error("missing card for speaker {0}")]
+    MissingCard(String),
+}
 
 use crate::character::CharacterCard;
 use crate::persona::PersonaFile;
@@ -204,20 +213,21 @@ pub struct TurnPromptInputs<'a> {
 /// returned separately so the caller can inject it as a system message immediately
 /// before the assistant turn opens. `{{char}}` and `{{user}}` macros are substituted
 /// throughout.
-pub fn build_turn_prompt(inputs: TurnPromptInputs<'_>) -> Result<TurnPrompt> {
-    ensure!(
-        inputs
-            .session
-            .characters
-            .iter()
-            .any(|a| a.slug == inputs.speaker_slug),
-        "speaker {} is not attached to this session",
-        inputs.speaker_slug,
-    );
+pub fn build_turn_prompt(inputs: TurnPromptInputs<'_>) -> Result<TurnPrompt, BuildTurnPromptError> {
+    if !inputs
+        .session
+        .characters
+        .iter()
+        .any(|a| a.slug == inputs.speaker_slug)
+    {
+        return Err(BuildTurnPromptError::SpeakerNotAttached(
+            inputs.speaker_slug.to_owned(),
+        ));
+    }
     let active_card = inputs
         .cards
         .get(inputs.speaker_slug)
-        .ok_or_else(|| anyhow!("missing card for speaker {}", inputs.speaker_slug))?;
+        .ok_or_else(|| BuildTurnPromptError::MissingCard(inputs.speaker_slug.to_owned()))?;
 
     let live: Vec<(&str, &CharacterCard)> = inputs
         .session

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// A named collection of lorebook entries with keyword-activated content injection.
@@ -64,11 +63,21 @@ struct RawEntry {
 
 const DEFAULT_SCAN_DEPTH: usize = 4;
 
+/// Error returned when parsing a worldbook from JSON fails.
+#[derive(Debug, thiserror::Error)]
+pub enum ParseWorldBookError {
+    #[error("failed to parse worldbook JSON: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
 /// Parses a worldbook from JSON, accepting both the normalized format and the SillyTavern legacy format.
 ///
 /// Disabled and empty-content entries are filtered out. Uses `fallback_name` when the
 /// JSON does not include a `name` field.
-pub fn parse_worldbook_json(contents: &str, fallback_name: &str) -> Result<WorldBook> {
+pub fn parse_worldbook_json(
+    contents: &str,
+    fallback_name: &str,
+) -> Result<WorldBook, ParseWorldBookError> {
     crate::timed_result!(tracing::Level::INFO, "worldinfo.parse", bytes = contents.len() ; {
         if let Ok(normalized) = serde_json::from_str::<WorldBook>(contents) {
             tracing::info!(
@@ -80,8 +89,7 @@ pub fn parse_worldbook_json(contents: &str, fallback_name: &str) -> Result<World
             return Ok(normalized);
         }
 
-        let raw: RawWorldBook =
-            serde_json::from_str(contents).context("failed to parse worldbook JSON")?;
+        let raw: RawWorldBook = serde_json::from_str(contents)?;
 
         let fallback_name_used = raw.name.is_none();
         let name = raw

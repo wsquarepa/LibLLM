@@ -1884,7 +1884,6 @@ dependencies = [
 name = "libllm-core"
 version = "3.1.4"
 dependencies = [
- "anyhow",
  "argon2",
  "base64",
  "dirs",

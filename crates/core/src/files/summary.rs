@@ -3,8 +3,12 @@
 //! The stateful orchestrator lives in `client::file_summarizer` because it
 //! depends on both the database and the HTTP client.
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+/// Error returned when parsing a [`FileSummaryStatus`] from an unrecognized string.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown file_summaries.status: {0}")]
+pub struct ParseFileSummaryStatusError(pub String);
 
 /// Lifecycle of a cached file summary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,12 +28,12 @@ impl FileSummaryStatus {
         }
     }
 
-    pub fn parse(s: &str) -> Result<Self> {
+    pub fn parse(s: &str) -> Result<Self, ParseFileSummaryStatusError> {
         match s {
             "pending" => Ok(Self::Pending),
             "done" => Ok(Self::Done),
             "failed" => Ok(Self::Failed),
-            other => Err(anyhow::anyhow!("unknown file_summaries.status: {other}")),
+            other => Err(ParseFileSummaryStatusError(other.to_owned())),
         }
     }
 }

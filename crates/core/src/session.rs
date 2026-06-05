@@ -5,7 +5,6 @@ use std::fmt;
 #[cfg(debug_assertions)]
 use std::time::Instant;
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Controls whether and how a session is persisted to the database.
@@ -73,16 +72,21 @@ impl fmt::Display for Role {
     }
 }
 
-impl std::str::FromStr for Role {
-    type Err = anyhow::Error;
+/// Error returned when parsing a [`Role`] from an unrecognized string.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown role: {0}")]
+pub struct ParseRoleError(pub String);
 
-    fn from_str(s: &str) -> Result<Self> {
+impl std::str::FromStr for Role {
+    type Err = ParseRoleError;
+
+    fn from_str(s: &str) -> Result<Self, ParseRoleError> {
         match s {
             "user" => Ok(Self::User),
             "assistant" => Ok(Self::Assistant),
             "system" => Ok(Self::System),
             "summary" => Ok(Self::Summary),
-            _ => anyhow::bail!("unknown role: {s}"),
+            _ => Err(ParseRoleError(s.to_owned())),
         }
     }
 }

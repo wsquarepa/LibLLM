@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use anyhow::{Context, Result};
 use time::macros::format_description;
 use tracing::Subscriber;
 use tracing::span::{Attributes, Id};
@@ -81,11 +80,17 @@ impl TimingCollector {
         });
     }
 
-    pub(super) fn write_report(&mut self, debug_path: &Path) -> Result<()> {
+    pub(super) fn write_report(
+        &mut self,
+        debug_path: &Path,
+    ) -> Result<(), super::DiagnosticsError> {
         let end_wall = local_now();
         let run_duration_ms = self.start_instant.elapsed().as_secs_f64() * 1000.0;
-        let mut file = create_output_file(&self.path, false, true).with_context(|| {
-            format!("failed to create timings report at {}", self.path.display())
+        let mut file = create_output_file(&self.path, false, true).map_err(|e| {
+            super::DiagnosticsError::Io {
+                context: format!("failed to create timings report at {}", self.path.display()),
+                source: e,
+            }
         })?;
 
         writeln!(file, "LibLLM Timings Report")?;

@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use anyhow::{Context, Result, anyhow};
 use time::macros::format_description;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -30,6 +29,37 @@ use timings::{TimingCollector, TimingLayer};
 
 const TEMP_LOG_PREFIX: &str = "libllm-debug-";
 
+/// Errors from diagnostics initialization, log cleanup, log copying, and report writing.
+#[derive(Debug, thiserror::Error)]
+pub enum DiagnosticsError {
+    #[error("{context}: {source}")]
+    Io {
+        context: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("diagnostics already initialized")]
+    AlreadyInitialized,
+
+    #[error("diagnostics are not initialized")]
+    NotInitialized,
+
+    #[error("no debug log file is active (run with --debug or --timings to enable)")]
+    NoDebugLog,
+
+    #[error("invalid filter directive: {directive}: {source}")]
+    InvalidFilter {
+        directive: String,
+        #[source]
+        source: tracing_subscriber::filter::ParseError,
+    },
+
+    /// Wraps an I/O error from writing a timings report or log file.
+    #[error("write failed: {0}")]
+    Write(#[from] std::io::Error),
+}
+
 pub struct CleanupSummary {
     pub removed: usize,
     pub failed: usize,
@@ -40,7 +70,7 @@ pub struct DiagnosticsGuard;
 struct DiagnosticsState {
     debug_path: Option<PathBuf>,
     debug_file: Option<Mutex<File>>,
-    timing_layer_finalizer: Option<Box<dyn Fn() -> Result<()> + Send + Sync>>,
+    timing_layer_finalizer: Option<Box<dyn Fn() -> Result<(), DiagnosticsError> + Send + Sync>>,
 }
 
 static DIAGNOSTICS: OnceLock<DiagnosticsState> = OnceLock::new();
@@ -73,9 +103,9 @@ pub struct InitParams<'a> {
     pub filter_env: Option<&'a str>,
 }
 
-pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
+pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard, DiagnosticsError> {
     if DIAGNOSTICS.get().is_some() {
-        anyhow::bail!("diagnostics already initialized");
+        return Err(DiagnosticsError::AlreadyInitialized);
     }
 
     let debug_opted_in = params.debug_override.is_some();
@@ -128,9 +158,21 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
                 wall_clock: &wall_clock,
             });
             file.write_all(banner_text.as_bytes())
-                .with_context(|| format!("failed to write banner to {}", path.display()))?;
-            file.flush()?;
-            let layer = FileLayer::new(start, file.try_clone()?);
+                .map_err(|e| DiagnosticsError::Io {
+                    context: format!("failed to write banner to {}", path.display()),
+                    source: e,
+                })?;
+            file.flush().map_err(|e| DiagnosticsError::Io {
+                context: "failed to flush banner".to_owned(),
+                source: e,
+            })?;
+            let layer = FileLayer::new(
+                start,
+                file.try_clone().map_err(|e| DiagnosticsError::Io {
+                    context: "failed to clone log file handle".to_owned(),
+                    source: e,
+                })?,
+            );
             (Some(path), Some(file), Some(layer))
         }
         None => (None, None, None),
@@ -144,17 +186,22 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
             )));
             let layer = TimingLayer::new(Arc::clone(&collector));
             let finalizer_path = debug_path.clone().unwrap_or_default();
-            let finalizer: Box<dyn Fn() -> Result<()> + Send + Sync> = Box::new(move || {
-                let mut c = collector.lock().unwrap_or_else(|p| p.into_inner());
-                c.write_report(&finalizer_path)
-            });
+            let finalizer: Box<dyn Fn() -> Result<(), DiagnosticsError> + Send + Sync> =
+                Box::new(move || {
+                    let mut c = collector.lock().unwrap_or_else(|p| p.into_inner());
+                    c.write_report(&finalizer_path)
+                });
             (Some(layer), Some(finalizer))
         }
         None => (None, None),
     };
 
-    let env_filter = EnvFilter::try_new(&filter.directive)
-        .with_context(|| format!("invalid filter directive: {}", filter.directive))?;
+    let env_filter = EnvFilter::try_new(&filter.directive).map_err(|source| {
+        DiagnosticsError::InvalidFilter {
+            directive: filter.directive.clone(),
+            source,
+        }
+    })?;
 
     let state = DiagnosticsState {
         debug_path,
@@ -163,7 +210,7 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
     };
     DIAGNOSTICS
         .set(state)
-        .map_err(|_| anyhow!("diagnostics already initialized"))?;
+        .map_err(|_| DiagnosticsError::AlreadyInitialized)?;
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -181,10 +228,12 @@ pub fn init(params: InitParams<'_>) -> Result<DiagnosticsGuard> {
     Ok(DiagnosticsGuard)
 }
 
-pub fn cleanup_temp_logs() -> Result<CleanupSummary> {
+pub fn cleanup_temp_logs() -> Result<CleanupSummary, DiagnosticsError> {
     let temp_dir = std::env::temp_dir();
-    let entries = std::fs::read_dir(&temp_dir)
-        .with_context(|| format!("failed to read temp directory: {}", temp_dir.display()))?;
+    let entries = std::fs::read_dir(&temp_dir).map_err(|e| DiagnosticsError::Io {
+        context: format!("failed to read temp directory: {}", temp_dir.display()),
+        source: e,
+    })?;
     let mut removed = 0usize;
     let mut failed = 0usize;
     for entry in entries {
@@ -205,43 +254,56 @@ pub fn cleanup_temp_logs() -> Result<CleanupSummary> {
     Ok(CleanupSummary { removed, failed })
 }
 
-pub fn copy_current_log_to(path: &Path) -> Result<()> {
+pub fn copy_current_log_to(path: &Path) -> Result<(), DiagnosticsError> {
     let Some(state) = DIAGNOSTICS.get() else {
-        anyhow::bail!("diagnostics are not initialized");
+        return Err(DiagnosticsError::NotInitialized);
     };
     let Some(ref debug_path) = state.debug_path else {
-        anyhow::bail!("no debug log file is active (run with --debug or --timings to enable)");
+        return Err(DiagnosticsError::NoDebugLog);
     };
     if let Some(ref file) = state.debug_file
         && let Ok(mut file) = file.lock()
     {
         let _ = file.flush();
     }
-    let mut source = File::open(debug_path).with_context(|| {
-        format!(
+    let mut source = File::open(debug_path).map_err(|e| DiagnosticsError::Io {
+        context: format!(
             "failed to open active debug log at {}",
             debug_path.display()
-        )
+        ),
+        source: e,
     })?;
     let mut destination = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .open(path)
-        .with_context(|| format!("failed to create {}", path.display()))?;
-    std::io::copy(&mut source, &mut destination)
-        .with_context(|| format!("failed to copy debug log to {}", path.display()))?;
-    destination.flush()?;
-    crate::crypto::chmod_0600(path)
-        .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+        .map_err(|e| DiagnosticsError::Io {
+            context: format!("failed to create {}", path.display()),
+            source: e,
+        })?;
+    std::io::copy(&mut source, &mut destination).map_err(|e| DiagnosticsError::Io {
+        context: format!("failed to copy debug log to {}", path.display()),
+        source: e,
+    })?;
+    destination.flush().map_err(|e| DiagnosticsError::Io {
+        context: "failed to flush destination log file".to_owned(),
+        source: e,
+    })?;
+    crate::crypto::chmod_0600(path).map_err(|source| DiagnosticsError::Io {
+        context: format!("failed to set permissions on {}", path.display()),
+        source,
+    })?;
     Ok(())
 }
 
-fn open_debug_file(debug_override: Option<&Path>) -> Result<(PathBuf, File)> {
+fn open_debug_file(debug_override: Option<&Path>) -> Result<(PathBuf, File), DiagnosticsError> {
     match debug_override {
         Some(path) => {
-            let file = create_output_file(path, false, true)
-                .with_context(|| format!("failed to create debug log at {}", path.display()))?;
+            let file = create_output_file(path, false, true).map_err(|e| DiagnosticsError::Io {
+                context: format!("failed to create debug log at {}", path.display()),
+                source: e,
+            })?;
             Ok((path.to_path_buf(), file))
         }
         None => {
@@ -250,8 +312,11 @@ fn open_debug_file(debug_override: Option<&Path>) -> Result<(PathBuf, File)> {
                 std::process::id(),
                 uuid::Uuid::new_v4()
             ));
-            let file = create_output_file(&path, true, false)
-                .with_context(|| format!("failed to create debug log at {}", path.display()))?;
+            let file =
+                create_output_file(&path, true, false).map_err(|e| DiagnosticsError::Io {
+                    context: format!("failed to create debug log at {}", path.display()),
+                    source: e,
+                })?;
             Ok((path, file))
         }
     }

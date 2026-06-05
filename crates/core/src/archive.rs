@@ -5,19 +5,79 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
 const ZSTD_LEVEL: i32 = 3;
 
+/// Errors from creating a tar+zstd snapshot of a directory.
+#[derive(Debug, thiserror::Error)]
+pub enum ArchiveError {
+    #[error("failed to create snapshot file: {path}: {source}")]
+    CreateFile {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to initialize zstd encoder: {0}")]
+    ZstdInit(std::io::Error),
+
+    #[error("walkdir failed: {0}")]
+    WalkDir(walkdir::Error),
+
+    #[error("failed to append dir to tar: {path}: {source}")]
+    AppendDir {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to open file for snapshot: {path}: {source}")]
+    OpenFile {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to append file to tar: {path}: {source}")]
+    AppendFile {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to finalize tar: {0}")]
+    FinalizeTar(std::io::Error),
+
+    #[error("failed to finalize zstd: {0}")]
+    FinalizeZstd(std::io::Error),
+
+    #[error("failed to flush snapshot file: {0}")]
+    Flush(std::io::Error),
+
+    #[error("failed to stat snapshot file: {path}: {source}")]
+    StatFile {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// Walks `data_dir`, packs every file into a tar stream wrapped in zstd, writes to
 /// `output_path`. Skips any path whose first component within `data_dir` matches
 /// `exclude_subdir`. Returns the number of bytes written to `output_path`.
-pub fn snapshot_data_dir(data_dir: &Path, output_path: &Path, exclude_subdir: &str) -> Result<u64> {
-    let file = crate::crypto::create_file_restricted(output_path)
-        .with_context(|| format!("failed to create snapshot file: {}", output_path.display()))?;
-    let zstd_encoder =
-        zstd::Encoder::new(file, ZSTD_LEVEL).context("failed to initialize zstd encoder")?;
+pub fn snapshot_data_dir(
+    data_dir: &Path,
+    output_path: &Path,
+    exclude_subdir: &str,
+) -> Result<u64, ArchiveError> {
+    let file = crate::crypto::create_file_restricted(output_path).map_err(|source| {
+        ArchiveError::CreateFile {
+            path: output_path.to_path_buf(),
+            source,
+        }
+    })?;
+    let zstd_encoder = zstd::Encoder::new(file, ZSTD_LEVEL).map_err(ArchiveError::ZstdInit)?;
     let mut tar = tar::Builder::new(zstd_encoder);
     tar.mode(tar::HeaderMode::Deterministic);
 
@@ -32,7 +92,7 @@ pub fn snapshot_data_dir(data_dir: &Path, output_path: &Path, exclude_subdir: &s
             Err(_) => true,
         }
     }) {
-        let entry = entry.context("walkdir failed")?;
+        let entry = entry.map_err(ArchiveError::WalkDir)?;
         let path = entry.path();
         let rel = path.strip_prefix(data_dir).unwrap_or(path);
         if rel.as_os_str().is_empty() {
@@ -40,20 +100,31 @@ pub fn snapshot_data_dir(data_dir: &Path, output_path: &Path, exclude_subdir: &s
         }
         if entry.file_type().is_dir() {
             tar.append_dir(rel, path)
-                .with_context(|| format!("failed to append dir to tar: {}", path.display()))?;
+                .map_err(|e| ArchiveError::AppendDir {
+                    path: path.to_path_buf(),
+                    source: e,
+                })?;
         } else if entry.file_type().is_file() {
-            let mut f = File::open(path)
-                .with_context(|| format!("failed to open file for snapshot: {}", path.display()))?;
+            let mut f = File::open(path).map_err(|e| ArchiveError::OpenFile {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
             tar.append_file(rel, &mut f)
-                .with_context(|| format!("failed to append file to tar: {}", path.display()))?;
+                .map_err(|e| ArchiveError::AppendFile {
+                    path: path.to_path_buf(),
+                    source: e,
+                })?;
         }
     }
 
-    let zstd_encoder = tar.into_inner().context("failed to finalize tar")?;
-    let mut file = zstd_encoder.finish().context("failed to finalize zstd")?;
-    file.flush().context("failed to flush snapshot file")?;
+    let zstd_encoder = tar.into_inner().map_err(ArchiveError::FinalizeTar)?;
+    let mut file = zstd_encoder.finish().map_err(ArchiveError::FinalizeZstd)?;
+    file.flush().map_err(ArchiveError::Flush)?;
     let bytes = std::fs::metadata(output_path)
-        .with_context(|| format!("failed to stat snapshot file: {}", output_path.display()))?
+        .map_err(|e| ArchiveError::StatFile {
+            path: output_path.to_path_buf(),
+            source: e,
+        })?
         .len();
     Ok(bytes)
 }

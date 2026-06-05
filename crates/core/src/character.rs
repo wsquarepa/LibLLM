@@ -2,10 +2,54 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
+
+/// Errors from character card parsing, PNG extraction, and file import.
+#[derive(Debug, thiserror::Error)]
+pub enum CharacterError {
+    #[error("failed to parse character card JSON: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("character card has no name")]
+    NoName,
+
+    #[error("not a valid PNG file")]
+    InvalidPng,
+
+    #[error("chara tEXt value is not valid UTF-8: {0}")]
+    CharaUtf8(std::str::Utf8Error),
+
+    #[error("failed to base64-decode character card from PNG: {0}")]
+    CharaBase64(base64::DecodeError),
+
+    #[error("decoded character card is not valid UTF-8: {0}")]
+    CardUtf8(std::string::FromUtf8Error),
+
+    #[error("PNG file does not contain a 'chara' tEXt chunk")]
+    NoCharaChunk,
+
+    #[error("unsupported character card format: .{ext} (expected .json or .png)")]
+    UnsupportedFormat { ext: String },
+
+    #[error("character card JSON exceeds {limit_mb} MB limit ({bytes} bytes)")]
+    FileTooLarge { limit_mb: u64, bytes: u64 },
+
+    #[error("failed to read file metadata: {path}: {source}")]
+    ReadMetadata {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to read character card: {path}: {source}")]
+    ReadFile {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
 /// A character card following the SillyTavern V2 spec, with optional V1 fallback fields.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -68,9 +112,8 @@ struct RawDepthPrompt {
 ///
 /// Fields in `data` take precedence over top-level fields. Returns an error if the
 /// card has no name or the JSON is malformed.
-pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
-    let raw: RawCard =
-        serde_json::from_str(json_str).context("failed to parse character card JSON")?;
+pub fn parse_card_json(json_str: &str) -> Result<CharacterCard, CharacterError> {
+    let raw: RawCard = serde_json::from_str(json_str)?;
 
     let data = raw.data.as_ref();
     let pick = |data_field: Option<&str>, top_field: Option<&str>| -> String {
@@ -83,7 +126,7 @@ pub fn parse_card_json(json_str: &str) -> Result<CharacterCard> {
 
     let name = pick(data.and_then(|d| d.name.as_deref()), raw.name.as_deref());
     if name.is_empty() {
-        bail!("character card has no name");
+        return Err(CharacterError::NoName);
     }
 
     Ok(CharacterCard {
@@ -138,9 +181,9 @@ const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 /// Extracts a base64-encoded character card JSON from a PNG `tEXt` chunk with keyword "chara".
 ///
 /// Returns the decoded JSON string, or an error if the PNG has no `chara` chunk.
-pub fn extract_png_card(png_bytes: &[u8]) -> Result<String> {
+pub fn extract_png_card(png_bytes: &[u8]) -> Result<String, CharacterError> {
     if png_bytes.len() < 8 || png_bytes[..8] != PNG_SIGNATURE {
-        bail!("not a valid PNG file");
+        return Err(CharacterError::InvalidPng);
     }
 
     let mut offset = 8;
@@ -165,13 +208,12 @@ pub fn extract_png_card(png_bytes: &[u8]) -> Result<String> {
                 let keyword = std::str::from_utf8(&data[..null_pos]).unwrap_or("");
                 if keyword == "chara" {
                     let b64_bytes = &data[null_pos + 1..];
-                    let b64_str = std::str::from_utf8(b64_bytes)
-                        .context("chara tEXt value is not valid UTF-8")?;
+                    let b64_str =
+                        std::str::from_utf8(b64_bytes).map_err(CharacterError::CharaUtf8)?;
                     let decoded = STANDARD
                         .decode(b64_str)
-                        .context("failed to base64-decode character card from PNG")?;
-                    let json = String::from_utf8(decoded)
-                        .context("decoded character card is not valid UTF-8")?;
+                        .map_err(CharacterError::CharaBase64)?;
+                    let json = String::from_utf8(decoded).map_err(CharacterError::CardUtf8)?;
                     return Ok(json);
                 }
             }
@@ -180,7 +222,7 @@ pub fn extract_png_card(png_bytes: &[u8]) -> Result<String> {
         offset = data_end + 4;
     }
 
-    bail!("PNG file does not contain a 'chara' tEXt chunk")
+    Err(CharacterError::NoCharaChunk)
 }
 
 const MAX_JSON_CARD_BYTES: u64 = 10 * 1024 * 1024;
@@ -190,7 +232,7 @@ const MAX_PNG_CARD_BYTES: u64 = 50 * 1024 * 1024;
 ///
 /// Enforces size limits (10 MB for JSON, 50 MB for PNG) and delegates to
 /// `parse_card_json` or `extract_png_card` accordingly.
-pub fn import_card(source: &Path) -> Result<CharacterCard> {
+pub fn import_card(source: &Path) -> Result<CharacterCard, CharacterError> {
     let ext = source
         .extension()
         .and_then(|e| e.to_str())
@@ -199,39 +241,42 @@ pub fn import_card(source: &Path) -> Result<CharacterCard> {
 
     let file_size = source
         .metadata()
-        .context(format!(
-            "failed to read file metadata: {}",
-            source.display()
-        ))?
+        .map_err(|e| CharacterError::ReadMetadata {
+            path: source.to_path_buf(),
+            source: e,
+        })?
         .len();
 
     match ext.as_str() {
         "json" => {
-            ensure!(
-                file_size <= MAX_JSON_CARD_BYTES,
-                "character card JSON exceeds {} MB limit ({} bytes)",
-                MAX_JSON_CARD_BYTES / (1024 * 1024),
-                file_size
-            );
-            let contents = std::fs::read_to_string(source).context(format!(
-                "failed to read character card: {}",
-                source.display()
-            ))?;
+            if file_size > MAX_JSON_CARD_BYTES {
+                return Err(CharacterError::FileTooLarge {
+                    limit_mb: MAX_JSON_CARD_BYTES / (1024 * 1024),
+                    bytes: file_size,
+                });
+            }
+            let contents =
+                std::fs::read_to_string(source).map_err(|e| CharacterError::ReadFile {
+                    path: source.to_path_buf(),
+                    source: e,
+                })?;
             parse_card_json(&contents)
         }
         "png" => {
-            ensure!(
-                file_size <= MAX_PNG_CARD_BYTES,
-                "character card PNG exceeds {} MB limit ({} bytes)",
-                MAX_PNG_CARD_BYTES / (1024 * 1024),
-                file_size
-            );
-            let bytes = std::fs::read(source)
-                .context(format!("failed to read PNG file: {}", source.display()))?;
+            if file_size > MAX_PNG_CARD_BYTES {
+                return Err(CharacterError::FileTooLarge {
+                    limit_mb: MAX_PNG_CARD_BYTES / (1024 * 1024),
+                    bytes: file_size,
+                });
+            }
+            let bytes = std::fs::read(source).map_err(|e| CharacterError::ReadFile {
+                path: source.to_path_buf(),
+                source: e,
+            })?;
             let json = extract_png_card(&bytes)?;
             parse_card_json(&json)
         }
-        _ => bail!("unsupported character card format: .{ext} (expected .json or .png)"),
+        _ => Err(CharacterError::UnsupportedFormat { ext }),
     }
 }
 

@@ -143,7 +143,7 @@ jobs:
       - name: Rename binaries
         shell: bash
         run: |
-          for pair in "client:libllm"; do
+          for pair in "libllm:libllm"; do
             cargo_name="${pair%%:*}"
             release_name="${pair##*:}"
             src="target/${{ matrix.target }}/release/${cargo_name}"

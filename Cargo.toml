@@ -1,13 +1,74 @@
 [workspace]
-members = ["libllm", "client", "backup"]
+members = ["crates/core", "crates/config", "crates/libllm", "crates/storage", "crates/protocol", "crates/cli", "crates/backup", "crates/tui", "xtask"]
 resolver = "3"
 
 [workspace.package]
 version = "3.1.4"
 edition = "2024"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unsafe_op_in_unsafe_fn = "deny"
+
 [workspace.lints.clippy]
 allow_attributes = "deny"
 
 [workspace.dependencies]
+libllm = { path = "crates/libllm" }
+libllm-tui = { path = "crates/tui" }
+libllm-config = { path = "crates/config" }
+libllm-core = { path = "crates/core" }
+libllm-protocol = { path = "crates/protocol" }
+libllm-storage = { path = "crates/storage" }
+backup = { path = "crates/backup" }
+
+anyhow = "1"
+arboard = "3"
+argon2 = "0.5"
+base64 = "0.22"
+blake3 = "1"
+bsdiff = "0.2"
+chacha20poly1305 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+crossterm = { version = "0.29", features = ["event-stream"] }
+dialoguer = "0.12"
+dirs = "6.0.0"
+futures = "0.3"
+futures-util = "0.3"
+hex = "0.4"
+hkdf = "0.13"
+infer = "0.19"
+lru = "0.18"
+minijinja = { version = "2", default-features = false, features = ["builtins", "serde", "fuel"] }
+pdf-extract = "0.10"
+rand = "0.10"
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls-no-provider", "charset", "http2", "system-proxy", "query"] }
+rpassword = "7"
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustyline = { version = "18", features = ["with-file-history"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+strsim = "0.11"
+sysinfo = "0.39"
+tar = "0.4"
+tempfile = "3"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+toml = "1.1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
+tui-textarea-2 = "0.11"
+unicode-normalization = "0.1"
+uuid = { version = "1.23.0", features = ["v4"] }
+walkdir = "2"
+wiremock = "0.6"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+zeroize = "1.8.2"
+zstd = "0.13"

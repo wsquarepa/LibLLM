@@ -1,0 +1,10 @@
+//! HTTP protocol layer for LibLLM: the llama.cpp API client, tokenizer, and
+//! summarization orchestration.
+
+pub mod client;
+pub mod crypto_provider;
+pub mod error;
+pub mod summarize;
+pub mod tokenizer;
+
+pub use error::ApiError;

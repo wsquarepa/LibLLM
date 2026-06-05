@@ -1,0 +1,304 @@
+//! System prompt CRUD operations with builtin prompt seeding.
+
+use rusqlite::{Connection, params};
+
+use crate::error::{DbError, Result};
+use libllm_core::session::now_iso8601;
+use libllm_core::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
+
+pub struct PromptListEntry {
+    pub slug: String,
+    pub name: String,
+    pub builtin: bool,
+}
+
+pub fn insert_prompt(
+    conn: &Connection,
+    slug: &str,
+    prompt: &SystemPromptFile,
+    builtin: bool,
+) -> Result<()> {
+    let content_bytes = prompt.content.len();
+    libllm_core::timed_result!(
+        tracing::Level::INFO,
+        "db.prompt.insert",
+        slug = slug,
+        builtin = builtin,
+        content_bytes = content_bytes
+        ; {
+            let now = now_iso8601();
+            conn.execute(
+                "INSERT INTO system_prompts (slug, name, content, builtin, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![slug, prompt.name, prompt.content, builtin as i64, now, now],
+            )
+            .map_err(|source| DbError::Query {
+                context: "failed to insert system prompt".to_owned(),
+                source,
+            })?;
+            Ok(())
+        }
+    )
+}
+
+pub fn load_prompt(conn: &Connection, slug: &str) -> Result<SystemPromptFile> {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.load", slug = slug ; {
+        conn.query_row(
+            "SELECT name, content FROM system_prompts WHERE slug = ?1",
+            params![slug],
+            |row| {
+                let name: String = row.get(0)?;
+                let content: String = row.get(1)?;
+                Ok(SystemPromptFile { name, content })
+            },
+        )
+        .map_err(|source| DbError::Query {
+            context: format!("system prompt not found: {slug}"),
+            source,
+        })
+    })
+}
+
+pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.list", ; {
+        let mut stmt = conn
+            .prepare("SELECT slug, name, builtin FROM system_prompts ORDER BY builtin DESC, name")
+            .map_err(|source| DbError::Query {
+                context: "failed to prepare list_prompts query".to_owned(),
+                source,
+            })?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let slug: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let builtin: i64 = row.get(2)?;
+                Ok(PromptListEntry {
+                    slug,
+                    name,
+                    builtin: builtin != 0,
+                })
+            })
+            .map_err(|source| DbError::Query {
+                context: "failed to query system prompts".to_owned(),
+                source,
+            })?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row.map_err(|source| DbError::Query {
+                context: "failed to read system prompt row".to_owned(),
+                source,
+            })?);
+        }
+        let builtin_count = entries.iter().filter(|e| e.builtin).count();
+        tracing::info!(count = entries.len(), builtin_count = builtin_count, "db.prompt.list");
+        Ok(entries)
+    })
+}
+
+pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -> Result<()> {
+    let content_bytes = prompt.content.len();
+    libllm_core::timed_result!(
+        tracing::Level::INFO,
+        "db.prompt.update",
+        slug = slug,
+        content_bytes = content_bytes
+        ; {
+            let now = now_iso8601();
+            let affected = conn
+                .execute(
+                    "UPDATE system_prompts SET name = ?1, content = ?2, updated_at = ?3 WHERE slug = ?4",
+                    params![prompt.name, prompt.content, now, slug],
+                )
+                .map_err(|source| DbError::Query {
+                    context: "failed to update system prompt".to_owned(),
+                    source,
+                })?;
+            tracing::info!(slug = slug, affected = affected, "db.prompt.update");
+            if affected == 0 {
+                return Err(DbError::PromptNotFound { slug: slug.to_owned() });
+            }
+            Ok(())
+        }
+    )
+}
+
+pub fn rename_prompt(
+    conn: &Connection,
+    old_slug: &str,
+    new_slug: &str,
+    prompt: &SystemPromptFile,
+) -> Result<()> {
+    let content_bytes = prompt.content.len();
+    libllm_core::timed_result!(
+        tracing::Level::INFO,
+        "db.prompt.rename",
+        old_slug = old_slug,
+        new_slug = new_slug,
+        content_bytes = content_bytes
+        ; {
+            let now = now_iso8601();
+            let affected = conn
+                .execute(
+                    "UPDATE system_prompts SET slug = ?1, name = ?2, content = ?3, updated_at = ?4 WHERE slug = ?5",
+                    params![new_slug, prompt.name, prompt.content, now, old_slug],
+                )
+                .map_err(|source| DbError::Query {
+                    context: "failed to rename system prompt".to_owned(),
+                    source,
+                })?;
+            tracing::info!(old_slug = old_slug, new_slug = new_slug, affected = affected, "db.prompt.rename");
+            if affected == 0 {
+                return Err(DbError::PromptNotFound { slug: old_slug.to_owned() });
+            }
+            Ok(())
+        }
+    )
+}
+
+pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.delete", slug = slug ; {
+        let affected = conn
+            .execute("DELETE FROM system_prompts WHERE slug = ?1", params![slug])
+            .map_err(|source| DbError::Query {
+                context: "failed to delete system prompt".to_owned(),
+                source,
+            })?;
+        tracing::info!(slug = slug, affected = affected, "db.prompt.delete");
+        if affected == 0 {
+            return Err(DbError::PromptNotFound { slug: slug.to_owned() });
+        }
+        Ok(())
+    })
+}
+
+pub fn ensure_builtins(conn: &Connection) -> Result<()> {
+    libllm_core::timed_result!(tracing::Level::INFO, "db.prompt.ensure_builtins", ; {
+        let mut inserted = 0usize;
+        let mut existed = 0usize;
+        for slug in [BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY] {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM system_prompts WHERE slug = ?1",
+                    params![slug],
+                    |row| row.get(0),
+                )
+                .map_err(|source| DbError::Query {
+                    context: "failed to check builtin prompt existence".to_owned(),
+                    source,
+                })?;
+
+            if !exists {
+                let prompt = SystemPromptFile {
+                    name: slug.to_owned(),
+                    content: String::new(),
+                };
+                insert_prompt(conn, slug, &prompt, true)?;
+                inserted += 1;
+            } else {
+                existed += 1;
+            }
+        }
+        tracing::info!(inserted = inserted, existed = existed, "db.prompt.ensure_builtins");
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    use crate::db::migrations::run_migrations;
+    use libllm_core::system_prompt::{BUILTIN_ASSISTANT, BUILTIN_ROLEPLAY, SystemPromptFile};
+
+    use super::*;
+
+    fn setup_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn prompt_round_trip() {
+        let conn = setup_db();
+        let prompt = SystemPromptFile {
+            name: "My Prompt".to_owned(),
+            content: "You are a helpful assistant.".to_owned(),
+        };
+
+        insert_prompt(&conn, "my-prompt", &prompt, false).unwrap();
+        let loaded = load_prompt(&conn, "my-prompt").unwrap();
+
+        assert_eq!(loaded.name, prompt.name);
+        assert_eq!(loaded.content, prompt.content);
+    }
+
+    #[test]
+    fn list_prompts_includes_builtin_flag() {
+        let conn = setup_db();
+
+        let builtin = SystemPromptFile {
+            name: BUILTIN_ASSISTANT.to_owned(),
+            content: String::new(),
+        };
+        insert_prompt(&conn, BUILTIN_ASSISTANT, &builtin, true).unwrap();
+
+        let custom = SystemPromptFile {
+            name: "Custom".to_owned(),
+            content: "Custom content.".to_owned(),
+        };
+        insert_prompt(&conn, "custom", &custom, false).unwrap();
+
+        let list = list_prompts(&conn).unwrap();
+        assert_eq!(list.len(), 2);
+
+        let builtin_entry = list.iter().find(|e| e.slug == BUILTIN_ASSISTANT).unwrap();
+        assert!(builtin_entry.builtin);
+
+        let custom_entry = list.iter().find(|e| e.slug == "custom").unwrap();
+        assert!(!custom_entry.builtin);
+    }
+
+    #[test]
+    fn ensure_builtins_is_idempotent() {
+        let conn = setup_db();
+
+        ensure_builtins(&conn).unwrap();
+        ensure_builtins(&conn).unwrap();
+
+        let list = list_prompts(&conn).unwrap();
+        let assistant_count = list.iter().filter(|e| e.slug == BUILTIN_ASSISTANT).count();
+        let roleplay_count = list.iter().filter(|e| e.slug == BUILTIN_ROLEPLAY).count();
+
+        assert_eq!(assistant_count, 1);
+        assert_eq!(roleplay_count, 1);
+
+        let assistant = load_prompt(&conn, BUILTIN_ASSISTANT).unwrap();
+        assert_eq!(assistant.name, BUILTIN_ASSISTANT);
+        let roleplay = load_prompt(&conn, BUILTIN_ROLEPLAY).unwrap();
+        assert_eq!(roleplay.name, BUILTIN_ROLEPLAY);
+    }
+
+    #[test]
+    fn rename_prompt_updates_slug_and_content() {
+        let conn = setup_db();
+        let prompt = SystemPromptFile {
+            name: "Original".to_owned(),
+            content: "before".to_owned(),
+        };
+        insert_prompt(&conn, "original", &prompt, false).unwrap();
+
+        let renamed = SystemPromptFile {
+            name: "Renamed".to_owned(),
+            content: "after".to_owned(),
+        };
+        rename_prompt(&conn, "original", "renamed", &renamed).unwrap();
+
+        assert!(load_prompt(&conn, "original").is_err());
+        let loaded = load_prompt(&conn, "renamed").unwrap();
+        assert_eq!(loaded.name, "Renamed");
+        assert_eq!(loaded.content, "after");
+    }
+}

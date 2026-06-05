@@ -384,7 +384,7 @@ async fn run_summary_task(
                     error = %err,
                     "files.summary.api"
                 );
-                last_err = Some(err);
+                last_err = Some(err.into());
             }
             Err(_) => {
                 tracing::warn!(

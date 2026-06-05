@@ -2,9 +2,8 @@
 
 use std::time::Instant;
 
-use anyhow::Result;
-
 use crate::client::ApiClient;
+use crate::error::Result as ApiResult;
 use crate::tokenizer::TokenCounter;
 use libllm_core::files::{FileError, ResolvedFile};
 use libllm_core::sampling::SamplingParams;
@@ -28,7 +27,7 @@ pub async fn check_file_fits(
     file: &ResolvedFile,
     instruction: &str,
     context_size: usize,
-) -> Result<(), FileError> {
+) -> std::result::Result<(), FileError> {
     let prompt = format!(
         "--- FILE ---\n{}\n--- END FILE ---\n\n{}\n\nSummary:",
         file.body, instruction,
@@ -38,7 +37,7 @@ pub async fn check_file_fits(
         .await
         .map_err(|source| FileError::SummaryTokenize {
             path: file.canonical_path.clone(),
-            source,
+            source: Box::new(source),
         })?;
     let limit = context_size.saturating_sub(MAX_SUMMARY_RESPONSE_TOKENS + SAFETY_PAD);
     if prompt_tokens > limit {
@@ -122,7 +121,7 @@ impl Summarizer {
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
         file_summaries: &dyn libllm_core::files::FileSummaryLookup,
-    ) -> Result<Vec<&'a Message>> {
+    ) -> ApiResult<Vec<&'a Message>> {
         if messages.is_empty() {
             return Ok(Vec::new());
         }
@@ -170,7 +169,7 @@ impl Summarizer {
         token_budget: usize,
         counter: &crate::tokenizer::TokenCounter,
         file_summaries: &dyn libllm_core::files::FileSummaryLookup,
-    ) -> Result<String> {
+    ) -> ApiResult<String> {
         let start = Instant::now();
         tracing::info!(
             phase = "start",

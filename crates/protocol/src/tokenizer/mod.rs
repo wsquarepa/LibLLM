@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::Result;
+use crate::error::{ApiError, Result};
 use lru::LruCache;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -186,9 +186,9 @@ impl TokenCounter {
         let llama = ServerTokenizer::new(client.clone(), ServerTokenizeFlavor::LlamaCpp);
         let llama_probe = match timeout(PROBE_TIMEOUT, llama.count("probe")).await {
             Ok(result) => result,
-            Err(_) => Err(anyhow::anyhow!(
+            Err(_) => Err(ApiError::Timeout(format!(
                 "llama.cpp /tokenize probe timed out after {PROBE_TIMEOUT:?}"
-            )),
+            ))),
         };
         let backend = match llama_probe {
             Ok(_) => {
@@ -205,9 +205,9 @@ impl TokenCounter {
                 let kobold = ServerTokenizer::new(client, ServerTokenizeFlavor::KoboldCpp);
                 let kobold_probe = match timeout(PROBE_TIMEOUT, kobold.count("probe")).await {
                     Ok(result) => result,
-                    Err(_) => Err(anyhow::anyhow!(
+                    Err(_) => Err(ApiError::Timeout(format!(
                         "KoboldCPP /api/extra/tokencount probe timed out after {PROBE_TIMEOUT:?}"
-                    )),
+                    ))),
                 };
                 match kobold_probe {
                     Ok(_) => {

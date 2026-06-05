@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use crate::error::{ApiError, Result};
 use futures_util::StreamExt;
 use reqwest::header::{HeaderName, HeaderValue, InvalidHeaderName, InvalidHeaderValue};
 use serde::Deserialize;
@@ -179,19 +179,17 @@ impl ApiClient {
                 self.client
                     .get(&url)
                     .timeout(std::time::Duration::from_secs(5)),
-            )
-            .context("apply auth")?
+            )?
             .send()
-            .await
-            .context("GET /models failed")?;
-            let body: serde_json::Value = resp
-                .json()
-                .await
-                .context("failed to parse /models response")?;
+            .await?;
+            let body: serde_json::Value = resp.json().await?;
             body["data"][0]["id"]
                 .as_str()
                 .map(String::from)
-                .context("no model id in response")
+                .ok_or(ApiError::MissingField {
+                    endpoint: "/models",
+                    field: "data[0].id",
+                })
         }
         .await;
 
@@ -298,7 +296,7 @@ impl ApiClient {
         let mut token_chunks = 0usize;
 
         while let Some(chunk) = stream.next().await {
-            let chunk = match chunk.context("stream read error") {
+            let chunk = match chunk {
                 Ok(chunk) => chunk,
                 Err(err) => {
                     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -311,7 +309,7 @@ impl ApiClient {
                         error = %err,
                         "client.stream"
                     );
-                    return Err(err);
+                    return Err(err.into());
                 }
             };
             buffer.extend_from_slice(&chunk);
@@ -388,11 +386,10 @@ impl ApiClient {
             temperature = sampling.temperature,
             "client.complete"
         );
-        let send_result = apply_auth(&self.auth, self.client.post(&url).json(&body))
-            .context("apply auth")?
+        let send_result = apply_auth(&self.auth, self.client.post(&url).json(&body))?
             .send()
             .await
-            .context("POST /completions (non-streaming) failed");
+            .map_err(ApiError::from);
         let resp = match send_result {
             Ok(resp) => resp,
             Err(err) => {
@@ -420,24 +417,26 @@ impl ApiClient {
                 body_bytes = text.len(),
                 "client.complete"
             );
-            anyhow::bail!("API returned {status}: {text}");
+            return Err(ApiError::HttpStatus {
+                status: status.as_u16(),
+                body: text,
+            });
         }
 
-        let json: serde_json::Value =
-            match resp.json().await.context("failed to parse response JSON") {
-                Ok(json) => json,
-                Err(err) => {
-                    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                    tracing::error!(
-                        phase = "done",
-                        result = "error",
-                        elapsed_ms = elapsed_ms,
-                        error = %err,
-                        "client.complete"
-                    );
-                    return Err(err);
-                }
-            };
+        let json: serde_json::Value = match resp.json().await {
+            Ok(json) => json,
+            Err(err) => {
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                tracing::error!(
+                    phase = "done",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "client.complete"
+                );
+                return Err(err.into());
+            }
+        };
         let content = json["choices"][0]["text"]
             .as_str()
             .unwrap_or_default()
@@ -631,7 +630,7 @@ impl ApiClient {
 
     /// Calls `POST {server}/tokenize` with the given text and returns the token count.
     /// When `add_special` is true, BOS/EOS tokens are included in the count.
-    pub async fn tokenize(&self, text: &str, add_special: bool) -> anyhow::Result<usize> {
+    pub async fn tokenize(&self, text: &str, add_special: bool) -> Result<usize> {
         let url = format!("{}/tokenize", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
         let body = serde_json::json!({
@@ -646,7 +645,7 @@ impl ApiClient {
                     error = %err,
                     "client.tokenize"
                 );
-                anyhow::anyhow!("auth apply failed: {err}")
+                err
             })?;
 
         let resp = builder.send().await.map_err(|err| {
@@ -658,7 +657,7 @@ impl ApiClient {
                 error = %err,
                 "client.tokenize"
             );
-            anyhow::anyhow!("tokenize request failed: {err}")
+            err
         })?;
 
         if !resp.status().is_success() {
@@ -671,10 +670,10 @@ impl ApiClient {
                 status = status.as_u16(),
                 "client.tokenize"
             );
-            return Err(anyhow::anyhow!(
-                "tokenize returned HTTP {}",
-                status.as_u16()
-            ));
+            return Err(ApiError::HttpStatus {
+                status: status.as_u16(),
+                body: String::new(),
+            });
         }
 
         let json: serde_json::Value = resp.json().await.map_err(|err| {
@@ -686,12 +685,15 @@ impl ApiClient {
                 error = %err,
                 "client.tokenize"
             );
-            anyhow::anyhow!("tokenize response parse failed: {err}")
+            ApiError::Request(err)
         })?;
 
         let count = json["tokens"]
             .as_array()
-            .ok_or_else(|| anyhow::anyhow!("tokenize response missing `tokens` array"))?
+            .ok_or(ApiError::MissingField {
+                endpoint: "/tokenize",
+                field: "tokens",
+            })?
             .len();
 
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -707,7 +709,7 @@ impl ApiClient {
 
     /// Calls `POST {server}/api/extra/tokencount` (KoboldCPP) with the given text and returns the token count.
     /// KoboldCPP does not expose an `add_special` toggle; it always counts as the configured model does.
-    pub async fn tokenize_kobold(&self, text: &str) -> anyhow::Result<usize> {
+    pub async fn tokenize_kobold(&self, text: &str) -> Result<usize> {
         let url = format!(
             "{}/api/extra/tokencount",
             self.base_url.trim_end_matches("/v1")
@@ -722,7 +724,7 @@ impl ApiClient {
                     error = %err,
                     "client.tokenize_kobold"
                 );
-                anyhow::anyhow!("auth apply failed: {err}")
+                err
             })?;
 
         let resp = builder.send().await.map_err(|err| {
@@ -734,7 +736,7 @@ impl ApiClient {
                 error = %err,
                 "client.tokenize_kobold"
             );
-            anyhow::anyhow!("tokenize_kobold request failed: {err}")
+            err
         })?;
 
         if !resp.status().is_success() {
@@ -747,10 +749,10 @@ impl ApiClient {
                 status = status.as_u16(),
                 "client.tokenize_kobold"
             );
-            return Err(anyhow::anyhow!(
-                "tokenize_kobold returned HTTP {}",
-                status.as_u16()
-            ));
+            return Err(ApiError::HttpStatus {
+                status: status.as_u16(),
+                body: String::new(),
+            });
         }
 
         let json: serde_json::Value = resp.json().await.map_err(|err| {
@@ -762,13 +764,13 @@ impl ApiClient {
                 error = %err,
                 "client.tokenize_kobold"
             );
-            anyhow::anyhow!("tokenize_kobold response parse failed: {err}")
+            ApiError::Request(err)
         })?;
 
-        let count = json["value"]
-            .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("tokenize_kobold response missing numeric `value`"))?
-            as usize;
+        let count = json["value"].as_u64().ok_or(ApiError::MissingField {
+            endpoint: "/api/extra/tokencount",
+            field: "value",
+        })? as usize;
 
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         tracing::debug!(
@@ -806,11 +808,9 @@ impl ApiClient {
             "samplers": ["top_k", "top_p", "min_p", "temperature"],
         });
 
-        let resp = apply_auth(&self.auth, self.client.post(&url).json(&body))
-            .context("apply auth")?
+        let resp = apply_auth(&self.auth, self.client.post(&url).json(&body))?
             .send()
-            .await
-            .context("POST /completions failed")?;
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -822,7 +822,10 @@ impl ApiClient {
                 body_bytes = text.len(),
                 "client.stream"
             );
-            anyhow::bail!("API returned {status}: {text}");
+            return Err(ApiError::HttpStatus {
+                status: status.as_u16(),
+                body: text,
+            });
         }
 
         Ok(resp)
@@ -838,7 +841,7 @@ where
     let mut consumed = 0usize;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.context("stream read error")?;
+        let chunk = chunk?;
         buffer.extend_from_slice(&chunk);
 
         while let Some((line_start, line_end)) = next_line_bounds(&buffer, consumed) {

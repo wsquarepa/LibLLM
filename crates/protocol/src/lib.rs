@@ -3,5 +3,8 @@
 
 pub mod client;
 pub mod crypto_provider;
+pub mod error;
 pub mod summarize;
 pub mod tokenizer;
+
+pub use error::ApiError;

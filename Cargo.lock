@@ -1918,7 +1918,6 @@ dependencies = [
 name = "libllm-protocol"
 version = "3.1.4"
 dependencies = [
- "anyhow",
  "futures",
  "futures-util",
  "libllm-core",
@@ -1927,6 +1926,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "wiremock",

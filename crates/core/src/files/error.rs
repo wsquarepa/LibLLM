@@ -49,7 +49,7 @@ pub enum FileError {
     },
     SummaryTokenize {
         path: PathBuf,
-        source: anyhow::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 }
 
@@ -173,7 +173,10 @@ mod tests {
     fn summary_tokenize_display_names_path_and_exposes_source() {
         let err = FileError::SummaryTokenize {
             path: PathBuf::from("/tmp/notes.md"),
-            source: anyhow::anyhow!("connection refused"),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "connection refused",
+            )),
         };
         let s = err.to_string();
         assert!(s.contains("/tmp/notes.md"));

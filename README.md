@@ -65,6 +65,8 @@ libllm db sql "SELECT slug, name FROM personas;"
 - **Local-first storage:** sessions, characters, personas, worldbooks, and prompts stay in your local data directory.
 - **Encryption by default:** TUI sessions use a passkey-protected local database unless you opt into `--no-encrypt`.
 - **Character and group chats:** attach one or more character cards, use personas, and steer multi-character sessions.
+- **Backup and recovery:** automatic versioned backups with configurable retention; restore any snapshot with `libllm recover`.
+- **Direct database access:** inspect, repair, or export your data with `libllm db sql`, `libllm db shell`, and `libllm db dump`.
 - **Terminal-first workflow:** use the TUI for interactive work or `libllm -m` for scripts.
 
 ## Contributing

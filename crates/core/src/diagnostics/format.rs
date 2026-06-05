@@ -12,7 +12,12 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 
 const TARGET_WIDTH: usize = 28;
-const STRIP_PREFIXES: &[&str] = &["libllm::", "client::"];
+const STRIP_PREFIXES: &[&str] = &[
+    "libllm_core::",
+    "libllm_storage::",
+    "libllm_protocol::",
+    "client::",
+];
 
 pub(super) struct FileLayer {
     start: Instant,
@@ -199,7 +204,7 @@ mod tests {
 
     #[test]
     fn target_strips_libllm_prefix_and_pads() {
-        let rendered = format_target("libllm::db::characters");
+        let rendered = format_target("libllm_storage::db::characters");
         assert_eq!(rendered.chars().count(), TARGET_WIDTH);
         assert!(rendered.starts_with("db::characters"));
     }

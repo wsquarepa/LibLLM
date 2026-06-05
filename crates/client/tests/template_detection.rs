@@ -13,7 +13,7 @@ use libllm::preset::matching::{
 };
 
 const REAL_LLAMA3_TEMPLATE: &str =
-    include_str!("../../libllm/src/preset/matching_fixtures/llama3.jinja");
+    include_str!("../../core/src/preset/matching_fixtures/llama3.jinja");
 
 fn all_builtins() -> Vec<libllm::preset::InstructPreset> {
     let dir = libllm::config::instruct_presets_dir();

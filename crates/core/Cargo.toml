@@ -1,0 +1,50 @@
+[package]
+name = "libllm-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+dirs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+uuid.workspace = true
+time.workspace = true
+argon2.workspace = true
+rand.workspace = true
+zeroize = { workspace = true, features = ["derive"] }
+reqwest.workspace = true
+rustls.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+infer.workspace = true
+tokio.workspace = true
+lru.workspace = true
+pdf-extract.workspace = true
+regex.workspace = true
+xxhash-rust.workspace = true
+sysinfo.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rusqlite.workspace = true
+hex.workspace = true
+minijinja.workspace = true
+sha2.workspace = true
+strsim.workspace = true
+tar.workspace = true
+unicode-normalization.workspace = true
+walkdir.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+wiremock.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+test-support = []
+
+[lints]
+workspace = true

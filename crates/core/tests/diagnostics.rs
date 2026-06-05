@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use libllm::diagnostics::{self, BuildInfo, InitParams};
+use libllm_core::diagnostics::{self, BuildInfo, InitParams};
 
 #[test]
 fn banner_and_event_lines_are_rendered() {

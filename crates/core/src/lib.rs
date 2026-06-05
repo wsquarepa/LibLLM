@@ -1,0 +1,30 @@
+//! Shared library for LibLLM: types, database access, API client, and preset management.
+
+pub mod archive;
+pub mod author_note;
+pub mod character;
+pub mod client;
+pub mod commands;
+pub mod config;
+pub mod context;
+pub mod crypto;
+pub mod crypto_provider;
+pub mod db;
+pub mod diagnostics;
+pub mod export;
+pub mod files;
+pub mod group_chat;
+pub mod migration;
+pub mod persona;
+pub mod preset;
+pub mod regex_rules;
+pub mod sampling;
+pub mod search;
+pub mod session;
+pub mod side_character;
+pub mod summarize;
+pub mod system_prompt;
+pub mod template;
+pub mod thought;
+pub mod tokenizer;
+pub mod worldinfo;

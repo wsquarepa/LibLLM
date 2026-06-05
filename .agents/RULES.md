@@ -6,7 +6,17 @@ The canonical source for this file is `.agents/RULES.md`. Both `CLAUDE.md` and `
 
 Read `README.md` for a full project overview, CLI reference, data directory layout, encryption details, and configuration guide. This file covers only what an agent needs beyond that.
 
-LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a Cargo workspace with three crates: `libllm` (shared library), `client` (main binary with TUI/CLI), and `backup` (backup and recovery library).
+LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a Cargo workspace whose members live under `crates/`:
+
+- `libllm-core` (`crates/core`) — pure domain: session tree, character/persona/world-info, presets, file-ingestion pipeline, crypto, config types. No database, network, async runtime, or process/global state.
+- `libllm-storage` (`crates/storage`) — SQLCipher database access, migrations, repositories, and FTS search. Depends on core.
+- `libllm-protocol` (`crates/protocol`) — the llama.cpp HTTP API client, tokenizer, and summarization orchestration. Depends on core.
+- `libllm-config` (`crates/config`) — process-boundary config: the data-directory resolution, the `DATA_DIR_OVERRIDE` global (with the `test-support` thread-local variant), and `config.toml` load/save. Depends on core.
+- `libllm` (`crates/libllm`) — a thin **facade** crate that re-exports the four library crates under one `libllm::` path. Its `config` module merges `libllm-core`'s config types with `libllm-config`'s functions, so `libllm::config::Config` and `libllm::config::data_dir()` both resolve. Application crates depend on this facade.
+- `client` (`crates/client`) — the main binary plus its CLI/TUI library, the `FileSummarizer` orchestrator, and subcommands.
+- `backup` (`crates/backup`) — backup and recovery library.
+
+Dependencies flow inward: facade/app -> storage/protocol/config -> core. Core never depends on an outer crate. This layout is the result of an in-progress refactor toward `.agents/STANDARDS.md`; the `libllm` facade exists so application crates did not have to change import paths during the split.
 
 ## Build and Test
 
@@ -30,7 +40,7 @@ CI runs `cargo test --workspace` on all pushes and PRs. Run tests locally before
 
 ### Test suites
 
-Integration tests live in `client/tests/` across eight files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `import_subcommand`, `persistence`, `recover_subcommand`. Unit tests live in `libllm/src/db/` sub-modules and in `client/src/cli/db/{parser,format}.rs`. Shared helpers are in `client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
+Integration tests live in `crates/client/tests/` across eight files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `import_subcommand`, `persistence`, `recover_subcommand`. Unit tests live in `crates/storage/src/db/` sub-modules and in `crates/client/src/cli/db/{parser,format}.rs`. Shared helpers are in `crates/client/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
 
 **Subprocess integration tests:** Three test binaries (`db_subcommand`, `import_subcommand`, `recover_subcommand`) spawn the compiled `client` binary via `common::client_bin()` to exercise the CLI surface end-to-end (exit codes, stderr/stdout split, env-var passkey, `--no-encrypt` data dirs). Use this pattern when the contract being tested is the CLI itself — argument parsing, exit codes, confirmation prompts, multi-process safety. Use `.output()` (not `.status()`) so stderr is captured in failure messages. The `update` subcommand is deliberately not subprocess-tested because it depends on network access; the `edit` subcommand would need an `$EDITOR` mock and is also currently uncovered at this level.
 
@@ -69,7 +79,7 @@ grep -E "^error|^warning:" /tmp/libllm-clippy.log
 
 Empty output means clean. Again, do not re-run clippy just to re-read its output.
 
-`#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `client/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
+`#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `crates/client/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
 
 ### OnceLock constraint
 
@@ -98,7 +108,7 @@ These are non-obvious patterns that cannot be inferred from a quick code read.
 
 ### CLI Override System
 
-CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (in `client/src/cli/mod.rs`). Overridden fields display in red in the `/config` dialog and cannot be edited. The `-r` flag forces `/system` read-only; `-p` forces `/persona` read-only. Both show content in red.
+CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (in `crates/client/src/cli/mod.rs`). Overridden fields display in red in the `/config` dialog and cannot be edited. The `-r` flag forces `/system` read-only; `-p` forces `/persona` read-only. Both show content in red.
 
 ### Statusbar
 
@@ -124,23 +134,23 @@ Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (require
 
 ### Conversation tree
 
-Messages form a tree (`MessageTree` in `libllm/src/session.rs`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
+Messages form a tree (`MessageTree` in `crates/core/src/session.rs`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
 
 ### Database migrations
 
-Migrations live under `libllm/src/db/migrations/` — one file per version (`v1.rs`, `v2.rs`, ...), each exposing `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `migrations/mod.rs` owns the `CURRENT_VERSION` constant, the `run_migrations` dispatch loop, the `stamp_version` / `apply_migration` helpers, and the cross-version tests. Adding a new migration is three touches:
+Migrations live under `crates/storage/src/db/migrations/` — one file per version (`v1.rs`, `v2.rs`, ...), each exposing `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `migrations/mod.rs` owns the `CURRENT_VERSION` constant, the `run_migrations` dispatch loop, the `stamp_version` / `apply_migration` helpers, and the cross-version tests. Adding a new migration is three touches:
 
-1. Create `libllm/src/db/migrations/v{N}.rs` with the `pub(super) fn migrate` body.
+1. Create `crates/storage/src/db/migrations/v{N}.rs` with the `pub(super) fn migrate` body.
 2. Add `mod v{N};` to `migrations/mod.rs`.
 3. Bump `CURRENT_VERSION = N` and append `if version < N { apply_migration(conn, N, v{N}::migrate)?; applied += 1; }` to `run_migrations`.
 
 `apply_migration` runs each migration and stamps its version inside one transaction, so a crash mid-upgrade rolls back cleanly instead of leaving a half-applied schema. Individual `migrate` bodies therefore stay plain `&Connection` statements and must **not** open their own transaction.
 
-Migrations run exactly once per process: `Database::open` (in `libllm/src/db/mod.rs`) calls `migrations::run_migrations(&conn)` on the main connection after applying the SQLCipher key. The `FileSummarizer`'s dedicated second connection (opened in `client/src/tui/mod.rs`) does **not** run migrations — it observes the already-migrated schema over SQLite's WAL file locking.
+Migrations run exactly once per process: `Database::open` (in `crates/storage/src/db/mod.rs`) calls `migrations::run_migrations(&conn)` on the main connection after applying the SQLCipher key. The `FileSummarizer`'s dedicated second connection (opened in `crates/client/src/tui/mod.rs`) does **not** run migrations — it observes the already-migrated schema over SQLite's WAL file locking.
 
 ### `libllm db` subcommand group
 
-`client/src/cli/db/` exposes `db {sql, shell, dump, import}` for direct database inspection and editing through the existing decryption pipeline. Read the README's "Direct database access" section for user-facing semantics. Implementation gotchas:
+`crates/client/src/cli/db/` exposes `db {sql, shell, dump, import}` for direct database inspection and editing through the existing decryption pipeline. Read the README's "Direct database access" section for user-facing semantics. Implementation gotchas:
 
 - `sql` and `shell` open with `PRAGMA query_only = ON` and only lift it when launched with `--write`. All SQL routes through `Database::execute_query` plus `Database::changes()` for the affected-row count when there are no result columns — this handles `INSERT ... RETURNING`, bare `VALUES`, and comment-leading SQL uniformly. Do not reintroduce a leading-keyword heuristic.
 - `import` always invokes `backup::snapshot::create_snapshot` before swapping the database file. There is no `--no-backup` flag; this is intentional. The pre-swap backup is the recovery story for any failure between `build_replacement` and `fs::rename`.
@@ -152,7 +162,7 @@ Migrations run exactly once per process: `Database::open` (in `libllm/src/db/mod
 
 ## TUI dialog keybindings
 
-Every dialog handler under `client/src/tui/dialogs/` MUST follow this contract. Diverging is a review-blocking issue; if a dialog cannot conform, document the exception in this section.
+Every dialog handler under `crates/client/src/tui/dialogs/` MUST follow this contract. Diverging is a review-blocking issue; if a dialog cannot conform, document the exception in this section.
 
 | Key             | Action                                                          |
 |-----------------|-----------------------------------------------------------------|
@@ -176,6 +186,6 @@ Every dialog handler under `client/src/tui/dialogs/` MUST follow this contract. 
 ### Dirty-check / unsaved-changes warning
 
 Editor dialogs that mutate persistent data MUST track a dirty bit and route Esc
-through `client/src/tui/dialogs/unsaved_warning.rs` when dirty. The warning
+through `crates/client/src/tui/dialogs/unsaved_warning.rs` when dirty. The warning
 offers `[Save & Close] [Discard] [Cancel]` and is the only place where an
 ambiguous "Esc on a modified dialog" decision is made.

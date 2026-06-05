@@ -7,7 +7,6 @@
 )]
 mod common;
 
-use client::file_summarizer::FileSummarizer;
 use libllm::db::file_summaries::{self, FileSummaryStatus};
 use libllm::files::{
     FileToSummarize, NullFileSummaryLookup, build_snapshot_body, content_hash_hex,
@@ -15,6 +14,7 @@ use libllm::files::{
 };
 use libllm::session::{Message, Role};
 use libllm::summarize::Summarizer;
+use libllm_tui::file_summarizer::FileSummarizer;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -306,7 +306,7 @@ async fn fresh_encrypted_session_schedules_after_unlock_save() {
     config.summarization.api_url = Some(mock.uri());
     let cli_overrides = client::cli::CliOverrides::default();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let summarizer = client::tui::business::build_file_summarizer(
+    let summarizer = libllm_tui::business::build_file_summarizer(
         &db_path,
         Some(&key),
         &config,
@@ -343,7 +343,7 @@ fn build_file_summarizer_opens_encrypted_db() {
     let config = libllm::config::Config::default();
     let cli_overrides = client::cli::CliOverrides::default();
 
-    let summarizer = client::tui::business::build_file_summarizer(
+    let summarizer = libllm_tui::business::build_file_summarizer(
         &db_path,
         Some(&key),
         &config,

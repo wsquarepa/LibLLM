@@ -6,7 +6,7 @@ pub mod search;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{Context, anyhow, bail, ensure};
+use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use libllm::sampling::SamplingOverrides;
 
@@ -187,32 +187,7 @@ pub enum Command {
     },
 }
 
-/// CLI flag values that override the corresponding config fields; overridden fields display in red in `/config`.
-#[derive(Default)]
-pub struct CliOverrides {
-    pub api_url: Option<String>,
-    pub template: Option<String>,
-    pub tls_skip_verify: bool,
-    pub sampling: SamplingOverrides,
-    pub system_prompt: Option<String>,
-    pub persona: Option<String>,
-    pub characters: Vec<String>,
-    pub chat_mode: Option<libllm::group_chat::ChatMode>,
-    pub scenario: Option<String>,
-    pub talkativeness: std::collections::HashMap<String, f32>,
-    pub author_note: Option<String>,
-    pub author_note_depth: Option<u32>,
-    pub author_note_at_top: Option<bool>,
-    pub no_summarize: bool,
-    pub auth_type: Option<libllm::config::AuthKind>,
-    pub auth_basic_username: Option<String>,
-    pub auth_basic_password: Option<String>,
-    pub auth_bearer_token: Option<String>,
-    pub auth_header_name: Option<String>,
-    pub auth_header_value: Option<String>,
-    pub auth_query_name: Option<String>,
-    pub auth_query_value: Option<String>,
-}
+pub use libllm::config::CliOverrides;
 
 /// Parses a `"slug=value,slug=value"` talkativeness override string into a map.
 ///
@@ -263,38 +238,8 @@ pub fn validate_group_chat_args(
     talkativeness: &HashMap<String, f32>,
     card_names_by_slug: &HashMap<String, String>,
 ) -> anyhow::Result<()> {
-    ensure!(
-        characters.len() <= libllm::group_chat::MAX_GROUP_SIZE,
-        "group chats are limited to {} characters",
-        libllm::group_chat::MAX_GROUP_SIZE,
-    );
-
-    for slug in talkativeness.keys() {
-        ensure!(
-            characters.iter().any(|c| c == slug),
-            "--talkativeness references slug '{slug}' not in -c",
-        );
-    }
-
-    for slug in characters {
-        ensure!(
-            card_names_by_slug.contains_key(slug),
-            "character card not found: {slug}",
-        );
-    }
-
-    let mut seen: HashMap<String, String> = HashMap::new();
-    for slug in characters {
-        let name = card_names_by_slug.get(slug).expect("checked above");
-        let key = name.to_lowercase();
-        if let Some(other_slug) = seen.get(&key) {
-            bail!(
-                "two characters in this group share display name '{name}'; pick distinct cards or rename one (slugs: {other_slug}, {slug})",
-            );
-        }
-        seen.insert(key, slug.clone());
-    }
-    Ok(())
+    libllm::group_chat::validate_group_chat_args(characters, talkativeness, card_names_by_slug)
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 #[derive(Parser)]
@@ -499,21 +444,6 @@ impl Args {
             auth_header_value: std::env::var("LIBLLM_AUTH_HEADER_VALUE").ok(),
             auth_query_name: self.auth_query_name.clone(),
             auth_query_value: std::env::var("LIBLLM_AUTH_QUERY_VALUE").ok(),
-        }
-    }
-}
-
-impl CliOverrides {
-    pub fn auth_overrides(&self) -> libllm::config::AuthOverrides {
-        libllm::config::AuthOverrides {
-            auth_type: self.auth_type,
-            auth_basic_username: self.auth_basic_username.clone(),
-            auth_basic_password: self.auth_basic_password.clone(),
-            auth_bearer_token: self.auth_bearer_token.clone(),
-            auth_header_name: self.auth_header_name.clone(),
-            auth_header_value: self.auth_header_value.clone(),
-            auth_query_name: self.auth_query_name.clone(),
-            auth_query_value: self.auth_query_value.clone(),
         }
     }
 }

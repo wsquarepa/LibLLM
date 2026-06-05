@@ -528,6 +528,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "libllm",
+ "libllm-tui",
  "rand 0.10.1",
  "ratatui",
  "regex",
@@ -1944,6 +1945,32 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tracing",
+]
+
+[[package]]
+name = "libllm-tui"
+version = "3.1.4"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "backup",
+ "chrono",
+ "crossterm",
+ "dirs",
+ "futures-util",
+ "libllm",
+ "rand 0.10.1",
+ "ratatui",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "tracing",
+ "tui-textarea-2",
+ "uuid",
 ]
 
 [[package]]

@@ -5,13 +5,13 @@
 mod common;
 
 use client::cli::CliOverrides;
-use client::tui::business;
-use client::tui::dialogs::chat_settings::roll_back_provisional_group;
 use libllm::config::Config;
 use libllm::context::ContextManager;
 use libllm::group_chat::{CharacterAttachment, ChatMode};
 use libllm::session::{Message, MessageTree, Role, Session};
 use libllm::summarize::Summarizer;
+use libllm_tui::business;
+use libllm_tui::dialogs::chat_settings::roll_back_provisional_group;
 
 // ---------------------------------------------------------------------------
 // Summarizer and summary-aware context integration tests

@@ -168,6 +168,67 @@ pub enum BuildTurnPromptError {
     MissingCard(String),
 }
 
+/// Error returned by `validate_group_chat_args`.
+#[derive(Debug, thiserror::Error)]
+pub enum GroupChatValidationError {
+    #[error("group chats are limited to {MAX_GROUP_SIZE} characters")]
+    TooManyCharacters,
+    #[error("--talkativeness references slug '{0}' not in -c")]
+    UnknownTalkativeness(String),
+    #[error("character card not found: {0}")]
+    CardNotFound(String),
+    #[error(
+        "two characters in this group share display name '{name}'; pick distinct cards or rename one (slugs: {slug1}, {slug2})"
+    )]
+    DuplicateName {
+        name: String,
+        slug1: String,
+        slug2: String,
+    },
+}
+
+/// Validates that the group-chat arguments are self-consistent.
+///
+/// Checks: character count is within `MAX_GROUP_SIZE`, every talkativeness slug refers to a
+/// character in the `-c` list, every character slug has a matching card in `card_names_by_slug`,
+/// and no two characters share a display name (case-insensitive).
+pub fn validate_group_chat_args(
+    characters: &[String],
+    talkativeness: &HashMap<String, f32>,
+    card_names_by_slug: &HashMap<String, String>,
+) -> Result<(), GroupChatValidationError> {
+    if characters.len() > MAX_GROUP_SIZE {
+        return Err(GroupChatValidationError::TooManyCharacters);
+    }
+
+    for slug in talkativeness.keys() {
+        if !characters.iter().any(|c| c == slug) {
+            return Err(GroupChatValidationError::UnknownTalkativeness(slug.clone()));
+        }
+    }
+
+    for slug in characters {
+        if !card_names_by_slug.contains_key(slug) {
+            return Err(GroupChatValidationError::CardNotFound(slug.clone()));
+        }
+    }
+
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for slug in characters {
+        let name = card_names_by_slug.get(slug).expect("checked above");
+        let key = name.to_lowercase();
+        if let Some(other_slug) = seen.get(&key) {
+            return Err(GroupChatValidationError::DuplicateName {
+                name: name.clone(),
+                slug1: other_slug.clone(),
+                slug2: slug.clone(),
+            });
+        }
+        seen.insert(key, slug.clone());
+    }
+    Ok(())
+}
+
 use crate::character::CharacterCard;
 use crate::persona::PersonaFile;
 use crate::preset::ContextPreset;

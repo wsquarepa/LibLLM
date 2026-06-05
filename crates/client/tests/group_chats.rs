@@ -6,11 +6,11 @@ mod common;
 
 use std::process::Command;
 
-use client::tui::dialogs::chat_settings::{ChatSettingsDialog, Row};
-use client::tui::match_next_candidates;
 use common::{client_bin, import_card, import_persona, temp_dir};
 use libllm::group_chat::{CharacterAttachment, ChatMode, decide_next_speaker};
 use libllm::session::Session;
+use libllm_tui::dialogs::chat_settings::{ChatSettingsDialog, Row};
+use libllm_tui::match_next_candidates;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rusqlite::Connection;
@@ -406,9 +406,9 @@ fn legacy_v8_group_session_migrates_with_synthesized_scenario() {
 
 #[test]
 fn scenario_editor_cancel_does_not_write_provisional_to_session() {
-    use client::tui::dialogs::chat_settings::ChatSettingsDialog;
     use libllm::group_chat::CharacterAttachment;
     use libllm::session::Session;
+    use libllm_tui::dialogs::chat_settings::ChatSettingsDialog;
 
     let mut session = Session {
         scenario: Some("original".to_owned()),
@@ -434,9 +434,9 @@ fn scenario_editor_cancel_does_not_write_provisional_to_session() {
 
 #[test]
 fn scenario_editor_save_commits_provisional_to_session() {
-    use client::tui::dialogs::chat_settings::ChatSettingsDialog;
     use libllm::group_chat::CharacterAttachment;
     use libllm::session::Session;
+    use libllm_tui::dialogs::chat_settings::ChatSettingsDialog;
 
     let mut session = Session {
         scenario: Some("original".to_owned()),

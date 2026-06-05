@@ -16,7 +16,6 @@ use crate::edit;
 use crate::import;
 use crate::legacy_migration;
 use crate::recover;
-use crate::tui;
 use crate::update;
 use crate::validation;
 
@@ -383,7 +382,8 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             };
 
-        let effective_prompt = tui::build_effective_system_prompt_standalone(&session, db.as_ref());
+        let effective_prompt =
+            libllm_tui::build_effective_system_prompt_standalone(&session, db.as_ref());
 
         let mut parent = session.tree.head();
         for sys_msg in system_messages {
@@ -442,7 +442,7 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     tracing::info!(phase = "tui_handoff", mode = "interactive", "startup.phase");
-    let resolved_passkey = tui::run(
+    let resolved_passkey = libllm_tui::run(
         client,
         &mut session,
         save_mode,
@@ -450,10 +450,11 @@ pub async fn run() -> anyhow::Result<()> {
         instruct_preset,
         sampling,
         cli_overrides,
-        tui::SummarizerParams {
+        libllm_tui::SummarizerParams {
             db_path: summarizer_db_path,
             derived_key: summarizer_key,
         },
+        crate::version::STATUS_BAR,
     )
     .await?;
 

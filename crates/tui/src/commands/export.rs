@@ -1,0 +1,152 @@
+//! Chat export to Markdown, HTML, and JSONL file formats.
+
+use std::io::Write;
+
+use anyhow::Result;
+
+use libllm::session;
+
+use super::App;
+
+enum ExportFormat {
+    Markdown,
+    Html,
+    Jsonl,
+}
+
+impl ExportFormat {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "" | "html" => Ok(Self::Html),
+            "md" | "markdown" => Ok(Self::Markdown),
+            "jsonl" | "json" => Ok(Self::Jsonl),
+            other => Err(format!(
+                "Unknown export format: {other}. Use md, html, or jsonl"
+            )),
+        }
+    }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            Self::Markdown => "md",
+            Self::Html => "html",
+            Self::Jsonl => "jsonl",
+        }
+    }
+}
+
+pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
+    let format = match ExportFormat::parse(arg.trim()) {
+        Ok(f) => f,
+        Err(err) => {
+            app.set_status(err, super::super::StatusLevel::Error);
+            return;
+        }
+    };
+
+    let messages = app.session.tree.branch_path();
+    if messages.is_empty() {
+        app.set_status(
+            "Nothing to export (empty conversation)".to_owned(),
+            super::super::StatusLevel::Warning,
+        );
+        return;
+    }
+
+    let transformed_messages: Vec<libllm::session::Message> = messages
+        .iter()
+        .map(|m| {
+            let content = libllm::regex_rules::apply(
+                &app.compiled_regex,
+                libllm::regex_rules::Scope::Export,
+                m.role,
+                &m.content,
+            )
+            .into_owned();
+            libllm::session::Message {
+                role: m.role,
+                content,
+                timestamp: m.timestamp.clone(),
+                thought_seconds: m.thought_seconds,
+                speaker: m.speaker.clone(),
+                pre_turn_action_points: m.pre_turn_action_points.clone(),
+            }
+        })
+        .collect();
+    let messages: Vec<&libllm::session::Message> = transformed_messages.iter().collect();
+
+    let current_dir = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(err) => {
+            app.set_status(
+                format!("Cannot resolve current directory: {err}"),
+                super::super::StatusLevel::Error,
+            );
+            return;
+        }
+    };
+
+    let character = app.session.character.as_deref().filter(|s| !s.is_empty());
+    let persona = app.active_persona_name.as_deref().filter(|s| !s.is_empty());
+    let model = app
+        .model_name
+        .as_deref()
+        .or(app.session.model.as_deref())
+        .filter(|s| !s.is_empty());
+    let template = app
+        .session
+        .template
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            let name = app.instruct_preset.name.as_str();
+            (!name.is_empty()).then_some(name)
+        });
+    let exported_at = session::now_iso8601();
+    let meta = libllm::export::ExportMeta {
+        character,
+        persona,
+        model,
+        template,
+        worldbooks: &app.session.worldbooks,
+        exported_at: &exported_at,
+    };
+
+    let preset = app.reasoning_preset.as_ref();
+    let content = match format {
+        ExportFormat::Markdown => libllm::export::render_markdown(&messages, &meta, preset),
+        ExportFormat::Html => libllm::export::render_html(&messages, &meta, preset),
+        ExportFormat::Jsonl => libllm::export::render_jsonl(
+            &messages,
+            character.unwrap_or("Assistant"),
+            persona.unwrap_or("User"),
+        ),
+    };
+
+    let timestamp = session::now_compact();
+    let filename = format!("export-{timestamp}.{}", format.extension());
+    let output_path = current_dir.join(&filename);
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    match options
+        .open(&output_path)
+        .and_then(|mut f| f.write_all(content.as_bytes()))
+    {
+        Ok(()) => app.set_status(
+            format!("Exported to {}", output_path.display()),
+            super::super::StatusLevel::Info,
+        ),
+        Err(err) => app.set_status(
+            format!("Failed to write export: {err}"),
+            super::super::StatusLevel::Error,
+        ),
+    }
+}

@@ -390,7 +390,7 @@ fn is_libllm_data_dir_detects_legacy_data() {
 #[test]
 fn theme_editor_covers_all_color_override_fields() {
     let config = libllm::config::Config::default();
-    let dialog = client::tui::dialogs::open_theme_editor(&config);
+    let dialog = libllm_tui::dialogs::open_theme_editor(&config);
     assert_eq!(dialog.sections().len(), 6, "expected 6 theme tabs");
     let color_field_count: usize = dialog
         .sections()
@@ -434,7 +434,7 @@ fn theme_overrides_apply_round_trip() {
     ];
 
     let cfg = libllm::config::Config::default();
-    client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
+    libllm_tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
 
     let saved = libllm::config::load();
     let overrides = saved.theme_colors.expect("expected overrides to persist");
@@ -470,7 +470,7 @@ fn empty_theme_override_drops_to_none() {
         vec!["".to_owned(); 16],
     ];
 
-    client::tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
+    libllm_tui::business::apply_theme_color_sections(&sections, cfg).unwrap();
     let saved = libllm::config::load();
     assert!(saved.theme_colors.is_none());
 }

@@ -81,6 +81,8 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
+The full verification suite (fmt, clippy, tests, docs) is also available as `cargo xtask ci`.
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).

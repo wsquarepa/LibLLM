@@ -5,18 +5,130 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
+use reqwest::header::{HeaderName, HeaderValue, InvalidHeaderName, InvalidHeaderValue};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::config::{Auth, AuthKind};
 use crate::sampling::SamplingParams;
+
+#[derive(Debug)]
+pub enum AuthError {
+    EmptyRequiredField {
+        variant: AuthKind,
+        field: &'static str,
+    },
+    InvalidHeaderName(InvalidHeaderName),
+    InvalidHeaderValue(InvalidHeaderValue),
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthError::EmptyRequiredField { variant, field } => {
+                write!(f, "auth {variant}: {field} is required")
+            }
+            AuthError::InvalidHeaderName(e) => write!(f, "invalid header name: {e}"),
+            AuthError::InvalidHeaderValue(e) => write!(f, "invalid header value: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for AuthError {}
+
+/// Applies the configured authentication to an outbound request builder.
+///
+/// Returns an error if a `Header` variant contains an invalid `HeaderName` or
+/// `HeaderValue` at runtime. Save-time validation prevents this in normal flows;
+/// a runtime failure here indicates corrupted state and is surfaced rather than
+/// silently dropped.
+pub fn apply_auth(
+    auth: &Auth,
+    req: reqwest::RequestBuilder,
+) -> std::result::Result<reqwest::RequestBuilder, AuthError> {
+    match auth {
+        Auth::None => Ok(req),
+        Auth::Basic { username, password } => Ok(req.basic_auth(username, Some(password))),
+        Auth::Bearer { token } => Ok(req.bearer_auth(token)),
+        Auth::Header { name, value } => {
+            let n =
+                HeaderName::from_bytes(name.as_bytes()).map_err(AuthError::InvalidHeaderName)?;
+            let v = HeaderValue::from_str(value).map_err(AuthError::InvalidHeaderValue)?;
+            Ok(req.header(n, v))
+        }
+        Auth::Query { name, value } => Ok(req.query(&[(name.as_str(), value.as_str())])),
+    }
+}
+
+pub fn validate_auth(auth: &Auth) -> std::result::Result<(), AuthError> {
+    match auth {
+        Auth::None => Ok(()),
+        Auth::Basic { username, password } => {
+            if username.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Basic,
+                    field: "username",
+                });
+            }
+            if password.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Basic,
+                    field: "password",
+                });
+            }
+            Ok(())
+        }
+        Auth::Bearer { token } => {
+            if token.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Bearer,
+                    field: "token",
+                });
+            }
+            Ok(())
+        }
+        Auth::Header { name, value } => {
+            if name.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Header,
+                    field: "name",
+                });
+            }
+            if value.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Header,
+                    field: "value",
+                });
+            }
+            HeaderName::from_bytes(name.as_bytes()).map_err(AuthError::InvalidHeaderName)?;
+            HeaderValue::from_str(value).map_err(AuthError::InvalidHeaderValue)?;
+            Ok(())
+        }
+        Auth::Query { name, value } => {
+            if name.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Query,
+                    field: "name",
+                });
+            }
+            if value.is_empty() {
+                return Err(AuthError::EmptyRequiredField {
+                    variant: AuthKind::Query,
+                    field: "value",
+                });
+            }
+            Ok(())
+        }
+    }
+}
 
 /// HTTP client for the llama.cpp `/completions` and `/models` endpoints.
 #[derive(Clone)]
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
-    auth: crate::config::Auth,
+    auth: Auth,
 }
 
 #[derive(Deserialize)]
@@ -43,7 +155,7 @@ impl ApiClient {
     /// Creates a new client targeting the given base URL (e.g. `http://localhost:5001/v1`).
     ///
     /// When `tls_skip_verify` is true, TLS certificate validation is disabled.
-    pub fn new(base_url: &str, tls_skip_verify: bool, auth: crate::config::Auth) -> Self {
+    pub fn new(base_url: &str, tls_skip_verify: bool, auth: Auth) -> Self {
         crate::crypto_provider::install_default_crypto_provider();
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(tls_skip_verify)
@@ -62,17 +174,16 @@ impl ApiClient {
         let url = format!("{}/models", self.base_url);
         let start = Instant::now();
         let result: Result<String> = async {
-            let resp = self
-                .auth
-                .apply(
-                    self.client
-                        .get(&url)
-                        .timeout(std::time::Duration::from_secs(5)),
-                )
-                .context("apply auth")?
-                .send()
-                .await
-                .context("GET /models failed")?;
+            let resp = apply_auth(
+                &self.auth,
+                self.client
+                    .get(&url)
+                    .timeout(std::time::Duration::from_secs(5)),
+            )
+            .context("apply auth")?
+            .send()
+            .await
+            .context("GET /models failed")?;
             let body: serde_json::Value = resp
                 .json()
                 .await
@@ -277,9 +388,7 @@ impl ApiClient {
             temperature = sampling.temperature,
             "client.complete"
         );
-        let send_result = self
-            .auth
-            .apply(self.client.post(&url).json(&body))
+        let send_result = apply_auth(&self.auth, self.client.post(&url).json(&body))
             .context("apply auth")?
             .send()
             .await
@@ -349,7 +458,7 @@ impl ApiClient {
     pub async fn fetch_server_context_size(&self) -> Option<usize> {
         let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
-        let builder = match self.auth.apply(self.client.get(&url)) {
+        let builder = match apply_auth(&self.auth, self.client.get(&url)) {
             Ok(b) => b,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -435,7 +544,7 @@ impl ApiClient {
     pub async fn fetch_server_chat_template(&self) -> Option<String> {
         let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
-        let builder = match self.auth.apply(self.client.get(&url)) {
+        let builder = match apply_auth(&self.auth, self.client.get(&url)) {
             Ok(b) => b,
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -529,10 +638,8 @@ impl ApiClient {
             "content": text,
             "add_special": add_special,
         });
-        let builder = self
-            .auth
-            .apply(self.client.post(&url).json(&body))
-            .map_err(|err| {
+        let builder =
+            apply_auth(&self.auth, self.client.post(&url).json(&body)).map_err(|err| {
                 tracing::error!(
                     phase = "auth",
                     result = "error",
@@ -607,10 +714,8 @@ impl ApiClient {
         );
         let start = Instant::now();
         let body = serde_json::json!({ "prompt": text });
-        let builder = self
-            .auth
-            .apply(self.client.post(&url).json(&body))
-            .map_err(|err| {
+        let builder =
+            apply_auth(&self.auth, self.client.post(&url).json(&body)).map_err(|err| {
                 tracing::error!(
                     phase = "auth",
                     result = "error",
@@ -701,9 +806,7 @@ impl ApiClient {
             "samplers": ["top_k", "top_p", "min_p", "temperature"],
         });
 
-        let resp = self
-            .auth
-            .apply(self.client.post(&url).json(&body))
+        let resp = apply_auth(&self.auth, self.client.post(&url).json(&body))
             .context("apply auth")?
             .send()
             .await
@@ -923,6 +1026,211 @@ mod tests {
         assert_eq!(
             client.fetch_server_chat_template().await.as_deref(),
             Some("hello")
+        );
+    }
+
+    fn test_client() -> reqwest::Client {
+        crate::crypto_provider::install_default_crypto_provider();
+        reqwest::Client::new()
+    }
+
+    #[test]
+    fn apply_none_adds_no_headers() {
+        let client = test_client();
+        let req = apply_auth(&Auth::None, client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(req.headers().get(reqwest::header::AUTHORIZATION).is_none());
+        assert_eq!(req.url().query(), None);
+    }
+
+    #[test]
+    fn apply_basic_sets_authorization_basic() {
+        let client = test_client();
+        let auth = Auth::Basic {
+            username: "user".into(),
+            password: "pass".into(),
+        };
+        let req = apply_auth(&auth, client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
+        assert_eq!(header.to_str().unwrap(), "Basic dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn apply_bearer_sets_authorization_bearer() {
+        let client = test_client();
+        let auth = Auth::Bearer {
+            token: "sk-abc".into(),
+        };
+        let req = apply_auth(&auth, client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let header = req.headers().get(reqwest::header::AUTHORIZATION).unwrap();
+        assert_eq!(header.to_str().unwrap(), "Bearer sk-abc");
+    }
+
+    #[test]
+    fn apply_header_sets_custom_header() {
+        let client = test_client();
+        let auth = Auth::Header {
+            name: "X-Api-Key".into(),
+            value: "abc".into(),
+        };
+        let req = apply_auth(&auth, client.post("http://example.com/"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(
+            req.headers().get("x-api-key").unwrap().to_str().unwrap(),
+            "abc"
+        );
+    }
+
+    #[test]
+    fn apply_header_invalid_name_returns_error() {
+        let client = test_client();
+        let auth = Auth::Header {
+            name: "bad name".into(),
+            value: "v".into(),
+        };
+        assert!(apply_auth(&auth, client.post("http://example.com/")).is_err());
+    }
+
+    #[test]
+    fn apply_query_appends_url_encoded_pair() {
+        let client = test_client();
+        let auth = Auth::Query {
+            name: "api key".into(),
+            value: "a/b c".into(),
+        };
+        let req = apply_auth(&auth, client.post("http://example.com/foo"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let query = req.url().query().unwrap();
+        assert!(
+            query.contains("api+key=a%2Fb+c") || query.contains("api%20key=a%2Fb%20c"),
+            "unexpected query encoding: {query}"
+        );
+    }
+
+    #[test]
+    fn apply_query_preserves_existing_query_params() {
+        let client = test_client();
+        let auth = Auth::Query {
+            name: "k".into(),
+            value: "v".into(),
+        };
+        let req = apply_auth(&auth, client.post("http://example.com/?existing=1"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let query = req.url().query().unwrap();
+        assert!(query.contains("existing=1"));
+        assert!(query.contains("k=v"));
+    }
+
+    #[test]
+    fn validate_none_always_ok() {
+        assert!(validate_auth(&Auth::None).is_ok());
+    }
+
+    #[test]
+    fn validate_basic_requires_both_fields() {
+        assert!(
+            validate_auth(&Auth::Basic {
+                username: String::new(),
+                password: "p".into()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_auth(&Auth::Basic {
+                username: "u".into(),
+                password: String::new()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_auth(&Auth::Basic {
+                username: "u".into(),
+                password: "p".into()
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_bearer_requires_token() {
+        assert!(
+            validate_auth(&Auth::Bearer {
+                token: String::new()
+            })
+            .is_err()
+        );
+        assert!(validate_auth(&Auth::Bearer { token: "t".into() }).is_ok());
+    }
+
+    #[test]
+    fn validate_header_requires_both_fields_and_valid_header_name() {
+        assert!(
+            validate_auth(&Auth::Header {
+                name: String::new(),
+                value: "v".into()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_auth(&Auth::Header {
+                name: "X-Key".into(),
+                value: String::new()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_auth(&Auth::Header {
+                name: "X Key".into(),
+                value: "v".into()
+            })
+            .is_err(),
+            "spaces are invalid header chars"
+        );
+        assert!(
+            validate_auth(&Auth::Header {
+                name: "X-Key".into(),
+                value: "v".into()
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_query_requires_both_fields() {
+        assert!(
+            validate_auth(&Auth::Query {
+                name: String::new(),
+                value: "v".into()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_auth(&Auth::Query {
+                name: "k".into(),
+                value: String::new()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_auth(&Auth::Query {
+                name: "k".into(),
+                value: "v".into()
+            })
+            .is_ok()
         );
     }
 }

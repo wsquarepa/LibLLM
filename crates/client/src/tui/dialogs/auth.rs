@@ -454,7 +454,7 @@ pub(in crate::tui) fn close_and_persist(app: &mut App) {
         return;
     }
     let candidate = state.build_candidate_auth();
-    if let Err(e) = candidate.validate() {
+    if let Err(e) = libllm::client::validate_auth(&candidate) {
         app.set_status(format!("Auth: {e}"), StatusLevel::Error);
         app.auth_dialog = Some(state);
         return;

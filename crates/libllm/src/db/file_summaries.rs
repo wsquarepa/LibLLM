@@ -3,37 +3,10 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
 
 use crate::session::now_iso8601;
 
-/// Lifecycle of a cached file summary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FileSummaryStatus {
-    Pending,
-    Done,
-    Failed,
-}
-
-impl FileSummaryStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Done => "done",
-            Self::Failed => "failed",
-        }
-    }
-
-    pub fn parse(s: &str) -> Result<Self> {
-        match s {
-            "pending" => Ok(Self::Pending),
-            "done" => Ok(Self::Done),
-            "failed" => Ok(Self::Failed),
-            other => Err(anyhow::anyhow!("unknown file_summaries.status: {other}")),
-        }
-    }
-}
+pub use crate::files::FileSummaryStatus;
 
 /// Row shape returned by `lookup`.
 #[derive(Debug, Clone)]

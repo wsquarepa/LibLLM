@@ -8,7 +8,33 @@ use serde::{Deserialize, Serialize};
 
 use crate::files::error::FileError;
 
-pub use crate::db::FileSummaryStatus;
+/// Lifecycle of a cached file summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileSummaryStatus {
+    Pending,
+    Done,
+    Failed,
+}
+
+impl FileSummaryStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "done" => Ok(Self::Done),
+            "failed" => Ok(Self::Failed),
+            other => Err(anyhow::anyhow!("unknown file_summaries.status: {other}")),
+        }
+    }
+}
 
 /// Snapshot of one cached file summary as surfaced to consumers.
 #[derive(Debug, Clone)]

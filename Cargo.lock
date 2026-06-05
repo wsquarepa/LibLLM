@@ -1862,9 +1862,22 @@ checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 name = "libllm"
 version = "3.1.4"
 dependencies = [
+ "libllm-config",
  "libllm-core",
  "libllm-protocol",
  "libllm-storage",
+]
+
+[[package]]
+name = "libllm-config"
+version = "3.1.4"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "libllm-core",
+ "tempfile",
+ "toml",
+ "tracing",
 ]
 
 [[package]]

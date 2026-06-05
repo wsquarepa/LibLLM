@@ -4,12 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+libllm-config = { workspace = true }
 libllm-core = { workspace = true }
 libllm-protocol = { workspace = true }
 libllm-storage = { workspace = true }
 
 [features]
-test-support = ["libllm-core/test-support"]
+test-support = ["libllm-core/test-support", "libllm-config/test-support"]
 
 [lints]
 workspace = true

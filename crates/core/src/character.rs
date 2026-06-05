@@ -414,10 +414,8 @@ mod tests {
     #[test]
     fn build_system_prompt_with_template_preset() {
         let card = full_character();
-        let preset = crate::preset::resolve_template_preset(
-            "Default",
-            &crate::config::template_presets_dir(),
-        );
+        let dir = tempfile::TempDir::new().unwrap();
+        let preset = crate::preset::resolve_template_preset("Default", dir.path());
         let result = build_system_prompt(&card, Some(&preset));
 
         assert!(!result.is_empty(), "rendered prompt should not be empty");

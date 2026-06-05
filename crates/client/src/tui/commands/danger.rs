@@ -11,7 +11,7 @@ pub(in crate::tui) fn spawn_destroy_all(
     bg_tx: tokio::sync::mpsc::Sender<crate::tui::types::BackgroundEvent>,
     data_dir: std::path::PathBuf,
     snapshot_path: std::path::PathBuf,
-    summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>>,
+    summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>>,
 ) {
     tokio::spawn(async move {
         let snapshot_path_for_task = snapshot_path.clone();

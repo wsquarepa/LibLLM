@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod edit;
+pub mod file_summarizer;
 pub mod import;
 pub mod interactive;
 pub mod legacy_migration;

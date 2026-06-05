@@ -7,9 +7,10 @@
 )]
 mod common;
 
+use client::file_summarizer::FileSummarizer;
 use libllm::db::file_summaries::{self, FileSummaryStatus};
 use libllm::files::{
-    FileSummarizer, FileToSummarize, NullFileSummaryLookup, build_snapshot_body, content_hash_hex,
+    FileToSummarize, NullFileSummaryLookup, build_snapshot_body, content_hash_hex,
     snapshot_inner_text,
 };
 use libllm::session::{Message, Role};

@@ -779,7 +779,7 @@ pub fn build_file_summarizer(
     config: &libllm::config::Config,
     cli_overrides: &crate::cli::CliOverrides,
     ready_tx: tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
-) -> anyhow::Result<std::sync::Arc<libllm::files::FileSummarizer>> {
+) -> anyhow::Result<std::sync::Arc<crate::file_summarizer::FileSummarizer>> {
     use anyhow::Context as _;
     let conn = {
         let _span = tracing::info_span!(
@@ -802,12 +802,14 @@ pub fn build_file_summarizer(
         api_url = %api_url,
         "tui.file_summarizer.construct.done"
     );
-    Ok(std::sync::Arc::new(libllm::files::FileSummarizer::new(
-        conn_arc,
-        summarize_client,
-        config.files.summary_prompt.clone(),
-        ready_tx,
-    )))
+    Ok(std::sync::Arc::new(
+        crate::file_summarizer::FileSummarizer::new(
+            conn_arc,
+            summarize_client,
+            config.files.summary_prompt.clone(),
+            ready_tx,
+        ),
+    ))
 }
 
 pub(super) fn apply_config(app: &mut App) {
@@ -816,7 +818,7 @@ pub(super) fn apply_config(app: &mut App) {
     let runtime = load_runtime_reload_state(&app.cli_overrides);
 
     app.file_summarizer = app.file_summarizer.as_ref().map(|existing| {
-        std::sync::Arc::new(libllm::files::FileSummarizer::new(
+        std::sync::Arc::new(crate::file_summarizer::FileSummarizer::new(
             existing.conn_clone_for_reload(),
             build_summarize_client(&runtime.config, &app.cli_overrides),
             runtime.config.files.summary_prompt.clone(),

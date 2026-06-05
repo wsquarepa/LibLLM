@@ -388,7 +388,7 @@ pub(super) struct App<'a> {
     /// decide whether to reuse the existing file-snapshot parent chain or
     /// push a fresh one.
     pub(super) recall_refs: Option<Vec<String>>,
-    pub(super) file_summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>>,
+    pub(super) file_summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>>,
     pub(super) file_summary_ready_tx: tokio::sync::mpsc::UnboundedSender<libllm::files::ReadyEvent>,
     pub(super) file_summary_ready_rx:
         tokio::sync::mpsc::UnboundedReceiver<libllm::files::ReadyEvent>,

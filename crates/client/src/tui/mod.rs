@@ -119,7 +119,7 @@ pub async fn run(
         encrypted = summarizer_params.derived_key.is_some(),
         "tui.file_summarizer.construct.start"
     );
-    let file_summarizer: Option<std::sync::Arc<libllm::files::FileSummarizer>> =
+    let file_summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>> =
         match summarizer_params.db_path.as_ref() {
             Some(path) => Some(business::build_file_summarizer(
                 path,

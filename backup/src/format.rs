@@ -93,7 +93,9 @@ mod tests {
 
     #[test]
     fn decode_returns_none_for_unknown_version() {
-        let wrapped = WrappedDek { blob: vec![5u8; 72] };
+        let wrapped = WrappedDek {
+            blob: vec![5u8; 72],
+        };
         let mut encoded = encode_base_blob(&wrapped, b"payload");
         encoded[MAGIC.len()] = FORMAT_VERSION + 1;
         assert!(decode_base_blob(&encoded).is_none());

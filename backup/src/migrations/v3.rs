@@ -303,7 +303,10 @@ mod tests {
 
         let chain = index.chain_to(&id).unwrap();
         let restored = crate::restore::replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
-        assert_eq!(restored, plaintext, "v3-migrated type-2 base must restore to the original bytes");
+        assert_eq!(
+            restored, plaintext,
+            "v3-migrated type-2 base must restore to the original bytes"
+        );
     }
 
     #[test]

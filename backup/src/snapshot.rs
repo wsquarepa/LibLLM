@@ -1087,7 +1087,9 @@ mod tests {
     fn rebuild_then_restore_upgrades_legacy_base() {
         let dir = tempfile::TempDir::new().unwrap();
         let data_dir = dir.path();
-        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw"))
+            .unwrap()
+            .unwrap();
         let backups_dir = data_dir.join("backups");
         std::fs::create_dir_all(&backups_dir).unwrap();
 
@@ -1110,7 +1112,10 @@ mod tests {
             .expect("legacy base recovered");
         let chain = rebuilt.chain_to(&base.id).unwrap();
         let restored = crate::restore::replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
-        assert_eq!(restored, plaintext, "upgraded legacy base must restore to the original bytes");
+        assert_eq!(
+            restored, plaintext,
+            "upgraded legacy base must restore to the original bytes"
+        );
     }
 
     #[test]

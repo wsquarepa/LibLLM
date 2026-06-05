@@ -347,7 +347,9 @@ mod tests {
     fn replay_reads_type2_base_via_index_wrapped_dek() {
         let dir = tempfile::TempDir::new().unwrap();
         let data_dir = dir.path();
-        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw"))
+            .unwrap()
+            .unwrap();
         let backups_dir = data_dir.join("backups");
         std::fs::create_dir_all(&backups_dir).unwrap();
 
@@ -380,7 +382,10 @@ mod tests {
 
         let chain = index.chain_to(&id).unwrap();
         let restored = replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
-        assert_eq!(restored, plaintext, "type-2 base must restore via the index wrapped DEK");
+        assert_eq!(
+            restored, plaintext,
+            "type-2 base must restore via the index wrapped DEK"
+        );
     }
 
     #[test]

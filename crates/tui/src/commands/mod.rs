@@ -19,7 +19,7 @@ use libllm_core::session::{self, Role, SaveMode};
 use libllm_protocol::client::StreamToken;
 
 use super::business::{self, refresh_sidebar};
-use super::{App, Focus, StatusLevel, dialogs};
+use super::{App, Focus, SaveTrigger, StatusLevel, dialogs};
 
 pub(super) async fn handle_slash_command(
     cmd: &str,
@@ -819,6 +819,110 @@ fn cmd_report(app: &mut App) {
             )
         }
     }
+}
+
+/// Periodic housekeeping: completed-summary splicing, file-summary readiness drain,
+/// debounced search, save-deadline flush, sidebar age refresh, status-message expiry,
+/// and reject-flash decay.
+///
+/// Returns `true` when any of these mutated state in a way that requires a redraw.
+pub(crate) async fn run_periodic_tasks(
+    app: &mut App<'_>,
+    token_tx: mpsc::Sender<StreamToken>,
+) -> bool {
+    let mut needs_redraw = false;
+    if app.summary_receiver.is_some() {
+        let completed = app
+            .summary_receiver
+            .as_mut()
+            .expect("summary_receiver is Some, checked by the enclosing is_some() guard")
+            .try_recv();
+        if let Ok(result) = completed {
+            let current_head = app.session.tree.head();
+            let expected_head = app.summary_branch_head;
+            app.summary_receiver = None;
+            app.summary_branch_head = None;
+
+            if current_head == expected_head
+                && app.summarization_enabled
+                && let Ok(summary_text) = result
+            {
+                let dropped = app.summary_pending_dropped.take().unwrap_or(0);
+
+                if dropped > 0 {
+                    let branch_path = app.session.tree.branch_path();
+                    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+                    let branch_ids = app.session.tree.current_branch_ids();
+                    let summary_boundary = branch_ids.len() - summary_aware.len();
+                    let split_idx = libllm_core::context::drop_split_index(&summary_aware, dropped);
+                    let insert_idx = summary_boundary + split_idx - 1;
+                    if split_idx > 0 && insert_idx < branch_ids.len() {
+                        let parent_node_id = branch_ids[insert_idx];
+                        app.session.tree.splice_between(
+                            parent_node_id,
+                            libllm_core::session::Message::new(
+                                libllm_core::session::Role::Summary,
+                                summary_text,
+                            ),
+                        );
+                        app.mark_session_dirty(SaveTrigger::StreamDone, true);
+                        app.invalidate_chat_caches();
+                    }
+                }
+            }
+
+            app.is_summarizing = false;
+            if !app.message_queue.is_empty() {
+                let next = app.message_queue.remove(0);
+                start_streaming(app, &next, token_tx).await;
+                if !app.is_streaming {
+                    app.message_queue.clear();
+                }
+            }
+            needs_redraw = true;
+        }
+    }
+    while let Ok(event) = app.file_summary_ready_rx.try_recv() {
+        tracing::debug!(
+            session_id = %event.session_id,
+            content_hash = %event.content_hash,
+            status = ?event.status,
+            "tui.file_summary.ready"
+        );
+        app.invalidate_chat_render_cache();
+        app.file_summary_revision = app.file_summary_revision.wrapping_add(1);
+        needs_redraw = true;
+    }
+    if matches!(app.focus, Focus::SearchDialog)
+        && let (Some(state), Some(db)) = (app.search_dialog.as_mut(), app.db.as_ref())
+    {
+        dialogs::search::maybe_run_query(state, db, std::time::Instant::now());
+        needs_redraw = true;
+    }
+    if app
+        .pending_save_deadline
+        .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+    {
+        let trigger = app.pending_save_trigger.unwrap_or(SaveTrigger::Retry);
+        if let Err(err) = app.flush_session_save(trigger) {
+            app.set_status(format!("Save error: {err}"), StatusLevel::Error);
+        }
+        needs_redraw = true;
+    }
+    if std::time::Instant::now() >= app.sidebar_age_refresh_at {
+        business::refresh_sidebar_ages(app);
+        needs_redraw = true;
+    }
+    if let Some(ref msg) = app.status_message {
+        if std::time::Instant::now() >= msg.expires {
+            app.status_message = None;
+        }
+        needs_redraw = true;
+    }
+    if app.tick_reject_flashes() {
+        needs_redraw = true;
+    }
+    needs_redraw
 }
 
 #[cfg(test)]

@@ -108,7 +108,7 @@ CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (defi
 
 ### Statusbar
 
-The statusbar default info line (model, template, tokens, branch) is sacred -- always visible unless a temporary message is active. Temporary messages use `App::set_status()` with `StatusLevel` (Info/Warning/Error) and auto-clear after 5 seconds. Do not add hints that duplicate info already visible in borders or obvious UI state.
+The statusbar's default content -- the version/build status (left) and the keybind hints (right) -- is sacred: always visible unless a temporary message is active. Temporary messages use `App::set_status()` with `StatusLevel` (Info/Warning/Error) and auto-clear after 5 seconds; Info/Warning slide in over the hints on the right, Error takes over the whole bar centered. The model name and token count live in the chat block's bottom border, the per-message branch indicator (`[1/2]`) renders inline in the chat, and the input token estimate is an input-box title -- none of these are in the statusbar. Do not add hints that duplicate info already visible in borders or obvious UI state.
 
 ### Theme colors
 

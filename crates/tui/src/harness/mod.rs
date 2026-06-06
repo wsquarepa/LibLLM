@@ -3,6 +3,7 @@
 //! drives it with synthetic events, and exposes screen + state for assertions.
 
 mod builder;
+mod mock_api;
 mod observe;
 
 pub use builder::HarnessBuilder;
@@ -33,11 +34,34 @@ pub struct Harness<'a> {
     tokenizer_rx: mpsc::Receiver<TokenCountUpdate>,
     /// Keeps the temp DB directory alive for the harness lifetime.
     _tempdir: Option<tempfile::TempDir>,
+    mock: Option<mock_api::MockApi>,
 }
 
 impl<'a> Harness<'a> {
     pub fn builder() -> HarnessBuilder {
         HarnessBuilder::new()
+    }
+
+    /// Enqueues a scripted success response for the mock API. The next completion request
+    /// the TUI issues will stream these tokens in order, followed by `[DONE]`.
+    ///
+    /// Panics if the harness was not built with `.mock_api()`.
+    pub fn enqueue_completion(&self, tokens: &[&str]) {
+        self.mock
+            .as_ref()
+            .expect("mock_api not enabled")
+            .enqueue_completion(tokens);
+    }
+
+    /// Enqueues a scripted error response (HTTP 503) for the mock API. The next completion
+    /// request the TUI issues will fail with this message as the response body.
+    ///
+    /// Panics if the harness was not built with `.mock_api()`.
+    pub fn enqueue_error(&self, msg: &str) {
+        self.mock
+            .as_ref()
+            .expect("mock_api not enabled")
+            .enqueue_error(msg);
     }
 
     fn render(&mut self) {

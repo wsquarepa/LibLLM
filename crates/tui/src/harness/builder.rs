@@ -12,6 +12,7 @@ use libllm_protocol::client::{ApiClient, StreamToken};
 use libllm_protocol::tokenizer::TokenCountUpdate;
 
 use super::Harness;
+use super::mock_api::MockApi;
 
 pub enum DbChoice {
     None,
@@ -20,6 +21,7 @@ pub enum DbChoice {
 
 pub enum ApiChoice {
     None,
+    Mock,
 }
 
 pub struct HarnessBuilder {
@@ -59,6 +61,11 @@ impl HarnessBuilder {
         self
     }
 
+    pub fn mock_api(mut self) -> Self {
+        self.api = ApiChoice::Mock;
+        self
+    }
+
     pub fn overrides(mut self, o: CliOverrides) -> Self {
         self.overrides = o;
         self
@@ -71,8 +78,16 @@ impl HarnessBuilder {
         let (bg_tx, bg_rx) = mpsc::channel::<BackgroundEvent>(64);
         let (tokenizer_tx, tokenizer_rx) = mpsc::channel::<TokenCountUpdate>(64);
 
-        let client = match self.api {
-            ApiChoice::None => ApiClient::new("http://127.0.0.1:1", false, Auth::None),
+        let (client, mock) = match self.api {
+            ApiChoice::None => (
+                ApiClient::new("http://127.0.0.1:1", false, Auth::None),
+                None,
+            ),
+            ApiChoice::Mock => {
+                let mock = MockApi::start().await;
+                let client = ApiClient::new(&mock.base_url(), false, Auth::None);
+                (client, Some(mock))
+            }
         };
 
         let (db, summarizer_params, tempdir) = match self.db {
@@ -121,6 +136,7 @@ impl HarnessBuilder {
             bg_rx,
             tokenizer_rx,
             _tempdir: tempdir,
+            mock,
         };
 
         harness.render();

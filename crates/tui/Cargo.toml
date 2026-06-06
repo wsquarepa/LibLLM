@@ -38,7 +38,9 @@ test-support = ["dep:wiremock", "dep:tempfile"]
 [dev-dependencies]
 libllm-core = { workspace = true, features = ["test-support"] }
 libllm-config = { workspace = true, features = ["test-support"] }
+crossterm.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

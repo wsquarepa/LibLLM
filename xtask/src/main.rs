@@ -69,6 +69,21 @@ fn ci() -> Result<(), String> {
             "warnings",
         ],
     )?;
+    run_step(
+        &log,
+        &log_path,
+        &[
+            "clippy",
+            "-p",
+            "libllm-tui",
+            "--all-targets",
+            "--features",
+            "test-support",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
     run_step(&log, &log_path, &["test", "--workspace"])?;
     run_step(
         &log,

@@ -1,12 +1,20 @@
 //! Repository automation. Run via the `cargo xtask` alias.
 //!
 //! Commands:
-//! - `cargo xtask ci` — the full verification suite (fmt, clippy, test, doc).
+//! - `cargo xtask ci` — the full verification suite (fmt, clippy, test, doc),
+//!   teed to a single timestamped log under the temp dir.
 //! - `cargo xtask release X.Y.Z` — bump the workspace version in `Cargo.toml`.
 
 use std::env;
-use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+use chrono::Utc;
+use rand::Rng;
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -36,33 +44,120 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn cargo(args: &[&str]) -> Result<(), String> {
+/// Runs the full verification suite, teeing every step to the terminal and to a single
+/// timestamped log so a failed run can be inspected afterward. Stops at the first
+/// failing step.
+fn ci() -> Result<(), String> {
+    let log_path = ci_log_path();
+    let file = File::create(&log_path)
+        .map_err(|err| format!("failed to create {}: {err}", log_path.display()))?;
+    let log = Arc::new(Mutex::new(file));
+    println!("xtask ci: logging to {}", log_path.display());
+
+    run_step(&log, &log_path, &["fmt", "--all", "--check"])?;
+    run_step(
+        &log,
+        &log_path,
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
+    run_step(&log, &log_path, &["test", "--workspace"])?;
+    run_step(&log, &log_path, &["doc", "--workspace", "--no-deps"])?;
+
+    println!("xtask ci: all checks passed (log: {})", log_path.display());
+    Ok(())
+}
+
+/// `<tempdir>/libllm-ci-YYYYMMDD-HHMMSSmmm-<6 hex>.log`. The millisecond timestamp plus
+/// a random suffix keeps every run's log distinct, so repeated or concurrent runs never
+/// clobber each other.
+fn ci_log_path() -> PathBuf {
+    let mut suffix_bytes = [0u8; 3];
+    rand::rng().fill_bytes(&mut suffix_bytes);
+    let suffix: String = suffix_bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let stamp = Utc::now().format("%Y%m%d-%H%M%S%3f");
+    env::temp_dir().join(format!("libllm-ci-{stamp}-{suffix}.log"))
+}
+
+/// Spawns `cargo <args>` in the workspace root, streaming its stdout and stderr to both
+/// this process's terminal and the shared log. Errors if the command cannot be spawned
+/// or exits non-zero.
+fn run_step(log: &Arc<Mutex<File>>, log_path: &Path, args: &[&str]) -> Result<(), String> {
     let program = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let status = Command::new(program)
+    let banner = format!("\n===== cargo {} =====\n", args.join(" "));
+    print!("{banner}");
+    io::stdout().flush().ok();
+    write_log(log, banner.as_bytes())?;
+
+    let mut child = Command::new(program)
         .args(args)
         .current_dir(workspace_root())
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|err| format!("failed to spawn `cargo {}`: {err}", args.join(" ")))?;
+
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let stderr = child.stderr.take().expect("stderr is piped");
+    let out_pump = pump(stdout, Box::new(io::stdout()), Arc::clone(log));
+    let err_pump = pump(stderr, Box::new(io::stderr()), Arc::clone(log));
+
+    let status = child
+        .wait()
+        .map_err(|err| format!("failed to wait on `cargo {}`: {err}", args.join(" ")))?;
+    out_pump.join().expect("stdout pump thread panicked")?;
+    err_pump.join().expect("stderr pump thread panicked")?;
+
     if status.success() {
         Ok(())
     } else {
-        Err(format!("`cargo {}` failed", args.join(" ")))
+        Err(format!(
+            "`cargo {}` failed; see {}",
+            args.join(" "),
+            log_path.display()
+        ))
     }
 }
 
-fn ci() -> Result<(), String> {
-    cargo(&["fmt", "--all", "--check"])?;
-    cargo(&[
-        "clippy",
-        "--workspace",
-        "--all-targets",
-        "--",
-        "-D",
-        "warnings",
-    ])?;
-    cargo(&["test", "--workspace"])?;
-    cargo(&["doc", "--workspace", "--no-deps"])?;
-    Ok(())
+/// Tees one child stream, line by line, to `sink` (the terminal) and to the shared log.
+/// A terminal write that fails (e.g. a closed pipe) is non-fatal; a failed log write is
+/// propagated, because the log is the authoritative record of the run.
+fn pump(
+    reader: impl Read + Send + 'static,
+    mut sink: Box<dyn Write + Send>,
+    log: Arc<Mutex<File>>,
+) -> thread::JoinHandle<Result<(), String>> {
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let read = reader
+                .read_until(b'\n', &mut line)
+                .map_err(|err| format!("failed reading command output: {err}"))?;
+            if read == 0 {
+                return Ok(());
+            }
+            sink.write_all(&line).ok();
+            sink.flush().ok();
+            write_log(&log, &line)?;
+        }
+    })
+}
+
+fn write_log(log: &Arc<Mutex<File>>, bytes: &[u8]) -> Result<(), String> {
+    let mut file = log.lock().map_err(|_| "ci log mutex poisoned".to_owned())?;
+    file.write_all(bytes)
+        .map_err(|err| format!("failed writing to ci log: {err}"))
 }
 
 fn release(version: Option<&str>) -> Result<(), String> {
@@ -124,7 +219,28 @@ fn replace_workspace_version(contents: &str, version: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
-    use super::{replace_workspace_version, validate_version};
+    use super::{ci_log_path, replace_workspace_version, validate_version};
+
+    #[test]
+    fn ci_log_path_is_a_timestamped_temp_log() {
+        let path = ci_log_path();
+        assert!(path.starts_with(std::env::temp_dir()));
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let stem = name
+            .strip_prefix("libllm-ci-")
+            .and_then(|rest| rest.strip_suffix(".log"))
+            .expect("filename has the `libllm-ci-<date>-<time>-<rand>.log` shape");
+        let parts: Vec<&str> = stem.split('-').collect();
+        assert_eq!(parts.len(), 3, "expected date-time-suffix, got {stem}");
+        assert_eq!(parts[0].len(), 8, "YYYYMMDD");
+        assert_eq!(parts[1].len(), 9, "HHMMSSmmm");
+        assert_eq!(parts[2].len(), 6, "random hex suffix");
+        assert!(
+            parts
+                .iter()
+                .all(|part| part.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        );
+    }
 
     #[test]
     fn rewrites_only_the_workspace_package_version() {

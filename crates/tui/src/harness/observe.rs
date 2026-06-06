@@ -126,10 +126,6 @@ fn dialog_dirty_for(app: &App) -> bool {
 /// Returns a total snapshot of observable `App` state.
 ///
 /// Performs no mutations, spawns nothing, and never panics.
-#[expect(
-    dead_code,
-    reason = "consumed by future harness tasks (Task 6+) not yet added to this crate"
-)]
 pub(crate) fn observe(app: &App) -> Observation {
     let focus = app.focus;
     let active_dialog = active_dialog_name_for(focus);

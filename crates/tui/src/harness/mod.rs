@@ -4,6 +4,7 @@
 
 mod builder;
 mod mock_api;
+mod normalize;
 mod observe;
 
 pub use builder::HarnessBuilder;
@@ -197,9 +198,10 @@ impl<'a> Harness<'a> {
         buffer_to_string(self.terminal.backend().buffer())
     }
 
-    /// The rendered screen as text.
+    /// The rendered screen as text, with volatile values (ages, timestamps, UUIDs)
+    /// redacted to stable placeholders. Use `screen_raw` for the literal buffer.
     pub fn screen(&self) -> String {
-        self.screen_raw()
+        normalize::normalize(&self.screen_raw())
     }
 }
 

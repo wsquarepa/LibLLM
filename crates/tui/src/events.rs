@@ -22,6 +22,21 @@ use super::dialog_handler::{
 use super::types::*;
 use super::{clipboard, commands, dialogs, input, render};
 
+/// Dispatches a single terminal event through the handler + action pipeline.
+///
+/// This is the exact body the main loop runs per event, factored out so the
+/// verification harness drives the identical path.
+pub(crate) async fn handle_one_event(
+    event: Event,
+    app: &mut App<'_>,
+    bg_tx: mpsc::Sender<BackgroundEvent>,
+    token_tx: mpsc::Sender<StreamToken>,
+) {
+    if let Some(action) = handle_event(event, app, bg_tx) {
+        process_action(action, app, token_tx).await;
+    }
+}
+
 pub(super) fn handle_event(
     event: Event,
     app: &mut App,

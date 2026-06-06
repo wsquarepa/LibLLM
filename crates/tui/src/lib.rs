@@ -381,9 +381,7 @@ pub async fn run(
                 let is_mouse_move = matches!(&event, Event::Mouse(m) if matches!(m.kind, MouseEventKind::Moved));
                 {
                     let _span = tracing::trace_span!("event", phase = "handle").entered();
-                    if let Some(action) = events::handle_event(event, &mut app, bg_tx.clone()) {
-                        events::process_action(action, &mut app, token_tx.clone()).await;
-                    }
+                    events::handle_one_event(event, &mut app, bg_tx.clone(), token_tx.clone()).await;
                 }
                 if is_mouse_move {
                     needs_redraw = true;

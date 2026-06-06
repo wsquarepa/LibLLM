@@ -1,6 +1,8 @@
 mod parser;
+pub mod runner;
 
 pub use parser::parse;
+pub use runner::{Failure, RunMode, RunReport, run_scenario};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DbSetup {

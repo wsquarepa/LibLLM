@@ -112,6 +112,11 @@ impl<'a> Harness<'a> {
 
     /// Drains every currently-ready channel event through the real handlers, runs one
     /// periodic-tasks pass, then redraws. Mirrors the loop's non-blocking arms.
+    ///
+    /// When a completion stream is in flight (`app.is_streaming`), this awaits each
+    /// `StreamToken` with a 5-second bounded timeout so the test blocks until the
+    /// full response has been processed rather than racing against the spawned HTTP
+    /// task. A timeout panics with a clear message instead of hanging CI.
     pub async fn pump(&mut self) {
         loop {
             let mut progressed = false;
@@ -121,6 +126,31 @@ impl<'a> Harness<'a> {
                     .expect("handle_stream_token");
                 progressed = true;
             }
+
+            // Await remaining tokens if the stream is still active after the
+            // non-blocking drain above.
+            while self.app.is_streaming {
+                match tokio::time::timeout(
+                    Duration::from_secs(5),
+                    self.token_rx.recv(),
+                )
+                .await
+                {
+                    Ok(Some(tok)) => {
+                        commands::handle_stream_token(
+                            tok,
+                            &mut self.app,
+                            self.token_tx.clone(),
+                        )
+                        .await
+                        .expect("handle_stream_token");
+                        progressed = true;
+                    }
+                    Ok(None) => break,
+                    Err(_) => panic!("pump: stream stalled — no StreamToken received within 5 s"),
+                }
+            }
+
             while let Ok(ev) = self.bg_rx.try_recv() {
                 commands::handle_background_event(ev, &mut self.app);
                 progressed = true;

@@ -78,6 +78,7 @@ impl HarnessBuilder {
         let (bg_tx, bg_rx) = mpsc::channel::<BackgroundEvent>(64);
         let (tokenizer_tx, tokenizer_rx) = mpsc::channel::<TokenCountUpdate>(64);
 
+        let is_mock = matches!(self.api, ApiChoice::Mock);
         let (client, mock) = match self.api {
             ApiChoice::None => (
                 ApiClient::new("http://127.0.0.1:1", false, Auth::None),
@@ -138,6 +139,14 @@ impl HarnessBuilder {
             _tempdir: tempdir,
             mock,
         };
+
+        // When the mock API is active, pre-seed the model name so stream_preflight
+        // does not block the first completion request with "Connecting to API server...".
+        // In the real app this arrives asynchronously via BackgroundEvent::ModelFetched
+        // from spawn_startup_probes, which the harness intentionally omits.
+        if is_mock {
+            harness.app.model_name = Some("test-model".to_owned());
+        }
 
         harness.render();
 

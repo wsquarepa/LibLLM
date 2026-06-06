@@ -3,6 +3,8 @@
 pub mod business;
 mod clipboard;
 pub mod commands;
+#[cfg(feature = "test-support")]
+pub mod harness;
 mod dialog_handler;
 pub mod dialogs;
 mod events;

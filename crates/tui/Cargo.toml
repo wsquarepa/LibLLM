@@ -29,6 +29,11 @@ tokio.workspace = true
 tracing.workspace = true
 tui-textarea-2.workspace = true
 uuid.workspace = true
+wiremock = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+
+[features]
+test-support = ["dep:wiremock", "dep:tempfile"]
 
 [dev-dependencies]
 libllm-core = { workspace = true, features = ["test-support"] }

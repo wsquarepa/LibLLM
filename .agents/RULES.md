@@ -20,23 +20,19 @@ Dependencies flow inward: cli -> tui -> storage/protocol/config -> core. Core ne
 
 ## Build and Test
 
-Always pipe `cargo test` and `cargo clippy` through `tee` so the full output lands in a log file you can re-inspect. Re-running a build just to see its output burns 1-to-5 minutes of CPU; re-reading the log is free.
+`cargo xtask ci` is the one command for the full verification suite. It runs, in order and stopping at the first failure: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and `cargo doc --workspace --no-deps`.
 
-```sh
-cargo build --workspace
-cargo test --workspace 2>&1 | tee /tmp/libllm-test.log
-cargo clippy --workspace --all-targets 2>&1 | tee /tmp/libllm-clippy.log
-```
+Every step is teed live to your terminal and to a single timestamped log under the temp dir (`<tempdir>/libllm-ci-<date>-<time>-<rand>.log`, unique per run). The path is printed at the start (`xtask ci: logging to …`) and again on success. Re-running the suite just to see its output burns 1-to-5 minutes of CPU; re-read that log instead — it is the authoritative record of what went wrong and where.
 
-CI runs `cargo test --workspace` on all pushes and PRs. Run tests locally before submitting changes.
+CI runs the same checks on all pushes and PRs. Run `cargo xtask ci` locally before submitting changes.
 
 ### Builds take time
 
-`cargo build --workspace` and `cargo test --workspace` typically take 1 to 5+ minutes on a cold build. A clean run produces no `error:` or `warning:` lines.
+`cargo xtask ci` (like a cold `cargo build --workspace`) typically takes 1 to 5+ minutes. A clean run produces no `error:` or `warning:` lines and exits 0.
 
-**Controller agents (the main conversation):** back builds with `run_in_background: true`, then **end your turn**. Do not emit further tool calls or text until the completion notification fires. "Waiting" means ending the turn, not polling the output file, checking status, starting unrelated work, or narrating progress. The notification is reliable; do not poll, re-run, or kick off a second build while one is in flight. Duplicate builds burn CPU and block the first one on lock contention.
+**Controller agents (the main conversation):** back `cargo xtask ci` (and any long build) with `run_in_background: true`, then **end your turn**. Do not emit further tool calls or text until the completion notification fires. "Waiting" means ending the turn, not polling the output file, checking status, starting unrelated work, or narrating progress. The notification is reliable; do not poll, re-run, or kick off a second run while one is in flight. Duplicate runs burn CPU and block the first one on lock contention.
 
-**Dispatched subagents:** do **not** background builds. Subagents do not reliably receive the completion notification, so the result is silently lost. Run builds synchronously in the foreground with an explicit long timeout (e.g. `timeout: 600000` — 10 minutes — which is Bash's maximum). Block on the command and read the output inline. If a build ends up backgrounded by accident, stop and report it as BLOCKED — do not try to work around by polling, sleeping, or launching a second build.
+**Dispatched subagents:** do **not** background it. Subagents do not reliably receive the completion notification, so the result is silently lost. Run it synchronously in the foreground with an explicit long timeout (e.g. `timeout: 600000` — 10 minutes — which is Bash's maximum). Block on the command and read the output inline. If it ends up backgrounded by accident, stop and report it as BLOCKED — do not try to work around by polling, sleeping, or launching a second run.
 
 ### Test suites
 
@@ -44,23 +40,29 @@ Integration tests live in `crates/cli/tests/` across eight files: `business_logi
 
 **Subprocess integration tests:** Three test binaries (`db_subcommand`, `import_subcommand`, `recover_subcommand`) spawn the compiled `libllm` binary via `common::client_bin()` to exercise the CLI surface end-to-end (exit codes, stderr/stdout split, env-var passkey, `--no-encrypt` data dirs). Use this pattern when the contract being tested is the CLI itself — argument parsing, exit codes, confirmation prompts, multi-process safety. Use `.output()` (not `.status()`) so stderr is captured in failure messages. The `update` subcommand is deliberately not subprocess-tested because it depends on network access; the `edit` subcommand would need an `$EDITOR` mock and is also currently uncovered at this level.
 
-### Verifying test results
+### Verifying results
 
-`cargo test --workspace` runs multiple binaries. Some may report `0 tests`. Do not use `tail` to check results. Read the captured log from `/tmp/libllm-test.log`:
+`cargo xtask ci` prints its log path (`xtask ci: logging to <path>`). That single file holds the fmt, clippy, test, and doc output in run order. Do not use `tail`; grep the log. Below, `<log>` is that path.
 
-```sh
-grep -E "^test result:" /tmp/libllm-test.log
-```
-
-Every line must show `0 failed`.
-
-When a line shows `FAILED`, investigate from the same log -- **do not re-run a narrower `cargo test -p ...` just to see the failure output again.** The full stdout of the failing test is already in the log:
+The test step runs multiple binaries, some of which legitimately report `0 tests`. Every result line must show `0 failed`:
 
 ```sh
-grep -B2 -A20 -E "FAILED|^---- .* stdout ----" /tmp/libllm-test.log
+grep -E "^test result:" <log>
 ```
 
-Only re-run `cargo test` after you've edited code to fix the failure.
+When a line shows `FAILED`, investigate from the same log -- **do not re-run a narrower `cargo test -p ...` just to see the failure output again.** The full stdout of the failing test is already there:
+
+```sh
+grep -B2 -A20 -E "FAILED|^---- .* stdout ----" <log>
+```
+
+Clippy is clean when this is empty:
+
+```sh
+grep -E "^error|^warning:" <log>
+```
+
+Only re-run `cargo xtask ci` after you've edited code to fix a failure, not to re-read its output.
 
 ### No warning suppression
 
@@ -71,13 +73,7 @@ Never silence compiler warnings with `#[allow(...)]` attributes, `#![allow(...)]
 - Unused import → delete it.
 - Unused variable → delete it or use it.
 
-The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; `cargo clippy --workspace --all-targets` fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,build}.yml` runs this command on every PR and push; run it locally before pushing. Pipe clippy through `tee` the same way and read back from `/tmp/libllm-clippy.log`:
-
-```sh
-grep -E "^error|^warning:" /tmp/libllm-clippy.log
-```
-
-Empty output means clean. Again, do not re-run clippy just to re-read its output.
+The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; the clippy step of `cargo xtask ci` (`cargo clippy --workspace --all-targets -- -D warnings`) fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,build}.yml` runs the same lint on every PR and push; `cargo xtask ci` runs it locally before you push. Read clippy results back from the ci log as shown under [Verifying results](#verifying-results) — do not re-run just to re-read its output.
 
 `#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `crates/cli/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
 

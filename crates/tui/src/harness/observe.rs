@@ -88,37 +88,25 @@ fn dialog_dirty_for(app: &App) -> bool {
     match app.focus {
         Focus::ConfigDialog => app.config_dialog.as_ref().is_some_and(|d| d.has_changes()),
         Focus::ThemeDialog => app.theme_dialog.as_ref().is_some_and(|d| d.has_changes()),
-        Focus::PresetEditorDialog => {
-            app.preset_editor.as_ref().is_some_and(|d| d.has_changes())
-        }
-        Focus::PersonaEditorDialog => {
-            app.persona_editor.as_ref().is_some_and(|d| d.has_changes())
-        }
-        Focus::AuthorNoteEditorDialog => {
-            app.author_note_editor
-                .as_ref()
-                .is_some_and(|d| d.has_changes())
-        }
-        Focus::CharacterEditorDialog => {
-            app.character_editor
-                .as_ref()
-                .is_some_and(|d| d.has_changes())
-        }
-        Focus::WorldbookEntryEditorDialog => {
-            app.worldbook_entry_editor
-                .as_ref()
-                .is_some_and(|d| d.has_changes())
-        }
-        Focus::SystemPromptEditorDialog => {
-            app.system_prompt_editor
-                .as_ref()
-                .is_some_and(|d| d.has_changes())
-        }
-        Focus::RegexEditorDialog => {
-            app.regex_editor
-                .as_ref()
-                .is_some_and(|d| d.is_dirty())
-        }
+        Focus::PresetEditorDialog => app.preset_editor.as_ref().is_some_and(|d| d.has_changes()),
+        Focus::PersonaEditorDialog => app.persona_editor.as_ref().is_some_and(|d| d.has_changes()),
+        Focus::AuthorNoteEditorDialog => app
+            .author_note_editor
+            .as_ref()
+            .is_some_and(|d| d.has_changes()),
+        Focus::CharacterEditorDialog => app
+            .character_editor
+            .as_ref()
+            .is_some_and(|d| d.has_changes()),
+        Focus::WorldbookEntryEditorDialog => app
+            .worldbook_entry_editor
+            .as_ref()
+            .is_some_and(|d| d.has_changes()),
+        Focus::SystemPromptEditorDialog => app
+            .system_prompt_editor
+            .as_ref()
+            .is_some_and(|d| d.has_changes()),
+        Focus::RegexEditorDialog => app.regex_editor.as_ref().is_some_and(|d| d.is_dirty()),
         _ => false,
     }
 }
@@ -145,12 +133,7 @@ pub(crate) fn observe(app: &App) -> Observation {
         .tree
         .head()
         .and_then(|id| app.session.tree.node(id))
-        .map(|node| {
-            (
-                Some(node.message.role),
-                Some(node.message.content.clone()),
-            )
-        })
+        .map(|node| (Some(node.message.role), Some(node.message.content.clone())))
         .unwrap_or((None, None));
 
     Observation {

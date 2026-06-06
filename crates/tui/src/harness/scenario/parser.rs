@@ -1,4 +1,4 @@
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 
 use super::{ApiSetup, DbSetup, Matcher, Scenario, Setup, Step};
 
@@ -95,7 +95,9 @@ fn parse_db_setup(s: &str, lineno: usize) -> Result<DbSetup> {
             if let Some(pk) = other.strip_prefix("encrypted:") {
                 Ok(DbSetup::Encrypted(pk.to_string()))
             } else {
-                bail!("line {lineno}: unknown db setup {other:?}; expected none, temp, or encrypted:<passkey>");
+                bail!(
+                    "line {lineno}: unknown db setup {other:?}; expected none, temp, or encrypted:<passkey>"
+                );
             }
         }
     }
@@ -198,9 +200,9 @@ fn parse_expect_screen(rest: &str, lineno: usize) -> Result<Step> {
 
 fn parse_expect_line(rest: &str, lineno: usize) -> Result<Step> {
     let (n_str, remainder) = split_first_token(rest);
-    let n: usize = n_str
-        .parse()
-        .with_context(|| format!("line {lineno}: expect line requires a line number, got {n_str:?}"))?;
+    let n: usize = n_str.parse().with_context(|| {
+        format!("line {lineno}: expect line requires a line number, got {n_str:?}")
+    })?;
     let matcher = parse_matcher(remainder.trim(), lineno)?;
     Ok(Step::ExpectLine { n, matcher })
 }
@@ -353,10 +355,7 @@ advance 6s
             }
         );
         assert_eq!(s.steps[3], Step::ExpectScreenContains("Persona".into()));
-        assert_eq!(
-            s.steps[4],
-            Step::Advance(std::time::Duration::from_secs(6))
-        );
+        assert_eq!(s.steps[4], Step::Advance(std::time::Duration::from_secs(6)));
     }
 
     #[test]
@@ -414,8 +413,7 @@ advance 6s
 
     #[test]
     fn ignores_comments_and_blanks() {
-        let s =
-            parse("# a comment\n[setup]\n# another\nsize 80x24\n\n[steps]\n\npump\n").unwrap();
+        let s = parse("# a comment\n[setup]\n# another\nsize 80x24\n\n[steps]\n\npump\n").unwrap();
         assert_eq!(s.setup.size, (80, 24));
         assert_eq!(s.steps, vec![Step::Pump]);
     }
@@ -454,7 +452,10 @@ advance 6s
     #[test]
     fn rejects_unterminated_quoted_string() {
         let err = parse("[steps]\ntype \"unclosed\n").unwrap_err();
-        assert!(err.to_string().contains("unterminated quoted string"), "got: {err}");
+        assert!(
+            err.to_string().contains("unterminated quoted string"),
+            "got: {err}"
+        );
     }
 
     #[test]

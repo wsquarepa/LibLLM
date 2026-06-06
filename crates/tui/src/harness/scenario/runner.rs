@@ -373,9 +373,7 @@ async fn execute_step(
                         format!("probe '{probe}': expected {expected:?}, got {actual:?}")
                     }
                     Matcher::Contains(sub) => {
-                        format!(
-                            "probe '{probe}': expected to contain {sub:?}, got {actual:?}"
-                        )
+                        format!("probe '{probe}': expected to contain {sub:?}, got {actual:?}")
                     }
                 };
                 report.failures.push(Failure {
@@ -512,7 +510,11 @@ mod tests {
         let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
             .await
             .unwrap();
-        assert!(report.ok(), "expected no failures, got: {:?}", report.failures);
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
+        );
     }
 
     #[tokio::test]
@@ -561,7 +563,11 @@ mod tests {
         let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
             .await
             .unwrap();
-        assert!(report.ok(), "expected no failures, got: {:?}", report.failures);
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
+        );
     }
 
     #[tokio::test]

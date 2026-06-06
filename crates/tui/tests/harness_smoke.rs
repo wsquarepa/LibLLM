@@ -46,10 +46,7 @@ async fn streams_a_completion_into_the_head_message() {
     h.pump().await;
 
     let obs = h.observe();
-    assert!(
-        !obs.is_streaming,
-        "stream should be finished after pump"
-    );
+    assert!(!obs.is_streaming, "stream should be finished after pump");
     assert!(
         obs.head_text
             .as_deref()

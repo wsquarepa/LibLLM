@@ -19,8 +19,13 @@ async fn all_committed_scenarios_pass() {
     for path in files {
         let src = std::fs::read_to_string(&path).expect("read scenario file");
         let scenario = parse(&src).unwrap_or_else(|e| panic!("parse {path:?}: {e}"));
-        let stem = path.file_stem().and_then(|s| s.to_str()).expect("scenario stem");
-        let report = run_scenario(&scenario, &dir, stem, RunMode::Check).await.expect("run scenario");
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .expect("scenario stem");
+        let report = run_scenario(&scenario, &dir, stem, RunMode::Check)
+            .await
+            .expect("run scenario");
         for f in report.failures {
             all_failures.push(format!(
                 "[{stem}] step {} `{}`: {}\n{}",
@@ -28,5 +33,9 @@ async fn all_committed_scenarios_pass() {
             ));
         }
     }
-    assert!(all_failures.is_empty(), "scenario failures:\n\n{}", all_failures.join("\n\n"));
+    assert!(
+        all_failures.is_empty(),
+        "scenario failures:\n\n{}",
+        all_failures.join("\n\n")
+    );
 }

@@ -3,12 +3,12 @@
 pub mod business;
 mod clipboard;
 pub mod commands;
-#[cfg(feature = "test-support")]
-pub mod harness;
 mod dialog_handler;
 pub mod dialogs;
 mod events;
 pub mod file_summarizer;
+#[cfg(feature = "test-support")]
+pub mod harness;
 mod input;
 mod input_file_cache;
 mod maintenance;

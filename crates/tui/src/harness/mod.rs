@@ -132,20 +132,11 @@ impl<'a> Harness<'a> {
             // Await remaining tokens if the stream is still active after the
             // non-blocking drain above.
             while self.app.is_streaming {
-                match tokio::time::timeout(
-                    Duration::from_secs(5),
-                    self.token_rx.recv(),
-                )
-                .await
-                {
+                match tokio::time::timeout(Duration::from_secs(5), self.token_rx.recv()).await {
                     Ok(Some(tok)) => {
-                        commands::handle_stream_token(
-                            tok,
-                            &mut self.app,
-                            self.token_tx.clone(),
-                        )
-                        .await
-                        .expect("handle_stream_token");
+                        commands::handle_stream_token(tok, &mut self.app, self.token_tx.clone())
+                            .await
+                            .expect("handle_stream_token");
                         progressed = true;
                     }
                     Ok(None) => break,

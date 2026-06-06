@@ -70,6 +70,11 @@ fn ci() -> Result<(), String> {
         ],
     )?;
     run_step(&log, &log_path, &["test", "--workspace"])?;
+    run_step(
+        &log,
+        &log_path,
+        &["test", "-p", "libllm-tui", "--features", "test-support"],
+    )?;
     run_step(&log, &log_path, &["doc", "--workspace", "--no-deps"])?;
 
     println!("xtask ci: all checks passed (log: {})", log_path.display());
@@ -223,8 +228,14 @@ fn scenario(rest: &[String]) -> Result<(), String> {
     let program = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
     let mut cargo = std::process::Command::new(program);
     cargo.args([
-        "run", "-p", "libllm-tui", "--features", "test-support",
-        "--example", "scenario_runner", "--",
+        "run",
+        "-p",
+        "libllm-tui",
+        "--features",
+        "test-support",
+        "--example",
+        "scenario_runner",
+        "--",
     ]);
     cargo.args(rest);
     let status = cargo

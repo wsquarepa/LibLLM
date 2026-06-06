@@ -32,6 +32,10 @@ uuid.workspace = true
 wiremock = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
+[[example]]
+name = "scenario_runner"
+required-features = ["test-support"]
+
 [features]
 test-support = ["dep:wiremock", "dep:tempfile"]
 

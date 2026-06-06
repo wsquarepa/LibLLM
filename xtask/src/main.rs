@@ -4,6 +4,7 @@
 //! - `cargo xtask ci` — the full verification suite (fmt, clippy, test, doc),
 //!   teed to a single timestamped log under the temp dir.
 //! - `cargo xtask release X.Y.Z` — bump the workspace version in `Cargo.toml`.
+//! - `cargo xtask scenario <file> [--bless]` — replay a `.scenario` file.
 
 use std::env;
 use std::fs::File;
@@ -21,8 +22,9 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("ci") => ci(),
         Some("release") => release(args.get(1).map(String::as_str)),
+        Some("scenario") => scenario(&args[1..]),
         _ => {
-            eprintln!("usage: cargo xtask <ci|release X.Y.Z>");
+            eprintln!("usage: cargo xtask <ci|release X.Y.Z|scenario <file> [--bless]>");
             return ExitCode::FAILURE;
         }
     };
@@ -214,6 +216,24 @@ fn replace_workspace_version(contents: &str, version: &str) -> Result<String, St
         Ok(out)
     } else {
         Err("could not find a version key under [workspace.package]".to_owned())
+    }
+}
+
+fn scenario(rest: &[String]) -> Result<(), String> {
+    let program = env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let mut cargo = std::process::Command::new(program);
+    cargo.args([
+        "run", "-p", "libllm-tui", "--features", "test-support",
+        "--example", "scenario_runner", "--",
+    ]);
+    cargo.args(rest);
+    let status = cargo
+        .status()
+        .map_err(|e| format!("failed to spawn cargo: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("scenario run failed".into())
     }
 }
 

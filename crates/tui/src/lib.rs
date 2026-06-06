@@ -60,6 +60,298 @@ pub struct SummarizerParams {
     pub derived_key: Option<std::sync::Arc<libllm_core::crypto::DerivedKey>>,
 }
 
+/// Everything `App::build` needs to construct the application state without
+/// touching the terminal or spawning network probes.
+pub(crate) struct BuildParams<'a> {
+    pub(crate) client: ApiClient,
+    pub(crate) session: &'a mut Session,
+    pub(crate) save_mode: SaveMode,
+    pub(crate) db: Option<libllm_storage::db::Database>,
+    pub(crate) instruct_preset: InstructPreset,
+    pub(crate) sampling: SamplingParams,
+    pub(crate) cli_overrides: CliOverrides,
+    pub(crate) summarizer_params: SummarizerParams,
+    pub(crate) version_status: &'static str,
+    pub(crate) tokenizer_tx: mpsc::Sender<libllm_protocol::tokenizer::TokenCountUpdate>,
+    pub(crate) bg_tx: mpsc::Sender<BackgroundEvent>,
+}
+
+impl<'a> App<'a> {
+    /// Builds the full application state. Performs no terminal I/O and spawns no
+    /// network probes.
+    pub(crate) fn build(params: BuildParams<'a>) -> Result<App<'a>> {
+        let BuildParams {
+            client,
+            session,
+            save_mode,
+            db,
+            instruct_preset,
+            sampling,
+            cli_overrides,
+            summarizer_params,
+            version_status,
+            tokenizer_tx,
+            bg_tx,
+        } = params;
+
+        let sidebar_sessions = {
+            let _span = tracing::info_span!("startup.phase", phase = "sidebar_discovery").entered();
+            business::discover_sidebar_sessions(&save_mode, db.as_ref())
+        };
+
+        let mut textarea = TextArea::default();
+        textarea.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Input ")
+                .title_bottom(Line::from(" Enter to send, Alt+Enter for newline ").centered()),
+        );
+        dialog_handler::configure_textarea(&mut textarea);
+
+        let sidebar_state = ratatui::widgets::ListState::default();
+
+        let token_counter = libllm_protocol::tokenizer::TokenCounter::new_with_backend(
+            libllm_protocol::tokenizer::TokenizerBackend::Heuristic(
+                libllm_protocol::tokenizer::HeuristicTokenizer::standard(),
+            ),
+            tokenizer_tx.clone(),
+        );
+
+        let config = libllm_config::load();
+
+        let (file_summary_ready_tx, file_summary_ready_rx) =
+            tokio::sync::mpsc::unbounded_channel::<libllm_core::files::ReadyEvent>();
+
+        tracing::debug!(
+            db_path_present = summarizer_params.db_path.is_some(),
+            encrypted = summarizer_params.derived_key.is_some(),
+            "tui.file_summarizer.construct.start"
+        );
+        let file_summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>> =
+            match summarizer_params.db_path.as_ref() {
+                Some(path) => Some(business::build_file_summarizer(
+                    path,
+                    summarizer_params.derived_key.as_ref(),
+                    &config,
+                    &cli_overrides,
+                    file_summary_ready_tx.clone(),
+                )?),
+                None => {
+                    tracing::info!(
+                        reason = "no_db_path",
+                        "tui.file_summarizer.construct.deferred"
+                    );
+                    None
+                }
+            };
+
+        let salt_exists = libllm_config::salt_path().exists();
+        let initial_passkey_setup = save_mode.needs_passkey() && !salt_exists;
+
+        let enabled_rule_count = config
+            .regex
+            .iter()
+            .filter(|r| r.enabled && r.compile_error.is_none())
+            .count();
+        let compiled_regex = libllm_core::regex_rules::compile_rules(&config.regex);
+        let skipped_regex_rules = enabled_rule_count.saturating_sub(compiled_regex.len());
+
+        let mut app = App {
+            client,
+            session,
+            version_status,
+            db,
+            focus: if save_mode.needs_passkey() {
+                if initial_passkey_setup {
+                    Focus::SetPasskeyDialog
+                } else {
+                    Focus::PasskeyDialog
+                }
+            } else {
+                Focus::Input
+            },
+            save_mode,
+            session_dirty: false,
+            pending_save_deadline: None,
+            pending_save_trigger: None,
+            stop_tokens: instruct_preset.stop_tokens(),
+            reasoning_preset: config.reasoning_preset.as_deref().and_then(|n| {
+                libllm_core::preset::resolve_reasoning_preset(
+                    n,
+                    &libllm_config::reasoning_presets_dir(),
+                )
+            }),
+            instruct_preset,
+            sampling,
+            context_mgr: ContextManager::new(config.summarization.context_size),
+            textarea,
+            input_scroll_top: 0,
+            edit_scroll_top: 0,
+            chat_scroll: 0,
+            chat_max_scroll: 0,
+            auto_scroll: true,
+            last_scroll_state: ScrollState {
+                auto_scroll: false,
+                nav_cursor: None,
+                head: None,
+                branch_len: 0,
+                buffer_len: 0,
+                first_think_closed: false,
+                width: 0,
+                height: 0,
+                summary_revision: 0,
+            },
+            sidebar_sessions,
+            sidebar_state,
+            streaming_buffer: String::new(),
+            is_streaming: false,
+            is_continuation: false,
+            streaming_prefill: None,
+            stream_started_at: None,
+            stream_first_think_closed_at: None,
+            message_queue: Vec::new(),
+            streaming_task: None,
+            is_summarizing: false,
+            summary_receiver: None,
+            summary_branch_head: None,
+            summary_pending_dropped: None,
+            summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
+            model_name: None,
+            api_available: true,
+            api_error: String::new(),
+            file_picker: None,
+            file_reference_confirm: None,
+            injection_warning: None,
+            status_message: None,
+            should_quit: false,
+            passkey_changed: false,
+            command_picker_selected: 0,
+            passkey_input: String::new(),
+            passkey_error: String::new(),
+            passkey_deriving: false,
+            resolved_passkey: None,
+            pending_new_passkey: None,
+            set_passkey_input: String::new(),
+            set_passkey_confirm: String::new(),
+            set_passkey_active_field: 0,
+            set_passkey_error: String::new(),
+            set_passkey_deriving: false,
+            set_passkey_is_initial: initial_passkey_setup,
+            config_dialog: None,
+            auth_dialog: None,
+            theme_dialog: None,
+            base_theme_picker_names: Vec::new(),
+            base_theme_picker_selected: 0,
+            persona_editor: None,
+            author_note_editor: None,
+            system_prompt_editor: None,
+            system_editor_prompt_name: String::new(),
+            system_editor_return_focus: Focus::Input,
+            system_editor_read_only: false,
+            system_prompt_list: Vec::new(),
+            system_prompt_selected: 0,
+            edit_editor: None,
+            unsaved_warning: None,
+            last_unsaved_warning_return_focus: None,
+            preset_picker_kind: dialogs::preset::PresetKind::Instruct,
+            preset_picker_names: Vec::new(),
+            preset_picker_selected: 0,
+            preset_editor: None,
+            preset_editor_kind: dialogs::preset::PresetKind::Instruct,
+            preset_editor_original_name: String::new(),
+            character_names: Vec::new(),
+            character_slugs: Vec::new(),
+            character_selected: 0,
+            character_picks: Vec::new(),
+            worldbook_list: Vec::new(),
+            worldbook_selected: 0,
+
+            regex_list_selected: 0,
+            regex_editor: None,
+            skipped_regex_rules_pending_status: skipped_regex_rules,
+            character_editor: None,
+            character_editor_slug: String::new(),
+            worldbook_editor_entries: Vec::new(),
+            worldbook_editor_original_entries: Vec::new(),
+            worldbook_editor_name: String::new(),
+            worldbook_editor_original_name: String::new(),
+            worldbook_editor_name_selected: true,
+            worldbook_editor_name_editing: false,
+            worldbook_editor_selected: 0,
+            worldbook_entry_editor: None,
+            worldbook_entry_editor_index: 0,
+            compiled_regex,
+            display_regex_cache: std::collections::HashMap::new(),
+            chat_content_cache: None,
+            cached_token_count: None,
+            token_counter,
+            tokenizer_tx,
+            sidebar_cache: None,
+            sidebar_age_refresh_at: std::time::Instant::now() + SIDEBAR_AGE_REFRESH_INTERVAL,
+            raw_edit_node: None,
+            edit_original_content: String::new(),
+            nav_cursor: None,
+            branch_dialog_items: Vec::new(),
+            branch_dialog_selected: 0,
+            search_dialog: None,
+            delete_confirm_selected: 0,
+            delete_confirm_filename: String::new(),
+            delete_context: DeleteContext::Session,
+            active_persona_name: None,
+            active_persona_desc: None,
+            active_card_author_note: None,
+            persona_slugs: Vec::new(),
+            persona_names: Vec::new(),
+            persona_selected: 0,
+            persona_editor_slug: String::new(),
+            theme: theme::resolve_theme(&config),
+            config,
+            cli_overrides,
+            worldbook_cache: None,
+            layout_areas: None,
+            hover_node: None,
+            bg_tx,
+            autosave_debug: AutosaveDebugState {
+                dirty_since: None,
+                save_count: 0,
+                retry_count: 0,
+            },
+            unlock_debug: None,
+            input_reject_flash: None,
+            dialog_search: dialogs::SearchState::new(),
+            sidebar_search: dialogs::SearchState::new(),
+            last_terminal_height: 0,
+            input_file_cache: input_file_cache::InputFileCache::new(),
+            recall_refs: None,
+            file_summarizer,
+            file_summary_ready_tx,
+            file_summary_ready_rx,
+            file_summary_revision: 0,
+            pending_template_prompt: None,
+            template_prompt_state: None,
+            danger_selected: 0,
+            danger_confirm_op: None,
+            danger_confirm_selected: None,
+            danger_typed_confirm: None,
+            chat_settings_dialog: None,
+            scenario_editor: None,
+            scenario_scroll_top: 0,
+            is_group_chat_creation_pending: false,
+            character_cards_cache: std::collections::HashMap::new(),
+            group_chat_loop_rng: None,
+            group_chat_consecutive: 0,
+            group_chat_max_consecutive: 0,
+            group_chat_remaining_budget: 0.0,
+        };
+
+        business::load_active_persona(&mut app);
+        business::rebuild_character_cards_cache(&mut app);
+        business::load_active_card_author_note(&mut app);
+
+        Ok(app)
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "entry point for the full TUI session; parameters map directly to distinct startup concerns"
@@ -75,33 +367,10 @@ pub async fn run(
     summarizer_params: SummarizerParams,
     version_status: &'static str,
 ) -> Result<Option<String>> {
-    let sidebar_sessions = {
-        let _span = tracing::info_span!("startup.phase", phase = "sidebar_discovery").entered();
-        business::discover_sidebar_sessions(&save_mode, db.as_ref())
-    };
-
-    let mut textarea = TextArea::default();
-    textarea.set_block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Input ")
-            .title_bottom(Line::from(" Enter to send, Alt+Enter for newline ").centered()),
-    );
-    dialog_handler::configure_textarea(&mut textarea);
-
-    let sidebar_state = ratatui::widgets::ListState::default();
-
     let (token_tx, mut token_rx) = mpsc::channel::<StreamToken>(256);
     let (bg_tx, mut bg_rx) = mpsc::channel::<BackgroundEvent>(64);
-
     let (tokenizer_tx, mut tokenizer_rx) =
         mpsc::channel::<libllm_protocol::tokenizer::TokenCountUpdate>(64);
-    let token_counter = libllm_protocol::tokenizer::TokenCounter::new_with_backend(
-        libllm_protocol::tokenizer::TokenizerBackend::Heuristic(
-            libllm_protocol::tokenizer::HeuristicTokenizer::standard(),
-        ),
-        tokenizer_tx.clone(),
-    );
 
     let cli_template_override = cli_overrides.template.is_some();
     business::spawn_startup_probes(
@@ -112,236 +381,19 @@ pub async fn run(
         instruct_preset.name.clone(),
     );
 
-    let config = libllm_config::load();
-
-    let (file_summary_ready_tx, file_summary_ready_rx) =
-        tokio::sync::mpsc::unbounded_channel::<libllm_core::files::ReadyEvent>();
-
-    tracing::debug!(
-        db_path_present = summarizer_params.db_path.is_some(),
-        encrypted = summarizer_params.derived_key.is_some(),
-        "tui.file_summarizer.construct.start"
-    );
-    let file_summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>> =
-        match summarizer_params.db_path.as_ref() {
-            Some(path) => Some(business::build_file_summarizer(
-                path,
-                summarizer_params.derived_key.as_ref(),
-                &config,
-                &cli_overrides,
-                file_summary_ready_tx.clone(),
-            )?),
-            None => {
-                tracing::info!(
-                    reason = "no_db_path",
-                    "tui.file_summarizer.construct.deferred"
-                );
-                None
-            }
-        };
-
-    let salt_exists = libllm_config::salt_path().exists();
-    let initial_passkey_setup = save_mode.needs_passkey() && !salt_exists;
-
-    let enabled_rule_count = config
-        .regex
-        .iter()
-        .filter(|r| r.enabled && r.compile_error.is_none())
-        .count();
-    let compiled_regex = libllm_core::regex_rules::compile_rules(&config.regex);
-    let skipped_regex_rules = enabled_rule_count.saturating_sub(compiled_regex.len());
-
-    let mut app = App {
+    let mut app = App::build(BuildParams {
         client,
         session,
-        version_status,
-        db,
-        focus: if save_mode.needs_passkey() {
-            if initial_passkey_setup {
-                Focus::SetPasskeyDialog
-            } else {
-                Focus::PasskeyDialog
-            }
-        } else {
-            Focus::Input
-        },
         save_mode,
-        session_dirty: false,
-        pending_save_deadline: None,
-        pending_save_trigger: None,
-        stop_tokens: instruct_preset.stop_tokens(),
-        reasoning_preset: config.reasoning_preset.as_deref().and_then(|n| {
-            libllm_core::preset::resolve_reasoning_preset(
-                n,
-                &libllm_config::reasoning_presets_dir(),
-            )
-        }),
+        db,
         instruct_preset,
         sampling,
-        context_mgr: ContextManager::new(config.summarization.context_size),
-        textarea,
-        input_scroll_top: 0,
-        edit_scroll_top: 0,
-        chat_scroll: 0,
-        chat_max_scroll: 0,
-        auto_scroll: true,
-        last_scroll_state: ScrollState {
-            auto_scroll: false,
-            nav_cursor: None,
-            head: None,
-            branch_len: 0,
-            buffer_len: 0,
-            first_think_closed: false,
-            width: 0,
-            height: 0,
-            summary_revision: 0,
-        },
-        sidebar_sessions,
-        sidebar_state,
-        streaming_buffer: String::new(),
-        is_streaming: false,
-        is_continuation: false,
-        streaming_prefill: None,
-        stream_started_at: None,
-        stream_first_think_closed_at: None,
-        message_queue: Vec::new(),
-        streaming_task: None,
-        is_summarizing: false,
-        summary_receiver: None,
-        summary_branch_head: None,
-        summary_pending_dropped: None,
-        summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
-        model_name: None,
-        api_available: true,
-        api_error: String::new(),
-        file_picker: None,
-        file_reference_confirm: None,
-        injection_warning: None,
-        status_message: None,
-        should_quit: false,
-        passkey_changed: false,
-        command_picker_selected: 0,
-        passkey_input: String::new(),
-        passkey_error: String::new(),
-        passkey_deriving: false,
-        resolved_passkey: None,
-        pending_new_passkey: None,
-        set_passkey_input: String::new(),
-        set_passkey_confirm: String::new(),
-        set_passkey_active_field: 0,
-        set_passkey_error: String::new(),
-        set_passkey_deriving: false,
-        set_passkey_is_initial: initial_passkey_setup,
-        config_dialog: None,
-        auth_dialog: None,
-        theme_dialog: None,
-        base_theme_picker_names: Vec::new(),
-        base_theme_picker_selected: 0,
-        persona_editor: None,
-        author_note_editor: None,
-        system_prompt_editor: None,
-        system_editor_prompt_name: String::new(),
-        system_editor_return_focus: Focus::Input,
-        system_editor_read_only: false,
-        system_prompt_list: Vec::new(),
-        system_prompt_selected: 0,
-        edit_editor: None,
-        unsaved_warning: None,
-        last_unsaved_warning_return_focus: None,
-        preset_picker_kind: dialogs::preset::PresetKind::Instruct,
-        preset_picker_names: Vec::new(),
-        preset_picker_selected: 0,
-        preset_editor: None,
-        preset_editor_kind: dialogs::preset::PresetKind::Instruct,
-        preset_editor_original_name: String::new(),
-        character_names: Vec::new(),
-        character_slugs: Vec::new(),
-        character_selected: 0,
-        character_picks: Vec::new(),
-        worldbook_list: Vec::new(),
-        worldbook_selected: 0,
-
-        regex_list_selected: 0,
-        regex_editor: None,
-        skipped_regex_rules_pending_status: skipped_regex_rules,
-        character_editor: None,
-        character_editor_slug: String::new(),
-        worldbook_editor_entries: Vec::new(),
-        worldbook_editor_original_entries: Vec::new(),
-        worldbook_editor_name: String::new(),
-        worldbook_editor_original_name: String::new(),
-        worldbook_editor_name_selected: true,
-        worldbook_editor_name_editing: false,
-        worldbook_editor_selected: 0,
-        worldbook_entry_editor: None,
-        worldbook_entry_editor_index: 0,
-        compiled_regex,
-        display_regex_cache: std::collections::HashMap::new(),
-        chat_content_cache: None,
-        cached_token_count: None,
-        token_counter,
-        tokenizer_tx,
-        sidebar_cache: None,
-        sidebar_age_refresh_at: std::time::Instant::now() + SIDEBAR_AGE_REFRESH_INTERVAL,
-        raw_edit_node: None,
-        edit_original_content: String::new(),
-        nav_cursor: None,
-        branch_dialog_items: Vec::new(),
-        branch_dialog_selected: 0,
-        search_dialog: None,
-        delete_confirm_selected: 0,
-        delete_confirm_filename: String::new(),
-        delete_context: DeleteContext::Session,
-        active_persona_name: None,
-        active_persona_desc: None,
-        active_card_author_note: None,
-        persona_slugs: Vec::new(),
-        persona_names: Vec::new(),
-        persona_selected: 0,
-        persona_editor_slug: String::new(),
-        theme: theme::resolve_theme(&config),
-        config,
         cli_overrides,
-        worldbook_cache: None,
-        layout_areas: None,
-        hover_node: None,
+        summarizer_params,
+        version_status,
+        tokenizer_tx,
         bg_tx: bg_tx.clone(),
-        autosave_debug: AutosaveDebugState {
-            dirty_since: None,
-            save_count: 0,
-            retry_count: 0,
-        },
-        unlock_debug: None,
-        input_reject_flash: None,
-        dialog_search: dialogs::SearchState::new(),
-        sidebar_search: dialogs::SearchState::new(),
-        last_terminal_height: 0,
-        input_file_cache: input_file_cache::InputFileCache::new(),
-        recall_refs: None,
-        file_summarizer,
-        file_summary_ready_tx,
-        file_summary_ready_rx,
-        file_summary_revision: 0,
-        pending_template_prompt: None,
-        template_prompt_state: None,
-        danger_selected: 0,
-        danger_confirm_op: None,
-        danger_confirm_selected: None,
-        danger_typed_confirm: None,
-        chat_settings_dialog: None,
-        scenario_editor: None,
-        scenario_scroll_top: 0,
-        is_group_chat_creation_pending: false,
-        character_cards_cache: std::collections::HashMap::new(),
-        group_chat_loop_rng: None,
-        group_chat_consecutive: 0,
-        group_chat_max_consecutive: 0,
-        group_chat_remaining_budget: 0.0,
-    };
-
-    business::load_active_persona(&mut app);
-    business::rebuild_character_cards_cache(&mut app);
-    business::load_active_card_author_note(&mut app);
+    })?;
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(
@@ -445,7 +497,7 @@ pub async fn run(
     Ok(app.resolved_passkey.clone())
 }
 
-fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
+pub(crate) fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
     app.last_terminal_height = f.area().height;
     let _frame_start = std::time::Instant::now();
 

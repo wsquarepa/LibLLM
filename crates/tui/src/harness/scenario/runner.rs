@@ -198,7 +198,7 @@ fn snapshot_diff_detail(expected: &str, actual: &str) -> String {
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "runner context has 8 params; extracting a context struct is a larger refactor deferred to a future task"
+    reason = "runner step context: 8 params; a RunContext struct would be the alternative"
 )]
 async fn execute_step(
     harness: &mut Harness<'_>,
@@ -597,6 +597,215 @@ mod tests {
             check_report.ok(),
             "check failed: {:?}",
             check_report.failures
+        );
+    }
+
+    #[tokio::test]
+    async fn enqueue_error_ends_streaming_cleanly() {
+        let scenario = Scenario {
+            setup: Setup {
+                size: (100, 30),
+                db: DbSetup::Temp,
+                api: ApiSetup::Mock,
+                overrides: Vec::new(),
+                seed: None,
+            },
+            steps: vec![
+                Step::EnqueueError("boom".to_owned()),
+                Step::Type("x".to_owned()),
+                Step::Key("Enter".to_owned()),
+                Step::Pump,
+                Step::ExpectState {
+                    probe: "is_streaming".to_owned(),
+                    matcher: Matcher::Eq("false".to_owned()),
+                },
+            ],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
+        );
+    }
+
+    #[tokio::test]
+    async fn expect_screen_excludes_absent_text_passes() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::ExpectScreenExcludes(
+                "zzz_definitely_absent".to_owned(),
+            )],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
+        );
+    }
+
+    #[tokio::test]
+    async fn expect_screen_excludes_present_text_fails() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::ExpectScreenExcludes("Input".to_owned())],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(!report.ok());
+        assert_eq!(report.failures.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn snapshot_missing_golden_in_check_mode_reports_one_failure() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::Snapshot("nope".to_owned())],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "stem", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(!report.ok());
+        assert_eq!(report.failures.len(), 1);
+        assert!(
+            report.failures[0].detail.contains("--bless"),
+            "expected --bless hint in detail, got: {:?}",
+            report.failures[0].detail
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_content_mismatch_reports_one_failure() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::Snapshot("snap".to_owned())],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+
+        let bless_report = run_scenario(&scenario, golden_dir.path(), "stem", RunMode::Bless)
+            .await
+            .unwrap();
+        assert!(
+            bless_report.ok(),
+            "bless failed: {:?}",
+            bless_report.failures
+        );
+
+        let golden_path = golden_dir.path().join("stem.snap.snap");
+        std::fs::write(&golden_path, "totally different content\n").unwrap();
+
+        let check_report = run_scenario(&scenario, golden_dir.path(), "stem", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(!check_report.ok());
+        assert_eq!(check_report.failures.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn advance_status_survives_short_advance_and_clears_after_long() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![
+                Step::Type("/retry".to_owned()),
+                Step::Key("Enter".to_owned()),
+                Step::ExpectState {
+                    probe: "status_message".to_owned(),
+                    matcher: Matcher::Contains("No user message".to_owned()),
+                },
+                Step::Advance(std::time::Duration::from_secs(2)),
+                Step::ExpectState {
+                    probe: "status_message".to_owned(),
+                    matcher: Matcher::Contains("No user message".to_owned()),
+                },
+                Step::Advance(std::time::Duration::from_secs(6)),
+                Step::ExpectState {
+                    probe: "status_message".to_owned(),
+                    matcher: Matcher::Null,
+                },
+            ],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_probe_reports_one_failure_with_hint() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::ExpectState {
+                probe: "xyzzy_not_a_field".to_owned(),
+                matcher: Matcher::Eq("x".to_owned()),
+            }],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(!report.ok());
+        assert_eq!(report.failures.len(), 1);
+        assert!(
+            report.failures[0].detail.contains("unknown probe"),
+            "expected 'unknown probe' in detail, got: {:?}",
+            report.failures[0].detail
+        );
+    }
+
+    #[tokio::test]
+    async fn expect_line_out_of_bounds_reports_one_failure() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::ExpectLine {
+                n: 9999,
+                matcher: Matcher::Contains(String::new()),
+            }],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(!report.ok());
+        assert_eq!(report.failures.len(), 1);
+        assert!(
+            report.failures[0].detail.contains("does not exist"),
+            "expected 'does not exist' in detail, got: {:?}",
+            report.failures[0].detail
+        );
+    }
+
+    #[tokio::test]
+    async fn expect_line_in_bounds_with_empty_substring_passes() {
+        let scenario = Scenario {
+            setup: default_setup_no_db_no_api(),
+            steps: vec![Step::ExpectLine {
+                n: 0,
+                matcher: Matcher::Contains(String::new()),
+            }],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
         );
     }
 }

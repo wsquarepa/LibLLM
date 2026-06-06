@@ -1,0 +1,13 @@
+[setup]
+size 100x30
+db none
+api none
+
+[steps]
+type "/config"
+key Enter
+expect focus == ConfigDialog
+expect active_dialog == config
+key Esc
+expect focus == Input
+expect active_dialog == null

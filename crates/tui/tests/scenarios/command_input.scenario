@@ -1,0 +1,16 @@
+[setup]
+size 100x30
+db none
+api none
+
+[steps]
+# /retry with no messages produces a deterministic warning status message
+type "/retry"
+key Enter
+expect status_message contains "No user message"
+expect status_level == Warning
+expect message_count == 0
+
+# After 6s the status message expires
+advance 6s
+expect status_message == null

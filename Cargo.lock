@@ -1964,6 +1964,7 @@ dependencies = [
  "tracing",
  "tui-textarea-2",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

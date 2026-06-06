@@ -1,0 +1,13 @@
+[setup]
+size 100x30
+db temp
+api mock
+
+[steps]
+enqueue completion "Hello" ", " "world"
+type "hi"
+key Enter
+pump
+expect is_streaming == false
+expect head_text contains "Hello, world"
+advance 6s

@@ -1,0 +1,10 @@
+[setup]
+size 100x30
+db none
+api none
+
+[steps]
+expect screen contains "Input"
+expect focus == Input
+expect active_dialog == null
+expect message_count == 0

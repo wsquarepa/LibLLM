@@ -6,6 +6,7 @@ mod builder;
 mod mock_api;
 mod normalize;
 mod observe;
+pub mod scenario;
 
 pub use builder::HarnessBuilder;
 pub use observe::Observation;

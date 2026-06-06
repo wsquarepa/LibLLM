@@ -16,8 +16,8 @@ use super::dialogs;
 use super::render;
 use super::theme;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Focus {
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+pub enum Focus {
     Input,
     Chat,
     Sidebar,
@@ -85,8 +85,8 @@ pub(super) enum DeleteContext {
     Regex,
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum StatusLevel {
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub enum StatusLevel {
     Info,
     Warning,
     Error,

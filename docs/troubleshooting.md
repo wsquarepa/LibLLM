@@ -106,7 +106,7 @@ Set the log filter:
 
 ```sh
 libllm --debug ./libllm-debug.log --log-filter debug
-LIBLLM_LOG=info,libllm::db=debug libllm --debug ./libllm-debug.log
+LIBLLM_LOG=info,libllm_storage::db=debug libllm --debug ./libllm-debug.log
 ```
 
 `LIBLLM_LOG` is ignored unless `--debug` is set. Inside the TUI, `/report` copies the active debug log to `./debug.log`.

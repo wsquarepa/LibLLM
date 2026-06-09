@@ -20,7 +20,7 @@ Dependencies flow inward: cli -> tui -> storage/protocol/config -> core. Core ne
 
 ## Build and Test
 
-`cargo xtask ci` is the one command for the full verification suite. It runs, in order and stopping at the first failure: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and `cargo doc --workspace --no-deps`.
+`cargo xtask ci` is the one command for the full verification suite. It runs, in order and stopping at the first failure: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo clippy -p libllm-tui --all-targets --features test-support -- -D warnings`, `cargo test --workspace`, `cargo test -p libllm-tui --features test-support`, and `cargo doc --workspace --no-deps`.
 
 Every step is teed live to your terminal and to a single timestamped log under the temp dir (`<tempdir>/libllm-ci-<date>-<time>-<rand>.log`, unique per run). The path is printed at the start (`xtask ci: logging to …`) and again on success. Re-running the suite just to see its output burns 1-to-5 minutes of CPU; re-read that log instead — it is the authoritative record of what went wrong and where.
 
@@ -36,7 +36,7 @@ CI runs the same checks on all pushes and PRs. Run `cargo xtask ci` locally befo
 
 ### Test suites
 
-Integration tests live in `crates/cli/tests/` across eight files: `business_logic`, `cli`, `configuration`, `content`, `db_subcommand`, `import_subcommand`, `persistence`, `recover_subcommand`. Unit tests live in `crates/storage/src/db/` sub-modules and in `crates/cli/src/cli/db/{parser,format}.rs`. Shared helpers are in `crates/cli/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
+Integration tests live in `crates/cli/tests/` across sixteen files: `author_note_injection`, `business_logic`, `cli`, `configuration`, `content`, `danger_subprocess`, `danger_tab`, `db_subcommand`, `file_summary`, `group_chats`, `import_subcommand`, `persistence`, `recover_subcommand`, `regex_rules`, `template_detection`, `tokenization`. Keep this list in sync when adding or removing a test binary. Unit tests live in `crates/storage/src/db/` sub-modules and in `crates/cli/src/cli/db/{parser,format}.rs`. Shared helpers are in `crates/cli/tests/common/mod.rs`. Each integration test binary compiles its own copy of `mod common;` and uses a different subset of the helpers — use `#[expect(dead_code, reason = "...")]` on the `mod common;` declaration, never `#[allow]`.
 
 **Subprocess integration tests:** Three test binaries (`db_subcommand`, `import_subcommand`, `recover_subcommand`) spawn the compiled `libllm` binary via `common::client_bin()` to exercise the CLI surface end-to-end (exit codes, stderr/stdout split, env-var passkey, `--no-encrypt` data dirs). Use this pattern when the contract being tested is the CLI itself — argument parsing, exit codes, confirmation prompts, multi-process safety. Use `.output()` (not `.status()`) so stderr is captured in failure messages. The `update` subcommand is deliberately not subprocess-tested because it depends on network access; the `edit` subcommand would need an `$EDITOR` mock and is also currently uncovered at this level.
 
@@ -104,7 +104,7 @@ These are non-obvious patterns that cannot be inferred from a quick code read.
 
 ### CLI Override System
 
-CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (defined in `libllm-core`'s `config` module, re-exported via `libllm::config` and `libllm-cli`'s `cli` module; the clap-derived arg wrappers like `AuthKindArg` stay in `crates/cli/src/cli/mod.rs`). Overridden fields display in red in the `/config` dialog and cannot be edited. The `-r` flag forces `/system` read-only; `-p` forces `/persona` read-only. Both show content in red.
+CLI flags that overlap with `/config` fields are tracked in `CliOverrides` (defined in `libllm-core`'s `config` module, re-exported via `libllm-cli`'s `cli` module; the clap-derived arg wrappers like `AuthKindArg` stay in `crates/cli/src/cli/mod.rs`). Overridden fields display in red in the `/config` dialog and cannot be edited. The `-r` flag forces `/system` read-only; `-p` forces `/persona` read-only. Both show content in red.
 
 ### Statusbar
 
@@ -152,7 +152,7 @@ Migrations run exactly once per process: `Database::open` (in `crates/storage/sr
 - `import` always invokes `backup::snapshot::create_snapshot` before swapping the database file. There is no `--no-backup` flag; this is intentional. The pre-swap backup is the recovery story for any failure between `build_replacement` and `fs::rename`.
 - `dump` and `import` both call `wal_liveness_check` (in `cli/db/mod.rs`) which probes for `SQLITE_BUSY` via `BEGIN IMMEDIATE; ROLLBACK;` to refuse if another LibLLM process holds the database. The check early-returns when the database file does not exist (otherwise `Connection::open` would silently create an empty file).
 - Tmp-path computation in `dump` appends `.tmp` to the user's path (it does not use `Path::with_extension`, which would replace any existing `.tmp` and collide with the destination).
-- Schema-version compatibility is gated on `libllm::db::CURRENT_VERSION` (re-exported from `db::migrations`). If you add a new migration, both the import gate and the migration runner read the same constant — see the "Database migrations" section above.
+- Schema-version compatibility is gated on `libllm_storage::db::CURRENT_VERSION` (re-exported from `db::migrations`). If you add a new migration, both the import gate and the migration runner read the same constant — see the "Database migrations" section above.
 - Standard exit codes shared across the group: `1` generic, `2` user declined, `3` schema-version mismatch, `4` WAL-liveness failure (constants in `cli/db/mod.rs::exit`).
 - The shell uses `rustyline` with a `DotCommandOutcome::{Continue, Quit}` enum (NOT `std::process::exit`) so `save_history` runs on clean exit. A statement whose first input line begins with whitespace is excluded from both on-disk and in-memory history (bash `HISTCONTROL=ignorespace`).
 

@@ -352,6 +352,195 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
+/// Loads all message rows for `session_id` and assembles the arena tree.
+/// `head_id` comes from the sessions row.
+fn load_message_tree(
+    conn: &Connection,
+    session_id: &str,
+    head_id: Option<i64>,
+) -> Result<MessageTree> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points
+             FROM messages WHERE session_id = ?1 ORDER BY id",
+        )
+        .map_err(|source| DbError::Query {
+            context: "failed to prepare message query".to_owned(),
+            source,
+        })?;
+
+    let mut nodes: Vec<Node> = Vec::new();
+    let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
+
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            let msg_id: i64 = row.get(0)?;
+            let parent_id: Option<i64> = row.get(1)?;
+            let preferred_child_id: Option<i64> = row.get(2)?;
+            let role_str: String = row.get(3)?;
+            let content: String = row.get(4)?;
+            let timestamp: String = row.get(5)?;
+            let thought_seconds: Option<i64> = row.get(6)?;
+            let speaker: Option<String> = row.get(7)?;
+            let pre_turn_action_points: Option<String> = row.get(8)?;
+            Ok((
+                msg_id,
+                parent_id,
+                preferred_child_id,
+                role_str,
+                content,
+                timestamp,
+                thought_seconds,
+                speaker,
+                pre_turn_action_points,
+            ))
+        })
+        .map_err(|source| DbError::Query {
+            context: "failed to query messages".to_owned(),
+            source,
+        })?;
+
+    for row in rows {
+        let (
+            msg_id,
+            parent_id,
+            preferred_child_id,
+            role_str,
+            content,
+            timestamp,
+            thought_seconds,
+            speaker,
+            pre_turn_action_points,
+        ) = row.map_err(|source| DbError::Query {
+            context: "failed to read message row".to_owned(),
+            source,
+        })?;
+
+        let role: Role = role_str.parse().map_err(|_| DbError::Query {
+            context: format!("invalid role in message {msg_id}: {role_str}"),
+            source: rusqlite::Error::InvalidColumnType(
+                3,
+                role_str.clone(),
+                rusqlite::types::Type::Text,
+            ),
+        })?;
+        let thought_seconds: Option<u32> =
+            thought_seconds.and_then(|seconds| u32::try_from(seconds).ok());
+
+        let node = Node {
+            id: msg_id as usize,
+            parent: parent_id.map(|p| p as usize),
+            children: Vec::new(),
+            message: Message {
+                role,
+                content,
+                timestamp,
+                thought_seconds,
+                speaker,
+                pre_turn_action_points,
+            },
+        };
+
+        if let Some(child_id) = preferred_child_id {
+            preferred_child.insert(msg_id as usize, child_id as usize);
+        }
+
+        nodes.push(node);
+    }
+
+    for i in 0..nodes.len() {
+        if let Some(parent_id) = nodes[i].parent {
+            let child_id = nodes[i].id;
+            if let Some(parent_node) = nodes.get_mut(parent_id) {
+                parent_node.children.push(child_id);
+            }
+        }
+    }
+
+    let head = head_id.map(|h| h as usize);
+    Ok(MessageTree::from_parts(nodes, head, preferred_child))
+}
+
+/// Worldbook slugs attached to the session.
+fn load_session_worldbooks(conn: &Connection, session_id: &str) -> Result<Vec<String>> {
+    let mut wb_stmt = conn
+        .prepare("SELECT worldbook_slug FROM session_worldbooks WHERE session_id = ?1")
+        .map_err(|source| DbError::Query {
+            context: "failed to prepare worldbooks query".to_owned(),
+            source,
+        })?;
+    let wb_rows = wb_stmt
+        .query_map(params![session_id], |row| row.get(0))
+        .map_err(|source| DbError::Query {
+            context: "failed to query worldbooks".to_owned(),
+            source,
+        })?;
+    let mut worldbooks: Vec<String> = Vec::new();
+    for wb in wb_rows {
+        worldbooks.push(wb.map_err(|source| DbError::Query {
+            context: "failed to read worldbook row".to_owned(),
+            source,
+        })?);
+    }
+    Ok(worldbooks)
+}
+
+/// Group-chat character attachments ordered by `attach_index`. When the
+/// session predates group chat (no attachment rows), falls back to a single
+/// attachment built from the legacy `character` column.
+fn load_session_characters(
+    conn: &Connection,
+    session_id: &str,
+    legacy_character: Option<&str>,
+) -> Result<Vec<libllm_core::group_chat::CharacterAttachment>> {
+    let mut ch_stmt = conn
+        .prepare(
+            "SELECT slug, talkativeness, action_points
+             FROM session_characters WHERE session_id = ?1
+             ORDER BY attach_index",
+        )
+        .map_err(|source| DbError::Query {
+            context: "failed to prepare session_characters query".to_owned(),
+            source,
+        })?;
+    let ch_rows = ch_stmt
+        .query_map(params![session_id], |row| {
+            let slug: String = row.get(0)?;
+            let talkativeness: f64 = row.get(1)?;
+            let action_points: f64 = row.get(2)?;
+            Ok(libllm_core::group_chat::CharacterAttachment {
+                slug,
+                talkativeness: talkativeness as f32,
+                action_points: action_points as f32,
+                spoke_this_round: false,
+            })
+        })
+        .map_err(|source| DbError::Query {
+            context: "failed to query session_characters".to_owned(),
+            source,
+        })?;
+    let mut characters: Vec<libllm_core::group_chat::CharacterAttachment> = Vec::new();
+    for ch in ch_rows {
+        characters.push(ch.map_err(|source| DbError::Query {
+            context: "failed to read session_characters row".to_owned(),
+            source,
+        })?);
+    }
+
+    if characters.is_empty()
+        && let Some(slug) = legacy_character
+    {
+        characters.push(libllm_core::group_chat::CharacterAttachment {
+            slug: slug.to_owned(),
+            talkativeness: 1.0,
+            action_points: 0.0,
+            spoke_this_round: false,
+        });
+    }
+
+    Ok(characters)
+}
+
 pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.session.load", session_id = id ; {
             let (
@@ -399,171 +588,9 @@ pub fn load_session(conn: &Connection, id: &str) -> Result<Session> {
             )
             .unwrap_or_default();
 
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, parent_id, preferred_child_id, role, content, timestamp, thought_seconds, speaker_slug, pre_turn_action_points
-                     FROM messages WHERE session_id = ?1 ORDER BY id",
-                )
-                .map_err(|source| DbError::Query {
-                    context: "failed to prepare message query".to_owned(),
-                    source,
-                })?;
-
-            let mut nodes: Vec<Node> = Vec::new();
-            let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
-
-            let rows = stmt
-                .query_map(params![id], |row| {
-                    let msg_id: i64 = row.get(0)?;
-                    let parent_id: Option<i64> = row.get(1)?;
-                    let preferred_child_id: Option<i64> = row.get(2)?;
-                    let role_str: String = row.get(3)?;
-                    let content: String = row.get(4)?;
-                    let timestamp: String = row.get(5)?;
-                    let thought_seconds: Option<i64> = row.get(6)?;
-                    let speaker: Option<String> = row.get(7)?;
-                    let pre_turn_action_points: Option<String> = row.get(8)?;
-                    Ok((
-                        msg_id,
-                        parent_id,
-                        preferred_child_id,
-                        role_str,
-                        content,
-                        timestamp,
-                        thought_seconds,
-                        speaker,
-                        pre_turn_action_points,
-                    ))
-                })
-                .map_err(|source| DbError::Query {
-                    context: "failed to query messages".to_owned(),
-                    source,
-                })?;
-
-            for row in rows {
-                let (
-                    msg_id,
-                    parent_id,
-                    preferred_child_id,
-                    role_str,
-                    content,
-                    timestamp,
-                    thought_seconds,
-                    speaker,
-                    pre_turn_action_points,
-                ) = row.map_err(|source| DbError::Query {
-                    context: "failed to read message row".to_owned(),
-                    source,
-                })?;
-
-                let role: Role = role_str
-                    .parse()
-                    .map_err(|_| DbError::Query {
-                        context: format!("invalid role in message {msg_id}: {role_str}"),
-                        source: rusqlite::Error::InvalidColumnType(
-                            3,
-                            role_str.clone(),
-                            rusqlite::types::Type::Text,
-                        ),
-                    })?;
-                let thought_seconds: Option<u32> =
-                    thought_seconds.and_then(|seconds| u32::try_from(seconds).ok());
-
-                let node = Node {
-                    id: msg_id as usize,
-                    parent: parent_id.map(|p| p as usize),
-                    children: Vec::new(),
-                    message: Message {
-                        role,
-                        content,
-                        timestamp,
-                        thought_seconds,
-                        speaker,
-                        pre_turn_action_points,
-                    },
-                };
-
-                if let Some(child_id) = preferred_child_id {
-                    preferred_child.insert(msg_id as usize, child_id as usize);
-                }
-
-                nodes.push(node);
-            }
-
-            for i in 0..nodes.len() {
-                if let Some(parent_id) = nodes[i].parent {
-                    let child_id = nodes[i].id;
-                    if let Some(parent_node) = nodes.get_mut(parent_id) {
-                        parent_node.children.push(child_id);
-                    }
-                }
-            }
-
-            let head = head_id.map(|h| h as usize);
-            let tree = MessageTree::from_parts(nodes, head, preferred_child);
-
-            let mut worldbooks: Vec<String> = Vec::new();
-            let mut wb_stmt = conn
-                .prepare("SELECT worldbook_slug FROM session_worldbooks WHERE session_id = ?1")
-                .map_err(|source| DbError::Query {
-                    context: "failed to prepare worldbooks query".to_owned(),
-                    source,
-                })?;
-            let wb_rows = wb_stmt
-                .query_map(params![id], |row| row.get(0))
-                .map_err(|source| DbError::Query {
-                    context: "failed to query worldbooks".to_owned(),
-                    source,
-                })?;
-            for wb in wb_rows {
-                worldbooks.push(wb.map_err(|source| DbError::Query {
-                    context: "failed to read worldbook row".to_owned(),
-                    source,
-                })?);
-            }
-
-            let mut ch_stmt = conn
-                .prepare(
-                    "SELECT slug, talkativeness, action_points
-                     FROM session_characters WHERE session_id = ?1
-                     ORDER BY attach_index",
-                )
-                .map_err(|source| DbError::Query {
-                    context: "failed to prepare session_characters query".to_owned(),
-                    source,
-                })?;
-            let ch_rows = ch_stmt
-                .query_map(params![id], |row| {
-                    let slug: String = row.get(0)?;
-                    let talkativeness: f64 = row.get(1)?;
-                    let action_points: f64 = row.get(2)?;
-                    Ok(libllm_core::group_chat::CharacterAttachment {
-                        slug,
-                        talkativeness: talkativeness as f32,
-                        action_points: action_points as f32,
-                        spoke_this_round: false,
-                    })
-                })
-                .map_err(|source| DbError::Query {
-                    context: "failed to query session_characters".to_owned(),
-                    source,
-                })?;
-            let mut characters: Vec<libllm_core::group_chat::CharacterAttachment> = Vec::new();
-            for ch in ch_rows {
-                characters.push(ch.map_err(|source| DbError::Query {
-                    context: "failed to read session_characters row".to_owned(),
-                    source,
-                })?);
-            }
-
-            if characters.is_empty() && let Some(slug) = character.as_deref() {
-                characters.push(libllm_core::group_chat::CharacterAttachment {
-                    slug: slug.to_owned(),
-                    talkativeness: 1.0,
-                    action_points: 0.0,
-                    spoke_this_round: false,
-                });
-            }
+            let tree = load_message_tree(conn, id, head_id)?;
+            let worldbooks = load_session_worldbooks(conn, id)?;
+            let characters = load_session_characters(conn, id, character.as_deref())?;
 
             let depth = u32::try_from(author_note_depth).unwrap_or_else(|_| {
                 tracing::warn!(
@@ -1448,5 +1475,119 @@ mod tests {
             )
             .unwrap();
         assert_eq!(fresh, 1, "new FTS term should be indexed after replace");
+    }
+
+    #[test]
+    fn load_session_characters_falls_back_to_legacy_column() {
+        let conn = setup_db();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('leg', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let characters = super::load_session_characters(&conn, "leg", Some("alice")).unwrap();
+
+        assert_eq!(characters.len(), 1);
+        assert_eq!(characters[0].slug, "alice");
+        assert!((characters[0].talkativeness - 1.0).abs() < 1e-6);
+        assert!((characters[0].action_points - 0.0).abs() < 1e-6);
+        assert!(!characters[0].spoke_this_round);
+    }
+
+    #[test]
+    fn load_session_characters_prefers_attachment_rows() {
+        let conn = setup_db();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('gc', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points)
+             VALUES ('gc', 'bob', 0, 0.8, 0.2)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_characters (session_id, slug, attach_index, talkativeness, action_points)
+             VALUES ('gc', 'alice', 1, 0.5, 0.0)",
+            [],
+        )
+        .unwrap();
+
+        let characters = super::load_session_characters(&conn, "gc", Some("legacy")).unwrap();
+
+        assert_eq!(characters.len(), 2);
+        assert!(!characters.iter().any(|c| c.slug == "legacy"));
+        assert_eq!(characters[0].slug, "bob");
+        assert_eq!(characters[1].slug, "alice");
+    }
+
+    #[test]
+    fn load_session_worldbooks_returns_attached_slugs() {
+        let conn = setup_db();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('wb', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES ('wb', 'alpha')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES ('wb', 'beta')",
+            [],
+        )
+        .unwrap();
+
+        let worldbooks = super::load_session_worldbooks(&conn, "wb").unwrap();
+
+        assert_eq!(worldbooks, vec!["alpha".to_owned(), "beta".to_owned()]);
+    }
+
+    #[test]
+    fn load_message_tree_reconstructs_branches() {
+        let conn = setup_db();
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('br', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        // parent node (id=0)
+        conn.execute(
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+             VALUES (0, 'br', NULL, 2, 'user', 'root', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        // child A (id=1)
+        conn.execute(
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+             VALUES (1, 'br', 0, NULL, 'assistant', 'branch-a', '2026-01-01T00:00:01Z')",
+            [],
+        )
+        .unwrap();
+        // child B (id=2) — preferred child of root, head of the tree
+        conn.execute(
+            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
+             VALUES (2, 'br', 0, NULL, 'assistant', 'branch-b', '2026-01-01T00:00:02Z')",
+            [],
+        )
+        .unwrap();
+
+        let tree = super::load_message_tree(&conn, "br", Some(2)).unwrap();
+
+        assert_eq!(tree.head(), Some(2));
+        assert_eq!(tree.node_count(), 3);
+
+        let root = tree.node(0).unwrap();
+        assert_eq!(root.children.len(), 2);
+        assert!(root.children.contains(&1));
+        assert!(root.children.contains(&2));
+
+        assert_eq!(tree.preferred_child_map().get(&0), Some(&2));
     }
 }

@@ -10,10 +10,7 @@ use tui_textarea::{CursorMove, TextArea};
 use libllm_protocol::client::StreamToken;
 
 use crate::dialogs::chat_settings::ChatSettingsAction;
-use crate::dialogs::danger_confirm::{DangerConfirmResult, handle_danger_confirm_key};
-use crate::dialogs::danger_typed_confirm::{DangerTypedResult, handle_danger_typed_key};
-use crate::dialogs::template_prompt::{TemplatePromptResult, handle_template_prompt_key};
-use crate::dialogs::unsaved_warning::{UnsavedButton, UnsavedOutcome};
+use crate::dialogs::unsaved_warning::UnsavedButton;
 
 use super::dialog_handler::{
     DialogKind, cancel_generation, configure_textarea, handle_field_dialog_key,
@@ -527,235 +524,77 @@ fn handle_key(
             app.focus
         );
     }
-    if app.focus == Focus::PasskeyDialog {
-        return dialogs::passkey::handle_passkey_key(key, app, bg_tx.clone());
-    }
-    if app.focus == Focus::SetPasskeyDialog {
-        return dialogs::set_passkey::handle_set_passkey_key(key, app, bg_tx);
-    }
-    if app.focus == Focus::PresetPickerDialog {
-        return dialogs::preset::handle_preset_dialog_key(key, app);
-    }
-    if app.focus == Focus::AuthDialog {
-        match dialogs::auth::handle_auth_dialog_key(key, app) {
-            dialogs::auth::AuthDialogAction::Continue => return None,
-            dialogs::auth::AuthDialogAction::Close => {
-                dialogs::auth::close_and_persist(app);
-                return None;
-            }
-            dialogs::auth::AuthDialogAction::OpenTypePicker => {
-                dialogs::auth::open_type_picker(app);
-                return None;
-            }
+    match app.focus {
+        Focus::PasskeyDialog => {
+            return dialogs::passkey::handle_passkey_key(key, app, bg_tx.clone());
         }
-    }
-    if app.focus == Focus::AuthTypePicker {
-        return dialogs::auth::handle_type_picker_key(key, app);
-    }
-    if app.focus == Focus::PresetEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::PresetEditor);
-    }
-    if app.focus == Focus::ConfigDialog {
-        return handle_field_dialog_key(key, app, DialogKind::Config);
-    }
-    if app.focus == Focus::ThemeDialog {
-        return handle_field_dialog_key(key, app, DialogKind::Theme);
-    }
-    if app.focus == Focus::BaseThemePickerDialog {
-        return handle_base_theme_picker_key(key, app);
-    }
-    if app.focus == Focus::PersonaDialog {
-        return dialogs::persona::handle_persona_dialog_key(key, app);
-    }
-    if app.focus == Focus::PersonaEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::PersonaEditor);
-    }
-    if app.focus == Focus::AuthorNoteEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::AuthorNoteEditor);
-    }
-    if app.focus == Focus::CharacterDialog {
-        return dialogs::character::handle_character_dialog_key(key, app);
-    }
-    if app.focus == Focus::CharacterEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::CharacterEditor);
-    }
-    if app.focus == Focus::WorldbookDialog {
-        return dialogs::worldbook::handle_worldbook_dialog_key(key, app);
-    }
-    if app.focus == Focus::WorldbookEditorDialog {
-        return dialogs::worldbook::handle_worldbook_editor_key(key, app);
-    }
-    if app.focus == Focus::WorldbookEntryEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::WorldbookEntryEditor);
-    }
-    if app.focus == Focus::WorldbookEntryDeleteDialog {
-        return dialogs::worldbook::handle_entry_delete_key(key, app);
-    }
-    if app.focus == Focus::SystemPromptDialog {
-        return dialogs::system_prompt::handle_system_prompt_dialog_key(key, app);
-    }
-    if app.focus == Focus::SystemPromptEditorDialog {
-        return handle_field_dialog_key(key, app, DialogKind::SystemPromptEditor);
-    }
-    if app.focus == Focus::EditDialog {
-        return dialogs::edit::handle_edit_key(key, app);
-    }
-    if app.focus == Focus::UnsavedWarningDialog {
-        if let Some(state) = app.unsaved_warning.as_mut() {
-            let outcome = dialogs::unsaved_warning::handle_key(state, key);
-            if let UnsavedOutcome::Chosen(button) = outcome {
-                app.last_unsaved_warning_return_focus = Some(state.return_focus);
-                app.unsaved_warning = None;
-                return Some(Action::UnsavedWarningResolved(button));
-            }
+        Focus::SetPasskeyDialog => {
+            return dialogs::set_passkey::handle_set_passkey_key(key, app, bg_tx);
         }
-        return None;
-    }
-    if app.focus == Focus::BranchDialog {
-        return dialogs::branch::handle_branch_dialog_key(key, app);
-    }
-    if app.focus == Focus::RegexDialog {
-        return dialogs::regex::handle_regex_dialog_key(key, app);
-    }
-    if app.focus == Focus::RegexEditorDialog {
-        return dialogs::regex::handle_regex_editor_key(key, app);
-    }
-    if app.focus == Focus::DeleteConfirmDialog {
-        return dialogs::delete_confirm::handle_delete_confirm_key(key, app);
-    }
-    if app.focus == Focus::ApiErrorDialog {
-        return dialogs::api_error::handle_api_error_key(key, app);
-    }
-    if app.focus == Focus::FilePickerDialog {
-        return dialogs::file_picker::handle_key(key, app);
-    }
-    if app.focus == Focus::FileReferenceConfirmDialog {
-        return dialogs::file_reference_confirm::handle_key(key, app);
-    }
-    if app.focus == Focus::InjectionWarningDialog {
-        return dialogs::injection_warning::handle_key(key, app);
-    }
-    if app.focus == Focus::LoadingDialog {
-        return dialogs::api_error::handle_loading_key(key);
-    }
-    if app.focus == Focus::SearchDialog {
-        if let Some(state) = app.search_dialog.as_mut() {
-            let outcome = dialogs::search::handle_key(state, key);
-            match outcome {
-                dialogs::search::SearchDialogOutcome::Close => {
-                    dialogs::search::close(&mut app.focus, &mut app.search_dialog);
-                }
-                dialogs::search::SearchDialogOutcome::Submit => {
-                    if let Some(hit) = app
-                        .search_dialog
-                        .as_ref()
-                        .and_then(|s| s.hits.get(s.selected).cloned())
-                    {
-                        return Some(Action::JumpToSearchHit(hit));
-                    }
-                }
-                dialogs::search::SearchDialogOutcome::Consumed => {}
-            }
+        Focus::PresetPickerDialog => return dialogs::preset::handle_preset_dialog_key(key, app),
+        Focus::AuthDialog => return dialogs::auth::handle_dialog_key(key, app),
+        Focus::AuthTypePicker => return dialogs::auth::handle_type_picker_key(key, app),
+        Focus::PresetEditorDialog => {
+            return handle_field_dialog_key(key, app, DialogKind::PresetEditor);
         }
-        return None;
-    }
-    if app.focus == Focus::DangerConfirmDialog {
-        let mut sel = app.danger.confirm_selected.unwrap_or(0);
-        let r = handle_danger_confirm_key(key, &mut sel);
-        app.danger.confirm_selected = Some(sel);
-        match r {
-            DangerConfirmResult::Pending => {}
-            DangerConfirmResult::Cancel => {
-                app.danger.confirm_op = None;
-                app.danger.confirm_selected = None;
-                app.focus = Focus::ConfigDialog;
-            }
-            DangerConfirmResult::Confirm => {
-                if let Some(op) = app.danger.confirm_op.take() {
-                    match commands::danger::dispatch_sync(app, op) {
-                        Ok(summary) => commands::danger::report_summary(app, op, &summary),
-                        Err(err) => app.set_status(format!("Op failed: {err}"), StatusLevel::Error),
-                    }
-                }
-                app.danger.confirm_selected = None;
-                app.focus = Focus::ConfigDialog;
-            }
+        Focus::ConfigDialog => return handle_field_dialog_key(key, app, DialogKind::Config),
+        Focus::ThemeDialog => return handle_field_dialog_key(key, app, DialogKind::Theme),
+        Focus::BaseThemePickerDialog => return handle_base_theme_picker_key(key, app),
+        Focus::PersonaDialog => return dialogs::persona::handle_persona_dialog_key(key, app),
+        Focus::PersonaEditorDialog => {
+            return handle_field_dialog_key(key, app, DialogKind::PersonaEditor);
         }
-        return None;
-    }
-
-    if app.focus == Focus::DangerTypedConfirmDialog {
-        let Some(state) = app.danger.typed_confirm.as_mut() else {
-            app.focus = Focus::ConfigDialog;
-            return None;
-        };
-        match handle_danger_typed_key(key, state) {
-            DangerTypedResult::Pending => {}
-            DangerTypedResult::Cancel => {
-                app.danger.typed_confirm = None;
-                app.focus = Focus::ConfigDialog;
-            }
-            DangerTypedResult::Destroy => {
-                if let Some(state) = app.danger.typed_confirm.take() {
-                    crate::commands::danger::spawn_destroy_all(
-                        app.bg_tx.clone(),
-                        libllm_config::data_dir(),
-                        state.snapshot_path,
-                        app.file_summary.summarizer.clone(),
-                    );
-                    app.set_status("Creating snapshot\u{2026}".to_owned(), StatusLevel::Info);
-                }
-            }
+        Focus::AuthorNoteEditorDialog => {
+            return handle_field_dialog_key(key, app, DialogKind::AuthorNoteEditor);
         }
-        return None;
-    }
-
-    if app.focus == Focus::TemplatePromptDialog {
-        let Some(state) = app.template_prompt_state.as_mut() else {
-            return_to_input(app);
-            return None;
-        };
-        match handle_template_prompt_key(key, state) {
-            TemplatePromptResult::Pending => return None,
-            TemplatePromptResult::Switch => {
-                let preset = state.suggested_preset.clone();
-                let preset_name = preset.name.clone();
-                app.instruct_preset = preset;
-                app.stop_tokens = app.instruct_preset.stop_tokens();
-                let mut config = libllm_config::load();
-                config.instruct_preset = Some(preset_name.clone());
-                if let Err(err) = libllm_config::save(&config) {
-                    tracing::warn!(result = "error", error = %err, "template_prompt.config_save_failed");
-                    app.set_status(
-                        "Preset switched for session; couldn't save to config".to_owned(),
-                        StatusLevel::Warning,
-                    );
-                } else {
-                    app.set_status(format!("Switched to {preset_name}"), StatusLevel::Info);
-                }
-                app.template_prompt_state = None;
-                return_to_input(app);
-                return None;
-            }
-            TemplatePromptResult::Dismiss => {
-                if let Some(state) = app.template_prompt_state.take()
-                    && let Some(db) = app.db.as_ref()
-                    && let Err(err) = db.record_template_dismissal(&state.server_template_hash)
-                {
-                    tracing::warn!(result = "error", error = %err, "template_prompt.dismiss_record_failed");
-                    app.set_status("Couldn't remember dismissal".to_owned(), StatusLevel::Info);
-                }
-                return_to_input(app);
-                return None;
-            }
+        Focus::CharacterDialog => return dialogs::character::handle_character_dialog_key(key, app),
+        Focus::CharacterEditorDialog => {
+            return handle_field_dialog_key(key, app, DialogKind::CharacterEditor);
         }
-    }
-
-    if app.focus == Focus::ChatSettingsDialog {
-        return handle_chat_settings_key(key, app);
-    }
-    if app.focus == Focus::ScenarioEditorDialog {
-        return dialogs::scenario::handle_key(key, app);
+        Focus::WorldbookDialog => return dialogs::worldbook::handle_worldbook_dialog_key(key, app),
+        Focus::WorldbookEditorDialog => {
+            return dialogs::worldbook::handle_worldbook_editor_key(key, app);
+        }
+        Focus::WorldbookEntryEditorDialog => {
+            return handle_field_dialog_key(key, app, DialogKind::WorldbookEntryEditor);
+        }
+        Focus::WorldbookEntryDeleteDialog => {
+            return dialogs::worldbook::handle_entry_delete_key(key, app);
+        }
+        Focus::SystemPromptDialog => {
+            return dialogs::system_prompt::handle_system_prompt_dialog_key(key, app);
+        }
+        Focus::SystemPromptEditorDialog => {
+            return handle_field_dialog_key(key, app, DialogKind::SystemPromptEditor);
+        }
+        Focus::EditDialog => return dialogs::edit::handle_edit_key(key, app),
+        Focus::UnsavedWarningDialog => {
+            return dialogs::unsaved_warning::handle_dialog_key(key, app);
+        }
+        Focus::BranchDialog => return dialogs::branch::handle_branch_dialog_key(key, app),
+        Focus::RegexDialog => return dialogs::regex::handle_regex_dialog_key(key, app),
+        Focus::RegexEditorDialog => return dialogs::regex::handle_regex_editor_key(key, app),
+        Focus::DeleteConfirmDialog => {
+            return dialogs::delete_confirm::handle_delete_confirm_key(key, app);
+        }
+        Focus::ApiErrorDialog => return dialogs::api_error::handle_api_error_key(key, app),
+        Focus::FilePickerDialog => return dialogs::file_picker::handle_key(key, app),
+        Focus::FileReferenceConfirmDialog => {
+            return dialogs::file_reference_confirm::handle_key(key, app);
+        }
+        Focus::InjectionWarningDialog => return dialogs::injection_warning::handle_key(key, app),
+        Focus::LoadingDialog => return dialogs::api_error::handle_loading_key(key),
+        Focus::SearchDialog => return dialogs::search::handle_dialog_key(key, app),
+        Focus::DangerConfirmDialog => return dialogs::danger_confirm::handle_dialog_key(key, app),
+        Focus::DangerTypedConfirmDialog => {
+            return dialogs::danger_typed_confirm::handle_dialog_key(key, app);
+        }
+        Focus::TemplatePromptDialog => {
+            return dialogs::template_prompt::handle_dialog_key(key, app);
+        }
+        Focus::ChatSettingsDialog => return handle_chat_settings_key(key, app),
+        Focus::ScenarioEditorDialog => return dialogs::scenario::handle_key(key, app),
+        Focus::Input | Focus::Chat | Focus::Sidebar => {}
     }
 
     if app.streaming.active {

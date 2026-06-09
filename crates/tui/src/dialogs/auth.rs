@@ -444,6 +444,20 @@ fn handle_editing_key(state: &mut AuthDialogState, key: KeyEvent) -> AuthDialogA
     }
 }
 
+pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<crate::types::Action> {
+    match handle_auth_dialog_key(key, app) {
+        AuthDialogAction::Continue => None,
+        AuthDialogAction::Close => {
+            close_and_persist(app);
+            None
+        }
+        AuthDialogAction::OpenTypePicker => {
+            open_type_picker(app);
+            None
+        }
+    }
+}
+
 pub(crate) fn close_and_persist(app: &mut App) {
     let Some(state) = app.auth_dialog.take() else {
         app.focus = Focus::ConfigDialog;

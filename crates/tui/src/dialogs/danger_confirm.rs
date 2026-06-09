@@ -7,7 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::types::DangerOp;
+use crate::types::{App, DangerOp, Focus, StatusLevel};
 
 use super::{clear_centered, dialog_block};
 
@@ -96,6 +96,31 @@ pub(crate) fn render_danger_confirm(f: &mut Frame, area: Rect, op: DangerOp, sel
         ]),
     ];
     f.render_widget(Paragraph::new(lines).alignment(Alignment::Left), inner);
+}
+
+pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<crate::types::Action> {
+    let mut sel = app.danger.confirm_selected.unwrap_or(0);
+    let r = handle_danger_confirm_key(key, &mut sel);
+    app.danger.confirm_selected = Some(sel);
+    match r {
+        DangerConfirmResult::Pending => {}
+        DangerConfirmResult::Cancel => {
+            app.danger.confirm_op = None;
+            app.danger.confirm_selected = None;
+            app.focus = Focus::ConfigDialog;
+        }
+        DangerConfirmResult::Confirm => {
+            if let Some(op) = app.danger.confirm_op.take() {
+                match crate::commands::danger::dispatch_sync(app, op) {
+                    Ok(summary) => crate::commands::danger::report_summary(app, op, &summary),
+                    Err(err) => app.set_status(format!("Op failed: {err}"), StatusLevel::Error),
+                }
+            }
+            app.danger.confirm_selected = None;
+            app.focus = Focus::ConfigDialog;
+        }
+    }
+    None
 }
 
 pub(crate) fn handle_danger_confirm_key(

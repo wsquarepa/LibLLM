@@ -8,7 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::types::TypedConfirmState;
+use crate::types::{App, Focus, StatusLevel, TypedConfirmState};
 
 use super::{byte_pos_at_char, clear_centered, dialog_block, render_hints_below_dialog};
 
@@ -144,6 +144,32 @@ fn build_input_line(state: &TypedConfirmState, body_style: Style) -> Line<'stati
 
     spans.push(Span::styled("]", value_style));
     Line::from(spans)
+}
+
+pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<crate::types::Action> {
+    let Some(state) = app.danger.typed_confirm.as_mut() else {
+        app.focus = Focus::ConfigDialog;
+        return None;
+    };
+    match handle_danger_typed_key(key, state) {
+        DangerTypedResult::Pending => {}
+        DangerTypedResult::Cancel => {
+            app.danger.typed_confirm = None;
+            app.focus = Focus::ConfigDialog;
+        }
+        DangerTypedResult::Destroy => {
+            if let Some(state) = app.danger.typed_confirm.take() {
+                crate::commands::danger::spawn_destroy_all(
+                    app.bg_tx.clone(),
+                    libllm_config::data_dir(),
+                    state.snapshot_path,
+                    app.file_summary.summarizer.clone(),
+                );
+                app.set_status("Creating snapshot\u{2026}".to_owned(), StatusLevel::Info);
+            }
+        }
+    }
+    None
 }
 
 pub(crate) fn handle_danger_typed_key(

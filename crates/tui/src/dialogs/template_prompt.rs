@@ -8,8 +8,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
+use crate::dialog_handler::return_to_input;
 use crate::theme::Theme;
-use crate::types::TemplatePromptState;
+use crate::types::{Action, App, StatusLevel, TemplatePromptState};
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 
@@ -157,6 +158,47 @@ fn preset_summary_lines(
         out.push(Line::from(format!("      {label}: {displayed}")));
     }
     out
+}
+
+pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    let Some(state) = app.template_prompt_state.as_mut() else {
+        return_to_input(app);
+        return None;
+    };
+    match handle_template_prompt_key(key, state) {
+        TemplatePromptResult::Pending => None,
+        TemplatePromptResult::Switch => {
+            let preset = state.suggested_preset.clone();
+            let preset_name = preset.name.clone();
+            app.instruct_preset = preset;
+            app.stop_tokens = app.instruct_preset.stop_tokens();
+            let mut config = libllm_config::load();
+            config.instruct_preset = Some(preset_name.clone());
+            if let Err(err) = libllm_config::save(&config) {
+                tracing::warn!(result = "error", error = %err, "template_prompt.config_save_failed");
+                app.set_status(
+                    "Preset switched for session; couldn't save to config".to_owned(),
+                    StatusLevel::Warning,
+                );
+            } else {
+                app.set_status(format!("Switched to {preset_name}"), StatusLevel::Info);
+            }
+            app.template_prompt_state = None;
+            return_to_input(app);
+            None
+        }
+        TemplatePromptResult::Dismiss => {
+            if let Some(state) = app.template_prompt_state.take()
+                && let Some(db) = app.db.as_ref()
+                && let Err(err) = db.record_template_dismissal(&state.server_template_hash)
+            {
+                tracing::warn!(result = "error", error = %err, "template_prompt.dismiss_record_failed");
+                app.set_status("Couldn't remember dismissal".to_owned(), StatusLevel::Info);
+            }
+            return_to_input(app);
+            None
+        }
+    }
 }
 
 pub(crate) fn handle_template_prompt_key(

@@ -11,8 +11,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use crate::Focus;
 use crate::theme::Theme;
+use crate::types::{Action, App, Focus};
 
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 
@@ -67,6 +67,18 @@ pub(crate) fn handle_key(state: &mut UnsavedWarningState, key: KeyEvent) -> Unsa
         KeyCode::Esc => UnsavedOutcome::Chosen(UnsavedButton::Cancel),
         _ => UnsavedOutcome::Pending,
     }
+}
+
+pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if let Some(state) = app.unsaved_warning.as_mut() {
+        let outcome = handle_key(state, key);
+        if let UnsavedOutcome::Chosen(button) = outcome {
+            app.last_unsaved_warning_return_focus = Some(state.return_focus);
+            app.unsaved_warning = None;
+            return Some(Action::UnsavedWarningResolved(button));
+        }
+    }
+    None
 }
 
 pub(crate) fn render(f: &mut Frame, area: Rect, state: &UnsavedWarningState, theme: &Theme) {

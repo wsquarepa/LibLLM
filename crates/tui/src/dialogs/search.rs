@@ -13,7 +13,7 @@ use time::format_description::well_known::Rfc3339;
 
 use super::super::render::{clear_centered, render_hints_below_dialog};
 use super::super::theme::Theme;
-use super::super::types::Focus;
+use super::super::types::{Action, App, Focus};
 
 const SEARCH_DIALOG_WIDTH_PERCENT: f32 = 0.8;
 const SEARCH_DIALOG_HEIGHT_PERCENT: f32 = 0.8;
@@ -165,6 +165,28 @@ pub(crate) fn handle_key(state: &mut SearchDialogState, key: KeyEvent) -> Search
         }
         _ => SearchDialogOutcome::Consumed,
     }
+}
+
+pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
+    if let Some(state) = app.search_dialog.as_mut() {
+        let outcome = handle_key(state, key);
+        match outcome {
+            SearchDialogOutcome::Close => {
+                close(&mut app.focus, &mut app.search_dialog);
+            }
+            SearchDialogOutcome::Submit => {
+                if let Some(hit) = app
+                    .search_dialog
+                    .as_ref()
+                    .and_then(|s| s.hits.get(s.selected).cloned())
+                {
+                    return Some(Action::JumpToSearchHit(hit));
+                }
+            }
+            SearchDialogOutcome::Consumed => {}
+        }
+    }
+    None
 }
 
 pub(crate) fn render_dialog(

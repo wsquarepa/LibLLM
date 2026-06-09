@@ -797,7 +797,7 @@ fn cmd_report(app: &mut App) {
         return;
     }
 
-    match libllm_core::diagnostics::copy_current_log_to(&output_path) {
+    match libllm_diagnostics::copy_current_log_to(&output_path) {
         Ok(()) => {
             let output_path_str = output_path.display().to_string();
             tracing::info!(

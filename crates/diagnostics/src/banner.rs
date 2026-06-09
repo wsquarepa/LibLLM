@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use crate::diagnostics::sysinfo_snapshot::{SystemInfo, TerminalInfo};
+use crate::sysinfo_snapshot::{SystemInfo, TerminalInfo};
 
 pub struct BuildInfo {
     pub version: &'static str,

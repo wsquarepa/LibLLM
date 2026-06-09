@@ -39,8 +39,9 @@ boundaries. A contributor should be able to answer these questions quickly:
 
 Code is organized around stable concepts, not incidental technical tasks.
 The crates are a domain crate, a storage crate, a protocol crate, a config
-crate, a UI crate, a CLI crate, and a backup crate. A broad `utils`, `common`,
-`helpers`, or `misc` crate or module is not acceptable.
+crate, a diagnostics crate, a UI crate, a CLI crate, and a backup crate. A
+broad `utils`, `common`, `helpers`, or `misc` crate or module is not
+acceptable.
 
 Default to private implementation details. Expose only the smallest API needed
 by the next layer. Use `pub(crate)` (or `pub(super)`, as in `libllm-tui`) for
@@ -73,6 +74,7 @@ Actual layout:
 │   ├── config/         # libllm-config
 │   ├── storage/        # libllm-storage
 │   ├── protocol/       # libllm-protocol
+│   ├── diagnostics/    # libllm-diagnostics
 │   ├── tui/            # libllm-tui
 │   ├── cli/            # libllm-cli (produces the `libllm` binary)
 │   └── backup/         # libllm-backup
@@ -119,6 +121,11 @@ Crate roles:
 - `libllm-config` (`crates/config`): process-boundary config — data-directory
   resolution, `config.toml` load/save. Config types live in core; the
   functions that touch the process environment live here.
+- `libllm-diagnostics` (`crates/diagnostics`): diagnostics infrastructure —
+  tracing-subscriber setup, the sanctioned diagnostics global state, log-file
+  management, the `--timings` report, and the startup banner's sysinfo
+  collection. The `timed_result!` macro stays in `libllm-core` because core
+  itself uses it.
 - `libllm-tui` (`crates/tui`): rendering, dialogs, input handling, view state,
   `FileSummarizer` orchestration.
 - `libllm-cli` (`crates/cli`): argument parsing, command dispatch, subcommands,
@@ -131,7 +138,7 @@ Crate roles:
 Dependencies flow inward, with no umbrella or facade crate:
 
 ```text
-cli -> tui -> storage / protocol / config -> core
+cli -> tui -> storage / protocol / config / diagnostics -> core
 ```
 
 Core never depends on an outer crate. Outer crates depend on the concrete
@@ -281,11 +288,12 @@ Rules:
   process boundary (`libllm-config` and `libllm-cli`).
 - Convert raw inputs into validated domain types before they reach core logic.
 - Do not read environment variables deep inside library code.
-- Avoid global mutable state. The one sanctioned exception is the
-  `OnceLock`-based data-directory override in `libllm-config`, which exists
-  precisely to confine process-global state to the process-boundary crate (see
-  RULES.md for its per-process test constraints). Core must hold no
-  process-global state.
+- Avoid global mutable state. The two sanctioned exceptions are: the
+  `OnceLock`-based data-directory override in `libllm-config`, which confines
+  process-global path state to the process-boundary crate (see RULES.md for
+  its per-process test constraints); and the `OnceLock`-based subscriber and
+  init state in `libllm-diagnostics`, which confines tracing initialization to
+  the diagnostics crate. Core must hold no process-global state.
 - Keep pure domain functions free of I/O, time, randomness, logging, and
   process state. Data-loading functions in core take explicit `&Path` inputs.
 
@@ -476,7 +484,7 @@ Eliminate these patterns:
 - `unwrap` or `expect` in production paths without a proven invariant.
 - Boolean parameters that select different behaviors.
 - Traits with only one implementation and no real abstraction boundary.
-- Global mutable state outside the sanctioned `libllm-config` boundary.
+- Global mutable state outside the sanctioned `libllm-config` and `libllm-diagnostics` boundaries.
 - Environment-variable reads inside domain logic.
 - Async runtimes started inside library crates.
 - Network-dependent default tests.

@@ -12,11 +12,12 @@ LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a 
 - `libllm-storage` (`crates/storage`) — SQLCipher database access, migrations, repositories, and FTS search. Depends on core.
 - `libllm-protocol` (`crates/protocol`) — the llama.cpp HTTP API client, tokenizer, and summarization orchestration. Depends on core.
 - `libllm-config` (`crates/config`) — process-boundary config: the data-directory resolution, the `DATA_DIR_OVERRIDE` global (with the `test-support` thread-local variant), and `config.toml` load/save. Note: config TYPES (`Config`, `Auth`, etc.) live in `libllm-core::config`; this crate holds the process-boundary FUNCTIONS (`data_dir`, `load`, `save`, `*_presets_dir`, ...). Depends on core.
+- `libllm-diagnostics` (`crates/diagnostics`) — logging/diagnostics infrastructure: tracing-subscriber setup, the diagnostics global state, log-file management, the `--timings` report, and the startup banner's sysinfo collection. Depends on core. (The `timed_result!` macro stays in `libllm-core` because core itself uses it.)
 - `libllm-tui` (`crates/tui`) — the TUI: rendering, dialogs, input handling, view state, and the `FileSummarizer` orchestrator. Depends on core/storage/protocol/config.
 - `libllm-cli` (`crates/cli`) — argument parsing, command dispatch, subcommands, startup orchestration (`app::run`), and the thin `src/main.rs`. Produces the `libllm` binary (via `[[bin]] name = "libllm"`). Depends on `libllm-tui` and core/storage/protocol/config.
 - `backup` (`crates/backup`) — backup and recovery library. Depends on core.
 
-Dependencies flow inward: cli -> tui -> storage/protocol/config -> core. Core never depends on an outer crate. Application crates depend on the concrete library crates directly (`libllm_core`, `libllm_storage`, `libllm_protocol`, `libllm_config`) — there is no umbrella/facade crate.
+Dependencies flow inward: cli -> tui -> storage/protocol/config/diagnostics -> core. Core never depends on an outer crate. Application crates depend on the concrete library crates directly (`libllm_core`, `libllm_storage`, `libllm_protocol`, `libllm_config`, `libllm_diagnostics`) — there is no umbrella/facade crate.
 
 ## Build and Test
 
@@ -116,7 +117,7 @@ All colors in `tui/render.rs` must read from `app.theme` -- no hardcoded color c
 
 ### Diagnostics authoring
 
-Emit structured events with `tracing::trace!`, `tracing::debug!`, `tracing::info!`, `tracing::warn!`, or `tracing::error!`. Pick levels using the `libllm::diagnostics` rubric:
+Emit structured events with `tracing::trace!`, `tracing::debug!`, `tracing::info!`, `tracing::warn!`, or `tracing::error!`. Pick levels using the `libllm-diagnostics` rubric:
 
 - `TRACE` — per-frame or per-keystroke events (render, input, layout).
 - `DEBUG` — state transitions, config reads, background task lifecycle.
@@ -124,9 +125,9 @@ Emit structured events with `tracing::trace!`, `tracing::debug!`, `tracing::info
 - `WARN` — retries, degraded fallbacks, recoverable problems.
 - `ERROR` — unrecoverable failures.
 
-For timed blocks, use `tracing::info_span!("name", field = value).entered()` or the `libllm::timed_result!` macro (which records `elapsed_ms` and `result=ok|error` automatically). Span close feeds the `--timings` report; do not write elapsed fields manually.
+For timed blocks, use `tracing::info_span!("name", field = value).entered()` or the `libllm_core::timed_result!` macro (which records `elapsed_ms` and `result=ok|error` automatically). Span close feeds the `--timings` report; do not write elapsed fields manually.
 
-Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (requires `--debug`) or `LIBLLM_LOG` (ignored unless `--debug` is set). Both take `env_logger`-style directives, e.g. `info,libllm::db=debug,libllm_tui::render=off`.
+Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (requires `--debug`) or `LIBLLM_LOG` (ignored unless `--debug` is set). Both take `env_logger`-style directives, e.g. `info,libllm_storage::db=debug,libllm_tui::render=off`.
 
 ### Conversation tree
 

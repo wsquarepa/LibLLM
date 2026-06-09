@@ -1,4 +1,6 @@
-//! Diagnostics: banner, tracing subscriber, file log layer, timing aggregation.
+//! LibLLM's diagnostics infrastructure: tracing-subscriber setup, the diagnostics
+//! global state, log-file management, the `--timings` report, and the startup
+//! banner's sysinfo collection.
 
 mod banner;
 mod format;
@@ -290,7 +292,7 @@ pub fn copy_current_log_to(path: &Path) -> Result<(), DiagnosticsError> {
         context: "failed to flush destination log file".to_owned(),
         source: e,
     })?;
-    crate::crypto::chmod_0600(path).map_err(|source| DiagnosticsError::Io {
+    libllm_core::crypto::chmod_0600(path).map_err(|source| DiagnosticsError::Io {
         context: format!("failed to set permissions on {}", path.display()),
         source,
     })?;
@@ -327,34 +329,4 @@ fn format_wall_clock(ts: time::OffsetDateTime) -> String {
         "[year]-[month]-[day] [hour]:[minute]:[second]"
     ))
     .unwrap_or_else(|_| "1970-01-01 00:00:00".to_owned())
-}
-
-/// Wraps a block in a span at the given level, recording `elapsed_ms` and
-/// `result=ok|error` on completion.
-#[macro_export]
-macro_rules! timed_result {
-    ($level:expr, $name:expr, $($field_key:ident = $field_value:expr),* ; $body:block) => {{
-        let __span = tracing::span!($level, $name, $($field_key = $field_value),*);
-        let __start = std::time::Instant::now();
-        let __result = __span.in_scope(|| $body);
-        let __elapsed_ms = __start.elapsed().as_secs_f64() * 1000.0;
-        match &__result {
-            Ok(_) => tracing::event!(
-                parent: &__span,
-                $level,
-                elapsed_ms = __elapsed_ms,
-                result = "ok",
-                "completed"
-            ),
-            Err(err) => tracing::event!(
-                parent: &__span,
-                $level,
-                elapsed_ms = __elapsed_ms,
-                result = "error",
-                error = %err,
-                "failed"
-            ),
-        }
-        __result
-    }};
 }

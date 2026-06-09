@@ -1,0 +1,19 @@
+[package]
+name = "libllm-diagnostics"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+libllm-core.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sysinfo.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

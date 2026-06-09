@@ -1837,6 +1837,7 @@ dependencies = [
  "futures-util",
  "libllm-config",
  "libllm-core",
+ "libllm-diagnostics",
  "libllm-protocol",
  "libllm-storage",
  "libllm-tui",
@@ -1888,20 +1889,31 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "strsim",
- "sysinfo",
  "tar",
  "tempfile",
  "thiserror 2.0.18",
- "time",
  "toml",
  "tracing",
- "tracing-subscriber",
  "unicode-normalization",
  "uuid",
  "walkdir",
  "xxhash-rust",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "libllm-diagnostics"
+version = "3.1.4"
+dependencies = [
+ "libllm-core",
+ "sysinfo",
+ "tempfile",
+ "thiserror 2.0.18",
+ "time",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1950,6 +1962,7 @@ dependencies = [
  "futures-util",
  "libllm-config",
  "libllm-core",
+ "libllm-diagnostics",
  "libllm-protocol",
  "libllm-storage",
  "rand 0.10.1",

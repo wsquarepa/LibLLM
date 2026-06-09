@@ -8,6 +8,7 @@ name = "libllm_tui"
 
 [dependencies]
 libllm-core.workspace = true
+libllm-diagnostics.workspace = true
 libllm-storage.workspace = true
 libllm-protocol.workspace = true
 libllm-config.workspace = true

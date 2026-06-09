@@ -2,10 +2,10 @@
 
 use libllm_core::character;
 use libllm_core::crypto;
-use libllm_core::diagnostics;
 use libllm_core::preset;
 use libllm_core::sampling;
 use libllm_core::session;
+use libllm_diagnostics as diagnostics;
 use libllm_protocol::client::ApiClient;
 use libllm_storage::db::Database;
 

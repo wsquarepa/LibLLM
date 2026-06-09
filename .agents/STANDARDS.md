@@ -1,12 +1,14 @@
 # Rust Codebase Standards
 
-This document defines how this Rust codebase should be organized and maintained.
-It is intentionally based on public Rust guidance and established Rust projects,
-not on the current repository implementation.
+This document defines how this repository is organized and maintained. It
+describes the actual conventions of this codebase and its target state. Where
+`.agents/RULES.md` documents operational detail (build commands, test layout,
+migrations, dialog keybindings), RULES.md is authoritative and this document
+defers to it.
 
 ## Source Basis
 
-Normative references:
+Informed by public Rust guidance:
 
 - [Cargo package layout](https://doc.rust-lang.org/cargo/guide/project-layout.html)
 - [Cargo workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html)
@@ -18,120 +20,124 @@ Normative references:
 - [Clippy documentation](https://doc.rust-lang.org/clippy/)
 - [The Rust Reference: unsafety](https://doc.rust-lang.org/reference/unsafety.html)
 
-Project exemplars:
+Project exemplars with comparable structure:
 
 - [rust-analyzer](https://github.com/rust-lang/rust-analyzer): large workspace, explicit API-boundary crates, `xtask`, architecture invariants.
-- [Cargo](https://github.com/rust-lang/cargo): workspace dependencies, workspace lints, domain crates, credential crates, thin binary target.
-- [Tokio](https://github.com/tokio-rs/tokio): public crates plus internal test, bench, stress, and integration packages in one workspace.
-- [ripgrep](https://github.com/BurntSushi/ripgrep): command-line binary backed by focused reusable crates for search, matching, printing, and ignore handling.
+- [Cargo](https://github.com/rust-lang/cargo): workspace dependencies, workspace lints, domain crates, thin binary target.
+- [ripgrep](https://github.com/BurntSushi/ripgrep): command-line binary backed by focused reusable crates.
 
 ## Organizing Principles
 
-The codebase should optimize for discoverability, local reasoning, and stable
+The codebase optimizes for discoverability, local reasoning, and stable
 boundaries. A contributor should be able to answer these questions quickly:
 
 - What crate owns this behavior?
 - What module owns this type or function?
 - Is this API public, crate-internal, or private implementation detail?
 - Which tests prove the behavior?
-- Which command verifies the change?
+- Which command verifies the change? (Answer: `cargo xtask ci`.)
 
-Code should be organized around stable concepts, not around incidental technical
-tasks. A database crate, CLI crate, parser crate, UI crate, protocol crate, and
-domain crate are meaningful. A broad `utils`, `common`, `helpers`, or `misc`
-crate is not.
+Code is organized around stable concepts, not incidental technical tasks.
+The crates are a domain crate, a storage crate, a protocol crate, a config
+crate, a UI crate, a CLI crate, and a backup crate. A broad `utils`, `common`,
+`helpers`, or `misc` crate or module is not acceptable.
 
 Default to private implementation details. Expose only the smallest API needed
-by the next layer. Use `pub(crate)` for cross-module internals and `pub` only
-when callers outside the crate should rely on the item.
+by the next layer. Use `pub(crate)` (or `pub(super)`, as in `libllm-tui`) for
+cross-module internals and `pub` only when callers outside the crate should
+rely on the item.
 
 ## Workspace Layout
 
-Use a Cargo workspace when the project has more than one independently
-understandable package. The workspace root should contain shared metadata,
-dependency versions, lint policy, profiles, and repository-level automation.
+This is a Cargo workspace. The root `Cargo.toml` holds shared metadata,
+dependency versions, lint policy, and membership.
 
-Recommended layout:
+Actual layout:
 
 ```text
 .
 ├── Cargo.toml
 ├── Cargo.lock
 ├── README.md
-├── STANDARDS.md
 ├── rustfmt.toml
+├── install.sh
+├── AGENTS.md -> .agents/RULES.md
+├── CLAUDE.md -> .agents/RULES.md
+├── .agents/
+│   ├── RULES.md        # agent operational guide (authoritative for build/test)
+│   └── STANDARDS.md    # this document
+├── assets/
+├── docs/               # user-facing docs: cli, configuration, install, usage
 ├── crates/
-│   ├── core/
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── error.rs
-│   │       ├── model.rs
-│   │       └── ...
-│   ├── cli/
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       └── main.rs
-│   ├── storage/
-│   ├── protocol/
-│   └── test-support/
-├── xtask/
-│   ├── Cargo.toml
-│   └── src/main.rs
-├── tests/
-├── examples/
-└── benches/
+│   ├── core/           # libllm-core
+│   ├── config/         # libllm-config
+│   ├── storage/        # libllm-storage
+│   ├── protocol/       # libllm-protocol
+│   ├── tui/            # libllm-tui
+│   ├── cli/            # libllm-cli (produces the `libllm` binary)
+│   └── backup/         # libllm-backup
+└── xtask/              # repository automation: ci, release, scenario
 ```
 
-Use `crates/<name>/` for workspace members unless there is a strong convention
-for a different directory. Use `xtask/` for repository automation that would
-otherwise become shell scripts: release preparation, code generation, fixture
-updates, local install tasks, and cross-crate checks.
+Workspace members live under `crates/<name>/`. `xtask/` owns repository
+automation that would otherwise become shell scripts: the CI suite, release
+version bumps, and scenario-test running.
 
-Keep the root `Cargo.toml` authoritative for:
+The root `Cargo.toml` is authoritative for:
 
 - `[workspace]` membership and resolver.
-- `[workspace.package]` shared edition, version, license, repository, and MSRV.
+- `[workspace.package]` shared version and edition.
 - `[workspace.dependencies]` shared dependency versions.
-- `[workspace.lints]` shared lint policy.
-- Shared `[profile.*]` settings.
+- `[workspace.lints]` shared lint policy (`unsafe_code = "forbid"`,
+  `unsafe_op_in_unsafe_fn = "deny"`, `clippy::allow_attributes = "deny"`).
 
-Member crates should inherit workspace metadata and dependency versions wherever
-possible. They should declare only crate-specific features, targets, and
-dependencies.
+Member crates inherit workspace metadata and dependency versions. They declare
+only crate-specific features, targets, and dependencies.
+
+There is no `test-support` crate. Test support is a cargo *feature*
+(`test-support`) on `libllm-core`, `libllm-config`, and `libllm-tui`; the TUI
+test harness lives in `crates/tui/src/harness/` behind that feature. There is
+no proc-macro crate.
 
 ## Crate Boundaries
 
-Crate boundaries should reflect architecture boundaries.
+Crate boundaries reflect architecture boundaries.
 
-Recommended crate roles:
+Crate roles:
 
-- `core` or `domain`: pure business rules, domain models, validation, and
-  transformations. No process I/O, no terminal rendering, no network calls, no
-  database connections.
-- `storage`: persistence schemas, migrations, repositories, transactions, and
-  serialization formats for durable state.
-- `protocol` or `api`: request and response models, wire-format translation,
-  and external API client abstractions.
-- `cli`: argument parsing, command dispatch, exit-code mapping, stdout/stderr
-  policy, and process-level configuration.
-- `tui` or `ui`: rendering, input handling, view state, and UI-specific
-  orchestration.
-- `test-support`: fixture builders, temp directory helpers, subprocess
-  harnesses, and assertions shared by integration tests.
-- `macros`: procedural macros only. Keep macro crates small and separately
-  tested.
-- `xtask`: repository automation only.
+- `libllm-core` (`crates/core`): pure domain — session tree, character,
+  persona, world-info, presets, file-ingestion pipeline, crypto, config
+  *types*. No database access, no network I/O, no async runtime, and no
+  process-global state. Loading user data (character cards, presets, salts)
+  from explicit `&Path` arguments is permitted; this crate is the data-model
+  layer, not a no-filesystem layer. Logging/diagnostics *infrastructure*
+  (subscriber setup, global state, sysinfo collection) does not belong here.
+- `libllm-storage` (`crates/storage`): SQLCipher database access, migrations,
+  repositories, FTS search.
+- `libllm-protocol` (`crates/protocol`): llama.cpp HTTP API client, tokenizer,
+  summarization orchestration.
+- `libllm-config` (`crates/config`): process-boundary config — data-directory
+  resolution, `config.toml` load/save. Config types live in core; the
+  functions that touch the process environment live here.
+- `libllm-tui` (`crates/tui`): rendering, dialogs, input handling, view state,
+  `FileSummarizer` orchestration.
+- `libllm-cli` (`crates/cli`): argument parsing, command dispatch, subcommands,
+  startup orchestration, exit-code mapping. Produces the `libllm` binary via an
+  explicit `[[bin]]` target (the binary name differs from the package name).
+- `libllm-backup` (`crates/backup`): backup and recovery library — snapshots,
+  diff chains, retention, rekey, its own index-format migrations (distinct
+  from storage's SQL migrations).
 
-Avoid dependency cycles by making dependencies flow inward:
+Dependencies flow inward, with no umbrella or facade crate:
 
 ```text
-cli/tui/bin -> application orchestration -> storage/api/ui adapters -> core/domain
+cli -> tui -> storage / protocol / config -> core
 ```
 
-The domain crate should not depend on the CLI, TUI, database, network client, or
-process environment. Outer crates may depend on inner crates; inner crates should
-not know about outer crates.
+Core never depends on an outer crate. Outer crates depend on the concrete
+library crates directly.
+
+All workspace library crates use the `libllm-` package-name prefix.
 
 Create a new crate when a component has a distinct dependency set, needs an
 independent public API boundary, compiles or tests better in isolation, or maps
@@ -142,90 +148,69 @@ to a stable domain concept. Do not create a crate only to move files around.
 Follow Cargo target conventions:
 
 - `src/lib.rs`: library crate root.
-- `src/main.rs`: default binary crate root.
-- `src/bin/*.rs`: additional single-file binaries.
-- `src/bin/<name>/main.rs`: multi-file binary target.
-- `tests/*.rs`: integration test crates.
-- `tests/<name>/main.rs`: multi-file integration test crate.
-- `examples/*.rs`: compileable examples.
-- `benches/*.rs`: benchmark targets.
+- `src/main.rs`: binary crate root. In this repo the only binary is
+  `crates/cli/src/main.rs`, which is a thin shim over `libllm_cli::app::run()`.
+- `tests/*.rs`: integration test crates, per member crate.
+- `examples/*.rs`: compileable examples (the TUI's `scenario_runner` is one,
+  gated behind the `test-support` feature).
 
-For a package with both a library and a binary, keep real behavior in the
-library. The binary should parse process inputs, initialize infrastructure, call
-library/application code, and translate success or failure into process output
-and exit status.
-
-For CLIs, prefer an explicit `[[bin]]` target only when the executable name or
-binary path differs from Cargo defaults. Otherwise use the conventional
-`src/main.rs`.
+Real behavior lives in library code. The binary parses process inputs,
+initializes infrastructure, calls library code, and translates success or
+failure into process output and exit status.
 
 ## Module Layout
 
 Every source file is a module, and the crate root defines the module tree. Keep
 module structure deliberate and shallow.
 
-Recommended module rules:
+Module rules:
 
 - `lib.rs` contains crate-level docs, module declarations, and intentional
-  re-exports. It should not contain substantial implementation logic.
-- `main.rs` contains process wiring only.
-- One module should have one main reason to change.
-- A module with one principal type can live in `name.rs`.
-- A module with several private collaborators should live as `name.rs` plus a
-  `name/` directory of child modules.
-- Prefer `name.rs` with `name/child.rs` for new code. Use `name/mod.rs` only
-  when it is already the local convention or it materially improves clarity.
+  re-exports. It should not contain substantial implementation logic, and it
+  should curate: re-export the primary types callers need rather than only
+  exposing bare `pub mod` lists.
+- One module has one main reason to change. A module that accretes several
+  unrelated responsibilities (data structure + container + utilities) must be
+  split along those seams.
+- A module with one principal type lives in `name.rs`. A module with several
+  collaborators lives as a `name/` directory with a `name/mod.rs` root — this
+  repo uses the `mod.rs` convention throughout (`db/mod.rs`, `dialogs/mod.rs`,
+  `files/mod.rs`, `render/mod.rs`); follow it for new directories.
 - Keep child modules private by default and re-export a small facade from the
   parent module when callers need a simpler path.
 
-Example:
-
-```text
-src/
-├── lib.rs
-├── error.rs
-├── config.rs
-├── session.rs
-├── session/
-│   ├── branch.rs
-│   ├── message.rs
-│   └── tree.rs
-├── storage.rs
-└── storage/
-    ├── migrations.rs
-    ├── schema.rs
-    └── transaction.rs
-```
-
 Avoid deep public paths such as `crate::a::b::c::d::Type`. Deep paths usually
 mean the public facade is missing or the type is in the wrong layer.
+
+Central mutable state must be grouped, not flat. A state struct accumulating
+dozens of ungrouped fields across unrelated concerns is the module-level
+"grab-bag" anti-pattern expressed as a type: group fields into cohesive
+substructs per concern.
 
 ## Naming
 
 Use Rust naming conventions consistently:
 
-- Packages and published crate names: `kebab-case`.
+- Package names: `kebab-case` with the `libllm-` prefix for workspace
+  libraries.
 - Rust crate identifiers, modules, functions, methods, and variables:
   `snake_case`.
 - Types, traits, and enum variants: `UpperCamelCase`.
 - Constants and statics: `SCREAMING_SNAKE_CASE`.
 - Macros: `snake_case!`.
-- Lifetimes: short lowercase names such as `'a`, `'de`, or a descriptive name
-  when the lifetime has domain meaning.
+- Lifetimes: short lowercase names such as `'a`, or a descriptive name when
+  the lifetime has domain meaning.
 
-Use standard method names:
+Use standard method names: `new`, `with_<detail>`, `from_<source>`, and
+`as_*`/`to_*`/`into_*` per Rust conversion conventions.
 
-- `new` for the primary constructor.
-- `with_<detail>` for constructors that need extra information.
-- `from_<source>` for conversion constructors when `From` is not appropriate.
-- `as_*`, `to_*`, and `into_*` according to Rust conversion conventions.
-- `iter`, `iter_mut`, and `into_iter` for iterator-producing methods.
+Error types are named `<Domain>Error` after the subsystem that produces them —
+`DbError`, `ApiError`, `BackupError`, `FileError`, `CryptoError`,
+`CharacterError` — not verb-object phrases. Keep error names stable and
+specific.
 
-Name errors consistently in verb-object order: `ParseConfigError`,
-`OpenDatabaseError`, `LoadSessionError`. Keep error names stable and specific.
-
-Avoid all-caps acronyms in type names. Prefer `HttpClient`, `SqlStore`, and
-`UuidParser` over `HTTPClient`, `SQLStore`, and `UUIDParser`.
+Avoid all-caps acronyms in type names. Prefer `HttpClient` and `SqlStore` over
+`HTTPClient` and `SQLStore`.
 
 ## Public API Design
 
@@ -244,13 +229,14 @@ Rules:
   `impl Trait` only when they buy real API flexibility or caller ergonomics.
 - Do not expose dependency types in stable public APIs unless the dependency is
   intentionally part of the contract.
-- Keep trait definitions at real abstraction boundaries. Do not create a trait
-  for one implementation unless tests or external callers need the abstraction.
-- If a trait may be used as a trait object, design it for object safety from the
-  start.
+- Keep trait definitions at real abstraction boundaries. Many implementations
+  behind one dispatch point (e.g. dialogs behind a handler trait) is a real
+  boundary; a trait with one implementation and no external caller is not.
+- If a trait may be used as a trait object, design it for object safety from
+  the start.
 
-Use crate roots and parent modules as facades. Re-export the types callers need;
-keep implementation modules private.
+Use crate roots and parent modules as facades. Re-export the types callers
+need; keep implementation modules private.
 
 ## Error Handling
 
@@ -260,22 +246,24 @@ Rules:
 
 - Return `Result<T, E>` for recoverable failures.
 - Use `Option<T>` only for expected absence, not for failure with lost context.
-- Library crates expose specific error types. Binary crates may use broader
-  report types at the process boundary.
+- Library crates expose specific `thiserror` enums with `#[source]` chaining
+  and a `pub type Result<T>` alias. The binary crate (`libllm-cli`) may use
+  `anyhow::Result` at the process boundary.
 - Include enough context to debug failures: operation, path or identifier,
-  external request parameters where safe, status codes, and response bodies when
-  relevant.
-- Do not silently ignore errors. Either handle them deliberately or return them.
+  external request parameters where safe, status codes, and response bodies
+  when relevant.
+- Do not silently ignore errors. Either handle them deliberately or return
+  them.
 - Do not catch broad errors and replace them with generic messages.
 - Do not use `unwrap` or `expect` in production paths unless the invariant is
   structurally guaranteed and the message documents the invariant precisely.
 - Tests may use `unwrap` or `expect` when failure would make the test itself
   invalid.
-- Panics are for bugs, violated invariants, and unrecoverable programmer errors,
-  not normal user or environment failures.
-- Destructors must not be the only place where fallible cleanup happens. Provide
-  an explicit `close`, `finish`, `flush`, or `commit` method that returns a
-  `Result`.
+- Panics are for bugs, violated invariants, and unrecoverable programmer
+  errors, not normal user or environment failures.
+- Destructors must not be the only place where fallible cleanup happens.
+  Provide an explicit `close`, `finish`, `flush`, or `commit` method that
+  returns a `Result`.
 
 For external services, centralize retry policy. Retry only operations that are
 safe to retry, log each retry with structured fields, and return the last error
@@ -283,19 +271,23 @@ with full context when retries are exhausted.
 
 ## Configuration and State
 
-Configuration should be parsed once, validated once, and passed explicitly.
+Configuration is parsed once, validated once, and passed explicitly.
 
 Rules:
 
-- Represent configuration as typed structs.
+- Represent configuration as typed structs (`Config` and friends in
+  `libllm-core::config`).
 - Keep raw environment variables, CLI strings, and config-file syntax at the
-  process boundary.
+  process boundary (`libllm-config` and `libllm-cli`).
 - Convert raw inputs into validated domain types before they reach core logic.
 - Do not read environment variables deep inside library code.
-- Avoid global mutable state. If shared process state is required, isolate it in
-  an application state type and pass references explicitly.
-- Keep pure domain functions free of I/O, time, randomness, logging, and process
-  state.
+- Avoid global mutable state. The one sanctioned exception is the
+  `OnceLock`-based data-directory override in `libllm-config`, which exists
+  precisely to confine process-global state to the process-boundary crate (see
+  RULES.md for its per-process test constraints). Core must hold no
+  process-global state.
+- Keep pure domain functions free of I/O, time, randomness, logging, and
+  process state. Data-loading functions in core take explicit `&Path` inputs.
 
 ## Async and Concurrency
 
@@ -303,10 +295,11 @@ Concurrency policy belongs at orchestration boundaries.
 
 Rules:
 
-- Binary/application crates own runtime initialization.
-- Library crates should not start a runtime.
-- Spawn tasks only in orchestration code or in a component explicitly
-  responsible for background work.
+- The binary crate owns runtime initialization (tokio).
+- `libllm-core` has no async runtime dependency at all.
+- Spawn tasks only in orchestration code (`libllm-tui`, `libllm-cli`) or in a
+  component explicitly responsible for background work (e.g. the
+  `FileSummarizer`).
 - Pass cancellation, timeout, and shutdown signals explicitly.
 - Do not block inside async code. Use the runtime's blocking facilities for
   unavoidable blocking work.
@@ -317,41 +310,31 @@ Rules:
 
 ## Observability
 
-Use structured diagnostics.
+Use structured diagnostics via `tracing`. The authoritative level rubric and
+filter configuration live in RULES.md ("Diagnostics authoring"); in brief:
+`trace` for per-frame/per-keystroke events, `debug` for state transitions,
+`info` for DB operations and API summaries, `warn` for retries and degraded
+fallbacks, `error` for unrecoverable failures.
 
 Rules:
 
-- Libraries use `tracing` or another structured facade, not `println!`.
-- CLIs write intentional user output to stdout and diagnostics to stderr.
+- Libraries use `tracing`, not `println!`.
+- The CLI writes intentional user output to stdout and diagnostics to stderr.
 - Log dynamic values as fields, not by formatting them into the message string.
-- Use levels consistently:
-  - `trace`: per-event details useful only while debugging.
-  - `debug`: internal state transitions and lifecycle events.
-  - `info`: user-significant operations and durable state changes.
-  - `warn`: recoverable problems and retries.
-  - `error`: failed operations that prevent the requested work.
+- For timed blocks, use spans (or `timed_result!`) so elapsed time feeds the
+  `--timings` report; do not write elapsed fields manually.
 
-Do not log secrets, passphrases, tokens, private message bodies, or full request
-payloads unless the payload is explicitly non-sensitive and the diagnostic mode
-requires it.
+Do not log secrets, passphrases, tokens, private message bodies, or full
+request payloads unless the payload is explicitly non-sensitive and the
+diagnostic mode requires it.
 
 ## Unsafe Code
 
-Safe Rust is the default. Unsafe code must be rare, isolated, and reviewable.
-
-Rules:
-
-- Prefer `#![forbid(unsafe_code)]` in crates that do not need unsafe code.
-- When unsafe is necessary, isolate it in a small module or crate with a safe
-  public wrapper.
-- Every `unsafe fn`, unsafe trait, and unsafe block must have a documented
-  safety invariant.
-- Enable `unsafe_op_in_unsafe_fn` so unsafe operations remain explicit inside
-  unsafe functions.
-- Add tests that exercise the safe wrapper boundary. Use Miri or sanitizers when
-  the unsafe code depends on aliasing, initialization, or pointer invariants.
-- Do not use unsafe for convenience, to bypass the borrow checker, or to avoid a
-  small amount of ordinary code.
+Unsafe code is forbidden workspace-wide (`[workspace.lints.rust] unsafe_code =
+"forbid"`). Do not introduce it. If a future need is genuinely unavoidable, it
+requires loosening the workspace lint deliberately and isolating the unsafe
+code behind a safe, documented wrapper — a decision for a human maintainer,
+not something to do in passing.
 
 ## Formatting and Lints
 
@@ -359,115 +342,123 @@ Formatting is automated, not debated.
 
 Rules:
 
-- Use `rustfmt` and keep formatting configuration minimal.
-- Follow default Rust style: spaces, 4-space indentation, and 100-character line
-  width unless the project has an explicit reason to differ.
+- `rustfmt` with the minimal repo config (`rustfmt.toml`: edition 2024,
+  `max_width = 100`).
 - Keep imports at the top of the file and let `rustfmt` organize them.
-- Use workspace lint configuration so every crate inherits the same baseline.
-- Treat Clippy correctness and performance warnings as defects.
-- Prefer fixing lints over suppressing them.
-- If a lint must be suppressed, make the suppression narrow and include a reason
-  that explains the structural constraint.
-- Do not use broad lint suppression at crate or workspace level to hide local
-  problems.
+- Workspace lint configuration in the root `Cargo.toml`; every crate inherits
+  it via `[lints] workspace = true`.
+- Clippy warnings are defects: the CI gate is `-D warnings` across the
+  workspace and all targets.
+- Never suppress warnings with `#[allow(...)]` — `clippy::allow_attributes`
+  is denied workspace-wide. Fix the code instead. The only sanctioned
+  mechanism for a documented structural false-positive is
+  `#[expect(lint, reason = "...")]`, which self-verifies. See RULES.md
+  ("No warning suppression").
 
-Recommended verification commands:
+Verification is one command:
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo doc --workspace --no-deps
+cargo xtask ci
 ```
 
-If features are mutually exclusive, replace `--all-features` with the explicit
-feature matrix that CI supports.
+It runs, stopping at the first failure: `cargo fmt --all --check`, `cargo
+clippy --workspace --all-targets -- -D warnings` (plus the `libllm-tui`
+`test-support` feature pass), `cargo test --workspace` (plus the `test-support`
+suite), and `cargo doc --workspace --no-deps`. Output is teed to a timestamped
+log; read the log rather than re-running (see RULES.md "Build and Test").
 
 ## Dependencies
 
-Dependencies should be centralized, intentional, and visible.
+Dependencies are centralized, intentional, and visible.
 
 Rules:
 
 - Define shared versions in `[workspace.dependencies]`.
 - Use `dependency.workspace = true` in member crates.
 - Disable default features when a dependency's defaults pull in unnecessary
-  runtime, TLS, OS, or serialization support.
+  runtime, TLS, OS, or serialization support (as done for `reqwest`,
+  `minijinja`, `rustls`, `tracing-subscriber`).
+- A crate's dependency list is part of its architecture contract: `libllm-core`
+  must not grow dependencies that imply infrastructure concerns (runtimes,
+  HTTP, database drivers, system introspection).
 - Keep public dependencies stable if their types appear in public APIs.
 - Prefer established crates with active maintenance, clear licensing, and small
   transitive dependency cost.
-- Keep dev-only tools and fixtures in `dev-dependencies`.
-- Keep build-time tools in `build-dependencies`.
+- Keep dev-only tools and fixtures in `dev-dependencies`; optional test
+  machinery behind the `test-support` feature.
 - Avoid adding dependencies for trivial code.
 - Audit new dependencies for license, maintenance, security posture, feature
   flags, and public API leakage before adoption.
 
 ## Tests
 
-Testing should match the boundary being protected.
+Testing matches the boundary being protected. The authoritative test-suite
+layout (file list, subprocess pattern, `OnceLock` constraint) is in RULES.md;
+keep that list in sync when adding test binaries.
 
 Use:
 
-- Unit tests beside private logic when testing edge cases and invariants.
-- Integration tests under `tests/` when testing the public API or process
-  contract.
-- Subprocess tests for CLI behavior, exit codes, stdout/stderr separation, and
-  environment handling.
-- Doctests for public examples that should stay compileable.
+- Unit tests beside private logic (`#[cfg(test)]` modules) for edge cases and
+  invariants.
+- Integration tests under each crate's `tests/` for public API and process
+  contracts.
+- Subprocess tests (spawning the compiled `libllm` binary via
+  `common::client_bin()`) for CLI behavior: exit codes, stdout/stderr
+  separation, environment handling, multi-process safety.
+- Scenario tests through the TUI harness (`crates/tui/src/harness/`,
+  `tests/scenarios.rs`) for end-to-end TUI behavior with a mock API.
 - Data-driven or golden tests for parsers, formatters, migrations, importers,
-  exporters, and rendering output.
-- Property tests for algorithms with broad input spaces.
-- Benchmarks under `benches/` only for performance-sensitive code with stable
-  measurement goals.
+  and exporters (e.g. the cross-version migration tests in
+  `crates/storage/src/db/migrations/mod.rs`).
 
 Rules:
 
-- Test names should describe the behavior being proved.
-- Tests must be deterministic and isolated.
-- Use temporary directories for filesystem tests.
-- Do not require network access in normal test runs.
-- Store fixtures near the tests that use them, such as `tests/fixtures/` or a
-  crate-specific `test_data/` directory.
-- Shared integration-test helpers belong in `tests/common/mod.rs` or a
-  dedicated `test-support` crate when multiple crates need them.
+- Test names describe the behavior being proved.
+- Tests are deterministic and isolated; use temporary directories for
+  filesystem tests and `wiremock` for HTTP.
+- No network access in normal test runs (the `update` subcommand is
+  deliberately untested at the subprocess level for this reason).
+- Shared integration-test helpers live in `tests/common/mod.rs`, with
+  `#[expect(dead_code, reason = "...")]` on the per-binary `mod common;`
+  declaration.
 - Prefer testing public behavior over internal implementation details.
 
 ## Documentation
 
-Documentation should live as close as possible to the API it explains.
+Documentation lives as close as possible to the API it explains.
 
 Rules:
 
-- `lib.rs` should explain the crate's purpose and show a minimal example when
-  the crate exposes a public API.
-- Public types, traits, functions, modules, and macros should have rustdoc.
-- Public fallible functions should document meaningful error conditions.
-- Public panicking behavior should be documented when callers can trigger it.
-- Unsafe APIs must document caller or implementor obligations in a `# Safety`
-  section.
-- Examples should explain why an API is useful, not merely restate its syntax.
-- Separate architecture documents should describe durable boundaries,
-  invariants, and workflows that cannot be expressed clearly in code.
-- Do not duplicate implementation details across README files, rustdoc, and
-  separate docs.
+- `lib.rs` explains the crate's purpose and its architectural contract.
+- Public types, traits, functions, modules, and macros have rustdoc.
+- Public fallible functions document meaningful error conditions.
+- Public panicking behavior is documented when callers can trigger it.
+- Examples explain why an API is useful, not merely restate its syntax.
+- Separate architecture documents (RULES.md, this file) describe durable
+  boundaries, invariants, and workflows that cannot be expressed clearly in
+  code — and must be corrected in the same change that invalidates them.
+  A stated contract the code does not honor is worse than no contract.
+- Do not duplicate detail across README, rustdoc, RULES.md, and this file;
+  cross-reference instead.
 
 ## Review Checklist
 
 Use this checklist when reviewing a Rust change:
 
 - The file is in the crate and module that own the concept.
-- The binary layer only wires process concerns.
-- Domain logic is independent of I/O and process state.
+- `main.rs` only wires process concerns.
+- Domain logic in core is independent of databases, the network, async
+  runtimes, and process state.
 - New public API is intentionally exposed and documented.
 - Private implementation details remain private.
 - Error types are specific and preserve debugging context.
 - Dependencies are declared in the right manifest table and centralized when
   shared.
-- New tests sit at the correct boundary and are deterministic.
+- New tests sit at the correct boundary and are deterministic; RULES.md's
+  test-file list is updated if a binary was added.
 - New configuration is typed, validated, and passed explicitly.
-- Unsafe code is absent or isolated behind a documented safe wrapper.
-- `cargo fmt`, `cargo clippy`, tests, and docs verification pass for the
-  supported feature set.
+- New dialogs follow the keybinding contract in RULES.md.
+- `cargo xtask ci` passes.
 
 ## Anti-Patterns
 
@@ -475,15 +466,19 @@ Eliminate these patterns:
 
 - Large files with unrelated responsibilities.
 - `main.rs` containing business logic.
-- Public modules that expose implementation structure.
+- State structs with dozens of flat, ungrouped fields spanning unrelated
+  concerns.
+- Long `if x == Variant` dispatch chains where a match or a trait-based
+  dispatch point belongs.
+- Public modules that expose implementation structure with no curated facade.
 - Broad `utils`, `common`, `misc`, or `helpers` modules.
 - Error values represented as plain strings.
 - `unwrap` or `expect` in production paths without a proven invariant.
 - Boolean parameters that select different behaviors.
 - Traits with only one implementation and no real abstraction boundary.
-- Global mutable state.
+- Global mutable state outside the sanctioned `libllm-config` boundary.
 - Environment-variable reads inside domain logic.
 - Async runtimes started inside library crates.
 - Network-dependent default tests.
-- Lint suppression used to avoid fixing code.
-- Unsafe code used for convenience rather than a documented necessity.
+- `#[allow(...)]` or any other lint suppression used to avoid fixing code.
+- Documentation that states a contract the code does not honor.

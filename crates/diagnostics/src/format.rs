@@ -17,6 +17,8 @@ const STRIP_PREFIXES: &[&str] = &[
     "libllm_storage::",
     "libllm_protocol::",
     "libllm_config::",
+    "libllm_diagnostics::",
+    "libllm_backup::",
     "libllm_tui::",
     "libllm_cli::",
 ];

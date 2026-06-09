@@ -146,14 +146,14 @@ pub(crate) fn observe(app: &App) -> Observation {
         branch_label: None,
         status_message,
         status_level,
-        is_streaming: app.is_streaming,
+        is_streaming: app.streaming.active,
         is_summarizing: app.is_summarizing,
         message_count,
         head_role,
         head_text,
         sidebar_session_count: app.sidebar_sessions.len(),
         input_text: app.textarea.lines().join("\n"),
-        message_queue_len: app.message_queue.len(),
+        message_queue_len: app.streaming.message_queue.len(),
     }
 }
 

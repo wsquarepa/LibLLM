@@ -10,18 +10,18 @@ use super::types::*;
 use super::{business, dialogs, maintenance};
 
 pub(super) fn cancel_generation(app: &mut App) {
-    if let Some(handle) = app.streaming_task.take() {
+    if let Some(handle) = app.streaming.task.take() {
         handle.abort();
     }
 
-    if app.is_continuation {
-        if !app.streaming_buffer.is_empty() {
+    if app.streaming.is_continuation {
+        if !app.streaming.buffer.is_empty() {
             let Some(head) = app.session.tree.head() else {
                 tracing::debug!("tui.cancel_generation.no_head");
                 return;
             };
-            let combined = match app.streaming_prefill.take() {
-                Some(prefill) => format!("{}{}", prefill, app.streaming_buffer.trim_start()),
+            let combined = match app.streaming.prefill.take() {
+                Some(prefill) => format!("{}{}", prefill, app.streaming.buffer.trim_start()),
                 None => {
                     let existing = app
                         .session
@@ -31,7 +31,7 @@ pub(super) fn cancel_generation(app: &mut App) {
                         .message
                         .content
                         .clone();
-                    format!("{}{}", existing, app.streaming_buffer)
+                    format!("{}{}", existing, app.streaming.buffer)
                 }
             };
             let combined = libllm_core::regex_rules::apply(
@@ -48,8 +48,8 @@ pub(super) fn cancel_generation(app: &mut App) {
                 .node(head)
                 .and_then(|node| node.message.thought_seconds);
             let measured_seconds = libllm_core::thought::measured_thought_seconds(
-                app.stream_started_at,
-                app.stream_first_think_closed_at,
+                app.streaming.started_at,
+                app.streaming.first_think_closed_at,
             );
             let final_seconds = libllm_core::thought::resolve_thought_seconds(
                 &app.session
@@ -66,9 +66,9 @@ pub(super) fn cancel_generation(app: &mut App) {
                 .tree
                 .set_message_thought_seconds(head, final_seconds);
         }
-        app.is_continuation = false;
-    } else if !app.streaming_buffer.is_empty() {
-        let raw = std::mem::take(&mut app.streaming_buffer);
+        app.streaming.is_continuation = false;
+    } else if !app.streaming.buffer.is_empty() {
+        let raw = std::mem::take(&mut app.streaming.buffer);
         let Some(head) = app.session.tree.head() else {
             tracing::debug!("tui.cancel_generation.no_head");
             return;
@@ -84,8 +84,8 @@ pub(super) fn cancel_generation(app: &mut App) {
         )
         .into_owned();
         let measured_seconds = libllm_core::thought::measured_thought_seconds(
-            app.stream_started_at,
-            app.stream_first_think_closed_at,
+            app.streaming.started_at,
+            app.streaming.first_think_closed_at,
         );
         let thought_seconds = libllm_core::thought::resolve_thought_seconds(
             &stored_content,
@@ -99,11 +99,11 @@ pub(super) fn cancel_generation(app: &mut App) {
         );
     }
 
-    app.streaming_buffer.clear();
-    app.streaming_prefill = None;
-    app.is_streaming = false;
-    app.stream_started_at = None;
-    app.stream_first_think_closed_at = None;
+    app.streaming.buffer.clear();
+    app.streaming.prefill = None;
+    app.streaming.active = false;
+    app.streaming.started_at = None;
+    app.streaming.first_think_closed_at = None;
     app.mark_session_dirty(SaveTrigger::StreamDone, true);
     app.invalidate_chat_caches();
     app.auto_scroll = true;

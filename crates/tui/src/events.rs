@@ -758,7 +758,7 @@ fn handle_key(
         return dialogs::scenario::handle_key(key, app);
     }
 
-    if app.is_streaming {
+    if app.streaming.active {
         return handle_streaming_key(key, app);
     }
 
@@ -921,8 +921,8 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if key.code == KeyCode::Esc {
         cancel_generation(app);
-        if !app.message_queue.is_empty() {
-            let next = app.message_queue.remove(0);
+        if !app.streaming.message_queue.is_empty() {
+            let next = app.streaming.message_queue.remove(0);
             return Some(Action::SendMessage(next));
         }
         return None;
@@ -949,7 +949,7 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
         app.textarea = TextArea::default();
         configure_textarea(&mut app.textarea);
-        app.message_queue.push(trimmed);
+        app.streaming.message_queue.push(trimmed);
         return None;
     }
 
@@ -958,7 +958,7 @@ fn handle_streaming_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
-    if app.is_streaming {
+    if app.streaming.active {
         return None;
     }
     let areas = app.layout_areas.as_ref()?;

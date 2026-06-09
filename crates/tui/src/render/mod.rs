@@ -844,8 +844,8 @@ pub fn render_chat(
         }
     }
 
-    if app.is_streaming && !app.streaming_buffer.is_empty() {
-        if !app.is_continuation {
+    if app.streaming.active && !app.streaming.buffer.is_empty() {
+        if !app.streaming.is_continuation {
             lines.push(Line::from(vec![Span::styled(
                 format!("{assistant_label}: "),
                 Style::default()
@@ -858,7 +858,7 @@ pub fn render_chat(
             &app.compiled_regex,
             libllm_core::regex_rules::Scope::Display,
             libllm_core::session::Role::Assistant,
-            &app.streaming_buffer,
+            &app.streaming.buffer,
         );
         let streaming_speaker: Option<String> = app
             .session
@@ -867,7 +867,7 @@ pub fn render_chat(
             .and_then(|id| app.session.tree.node(id))
             .and_then(|n| n.message.speaker.clone());
         let raw_buffer = replace_vars(&buffer_after_regex, streaming_speaker.as_deref());
-        let buffer = if app.is_continuation {
+        let buffer = if app.streaming.is_continuation {
             raw_buffer
         } else {
             libllm_core::thought::normalize_assistant_content(
@@ -877,18 +877,18 @@ pub fn render_chat(
             .into_owned()
         };
         let thought_seconds = libllm_core::thought::measured_thought_seconds(
-            app.stream_started_at,
-            app.stream_first_think_closed_at,
+            app.streaming.started_at,
+            app.streaming.first_think_closed_at,
         );
         let stream_lines = render_assistant_lines(
             &buffer,
             thought_seconds,
             &app.theme,
             app.reasoning_preset.as_ref(),
-            app.stream_first_think_closed_at.is_some(),
+            app.streaming.first_think_closed_at.is_some(),
             true,
         );
-        if app.is_continuation {
+        if app.streaming.is_continuation {
             if lines.last().is_some_and(|l| l.spans.is_empty()) {
                 lines.pop();
             }
@@ -909,7 +909,7 @@ pub fn render_chat(
     }
 
     let visible_height = area.height.saturating_sub(2);
-    let streaming_height = if app.is_streaming && !app.streaming_buffer.is_empty() {
+    let streaming_height = if app.streaming.active && !app.streaming.buffer.is_empty() {
         measure_wrapped_height(&lines, area).saturating_sub(static_height)
     } else {
         0
@@ -966,7 +966,7 @@ pub fn render_chat(
             .right_aligned(),
         )
         .border_style(border_style(chat_focused, &app.theme));
-    if app.is_streaming {
+    if app.streaming.active {
         chat_block = chat_block.title_bottom(
             Line::from(Span::styled(
                 " Generating... Esc to cancel ",
@@ -1187,12 +1187,12 @@ fn build_queue_lines(queue: &[String], user_label: &str, theme: &Theme) -> Vec<L
 }
 
 pub fn split_chat_area_for_queue(chat_area: Rect, app: &App) -> (Rect, Option<Rect>) {
-    if app.message_queue.is_empty() || chat_area.height < 8 {
+    if app.streaming.message_queue.is_empty() || chat_area.height < 8 {
         return (chat_area, None);
     }
 
     let user_label = queue_user_label(app);
-    let queue_lines = build_queue_lines(&app.message_queue, &user_label, &app.theme);
+    let queue_lines = build_queue_lines(&app.streaming.message_queue, &user_label, &app.theme);
     let content_rows = measure_wrapped_height(&queue_lines, chat_area);
     let desired = content_rows.saturating_add(2);
 
@@ -1221,8 +1221,8 @@ pub fn split_chat_area_for_queue(chat_area: Rect, app: &App) -> (Rect, Option<Re
 
 pub fn render_message_queue(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let user_label = queue_user_label(app);
-    let lines = build_queue_lines(&app.message_queue, &user_label, &app.theme);
-    let title = format!(" Queued ({}) ", app.message_queue.len());
+    let lines = build_queue_lines(&app.streaming.message_queue, &user_label, &app.theme);
+    let title = format!(" Queued ({}) ", app.streaming.message_queue.len());
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)

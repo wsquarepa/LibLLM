@@ -294,10 +294,10 @@ enum StreamPreflight {
 fn stream_preflight(app: &mut App<'_>, content: &str) -> StreamPreflight {
     if app.summary_receiver.is_some() {
         app.is_summarizing = true;
-        app.message_queue.push(content.to_owned());
+        app.streaming.message_queue.push(content.to_owned());
         tracing::debug!(
             phase = "queued_for_summary",
-            queue_len = app.message_queue.len(),
+            queue_len = app.streaming.message_queue.len(),
             "stream.start"
         );
         return StreamPreflight::Queued;
@@ -348,13 +348,13 @@ fn push_user_segments(app: &mut App<'_>, content: &str) {
 async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_caches();
-    app.is_streaming = true;
-    app.stream_started_at = None;
-    app.stream_first_think_closed_at = None;
+    app.streaming.active = true;
+    app.streaming.started_at = None;
+    app.streaming.first_think_closed_at = None;
     app.focus = crate::Focus::Input;
     app.nav_cursor = None;
     app.hover_node = None;
-    app.streaming_buffer.clear();
+    app.streaming.buffer.clear();
     app.auto_scroll = true;
 
     let worldbooks = loaded_worldbooks(app);
@@ -401,7 +401,7 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
             .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
             .await;
     });
-    app.streaming_task = Some(handle);
+    app.streaming.task = Some(handle);
 }
 
 /// Prepares streaming state for a group-chat assistant turn, then spawns the
@@ -424,14 +424,14 @@ pub(crate) async fn stream_into_message(
     }
     app.mark_session_dirty(SaveTrigger::Debounced, false);
     app.invalidate_chat_caches();
-    app.is_streaming = true;
-    app.is_continuation = true;
-    app.stream_started_at = None;
-    app.stream_first_think_closed_at = None;
+    app.streaming.active = true;
+    app.streaming.is_continuation = true;
+    app.streaming.started_at = None;
+    app.streaming.first_think_closed_at = None;
     app.focus = crate::Focus::Input;
     app.nav_cursor = None;
     app.hover_node = None;
-    app.streaming_buffer.clear();
+    app.streaming.buffer.clear();
     app.auto_scroll = true;
 
     let worldbooks = loaded_worldbooks(app);
@@ -479,7 +479,7 @@ pub(crate) async fn stream_into_message(
             .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
             .await;
     });
-    app.streaming_task = Some(handle);
+    app.streaming.task = Some(handle);
 }
 
 pub(super) async fn run_one_group_turn(
@@ -552,7 +552,7 @@ pub(super) async fn run_one_group_turn(
     let parent_id = app.session.tree.head();
     app.session.tree.push(parent_id, assistant_msg);
 
-    app.streaming_prefill = Some(prompt.prefill.clone());
+    app.streaming.prefill = Some(prompt.prefill.clone());
 
     stream_into_message(
         app,
@@ -823,22 +823,22 @@ pub(crate) async fn handle_stream_token(
     app: &mut App<'_>,
     sender: mpsc::Sender<StreamToken>,
 ) -> Result<()> {
-    if !app.is_streaming {
+    if !app.streaming.active {
         return Ok(());
     }
     match token {
         StreamToken::Token(text) => {
-            if app.stream_started_at.is_none() {
-                app.stream_started_at = Some(std::time::Instant::now());
+            if app.streaming.started_at.is_none() {
+                app.streaming.started_at = Some(std::time::Instant::now());
             }
-            app.streaming_buffer.push_str(&text);
-            if app.stream_first_think_closed_at.is_none()
-                && !app.is_continuation
+            app.streaming.buffer.push_str(&text);
+            if app.streaming.first_think_closed_at.is_none()
+                && !app.streaming.is_continuation
                 && let Some(preset) = app.reasoning_preset.as_ref()
             {
                 let close = preset.suffix.trim();
-                if !close.is_empty() && app.streaming_buffer.contains(close) {
-                    app.stream_first_think_closed_at = Some(std::time::Instant::now());
+                if !close.is_empty() && app.streaming.buffer.contains(close) {
+                    app.streaming.first_think_closed_at = Some(std::time::Instant::now());
                 }
             }
             app.auto_scroll = true;
@@ -846,13 +846,13 @@ pub(crate) async fn handle_stream_token(
         StreamToken::Done(full_response) => {
             let head = app.session.tree.head().expect("tree has a head node because a user message was pushed before the stream was started");
             let response_bytes = full_response.len();
-            let is_continuation = app.is_continuation;
+            let is_continuation = app.streaming.is_continuation;
             let measured_seconds = libllm_core::thought::measured_thought_seconds(
-                app.stream_started_at,
-                app.stream_first_think_closed_at,
+                app.streaming.started_at,
+                app.streaming.first_think_closed_at,
             );
-            if app.is_continuation {
-                let combined = match app.streaming_prefill.take() {
+            if app.streaming.is_continuation {
+                let combined = match app.streaming.prefill.take() {
                     Some(prefill) => format!("{}{}", prefill, full_response.trim_start()),
                     None => {
                         let existing = app.session.tree.node(head).expect("head id was obtained from tree.head() and is a valid allocated node").message.content.clone();
@@ -888,7 +888,7 @@ pub(crate) async fn handle_stream_token(
                 app.session
                     .tree
                     .set_message_thought_seconds(head, final_seconds);
-                app.is_continuation = false;
+                app.streaming.is_continuation = false;
             } else {
                 let stored_content = libllm_core::thought::normalize_assistant_content(
                     &full_response,
@@ -923,10 +923,10 @@ pub(crate) async fn handle_stream_token(
             );
             app.mark_session_dirty(SaveTrigger::StreamDone, true);
             app.invalidate_chat_caches();
-            app.streaming_buffer.clear();
-            app.is_streaming = false;
-            app.stream_started_at = None;
-            app.stream_first_think_closed_at = None;
+            app.streaming.buffer.clear();
+            app.streaming.active = false;
+            app.streaming.started_at = None;
+            app.streaming.first_think_closed_at = None;
             app.auto_scroll = true;
             app.flush_session_save(SaveTrigger::StreamDone)?;
             business::refresh_sidebar(app);
@@ -1096,23 +1096,23 @@ pub(crate) async fn handle_stream_token(
             }
             if app.group_chat_loop_rng.is_some() && !app.is_summarizing {
                 Box::pin(continue_group_chat_loop(app, &sender)).await;
-            } else if !app.message_queue.is_empty() {
-                let next = app.message_queue.remove(0);
+            } else if !app.streaming.message_queue.is_empty() {
+                let next = app.streaming.message_queue.remove(0);
                 Box::pin(start_streaming(app, &next, sender)).await;
-                if !app.is_streaming {
-                    app.message_queue.clear();
+                if !app.streaming.active {
+                    app.streaming.message_queue.clear();
                 }
             }
         }
         StreamToken::Error(err) => {
-            tracing::error!(result = "error", is_continuation = app.is_continuation, error = %err, "stream.done");
-            app.streaming_buffer.clear();
-            app.is_streaming = false;
-            app.is_continuation = false;
-            app.streaming_prefill = None;
-            app.stream_started_at = None;
-            app.stream_first_think_closed_at = None;
-            app.message_queue.clear();
+            tracing::error!(result = "error", is_continuation = app.streaming.is_continuation, error = %err, "stream.done");
+            app.streaming.buffer.clear();
+            app.streaming.active = false;
+            app.streaming.is_continuation = false;
+            app.streaming.prefill = None;
+            app.streaming.started_at = None;
+            app.streaming.first_think_closed_at = None;
+            app.streaming.message_queue.clear();
             app.group_chat_loop_rng = None;
             app.set_status(format!("Error: {err}"), StatusLevel::Error);
         }

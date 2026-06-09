@@ -324,11 +324,11 @@ async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>
         return;
     }
 
-    app.is_streaming = true;
-    app.is_continuation = true;
-    app.streaming_buffer.clear();
-    app.stream_started_at = None;
-    app.stream_first_think_closed_at = None;
+    app.streaming.active = true;
+    app.streaming.is_continuation = true;
+    app.streaming.buffer.clear();
+    app.streaming.started_at = None;
+    app.streaming.first_think_closed_at = None;
     app.auto_scroll = true;
 
     streaming::loaded_worldbooks(app);
@@ -366,7 +366,7 @@ async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>
             .stream_completion_to_channel(&prompt, &stop_refs, &sampling, sender)
             .await;
     });
-    app.streaming_task = Some(handle);
+    app.streaming.task = Some(handle);
 }
 
 fn cmd_system(app: &mut App) {
@@ -872,11 +872,11 @@ pub(crate) async fn run_periodic_tasks(
             }
 
             app.is_summarizing = false;
-            if !app.message_queue.is_empty() {
-                let next = app.message_queue.remove(0);
+            if !app.streaming.message_queue.is_empty() {
+                let next = app.streaming.message_queue.remove(0);
                 start_streaming(app, &next, token_tx).await;
-                if !app.is_streaming {
-                    app.message_queue.clear();
+                if !app.streaming.active {
+                    app.streaming.message_queue.clear();
                 }
             }
             needs_redraw = true;

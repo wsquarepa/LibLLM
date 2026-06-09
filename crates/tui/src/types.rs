@@ -219,6 +219,22 @@ pub(super) struct ScrollState {
     pub(super) summary_revision: u64,
 }
 
+pub(super) struct StreamingState {
+    pub(super) active: bool,
+    pub(super) is_continuation: bool,
+    pub(super) buffer: String,
+    /// Set to `Some(prefill)` immediately before a fresh group-chat turn starts streaming.
+    /// On stream completion, the prefill prefix is stripped from the combined message
+    /// content so storage holds just the assistant body — without it, the renderer's
+    /// prefix-strip leaves the LLM's leading whitespace visible as phantom blank lines.
+    /// Cleared on `Done` and on error.
+    pub(super) prefill: Option<String>,
+    pub(super) started_at: Option<std::time::Instant>,
+    pub(super) first_think_closed_at: Option<std::time::Instant>,
+    pub(super) message_queue: Vec<String>,
+    pub(super) task: Option<tokio::task::JoinHandle<()>>,
+}
+
 pub(super) const SIDEBAR_WIDTH: u16 = 32;
 pub(super) const INPUT_HEIGHT: u16 = 5;
 
@@ -253,19 +269,7 @@ pub(super) struct App<'a> {
     pub(super) last_scroll_state: ScrollState,
     pub(super) sidebar_sessions: Vec<SessionEntry>,
     pub(super) sidebar_state: ratatui::widgets::ListState,
-    pub(super) streaming_buffer: String,
-    pub(super) is_streaming: bool,
-    pub(super) is_continuation: bool,
-    /// Set to `Some(prefill)` immediately before a fresh group-chat turn starts streaming.
-    /// On stream completion, the prefill prefix is stripped from the combined message
-    /// content so storage holds just the assistant body — without it, the renderer's
-    /// prefix-strip leaves the LLM's leading whitespace visible as phantom blank lines.
-    /// Cleared on `Done` and on error.
-    pub(super) streaming_prefill: Option<String>,
-    pub(super) stream_started_at: Option<std::time::Instant>,
-    pub(super) stream_first_think_closed_at: Option<std::time::Instant>,
-    pub(super) message_queue: Vec<String>,
-    pub(super) streaming_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) streaming: StreamingState,
     pub(super) is_summarizing: bool,
     pub(super) summary_receiver: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
     pub(super) summary_branch_head: Option<NodeId>,

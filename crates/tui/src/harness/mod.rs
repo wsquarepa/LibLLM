@@ -115,7 +115,7 @@ impl<'a> Harness<'a> {
     /// Drains every currently-ready channel event through the real handlers, runs one
     /// periodic-tasks pass, then redraws. Mirrors the loop's non-blocking arms.
     ///
-    /// When a completion stream is in flight (`app.is_streaming`), this awaits each
+    /// When a completion stream is in flight (`app.streaming.active`), this awaits each
     /// `StreamToken` with a 5-second bounded timeout so the test blocks until the
     /// full response has been processed rather than racing against the spawned HTTP
     /// task. A timeout panics with a clear message instead of hanging CI.
@@ -131,7 +131,7 @@ impl<'a> Harness<'a> {
 
             // Await remaining tokens if the stream is still active after the
             // non-blocking drain above.
-            while self.app.is_streaming {
+            while self.app.streaming.active {
                 match tokio::time::timeout(Duration::from_secs(5), self.token_rx.recv()).await {
                     Ok(Some(tok)) => {
                         commands::handle_stream_token(tok, &mut self.app, self.token_tx.clone())

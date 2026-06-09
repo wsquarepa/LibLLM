@@ -10,7 +10,7 @@ use libllm_core::session::{self, Role, Session};
 use super::{Action, App, StatusLevel};
 
 pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.is_streaming {
+    if app.streaming.active {
         return None;
     }
 
@@ -395,7 +395,7 @@ fn navigate_down(app: &mut App) {
 }
 
 pub fn input_has_command_picker(app: &App) -> bool {
-    if app.is_streaming {
+    if app.streaming.active {
         return false;
     }
     let lines = app.textarea.lines();
@@ -403,7 +403,7 @@ pub fn input_has_command_picker(app: &App) -> bool {
 }
 
 pub fn input_has_next_arg_picker(app: &App) -> bool {
-    if app.is_streaming {
+    if app.streaming.active {
         return false;
     }
     let lines = app.textarea.lines();

@@ -1,127 +1,12 @@
-//! Conversation session types with a branching message tree backed by an arena allocator.
+//! Arena-backed branching message tree used by [`super::Session`].
 
 use std::collections::HashMap;
-use std::fmt;
 #[cfg(debug_assertions)]
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-/// Controls whether and how a session is persisted to the database.
-#[derive(Clone)]
-pub enum SaveMode {
-    /// Session is ephemeral and will not be saved.
-    None,
-    /// Session is actively persisted to the database under the given ID.
-    Database { id: String },
-    /// Session has a database ID but cannot be saved until a passkey is provided.
-    PendingPasskey { id: String },
-}
-
-impl SaveMode {
-    pub fn id(&self) -> Option<&str> {
-        match self {
-            Self::None => None,
-            Self::Database { id } => Some(id),
-            Self::PendingPasskey { id } => Some(id),
-        }
-    }
-
-    pub fn set_id(&mut self, new_id: String) {
-        match self {
-            Self::None => {}
-            Self::Database { id } => *id = new_id,
-            Self::PendingPasskey { id } => *id = new_id,
-        }
-    }
-
-    pub fn needs_passkey(&self) -> bool {
-        matches!(self, Self::PendingPasskey { .. })
-    }
-}
-
-/// Lightweight session metadata used for sidebar display and session switching.
-pub struct SessionEntry {
-    pub id: String,
-    pub display_name: String,
-    pub message_count: Option<usize>,
-    pub updated_at: Option<String>,
-    pub sidebar_label: String,
-    pub sidebar_preview: Option<String>,
-    pub is_new_chat: bool,
-}
-
-/// The speaker role for a chat message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    User,
-    Assistant,
-    System,
-    Summary,
-}
-
-impl fmt::Display for Role {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::User => f.write_str("user"),
-            Self::Assistant => f.write_str("assistant"),
-            Self::System => f.write_str("system"),
-            Self::Summary => f.write_str("summary"),
-        }
-    }
-}
-
-/// Error returned when parsing a [`Role`] from an unrecognized string.
-#[derive(Debug, thiserror::Error)]
-#[error("unknown role: {0}")]
-pub struct ParseRoleError(pub String);
-
-impl std::str::FromStr for Role {
-    type Err = ParseRoleError;
-
-    fn from_str(s: &str) -> Result<Self, ParseRoleError> {
-        match s {
-            "user" => Ok(Self::User),
-            "assistant" => Ok(Self::Assistant),
-            "system" => Ok(Self::System),
-            "summary" => Ok(Self::Summary),
-            _ => Err(ParseRoleError(s.to_owned())),
-        }
-    }
-}
-
-/// A single chat message with role, content text, and ISO-8601 timestamp.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: Role,
-    pub content: String,
-    pub timestamp: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thought_seconds: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub speaker: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pre_turn_action_points: Option<String>,
-}
-
-impl Message {
-    pub fn new(role: Role, content: String) -> Self {
-        Self {
-            role,
-            content,
-            timestamp: now_iso8601(),
-            thought_seconds: None,
-            speaker: None,
-            pre_turn_action_points: None,
-        }
-    }
-
-    pub fn with_thought_seconds(mut self, thought_seconds: Option<u32>) -> Self {
-        self.thought_seconds = thought_seconds;
-        self
-    }
-}
+use super::message::{Message, Role};
 
 /// Index into the `MessageTree` arena, identifying a single node.
 pub type NodeId = usize;
@@ -701,101 +586,6 @@ impl Default for MessageTree {
     }
 }
 
-/// A conversation session: a message tree plus metadata (model, character, worldbooks, etc.).
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Session {
-    pub tree: MessageTree,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub character: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub worldbooks: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub persona: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub scenario: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub characters: Vec<crate::group_chat::CharacterAttachment>,
-    #[serde(default)]
-    pub chat_mode: crate::group_chat::ChatMode,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub author_note: Option<crate::author_note::AuthorNote>,
-}
-
-impl Session {
-    pub fn retreat_trailing_assistant(&mut self) {
-        while self.tree.head().is_some_and(|id| {
-            self.tree
-                .node(id)
-                .is_some_and(|n| n.message.role == Role::Assistant)
-        }) {
-            self.tree.retreat_head();
-        }
-    }
-}
-
-pub fn generate_session_id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-fn wall_clock_parts() -> (u64, u64, u64, u64, u64, u64) {
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let minutes = (time_secs % 3600) / 60;
-    let seconds = time_secs % 60;
-    let (year, month, day) = days_to_ymd(secs / 86400);
-    (year, month, day, hours, minutes, seconds)
-}
-
-pub fn now_compact() -> String {
-    let (year, month, day, hours, minutes, seconds) = wall_clock_parts();
-    format!("{year:04}{month:02}{day:02}-{hours:02}{minutes:02}{seconds:02}")
-}
-
-pub fn now_iso8601() -> String {
-    let (year, month, day, hours, minutes, seconds) = wall_clock_parts();
-    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
-}
-
-fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
-    let mut year = 1970u64;
-    loop {
-        let days_in_year = if is_leap(year) { 366 } else { 365 };
-        if days < days_in_year {
-            break;
-        }
-        days -= days_in_year;
-        year += 1;
-    }
-    let month_days: [u64; 12] = if is_leap(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-    let mut month = 0u64;
-    for (i, &md) in month_days.iter().enumerate() {
-        if days < md {
-            month = i as u64 + 1;
-            break;
-        }
-        days -= md;
-    }
-    (year, month, days + 1)
-}
-
-fn is_leap(year: u64) -> bool {
-    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -804,55 +594,51 @@ mod tests {
         branch_parent: NodeId,
     }
 
-    fn build_branching_session() -> (Session, BranchingIds) {
-        let mut session = Session::default();
-        let root = session
-            .tree
-            .push(None, Message::new(Role::User, "root".to_owned()));
-        let intro = session.tree.push(
+    fn build_branching_tree() -> (MessageTree, BranchingIds) {
+        let mut tree = MessageTree::new();
+        let root = tree.push(None, Message::new(Role::User, "root".to_owned()));
+        let intro = tree.push(
             Some(root),
             Message::new(Role::Assistant, "intro".to_owned()),
         );
-        let branch_parent = session.tree.push(
+        let branch_parent = tree.push(
             Some(intro),
             Message::new(Role::User, "branch here".to_owned()),
         );
 
-        session.tree.push(
+        tree.push(
             Some(branch_parent),
             Message::new(Role::Assistant, "left branch".to_owned()),
         );
-        session.tree.set_head(Some(branch_parent));
+        tree.set_head(Some(branch_parent));
 
-        let right_branch = session.tree.push(
+        let right_branch = tree.push(
             Some(branch_parent),
             Message::new(Role::Assistant, "right branch".to_owned()),
         );
-        let right_user = session.tree.push(
+        let right_user = tree.push(
             Some(right_branch),
             Message::new(Role::User, "right follow-up".to_owned()),
         );
-        session.tree.push(
+        tree.push(
             Some(right_user),
             Message::new(Role::Assistant, "right leaf".to_owned()),
         );
 
-        (session, BranchingIds { branch_parent })
+        (tree, BranchingIds { branch_parent })
     }
 
     #[test]
     fn duplicate_subtree_preserves_nested_branch_selection() {
-        let (mut session, ids) = build_branching_session();
+        let (mut tree, ids) = build_branching_tree();
 
-        let new_root = session
-            .tree
+        let new_root = tree
             .duplicate_subtree(ids.branch_parent)
             .expect("subtree should duplicate");
-        session.tree.switch_to(new_root);
+        tree.switch_to(new_root);
 
-        let head = session.tree.head().expect("head should exist");
-        let head_message = &session
-            .tree
+        let head = tree.head().expect("head should exist");
+        let head_message = &tree
             .node(head)
             .expect("head node should exist")
             .message
@@ -863,15 +649,15 @@ mod tests {
 
     #[test]
     fn clear_drops_runtime_caches_and_preferred_branches() {
-        let (mut session, _) = build_branching_session();
+        let (mut tree, _) = build_branching_tree();
 
-        session.tree.clear();
+        tree.clear();
 
-        assert!(session.tree.current_branch_ids().is_empty());
-        assert!(session.tree.current_user_branch_ids().is_empty());
-        assert!(session.tree.preferred_child.is_empty());
-        assert_eq!(session.tree.current_deepest_branch_info(), None);
-        assert_eq!(session.tree.current_last_assistant_preview(), None);
+        assert!(tree.current_branch_ids().is_empty());
+        assert!(tree.current_user_branch_ids().is_empty());
+        assert!(tree.preferred_child.is_empty());
+        assert_eq!(tree.current_deepest_branch_info(), None);
+        assert_eq!(tree.current_last_assistant_preview(), None);
     }
 
     #[test]
@@ -1059,37 +845,6 @@ mod tests {
     }
 
     #[test]
-    fn save_mode_id_returns_none_for_none() {
-        assert_eq!(SaveMode::None.id(), None);
-    }
-
-    #[test]
-    fn save_mode_id_returns_some_for_database() {
-        assert_eq!(SaveMode::Database { id: "abc".into() }.id(), Some("abc"));
-    }
-
-    #[test]
-    fn save_mode_set_id_updates_database() {
-        let mut mode = SaveMode::Database { id: "old".into() };
-        mode.set_id("new".into());
-        assert_eq!(mode.id(), Some("new"));
-    }
-
-    #[test]
-    fn save_mode_set_id_noop_for_none() {
-        let mut mode = SaveMode::None;
-        mode.set_id("ignored".into());
-        assert_eq!(mode.id(), None);
-    }
-
-    #[test]
-    fn save_mode_needs_passkey() {
-        assert!(SaveMode::PendingPasskey { id: "x".into() }.needs_passkey());
-        assert!(!SaveMode::None.needs_passkey());
-        assert!(!SaveMode::Database { id: "x".into() }.needs_passkey());
-    }
-
-    #[test]
     fn current_branch_ids_linear_path() {
         let mut tree = MessageTree::new();
         let a = tree.push(None, Message::new(Role::User, "a".into()));
@@ -1236,89 +991,5 @@ mod tests {
         assert_eq!(tree.node(ids[1]).unwrap().message.content, "second");
         assert_eq!(tree.node(ids[2]).unwrap().message.content, "third");
         assert_eq!(tree.head(), Some(ids[2]));
-    }
-
-    #[test]
-    fn session_default_has_empty_characters_and_action_value_mode() {
-        let s = super::Session::default();
-        assert!(s.characters.is_empty());
-        assert!(matches!(
-            s.chat_mode,
-            crate::group_chat::ChatMode::ActionValue
-        ));
-        assert!(s.scenario.is_none());
-    }
-
-    #[test]
-    fn session_serde_round_trip_with_characters() {
-        let s = super::Session {
-            characters: vec![
-                crate::group_chat::CharacterAttachment {
-                    slug: "alice".to_owned(),
-                    talkativeness: 0.7,
-                    action_points: 0.3,
-                    spoke_this_round: false,
-                },
-                crate::group_chat::CharacterAttachment {
-                    slug: "bob".to_owned(),
-                    talkativeness: 0.4,
-                    action_points: 0.0,
-                    spoke_this_round: false,
-                },
-            ],
-            chat_mode: crate::group_chat::ChatMode::WeightedRandom,
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&s).unwrap();
-        let back: super::Session = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.characters.len(), 2);
-        assert_eq!(back.characters[0].slug, "alice");
-        assert!((back.characters[0].talkativeness - 0.7).abs() < f32::EPSILON);
-        assert!((back.characters[0].action_points - 0.3).abs() < f32::EPSILON);
-        assert!(matches!(
-            back.chat_mode,
-            crate::group_chat::ChatMode::WeightedRandom
-        ));
-    }
-
-    #[test]
-    fn session_deserializes_legacy_json_without_new_fields() {
-        let json = r#"{"tree":{"nodes":[],"head":null,"preferred_child":{}}}"#;
-        let s: super::Session = serde_json::from_str(json).unwrap();
-        assert!(s.characters.is_empty());
-        assert!(matches!(
-            s.chat_mode,
-            crate::group_chat::ChatMode::ActionValue
-        ));
-        assert!(s.scenario.is_none());
-    }
-
-    #[test]
-    fn message_new_has_no_speaker_or_action_points() {
-        let m = super::Message::new(super::Role::Assistant, "hi".to_owned());
-        assert!(m.speaker.is_none());
-        assert!(m.pre_turn_action_points.is_none());
-    }
-
-    #[test]
-    fn message_serde_round_trip_with_speaker() {
-        let mut m = super::Message::new(super::Role::Assistant, "hi".to_owned());
-        m.speaker = Some("alice".to_owned());
-        m.pre_turn_action_points = Some(r#"{"alice":0.2,"bob":0.5}"#.to_owned());
-        let json = serde_json::to_string(&m).unwrap();
-        let back: super::Message = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.speaker.as_deref(), Some("alice"));
-        assert_eq!(
-            back.pre_turn_action_points.as_deref(),
-            Some(r#"{"alice":0.2,"bob":0.5}"#)
-        );
-    }
-
-    #[test]
-    fn message_serde_round_trip_without_optional_fields() {
-        let json = r#"{"role":"user","content":"hello","timestamp":"2026-05-07T12:00:00Z"}"#;
-        let m: super::Message = serde_json::from_str(json).unwrap();
-        assert!(m.speaker.is_none());
-        assert!(m.pre_turn_action_points.is_none());
     }
 }

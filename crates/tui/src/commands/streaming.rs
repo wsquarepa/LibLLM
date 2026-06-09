@@ -567,10 +567,10 @@ pub(super) async fn run_one_group_turn(
 /// Initializes group-chat loop state and starts the first turn. Subsequent turns are
 /// triggered by `handle_stream_token` after each `Done` event.
 pub(crate) async fn start_group_chat_loop(app: &mut App<'_>, sender: &mpsc::Sender<StreamToken>) {
-    app.group_chat_loop_rng = Some(rand::make_rng());
-    app.group_chat_consecutive = 0;
-    app.group_chat_max_consecutive = app.config.group_chat.effective_max_consecutive_turns();
-    app.group_chat_remaining_budget = libllm_core::group_chat::DEFAULT_TURN_TIME_BUDGET;
+    app.group_chat.loop_rng = Some(rand::make_rng());
+    app.group_chat.consecutive = 0;
+    app.group_chat.max_consecutive = app.config.group_chat.effective_max_consecutive_turns();
+    app.group_chat.remaining_budget = libllm_core::group_chat::DEFAULT_TURN_TIME_BUDGET;
     continue_group_chat_loop(app, sender).await;
 }
 
@@ -585,31 +585,31 @@ pub(crate) async fn continue_group_chat_loop(
     app: &mut App<'_>,
     sender: &mpsc::Sender<StreamToken>,
 ) {
-    if app.group_chat_loop_rng.is_none() {
+    if app.group_chat.loop_rng.is_none() {
         return;
     }
 
-    if app.group_chat_consecutive >= app.group_chat_max_consecutive {
+    if app.group_chat.consecutive >= app.group_chat.max_consecutive {
         tracing::warn!(
-            consecutive = app.group_chat_consecutive,
+            consecutive = app.group_chat.consecutive,
             "group_chat: consecutive-turn cap fired, yielding to user"
         );
-        app.group_chat_loop_rng = None;
+        app.group_chat.loop_rng = None;
         return;
     }
 
     match app.session.chat_mode {
         ChatMode::Directed => {
-            app.group_chat_loop_rng = None;
+            app.group_chat.loop_rng = None;
         }
         ChatMode::RoundRobin | ChatMode::WeightedRandom => {
-            if app.group_chat_consecutive > 0 {
-                app.group_chat_loop_rng = None;
+            if app.group_chat.consecutive > 0 {
+                app.group_chat.loop_rng = None;
                 return;
             }
             let mode = app.session.chat_mode;
             let decision = {
-                let rng = app.group_chat_loop_rng.as_mut().expect("group_chat_loop_rng is Some, guarded by the is_none() early return at the top of this function");
+                let rng = app.group_chat.loop_rng.as_mut().expect("group_chat.loop_rng is Some, guarded by the is_none() early return at the top of this function");
                 libllm_core::group_chat::decide_next_speaker(
                     &app.session.characters,
                     mode,
@@ -622,26 +622,26 @@ pub(crate) async fn continue_group_chat_loop(
                     mode = app.session.chat_mode.as_str(),
                     "group_chat: no eligible speaker, yielding to user"
                 );
-                app.group_chat_loop_rng = None;
+                app.group_chat.loop_rng = None;
                 return;
             };
             apply_decision(app, &decision);
             let snapshot_json =
                 serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
             let speaker_slug = decision.speaker_slug.clone();
-            app.group_chat_consecutive += 1;
-            app.group_chat_loop_rng = None;
+            app.group_chat.consecutive += 1;
+            app.group_chat.loop_rng = None;
             run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
         }
         ChatMode::ActionValue => {
-            let time_budget = if app.group_chat_consecutive == 0 {
+            let time_budget = if app.group_chat.consecutive == 0 {
                 None
             } else {
-                Some(app.group_chat_remaining_budget)
+                Some(app.group_chat.remaining_budget)
             };
             let mode = app.session.chat_mode;
             let decision = {
-                let rng = app.group_chat_loop_rng.as_mut().expect("group_chat_loop_rng is Some, guarded by the is_none() early return at the top of this function");
+                let rng = app.group_chat.loop_rng.as_mut().expect("group_chat.loop_rng is Some, guarded by the is_none() early return at the top of this function");
                 libllm_core::group_chat::decide_next_speaker(
                     &app.session.characters,
                     mode,
@@ -653,15 +653,15 @@ pub(crate) async fn continue_group_chat_loop(
                 tracing::debug!(
                     "group_chat: cascade complete (no eligible speakers), yielding to user"
                 );
-                app.group_chat_loop_rng = None;
+                app.group_chat.loop_rng = None;
                 return;
             };
-            app.group_chat_remaining_budget -= decision.time_advanced.max(0.0);
+            app.group_chat.remaining_budget -= decision.time_advanced.max(0.0);
             apply_decision(app, &decision);
             let snapshot_json =
                 serde_json::to_string(&decision.snapshot_before).unwrap_or_default();
             let speaker_slug = decision.speaker_slug.clone();
-            app.group_chat_consecutive += 1;
+            app.group_chat.consecutive += 1;
             run_one_group_turn(app, &speaker_slug, &snapshot_json, sender).await;
         }
     }
@@ -1094,7 +1094,7 @@ pub(crate) async fn handle_stream_token(
                     }
                 }
             }
-            if app.group_chat_loop_rng.is_some() && !app.summarize.in_progress {
+            if app.group_chat.loop_rng.is_some() && !app.summarize.in_progress {
                 Box::pin(continue_group_chat_loop(app, &sender)).await;
             } else if !app.streaming.message_queue.is_empty() {
                 let next = app.streaming.message_queue.remove(0);
@@ -1113,7 +1113,7 @@ pub(crate) async fn handle_stream_token(
             app.streaming.started_at = None;
             app.streaming.first_think_closed_at = None;
             app.streaming.message_queue.clear();
-            app.group_chat_loop_rng = None;
+            app.group_chat.loop_rng = None;
             app.set_status(format!("Error: {err}"), StatusLevel::Error);
         }
     }

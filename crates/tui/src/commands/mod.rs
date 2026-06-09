@@ -911,7 +911,7 @@ pub(crate) async fn run_periodic_tasks(
         }
         needs_redraw = true;
     }
-    if std::time::Instant::now() >= app.sidebar_age_refresh_at {
+    if std::time::Instant::now() >= app.sidebar.age_refresh_at {
         business::refresh_sidebar_ages(app);
         needs_redraw = true;
     }

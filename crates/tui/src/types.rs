@@ -259,6 +259,29 @@ pub(super) struct LayoutAreas {
     pub(super) input: Rect,
 }
 
+pub(super) struct SidebarUi {
+    pub(super) sessions: Vec<SessionEntry>,
+    pub(super) list_state: ratatui::widgets::ListState,
+    pub(super) cache: Option<render::SidebarCache>,
+    pub(super) age_refresh_at: std::time::Instant,
+    pub(super) search: dialogs::SearchState,
+}
+
+pub(super) struct GroupChatState {
+    /// Active RNG for the in-progress group-chat action-point loop. `None` when no group-chat
+    /// loop is running. Set before the first turn, cleared after the loop ends.
+    pub(super) loop_rng: Option<rand::rngs::StdRng>,
+    pub(super) consecutive: u32,
+    pub(super) max_consecutive: u32,
+    /// Per-cascade remaining "conversation time" budget. The first turn of a cascade
+    /// fires unconditionally; subsequent turns must have an action-value that fits
+    /// within what's left of this budget, so slow-talkativeness characters skip rounds
+    /// proportionally to their SPD. Reset to `DEFAULT_TURN_TIME_BUDGET` in
+    /// `start_group_chat_loop`.
+    pub(super) remaining_budget: f32,
+    pub(super) creation_pending: bool,
+}
+
 pub(super) struct PasskeyPromptState {
     pub(super) input: String,
     pub(super) error: String,
@@ -298,8 +321,7 @@ pub(super) struct App<'a> {
     pub(super) chat_max_scroll: u16,
     pub(super) auto_scroll: bool,
     pub(super) last_scroll_state: ScrollState,
-    pub(super) sidebar_sessions: Vec<SessionEntry>,
-    pub(super) sidebar_state: ratatui::widgets::ListState,
+    pub(super) sidebar: SidebarUi,
     pub(super) streaming: StreamingState,
     pub(super) summarize: SummarizeState,
     pub(super) model_name: Option<String>,
@@ -371,8 +393,6 @@ pub(super) struct App<'a> {
     pub(super) cached_token_count: Option<libllm_protocol::tokenizer::CountState>,
     pub(super) token_counter: libllm_protocol::tokenizer::TokenCounter,
     pub(super) tokenizer_tx: mpsc::Sender<libllm_protocol::tokenizer::TokenCountUpdate>,
-    pub(super) sidebar_cache: Option<render::SidebarCache>,
-    pub(super) sidebar_age_refresh_at: std::time::Instant,
     pub(super) raw_edit_node: Option<NodeId>,
     pub(super) edit_original_content: String,
     pub(super) nav_cursor: Option<NodeId>,
@@ -399,7 +419,6 @@ pub(super) struct App<'a> {
     pub(super) unlock_debug: Option<UnlockDebugState>,
     pub(super) input_reject_flash: Option<std::time::Instant>,
     pub(super) dialog_search: dialogs::SearchState,
-    pub(super) sidebar_search: dialogs::SearchState,
     pub(super) last_terminal_height: u16,
     pub(super) input_file_cache: crate::input_file_cache::InputFileCache,
     /// When `Some`, the next `SendMessage` is the resend of a recalled user
@@ -425,20 +444,9 @@ pub(super) struct App<'a> {
     pub(super) chat_settings_dialog: Option<dialogs::chat_settings::ChatSettingsDialog>,
     pub(super) scenario_editor: Option<TextArea<'a>>,
     pub(super) scenario_scroll_top: u16,
-    pub(super) is_group_chat_creation_pending: bool,
+    pub(super) group_chat: GroupChatState,
     pub(super) character_cards_cache:
         std::collections::HashMap<String, libllm_core::character::CharacterCard>,
-    /// Active RNG for the in-progress group-chat action-point loop. `None` when no group-chat
-    /// loop is running. Set before the first turn, cleared after the loop ends.
-    pub(super) group_chat_loop_rng: Option<rand::rngs::StdRng>,
-    pub(super) group_chat_consecutive: u32,
-    pub(super) group_chat_max_consecutive: u32,
-    /// Per-cascade remaining "conversation time" budget. The first turn of a cascade
-    /// fires unconditionally; subsequent turns must have an action-value that fits
-    /// within what's left of this budget, so slow-talkativeness characters skip rounds
-    /// proportionally to their SPD. Reset to `DEFAULT_TURN_TIME_BUDGET` in
-    /// `start_group_chat_loop`.
-    pub(super) group_chat_remaining_budget: f32,
 }
 
 impl<'a> App<'a> {

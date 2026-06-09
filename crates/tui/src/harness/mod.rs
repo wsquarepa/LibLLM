@@ -177,7 +177,7 @@ impl<'a> Harness<'a> {
         if self.app.autosave.deadline.is_some() {
             self.app.autosave.deadline = Some(past);
         }
-        self.app.sidebar_age_refresh_at = past;
+        self.app.sidebar.age_refresh_at = past;
         commands::run_periodic_tasks(&mut self.app, self.token_tx.clone()).await;
         self.render();
     }

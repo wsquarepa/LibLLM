@@ -169,10 +169,10 @@ pub(crate) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<
 }
 
 fn delete_selected_session(app: &mut App) {
-    let Some(selected) = app.sidebar_state.selected() else {
+    let Some(selected) = app.sidebar.list_state.selected() else {
         return;
     };
-    let entry = &app.sidebar_sessions[selected];
+    let entry = &app.sidebar.sessions[selected];
     if entry.is_new_chat {
         return;
     }

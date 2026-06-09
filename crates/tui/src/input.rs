@@ -571,43 +571,43 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    let count = app.sidebar_sessions.len();
+    let count = app.sidebar.sessions.len();
     if count == 0 {
         return None;
     }
 
     let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
 
-    if is_ctrl_f && !app.sidebar_search.active {
-        let current = app.sidebar_state.selected().unwrap_or(0);
-        app.sidebar_search.enter(current);
-        app.sidebar_cache = None;
+    if is_ctrl_f && !app.sidebar.search.active {
+        let current = app.sidebar.list_state.selected().unwrap_or(0);
+        app.sidebar.search.enter(current);
+        app.sidebar.cache = None;
         return None;
     }
 
-    if app.sidebar_search.active {
+    if app.sidebar.search.active {
         match key.code {
             KeyCode::Esc => {
-                if let Some(restored) = app.sidebar_search.cancel() {
-                    app.sidebar_state.select(Some(restored.min(count - 1)));
+                if let Some(restored) = app.sidebar.search.cancel() {
+                    app.sidebar.list_state.select(Some(restored.min(count - 1)));
                     load_sidebar_selection(app);
                 }
-                app.sidebar_cache = None;
+                app.sidebar.cache = None;
                 return None;
             }
             KeyCode::Enter | KeyCode::Tab => {
-                app.sidebar_search.commit();
-                app.sidebar_cache = None;
+                app.sidebar.search.commit();
+                app.sidebar.cache = None;
                 return None;
             }
             KeyCode::Backspace => {
-                app.sidebar_search.pop_char();
-                app.sidebar_cache = None;
+                app.sidebar.search.pop_char();
+                app.sidebar.cache = None;
                 return None;
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.sidebar_search.push_char(c);
-                app.sidebar_cache = None;
+                app.sidebar.search.push_char(c);
+                app.sidebar.cache = None;
                 return None;
             }
             _ => {}
@@ -615,18 +615,19 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
 
     let display_names: Vec<String> = app
-        .sidebar_sessions
+        .sidebar
+        .sessions
         .iter()
         .map(|e| e.display_name.clone())
         .collect();
-    let visible_indices: Vec<usize> = if app.sidebar_search.is_filtering() {
-        (0..app.sidebar_sessions.len())
+    let visible_indices: Vec<usize> = if app.sidebar.search.is_filtering() {
+        (0..app.sidebar.sessions.len())
             .filter(|&i| {
-                app.sidebar_sessions[i].is_new_chat || app.sidebar_search.matches(&display_names[i])
+                app.sidebar.sessions[i].is_new_chat || app.sidebar.search.matches(&display_names[i])
             })
             .collect()
     } else {
-        (0..app.sidebar_sessions.len()).collect()
+        (0..app.sidebar.sessions.len()).collect()
     };
 
     if visible_indices.is_empty() {
@@ -635,7 +636,7 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     match key.code {
         KeyCode::Up | KeyCode::Down => {
-            let current_orig = app.sidebar_state.selected().unwrap_or(0);
+            let current_orig = app.sidebar.list_state.selected().unwrap_or(0);
             let current_pos = visible_indices
                 .iter()
                 .position(|&i| i == current_orig)
@@ -653,13 +654,13 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 _ => current_pos,
             };
             let new_orig = visible_indices[new_pos];
-            app.sidebar_state.select(Some(new_orig));
+            app.sidebar.list_state.select(Some(new_orig));
             load_sidebar_selection(app);
             None
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let selected = app.sidebar_state.selected().unwrap_or(0);
-            let entry = &app.sidebar_sessions[selected];
+            let selected = app.sidebar.list_state.selected().unwrap_or(0);
+            let entry = &app.sidebar.sessions[selected];
             if entry.is_new_chat {
                 return None;
             }
@@ -674,16 +675,16 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 pub(super) fn load_sidebar_selection(app: &mut App) {
-    let Some(selected) = app.sidebar_state.selected() else {
+    let Some(selected) = app.sidebar.list_state.selected() else {
         return;
     };
     if !app.flush_session_before_transition() {
         return;
     }
     app.nav_cursor = None;
-    app.is_group_chat_creation_pending = false;
+    app.group_chat.creation_pending = false;
     let (is_new_chat, session_id) = {
-        let entry = &app.sidebar_sessions[selected];
+        let entry = &app.sidebar.sessions[selected];
         (entry.is_new_chat, entry.id.clone())
     };
     if is_new_chat {

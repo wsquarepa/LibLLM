@@ -110,8 +110,6 @@ impl<'a> App<'a> {
         );
         dialog_handler::configure_textarea(&mut textarea);
 
-        let sidebar_state = ratatui::widgets::ListState::default();
-
         let token_counter = libllm_protocol::tokenizer::TokenCounter::new_with_backend(
             libllm_protocol::tokenizer::TokenizerBackend::Heuristic(
                 libllm_protocol::tokenizer::HeuristicTokenizer::standard(),
@@ -210,8 +208,13 @@ impl<'a> App<'a> {
                 height: 0,
                 summary_revision: 0,
             },
-            sidebar_sessions,
-            sidebar_state,
+            sidebar: SidebarUi {
+                sessions: sidebar_sessions,
+                list_state: ratatui::widgets::ListState::default(),
+                cache: None,
+                age_refresh_at: std::time::Instant::now() + SIDEBAR_AGE_REFRESH_INTERVAL,
+                search: dialogs::SearchState::new(),
+            },
             streaming: StreamingState {
                 active: false,
                 is_continuation: false,
@@ -303,8 +306,6 @@ impl<'a> App<'a> {
             cached_token_count: None,
             token_counter,
             tokenizer_tx,
-            sidebar_cache: None,
-            sidebar_age_refresh_at: std::time::Instant::now() + SIDEBAR_AGE_REFRESH_INTERVAL,
             raw_edit_node: None,
             edit_original_content: String::new(),
             nav_cursor: None,
@@ -331,7 +332,6 @@ impl<'a> App<'a> {
             unlock_debug: None,
             input_reject_flash: None,
             dialog_search: dialogs::SearchState::new(),
-            sidebar_search: dialogs::SearchState::new(),
             last_terminal_height: 0,
             input_file_cache: input_file_cache::InputFileCache::new(),
             recall_refs: None,
@@ -348,12 +348,14 @@ impl<'a> App<'a> {
             chat_settings_dialog: None,
             scenario_editor: None,
             scenario_scroll_top: 0,
-            is_group_chat_creation_pending: false,
+            group_chat: GroupChatState {
+                loop_rng: None,
+                consecutive: 0,
+                max_consecutive: 0,
+                remaining_budget: 0.0,
+                creation_pending: false,
+            },
             character_cards_cache: std::collections::HashMap::new(),
-            group_chat_loop_rng: None,
-            group_chat_consecutive: 0,
-            group_chat_max_consecutive: 0,
-            group_chat_remaining_budget: 0.0,
         };
 
         business::load_active_persona(&mut app);
@@ -541,7 +543,7 @@ pub(crate) fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         input: input_area,
     });
 
-    let session_count = app.sidebar_sessions.len();
+    let session_count = app.sidebar.sessions.len();
     {
         let _span = tracing::trace_span!("sidebar", session_count).entered();
         render::render_sidebar(f, app, sidebar_area);

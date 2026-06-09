@@ -151,7 +151,7 @@ pub(crate) fn observe(app: &App) -> Observation {
         message_count,
         head_role,
         head_text,
-        sidebar_session_count: app.sidebar_sessions.len(),
+        sidebar_session_count: app.sidebar.sessions.len(),
         input_text: app.textarea.lines().join("\n"),
         message_queue_len: app.streaming.message_queue.len(),
     }

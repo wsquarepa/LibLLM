@@ -997,9 +997,9 @@ pub(crate) fn prepare_sidebar_entries(entries: &mut [SessionEntry]) {
 }
 
 pub(super) fn refresh_sidebar_ages(app: &mut App) {
-    prepare_sidebar_entries(&mut app.sidebar_sessions);
-    app.sidebar_cache = None;
-    app.sidebar_age_refresh_at =
+    prepare_sidebar_entries(&mut app.sidebar.sessions);
+    app.sidebar.cache = None;
+    app.sidebar.age_refresh_at =
         std::time::Instant::now() + super::types::SIDEBAR_AGE_REFRESH_INTERVAL;
 }
 
@@ -1023,10 +1023,10 @@ pub(super) fn refresh_sidebar(app: &mut App) {
         .and_then(|cid| sessions.iter().position(|s| s.id == cid))
         .unwrap_or(0);
     prepare_sidebar_entries(&mut sessions);
-    app.sidebar_sessions = sessions;
-    app.sidebar_state.select(Some(selected));
-    app.sidebar_cache = None;
-    app.sidebar_age_refresh_at =
+    app.sidebar.sessions = sessions;
+    app.sidebar.list_state.select(Some(selected));
+    app.sidebar.cache = None;
+    app.sidebar.age_refresh_at =
         std::time::Instant::now() + super::types::SIDEBAR_AGE_REFRESH_INTERVAL;
 }
 

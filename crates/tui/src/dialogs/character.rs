@@ -174,7 +174,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                 app.auto_scroll = true;
                 let new_id = session::generate_session_id();
                 app.save_mode.set_id(new_id);
-                app.is_group_chat_creation_pending = true;
+                app.group_chat.creation_pending = true;
                 refresh_sidebar(app);
                 return_to_input(app);
                 return Some(Action::OpenChatSettings);

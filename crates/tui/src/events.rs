@@ -807,7 +807,7 @@ fn handle_key(
     }
 
     if key.code == KeyCode::Tab {
-        if app.focus == Focus::Sidebar && app.sidebar_search.active {
+        if app.focus == Focus::Sidebar && app.sidebar.search.active {
             return input::handle_sidebar_key(key, app);
         }
         app.focus = match app.focus {
@@ -829,7 +829,7 @@ fn handle_key(
     }
 
     if key.code == KeyCode::Esc {
-        if app.focus == Focus::Sidebar && app.sidebar_search.active {
+        if app.focus == Focus::Sidebar && app.sidebar.search.active {
             return input::handle_sidebar_key(key, app);
         }
         app.nav_cursor = None;
@@ -873,7 +873,7 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             None
         }
         ChatSettingsAction::Save => {
-            if app.is_group_chat_creation_pending {
+            if app.group_chat.creation_pending {
                 if let Some(dlg) = app.chat_settings_dialog.as_mut() {
                     dlg.commit_provisional_scenario(app.session);
                 }
@@ -890,7 +890,7 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     );
                     return None;
                 }
-                app.is_group_chat_creation_pending = false;
+                app.group_chat.creation_pending = false;
             } else if let Some(dlg) = app.chat_settings_dialog.as_mut() {
                 dlg.commit_provisional_scenario(app.session);
             }
@@ -901,8 +901,8 @@ fn handle_chat_settings_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         }
         ChatSettingsAction::Cancel => {
             let dialog = app.chat_settings_dialog.take();
-            if app.is_group_chat_creation_pending {
-                app.is_group_chat_creation_pending = false;
+            if app.group_chat.creation_pending {
+                app.group_chat.creation_pending = false;
                 dialogs::chat_settings::roll_back_provisional_group(app.session);
                 app.set_status(
                     "group chat creation cancelled".to_owned(),
@@ -978,23 +978,23 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 app.focus = Focus::Sidebar;
                 app.nav_cursor = None;
                 if mouse.row + 1 == sidebar.y + sidebar.height
-                    && hit_search_title(&app.sidebar_search, sidebar, mouse.column)
+                    && hit_search_title(&app.sidebar.search, sidebar, mouse.column)
                 {
-                    if !app.sidebar_search.active {
-                        let current = app.sidebar_state.selected().unwrap_or(0);
-                        app.sidebar_search.enter(current);
-                        app.sidebar_cache = None;
+                    if !app.sidebar.search.active {
+                        let current = app.sidebar.list_state.selected().unwrap_or(0);
+                        app.sidebar.search.enter(current);
+                        app.sidebar.cache = None;
                     }
                     return None;
                 }
                 let inner_row = mouse.row.saturating_sub(sidebar.y + 1) as usize;
-                let offset = app.sidebar_state.offset();
-                let selected_idx = app.sidebar_state.selected();
+                let offset = app.sidebar.list_state.offset();
+                let selected_idx = app.sidebar.list_state.selected();
                 let mut cumulative: usize = 0;
                 let mut hit_index: Option<usize> = None;
-                for i in offset..app.sidebar_sessions.len() {
+                for i in offset..app.sidebar.sessions.len() {
                     let has_preview = selected_idx == Some(i)
-                        && app.sidebar_sessions[i].sidebar_preview.is_some();
+                        && app.sidebar.sessions[i].sidebar_preview.is_some();
                     let item_height: usize = if has_preview { 2 } else { 1 };
                     if inner_row < cumulative + item_height {
                         hit_index = Some(i);
@@ -1005,12 +1005,12 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 if let Some(index) = hit_index
                     && selected_idx != Some(index)
                 {
-                    app.sidebar_state.select(Some(index));
+                    app.sidebar.list_state.select(Some(index));
                     input::load_sidebar_selection(app);
                 }
             } else if chat.contains(pos) {
-                app.sidebar_search.deactivate_and_clear();
-                app.sidebar_cache = None;
+                app.sidebar.search.deactivate_and_clear();
+                app.sidebar.cache = None;
                 app.focus = Focus::Chat;
                 if let Some(ref cache) = app.chat_content_cache {
                     let branch_ids = app.session.tree.current_branch_ids();
@@ -1026,8 +1026,8 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 }
                 app.auto_scroll = false;
             } else if input.contains(pos) {
-                app.sidebar_search.deactivate_and_clear();
-                app.sidebar_cache = None;
+                app.sidebar.search.deactivate_and_clear();
+                app.sidebar.cache = None;
                 app.focus = Focus::Input;
                 app.nav_cursor = None;
                 app.auto_scroll = true;
@@ -1098,9 +1098,9 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 app.chat_scroll = app.chat_scroll.saturating_sub(3);
                 app.auto_scroll = false;
             } else if sidebar.contains(pos) {
-                let selected = app.sidebar_state.selected().unwrap_or(0);
+                let selected = app.sidebar.list_state.selected().unwrap_or(0);
                 let new = selected.saturating_sub(1);
-                app.sidebar_state.select(Some(new));
+                app.sidebar.list_state.select(Some(new));
                 input::load_sidebar_selection(app);
             }
             None
@@ -1116,11 +1116,11 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 app.chat_scroll = app.chat_scroll.saturating_add(3).min(app.chat_max_scroll);
                 app.auto_scroll = false;
             } else if sidebar.contains(pos) {
-                let selected = app.sidebar_state.selected().unwrap_or(0);
-                let count = app.sidebar_sessions.len();
+                let selected = app.sidebar.list_state.selected().unwrap_or(0);
+                let count = app.sidebar.sessions.len();
                 if count > 0 {
                     let new = (selected + 1).min(count - 1);
-                    app.sidebar_state.select(Some(new));
+                    app.sidebar.list_state.select(Some(new));
                     input::load_sidebar_selection(app);
                 }
             }

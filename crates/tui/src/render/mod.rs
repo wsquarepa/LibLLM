@@ -327,11 +327,11 @@ pub fn render_hints_below_dialog(
 }
 
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
-    let selected_idx = app.sidebar_state.selected();
-    let filter_query = app.sidebar_search.query.clone();
-    let filter_active = app.sidebar_search.active;
+    let selected_idx = app.sidebar.list_state.selected();
+    let filter_query = app.sidebar.search.query.clone();
+    let filter_active = app.sidebar.search.active;
 
-    let cache_valid = app.sidebar_cache.as_ref().is_some_and(|cache| {
+    let cache_valid = app.sidebar.cache.as_ref().is_some_and(|cache| {
         cache.selected_idx == selected_idx
             && cache.filter_query == filter_query
             && cache.filter_active == filter_active
@@ -339,25 +339,26 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
 
     if !cache_valid {
         let display_names: Vec<String> = app
-            .sidebar_sessions
+            .sidebar
+            .sessions
             .iter()
             .map(|e| e.display_name.clone())
             .collect();
-        let visible_indices: Vec<usize> = if app.sidebar_search.is_filtering() {
-            (0..app.sidebar_sessions.len())
+        let visible_indices: Vec<usize> = if app.sidebar.search.is_filtering() {
+            (0..app.sidebar.sessions.len())
                 .filter(|&i| {
-                    app.sidebar_sessions[i].is_new_chat
-                        || app.sidebar_search.matches(&display_names[i])
+                    app.sidebar.sessions[i].is_new_chat
+                        || app.sidebar.search.matches(&display_names[i])
                 })
                 .collect()
         } else {
-            (0..app.sidebar_sessions.len()).collect()
+            (0..app.sidebar.sessions.len()).collect()
         };
 
         let items: Vec<ListItem<'static>> = visible_indices
             .iter()
             .map(|&i| {
-                let entry = &app.sidebar_sessions[i];
+                let entry = &app.sidebar.sessions[i];
                 if selected_idx == Some(i) {
                     let mut lines = vec![Line::from(entry.sidebar_label.clone())];
                     if let Some(ref preview) = entry.sidebar_preview {
@@ -372,7 +373,7 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
                 }
             })
             .collect();
-        app.sidebar_cache = Some(SidebarCache {
+        app.sidebar.cache = Some(SidebarCache {
             selected_idx,
             filter_query: filter_query.clone(),
             filter_active,
@@ -398,11 +399,11 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
         .borders(Borders::ALL)
         .title(" Sessions ")
         .border_style(border_style(sidebar_focused, &app.theme));
-    let search_visible = app.sidebar_search.active || app.sidebar_search.is_filtering();
+    let search_visible = app.sidebar.search.active || app.sidebar.search.is_filtering();
     if search_visible || !sidebar_focused {
         let search_max = area.width.saturating_sub(2);
         sidebar_block = sidebar_block.title_bottom(super::dialogs::search_title_line(
-            &app.sidebar_search,
+            &app.sidebar.search,
             title_color,
             &app.theme,
             search_max,
@@ -417,7 +418,8 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     f.render_widget(sidebar_block, area);
 
     let list = List::new(
-        app.sidebar_cache
+        app.sidebar
+            .cache
             .as_ref()
             .expect("sidebar_cache populated above")
             .items
@@ -429,19 +431,20 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let mut local_state = ListState::default();
     if let Some(orig_idx) = selected_idx {
         let display_names: Vec<String> = app
-            .sidebar_sessions
+            .sidebar
+            .sessions
             .iter()
             .map(|e| e.display_name.clone())
             .collect();
-        let visible_indices: Vec<usize> = if app.sidebar_search.is_filtering() {
-            (0..app.sidebar_sessions.len())
+        let visible_indices: Vec<usize> = if app.sidebar.search.is_filtering() {
+            (0..app.sidebar.sessions.len())
                 .filter(|&i| {
-                    app.sidebar_sessions[i].is_new_chat
-                        || app.sidebar_search.matches(&display_names[i])
+                    app.sidebar.sessions[i].is_new_chat
+                        || app.sidebar.search.matches(&display_names[i])
                 })
                 .collect()
         } else {
-            (0..app.sidebar_sessions.len()).collect()
+            (0..app.sidebar.sessions.len()).collect()
         };
         if let Some(pos) = visible_indices.iter().position(|&i| i == orig_idx) {
             local_state.select(Some(pos));

@@ -844,7 +844,7 @@ pub(super) fn apply_config(app: &mut App) {
     app.reasoning_preset = runtime.reasoning_preset;
     app.stop_tokens = runtime.stop_tokens;
     app.sampling = runtime.sampling;
-    app.summarization_enabled = runtime.summarization_enabled;
+    app.summarize.enabled = runtime.summarization_enabled;
     app.context_mgr.set_token_limit(runtime.local_context_limit);
     app.theme = runtime.theme;
     app.config = runtime.config;
@@ -1147,7 +1147,7 @@ pub(super) async fn jump_to_search_hit(
 
     if app.session.tree.head() != Some(node_id) {
         app.session.tree.switch_to(node_id);
-        app.session_dirty = true;
+        app.autosave.dirty = true;
     }
     app.nav_cursor = Some(node_id);
     app.focus = super::Focus::Chat;

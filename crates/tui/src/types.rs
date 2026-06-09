@@ -219,6 +219,21 @@ pub(super) struct ScrollState {
     pub(super) summary_revision: u64,
 }
 
+pub(super) struct SummarizeState {
+    pub(super) in_progress: bool,
+    pub(super) receiver: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
+    pub(super) branch_head: Option<NodeId>,
+    pub(super) pending_dropped: Option<usize>,
+    pub(super) enabled: bool,
+}
+
+pub(super) struct AutosaveState {
+    pub(super) dirty: bool,
+    pub(super) deadline: Option<std::time::Instant>,
+    pub(super) trigger: Option<SaveTrigger>,
+    pub(super) debug: AutosaveDebugState,
+}
+
 pub(super) struct StreamingState {
     pub(super) active: bool,
     pub(super) is_continuation: bool,
@@ -250,9 +265,7 @@ pub(super) struct App<'a> {
     pub(super) version_status: &'static str,
     pub(super) save_mode: SaveMode,
     pub(super) db: Option<libllm_storage::db::Database>,
-    pub(super) session_dirty: bool,
-    pub(super) pending_save_deadline: Option<std::time::Instant>,
-    pub(super) pending_save_trigger: Option<SaveTrigger>,
+    pub(super) autosave: AutosaveState,
     pub(super) instruct_preset: InstructPreset,
     pub(super) reasoning_preset: Option<ReasoningPreset>,
     pub(super) stop_tokens: Vec<String>,
@@ -270,11 +283,7 @@ pub(super) struct App<'a> {
     pub(super) sidebar_sessions: Vec<SessionEntry>,
     pub(super) sidebar_state: ratatui::widgets::ListState,
     pub(super) streaming: StreamingState,
-    pub(super) is_summarizing: bool,
-    pub(super) summary_receiver: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
-    pub(super) summary_branch_head: Option<NodeId>,
-    pub(super) summary_pending_dropped: Option<usize>,
-    pub(super) summarization_enabled: bool,
+    pub(super) summarize: SummarizeState,
     pub(super) model_name: Option<String>,
     pub(super) api_available: bool,
     pub(super) api_error: String,
@@ -380,7 +389,6 @@ pub(super) struct App<'a> {
     pub(super) bg_tx: mpsc::Sender<BackgroundEvent>,
     pub(super) layout_areas: Option<LayoutAreas>,
     pub(super) hover_node: Option<NodeId>,
-    pub(super) autosave_debug: AutosaveDebugState,
     pub(super) unlock_debug: Option<UnlockDebugState>,
     pub(super) input_reject_flash: Option<std::time::Instant>,
     pub(super) dialog_search: dialogs::SearchState,

@@ -147,7 +147,7 @@ pub(crate) fn observe(app: &App) -> Observation {
         status_message,
         status_level,
         is_streaming: app.streaming.active,
-        is_summarizing: app.is_summarizing,
+        is_summarizing: app.summarize.in_progress,
         message_count,
         head_role,
         head_text,

@@ -168,42 +168,42 @@ impl App<'_> {
     }
 
     pub(super) fn mark_session_dirty(&mut self, trigger: SaveTrigger, immediate: bool) {
-        self.session_dirty = true;
-        self.pending_save_trigger = Some(trigger);
+        self.autosave.dirty = true;
+        self.autosave.trigger = Some(trigger);
         if self.can_persist_session() {
             let deadline = if immediate {
                 std::time::Instant::now()
             } else {
                 std::time::Instant::now() + AUTOSAVE_DEBOUNCE
             };
-            self.pending_save_deadline = Some(deadline);
+            self.autosave.deadline = Some(deadline);
         }
-        if self.autosave_debug.dirty_since.is_none() {
-            self.autosave_debug.dirty_since = Some(std::time::Instant::now());
+        if self.autosave.debug.dirty_since.is_none() {
+            self.autosave.debug.dirty_since = Some(std::time::Instant::now());
         }
         tracing::debug!(
             phase = "schedule",
             trigger = trigger.as_str(),
             persistable = self.can_persist_session(),
-            session_dirty = self.session_dirty,
+            session_dirty = self.autosave.dirty,
             "autosave",
         );
     }
 
     pub(super) fn discard_pending_session_save(&mut self) {
-        self.session_dirty = false;
-        self.pending_save_deadline = None;
-        self.pending_save_trigger = None;
-        self.autosave_debug.dirty_since = None;
+        self.autosave.dirty = false;
+        self.autosave.deadline = None;
+        self.autosave.trigger = None;
+        self.autosave.debug.dirty_since = None;
     }
 
     pub(super) fn flush_session_save(&mut self, trigger: SaveTrigger) -> Result<()> {
-        if !self.session_dirty || !self.can_persist_session() {
+        if !self.autosave.dirty || !self.can_persist_session() {
             tracing::debug!(
                 phase = "flush",
                 trigger = trigger.as_str(),
                 result = "skipped",
-                session_dirty = self.session_dirty,
+                session_dirty = self.autosave.dirty,
                 persistable = self.can_persist_session(),
                 "autosave",
             );
@@ -211,7 +211,8 @@ impl App<'_> {
         }
 
         let dirty_elapsed_ms = self
-            .autosave_debug
+            .autosave
+            .debug
             .dirty_since
             .map(|started| started.elapsed().as_secs_f64() * 1000.0);
 
@@ -226,7 +227,7 @@ impl App<'_> {
 
         match result {
             Ok(()) => {
-                self.autosave_debug.save_count += 1;
+                self.autosave.debug.save_count += 1;
                 tracing::debug!(
                     phase = "flush",
                     trigger = trigger.as_str(),
@@ -234,16 +235,16 @@ impl App<'_> {
                     elapsed_ms = elapsed_ms,
                     session_id = session_id.as_deref(),
                     dirty_elapsed_ms = ?dirty_elapsed_ms,
-                    save_count = self.autosave_debug.save_count,
+                    save_count = self.autosave.debug.save_count,
                     "autosave",
                 );
                 self.discard_pending_session_save();
                 Ok(())
             }
             Err(err) => {
-                self.pending_save_deadline = Some(std::time::Instant::now() + AUTOSAVE_RETRY_DELAY);
-                self.pending_save_trigger = Some(SaveTrigger::Retry);
-                self.autosave_debug.retry_count += 1;
+                self.autosave.deadline = Some(std::time::Instant::now() + AUTOSAVE_RETRY_DELAY);
+                self.autosave.trigger = Some(SaveTrigger::Retry);
+                self.autosave.debug.retry_count += 1;
                 tracing::warn!(
                     phase = "flush",
                     trigger = trigger.as_str(),
@@ -253,7 +254,7 @@ impl App<'_> {
                     error = %err,
                     session_id = session_id.as_deref(),
                     dirty_elapsed_ms = ?dirty_elapsed_ms,
-                    retry_count = self.autosave_debug.retry_count,
+                    retry_count = self.autosave.debug.retry_count,
                     "autosave",
                 );
                 Err(err.into())

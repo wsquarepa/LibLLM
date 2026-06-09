@@ -292,8 +292,8 @@ enum StreamPreflight {
 }
 
 fn stream_preflight(app: &mut App<'_>, content: &str) -> StreamPreflight {
-    if app.summary_receiver.is_some() {
-        app.is_summarizing = true;
+    if app.summarize.receiver.is_some() {
+        app.summarize.in_progress = true;
         app.streaming.message_queue.push(content.to_owned());
         tracing::debug!(
             phase = "queued_for_summary",
@@ -930,7 +930,7 @@ pub(crate) async fn handle_stream_token(
             app.auto_scroll = true;
             app.flush_session_save(SaveTrigger::StreamDone)?;
             business::refresh_sidebar(app);
-            if app.summarization_enabled && app.summary_receiver.is_none() {
+            if app.summarize.enabled && app.summarize.receiver.is_none() {
                 let context_size = app.context_mgr.token_limit();
                 let trigger_percent = app.config.summarization.effective_trigger_percent();
                 let threshold_tokens = context_size * trigger_percent as usize / 100;
@@ -1071,10 +1071,10 @@ pub(crate) async fn handle_stream_token(
                         let scenario = app.session.scenario.clone();
 
                         let (tx, rx) = tokio::sync::oneshot::channel();
-                        app.summary_receiver = Some(rx);
-                        app.summary_branch_head = current_head;
-                        app.summary_pending_dropped = Some(dropped);
-                        app.is_summarizing = true;
+                        app.summarize.receiver = Some(rx);
+                        app.summarize.branch_head = current_head;
+                        app.summarize.pending_dropped = Some(dropped);
+                        app.summarize.in_progress = true;
 
                         let summary_counter = app.token_counter.clone();
                         tokio::spawn(async move {
@@ -1094,7 +1094,7 @@ pub(crate) async fn handle_stream_token(
                     }
                 }
             }
-            if app.group_chat_loop_rng.is_some() && !app.is_summarizing {
+            if app.group_chat_loop_rng.is_some() && !app.summarize.in_progress {
                 Box::pin(continue_group_chat_loop(app, &sender)).await;
             } else if !app.streaming.message_queue.is_empty() {
                 let next = app.streaming.message_queue.remove(0);

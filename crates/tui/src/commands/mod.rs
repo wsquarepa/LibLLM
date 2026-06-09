@@ -831,23 +831,24 @@ pub(crate) async fn run_periodic_tasks(
     token_tx: mpsc::Sender<StreamToken>,
 ) -> bool {
     let mut needs_redraw = false;
-    if app.summary_receiver.is_some() {
+    if app.summarize.receiver.is_some() {
         let completed = app
-            .summary_receiver
+            .summarize
+            .receiver
             .as_mut()
-            .expect("summary_receiver is Some, checked by the enclosing is_some() guard")
+            .expect("summarize.receiver is Some, checked by the enclosing is_some() guard")
             .try_recv();
         if let Ok(result) = completed {
             let current_head = app.session.tree.head();
-            let expected_head = app.summary_branch_head;
-            app.summary_receiver = None;
-            app.summary_branch_head = None;
+            let expected_head = app.summarize.branch_head;
+            app.summarize.receiver = None;
+            app.summarize.branch_head = None;
 
             if current_head == expected_head
-                && app.summarization_enabled
+                && app.summarize.enabled
                 && let Ok(summary_text) = result
             {
-                let dropped = app.summary_pending_dropped.take().unwrap_or(0);
+                let dropped = app.summarize.pending_dropped.take().unwrap_or(0);
 
                 if dropped > 0 {
                     let branch_path = app.session.tree.branch_path();
@@ -871,7 +872,7 @@ pub(crate) async fn run_periodic_tasks(
                 }
             }
 
-            app.is_summarizing = false;
+            app.summarize.in_progress = false;
             if !app.streaming.message_queue.is_empty() {
                 let next = app.streaming.message_queue.remove(0);
                 start_streaming(app, &next, token_tx).await;
@@ -900,10 +901,11 @@ pub(crate) async fn run_periodic_tasks(
         needs_redraw = true;
     }
     if app
-        .pending_save_deadline
+        .autosave
+        .deadline
         .is_some_and(|deadline| std::time::Instant::now() >= deadline)
     {
-        let trigger = app.pending_save_trigger.unwrap_or(SaveTrigger::Retry);
+        let trigger = app.autosave.trigger.unwrap_or(SaveTrigger::Retry);
         if let Err(err) = app.flush_session_save(trigger) {
             app.set_status(format!("Save error: {err}"), StatusLevel::Error);
         }

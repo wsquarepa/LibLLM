@@ -680,7 +680,7 @@ pub fn render_chat(
                     let lines = format_file_snapshot_block(
                         &msg.content,
                         summary.as_ref(),
-                        app.summarization_enabled,
+                        app.summarize.enabled,
                     );
                     lines
                         .into_iter()
@@ -976,7 +976,7 @@ pub fn render_chat(
             ))
             .centered(),
         );
-    } else if app.is_summarizing {
+    } else if app.summarize.in_progress {
         chat_block = chat_block.title_bottom(
             Line::from(Span::styled(
                 " Summarizing... ",

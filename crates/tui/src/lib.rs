@@ -173,9 +173,16 @@ impl<'a> App<'a> {
                 Focus::Input
             },
             save_mode,
-            session_dirty: false,
-            pending_save_deadline: None,
-            pending_save_trigger: None,
+            autosave: AutosaveState {
+                dirty: false,
+                deadline: None,
+                trigger: None,
+                debug: AutosaveDebugState {
+                    dirty_since: None,
+                    save_count: 0,
+                    retry_count: 0,
+                },
+            },
             stop_tokens: instruct_preset.stop_tokens(),
             reasoning_preset: config.reasoning_preset.as_deref().and_then(|n| {
                 libllm_core::preset::resolve_reasoning_preset(
@@ -215,11 +222,13 @@ impl<'a> App<'a> {
                 message_queue: Vec::new(),
                 task: None,
             },
-            is_summarizing: false,
-            summary_receiver: None,
-            summary_branch_head: None,
-            summary_pending_dropped: None,
-            summarization_enabled: config.summarization.enabled && !cli_overrides.no_summarize,
+            summarize: SummarizeState {
+                in_progress: false,
+                receiver: None,
+                branch_head: None,
+                pending_dropped: None,
+                enabled: config.summarization.enabled && !cli_overrides.no_summarize,
+            },
             model_name: None,
             api_available: true,
             api_error: String::new(),
@@ -315,11 +324,6 @@ impl<'a> App<'a> {
             layout_areas: None,
             hover_node: None,
             bg_tx,
-            autosave_debug: AutosaveDebugState {
-                dirty_since: None,
-                save_count: 0,
-                retry_count: 0,
-            },
             unlock_debug: None,
             input_reject_flash: None,
             dialog_search: dialogs::SearchState::new(),

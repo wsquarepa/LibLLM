@@ -138,7 +138,7 @@ Crate roles:
 Dependencies flow inward, with no umbrella or facade crate:
 
 ```text
-cli -> tui -> storage / protocol / config / diagnostics -> core
+cli -> tui -> storage / protocol / config / diagnostics / backup -> core
 ```
 
 Core never depends on an outer crate. Outer crates depend on the concrete

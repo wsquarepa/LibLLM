@@ -13,11 +13,11 @@ LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a 
 - `libllm-protocol` (`crates/protocol`) — the llama.cpp HTTP API client, tokenizer, and summarization orchestration. Depends on core.
 - `libllm-config` (`crates/config`) — process-boundary config: the data-directory resolution, the `DATA_DIR_OVERRIDE` global (with the `test-support` thread-local variant), and `config.toml` load/save. Note: config TYPES (`Config`, `Auth`, etc.) live in `libllm-core::config`; this crate holds the process-boundary FUNCTIONS (`data_dir`, `load`, `save`, `*_presets_dir`, ...). Depends on core.
 - `libllm-diagnostics` (`crates/diagnostics`) — logging/diagnostics infrastructure: tracing-subscriber setup, the diagnostics global state, log-file management, the `--timings` report, and the startup banner's sysinfo collection. Depends on core. (The `timed_result!` macro stays in `libllm-core` because core itself uses it.)
-- `libllm-tui` (`crates/tui`) — the TUI: rendering, dialogs, input handling, view state, and the `FileSummarizer` orchestrator. Depends on core/storage/protocol/config.
-- `libllm-cli` (`crates/cli`) — argument parsing, command dispatch, subcommands, startup orchestration (`app::run`), and the thin `src/main.rs`. Produces the `libllm` binary (via `[[bin]] name = "libllm"`). Depends on `libllm-tui` and core/storage/protocol/config.
-- `libllm-backup` (`crates/backup`) — backup and recovery library. Depends on core.
+- `libllm-tui` (`crates/tui`) — the TUI: rendering, dialogs, input handling, view state, and the `FileSummarizer` orchestrator. Depends on core/storage/protocol/config/diagnostics/backup.
+- `libllm-cli` (`crates/cli`) — argument parsing, command dispatch, subcommands, startup orchestration (`app::run`), and the thin `src/main.rs`. Produces the `libllm` binary (via `[[bin]] name = "libllm"`). Depends on `libllm-tui` and core/storage/protocol/config/diagnostics/backup.
+- `libllm-backup` (`crates/backup`) — backup and recovery library. Depends on core; used by tui and cli.
 
-Dependencies flow inward: cli -> tui -> storage/protocol/config/diagnostics -> core. Core never depends on an outer crate. Application crates depend on the concrete library crates directly (`libllm_core`, `libllm_storage`, `libllm_protocol`, `libllm_config`, `libllm_diagnostics`) — there is no umbrella/facade crate.
+Dependencies flow inward: cli -> tui -> storage/protocol/config/diagnostics/backup -> core. Core never depends on an outer crate. Application crates depend on the concrete library crates directly (`libllm_core`, `libllm_storage`, `libllm_protocol`, `libllm_config`, `libllm_diagnostics`) — there is no umbrella/facade crate.
 
 ## Build and Test
 
@@ -113,7 +113,7 @@ The statusbar's default content -- the version/build status (left) and the keybi
 
 ### Theme colors
 
-All colors in `tui/render.rs` must read from `app.theme` -- no hardcoded color constants.
+All colors in `crates/tui/src/render/` must read from `app.theme` -- no hardcoded color constants.
 
 ### Diagnostics authoring
 
@@ -131,7 +131,7 @@ Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (require
 
 ### Conversation tree
 
-Messages form a tree (`MessageTree` in `crates/core/src/session.rs`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
+Messages form a tree (`MessageTree` in `crates/core/src/session/tree.rs`, re-exported as `libllm_core::session::MessageTree`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
 
 ### Database migrations
 

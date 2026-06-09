@@ -10,19 +10,19 @@ use crate::dialog_handler::return_to_input;
 use crate::{Action, App, DeleteContext, Focus};
 
 pub(crate) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let visible_indices = super::filter_indices(&app.system_prompt_list, &app.dialog_search);
-    let unfiltered_total = app.system_prompt_list.len();
+    let visible_indices = super::filter_indices(&app.system_prompt.list, &app.dialog_search);
+    let unfiltered_total = app.system_prompt.list.len();
     let count = visible_indices.len();
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected =
-        super::filtered_selection_position(&visible_indices, app.system_prompt_selected)
+        super::filtered_selection_position(&visible_indices, app.system_prompt.selected)
             .unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
-        .map(|&i| ListItem::new(app.system_prompt_list[i].clone()))
+        .map(|&i| ListItem::new(app.system_prompt.list[i].clone()))
         .collect();
 
     super::render_paged_list(
@@ -53,7 +53,7 @@ pub(crate) fn render_system_prompt_dialog(f: &mut ratatui::Frame, app: &App, are
 }
 
 pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.system_prompt_list.is_empty() && !app.dialog_search.active {
+    if app.system_prompt.list.is_empty() && !app.dialog_search.active {
         if key.code == KeyCode::Esc {
             return_to_input(app);
         }
@@ -62,8 +62,8 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
-        &mut app.system_prompt_selected,
-        &app.system_prompt_list,
+        &mut app.system_prompt.selected,
+        &app.system_prompt.list,
         visible,
         key,
         Some(&mut app.dialog_search),
@@ -77,8 +77,8 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
         return None;
     }
 
-    let visible_indices = super::filter_indices(&app.system_prompt_list, &app.dialog_search);
-    let Some(selected) = super::visible_selection(&visible_indices, app.system_prompt_selected)
+    let visible_indices = super::filter_indices(&app.system_prompt.list, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.system_prompt.selected)
     else {
         if key.code == KeyCode::Esc {
             return_to_input(app);
@@ -88,7 +88,7 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
 
     match key.code {
         KeyCode::Enter => {
-            let name = app.system_prompt_list[selected].clone();
+            let name = app.system_prompt.list[selected].clone();
             let content = app
                 .db
                 .as_ref()
@@ -105,12 +105,12 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
             return_to_input(app);
         }
         KeyCode::Right => {
-            let name = app.system_prompt_list[selected].clone();
+            let name = app.system_prompt.list[selected].clone();
             open_prompt_editor(app, &name);
         }
         KeyCode::Char('a') => {
             let existing: std::collections::HashSet<String> =
-                app.system_prompt_list.iter().cloned().collect();
+                app.system_prompt.list.iter().cloned().collect();
             let new_name = super::generate_unique_name("custom", &existing);
             let prompt = libllm_core::system_prompt::SystemPromptFile {
                 name: new_name.clone(),
@@ -132,12 +132,12 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
                 );
                 return None;
             }
-            app.system_prompt_list.push(new_name.clone());
-            app.system_prompt_selected = app.system_prompt_list.len() - 1;
+            app.system_prompt.list.push(new_name.clone());
+            app.system_prompt.selected = app.system_prompt.list.len() - 1;
             open_prompt_editor(app, &new_name);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.system_prompt_list[selected].clone();
+            let name = app.system_prompt.list[selected].clone();
             if name == libllm_core::system_prompt::BUILTIN_ASSISTANT
                 || name == libllm_core::system_prompt::BUILTIN_ROLEPLAY
             {
@@ -177,10 +177,10 @@ fn open_prompt_editor(app: &mut App, name: &str) {
         dialog = dialog.with_locked_fields(vec![0]);
     }
 
-    app.system_prompt_editor = Some(dialog);
-    app.system_editor_prompt_name = name.to_owned();
-    app.system_editor_read_only = false;
-    app.system_editor_return_focus = Focus::SystemPromptDialog;
+    app.system_prompt.editor = Some(dialog);
+    app.system_prompt.editor_prompt_name = name.to_owned();
+    app.system_prompt.editor_read_only = false;
+    app.system_prompt.editor_return_focus = Focus::SystemPromptDialog;
     app.focus = Focus::SystemPromptEditorDialog;
 }
 
@@ -261,8 +261,8 @@ pub(crate) fn handle_system_prompt_paste(path: &std::path::Path, ext: &str, app:
                 .as_ref()
                 .and_then(|db| db.list_prompts().ok())
                 .unwrap_or_default();
-            app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
-            app.system_prompt_selected = 0;
+            app.system_prompt.list = prompts.into_iter().map(|e| e.name).collect();
+            app.system_prompt.selected = 0;
             app.set_status(
                 format!("Imported system prompt: {name}"),
                 super::super::StatusLevel::Info,

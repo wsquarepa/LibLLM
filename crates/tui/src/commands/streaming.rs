@@ -67,11 +67,11 @@ where
     let context_messages = app.context_mgr.summary_aware_path(&branch_path);
     let trimmed = libllm_core::context::drop_oldest_non_summary(&context_messages, dropped);
     let effective_prompt = business::build_effective_system_prompt(app.session, app.db.as_ref());
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
+    let user_name = app.persona.active_name.as_deref().unwrap_or("User");
     let injected =
         business::inject_loaded_worldbook_entries(app.session, &trimmed, user_name, &worldbooks);
     let mut injected = business::replace_template_vars(app.session, injected, user_name, |slug| {
-        app.character_cards_cache.get(slug).map(|c| c.name.clone())
+        app.character.cards_cache.get(slug).map(|c| c.name.clone())
     });
 
     // Choose which character card's author_note to inject. For solo sessions, use
@@ -520,7 +520,7 @@ pub(super) async fn run_one_group_turn(
     let prompt = match libllm_core::group_chat::build_turn_prompt(
         libllm_core::group_chat::TurnPromptInputs {
             session: app.session,
-            cards: &app.character_cards_cache,
+            cards: &app.character.cards_cache,
             persona: persona.as_ref(),
             template: Some(&template),
             speaker_slug,

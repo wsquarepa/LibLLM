@@ -58,10 +58,10 @@ impl App<'_> {
             }
         }
         for dialog in [
-            &mut self.persona_editor,
-            &mut self.system_prompt_editor,
-            &mut self.character_editor,
-            &mut self.worldbook_entry_editor,
+            &mut self.persona.editor,
+            &mut self.system_prompt.editor,
+            &mut self.character.editor,
+            &mut self.worldbook.entry_editor,
         ] {
             if let Some(d) = dialog.as_mut()
                 && let Some(t) = d.reject_flash

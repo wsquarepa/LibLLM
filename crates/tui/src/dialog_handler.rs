@@ -318,12 +318,12 @@ pub(super) fn handle_field_dialog_key(
     let dialog = match kind {
         DialogKind::Config => unreachable!(),
         DialogKind::Theme => unreachable!(),
-        DialogKind::PresetEditor => app.preset_editor.as_mut(),
-        DialogKind::PersonaEditor => app.persona_editor.as_mut(),
+        DialogKind::PresetEditor => app.preset.editor.as_mut(),
+        DialogKind::PersonaEditor => app.persona.editor.as_mut(),
         DialogKind::AuthorNoteEditor => app.author_note_editor.as_mut(),
-        DialogKind::CharacterEditor => app.character_editor.as_mut(),
-        DialogKind::SystemPromptEditor => app.system_prompt_editor.as_mut(),
-        DialogKind::WorldbookEntryEditor => app.worldbook_entry_editor.as_mut(),
+        DialogKind::CharacterEditor => app.character.editor.as_mut(),
+        DialogKind::SystemPromptEditor => app.system_prompt.editor.as_mut(),
+        DialogKind::WorldbookEntryEditor => app.worldbook.entry_editor.as_mut(),
     };
 
     let dialog = dialog?;
@@ -335,7 +335,7 @@ pub(super) fn handle_field_dialog_key(
     }
 
     if matches!(kind, DialogKind::WorldbookEntryEditor)
-        && let Some(ref mut d) = app.worldbook_entry_editor
+        && let Some(ref mut d) = app.worldbook.entry_editor
     {
         let selective = d
             .values
@@ -368,7 +368,8 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
         DialogKind::Theme => unreachable!(),
         DialogKind::PresetEditor => {
             if !app
-                .preset_editor
+                .preset
+                .editor
                 .as_ref()
                 .expect("preset editor is present while its dialog is focused")
                 .has_changes()
@@ -376,13 +377,14 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
             } else {
                 let editor = app
-                    .preset_editor
+                    .preset
+                    .editor
                     .as_ref()
                     .expect("preset editor is present while its dialog is focused");
-                let original_name = app.preset_editor_original_name.clone();
+                let original_name = app.preset.editor_original_name.clone();
                 let edited_preset_name = editor.values[0].trim().to_owned();
                 match dialogs::preset::save_preset_from_editor(
-                    app.preset_editor_kind,
+                    app.preset.editor_kind,
                     &editor.values,
                     &original_name,
                 ) {
@@ -390,7 +392,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                         app.set_status("Preset saved.".to_owned(), StatusLevel::Info);
                         dialogs::preset::refresh_preset_list(app);
                         if matches!(
-                            app.preset_editor_kind,
+                            app.preset.editor_kind,
                             dialogs::preset::PresetKind::Instruct
                         ) && app.instruct_preset.name == original_name
                         {
@@ -411,38 +413,40 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                     }
                 }
             }
-            app.preset_editor = None;
+            app.preset.editor = None;
             app.focus = Focus::PresetPickerDialog;
             None
         }
         DialogKind::PersonaEditor => {
             let is_cli_locked = app.cli_overrides.persona.is_some();
             if is_cli_locked {
-                app.persona_editor = None;
+                app.persona.editor = None;
                 return_to_input(app);
             } else if !app
-                .persona_editor
+                .persona
+                .editor
                 .as_ref()
                 .expect("persona editor is present while its dialog is focused")
                 .has_changes()
             {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                app.persona_editor = None;
+                app.persona.editor = None;
                 app.focus = Focus::PersonaDialog;
             } else {
                 let values = &app
-                    .persona_editor
+                    .persona
+                    .editor
                     .as_ref()
                     .expect("persona editor is present while its dialog is focused")
                     .values;
-                let old_slug = app.persona_editor_slug.clone();
+                let old_slug = app.persona.editor_slug.clone();
                 let persona = libllm_core::persona::PersonaFile {
                     name: values[0].clone(),
                     persona: values[1].clone(),
                 };
 
                 let new_slug = libllm_core::character::slugify(&persona.name);
-                if new_slug != old_slug && app.persona_slugs.iter().any(|s| s == &new_slug) {
+                if new_slug != old_slug && app.persona.slugs.iter().any(|s| s == &new_slug) {
                     app.set_status(
                         format!("Name '{}' is already in use.", persona.name),
                         StatusLevel::Error,
@@ -473,11 +477,11 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                         if app.session.persona.as_deref() == Some(old_slug.as_str()) {
                             app.invalidate_prompt_cache();
                             app.invalidate_chat_render_cache();
-                            app.active_persona_name = Some(persona.name.clone());
-                            app.active_persona_desc = Some(persona.persona.clone());
+                            app.persona.active_name = Some(persona.name.clone());
+                            app.persona.active_desc = Some(persona.persona.clone());
                             app.session.persona = Some(new_slug.clone());
                         }
-                        app.persona_editor_slug = new_slug;
+                        app.persona.editor_slug = new_slug;
                         app.set_status(
                             format!("Persona '{}' saved.", persona.name),
                             StatusLevel::Info,
@@ -487,7 +491,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                         app.set_status(format!("Failed to save persona: {e}"), StatusLevel::Error);
                     }
                 }
-                app.persona_editor = None;
+                app.persona.editor = None;
                 maintenance::reload_persona_picker(app);
                 app.focus = Focus::PersonaDialog;
             }
@@ -529,35 +533,37 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
             None
         }
         DialogKind::SystemPromptEditor => {
-            if app.system_editor_read_only {
-                app.system_prompt_editor = None;
-                app.system_editor_read_only = false;
-                app.focus = app.system_editor_return_focus;
+            if app.system_prompt.editor_read_only {
+                app.system_prompt.editor = None;
+                app.system_prompt.editor_read_only = false;
+                app.focus = app.system_prompt.editor_return_focus;
                 return None;
             }
 
             if !app
-                .system_prompt_editor
+                .system_prompt
+                .editor
                 .as_ref()
                 .expect("system_prompt editor is present while its dialog is focused")
                 .has_changes()
             {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                app.system_prompt_editor = None;
-                app.focus = app.system_editor_return_focus;
+                app.system_prompt.editor = None;
+                app.focus = app.system_prompt.editor_return_focus;
                 return None;
             }
 
             let values = &app
-                .system_prompt_editor
+                .system_prompt
+                .editor
                 .as_ref()
                 .expect("system_prompt editor is present while its dialog is focused")
                 .values;
             let new_name = values[0].clone();
             let content = values[1].clone();
-            let original_name = app.system_editor_prompt_name.clone();
+            let original_name = app.system_prompt.editor_prompt_name.clone();
 
-            if original_name != new_name && app.system_prompt_list.iter().any(|n| n == &new_name) {
+            if original_name != new_name && app.system_prompt.list.iter().any(|n| n == &new_name) {
                 app.set_status(
                     format!("Name '{new_name}' is already in use."),
                     StatusLevel::Error,
@@ -606,7 +612,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                             .as_ref()
                             .and_then(|db| db.list_prompts().ok())
                             .unwrap_or_default();
-                        app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
+                        app.system_prompt.list = prompts.into_iter().map(|e| e.name).collect();
                         app.set_status(
                             format!("System prompt '{}' saved.", new_name),
                             StatusLevel::Info,
@@ -618,31 +624,33 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                 }
             }
 
-            app.system_prompt_editor = None;
-            app.focus = app.system_editor_return_focus;
+            app.system_prompt.editor = None;
+            app.focus = app.system_prompt.editor_return_focus;
             None
         }
         DialogKind::CharacterEditor => {
             if !app
-                .character_editor
+                .character
+                .editor
                 .as_ref()
                 .expect("character editor is present while its dialog is focused")
                 .has_changes()
             {
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
-                app.character_editor = None;
+                app.character.editor = None;
                 app.focus = Focus::CharacterDialog;
                 return None;
             }
 
             let values = &app
-                .character_editor
+                .character
+                .editor
                 .as_ref()
                 .expect("character editor is present while its dialog is focused")
                 .values;
             let new_slug = libllm_core::character::slugify(&values[0]);
-            if new_slug != app.character_editor_slug
-                && app.character_slugs.iter().any(|s| s == &new_slug)
+            if new_slug != app.character.editor_slug
+                && app.character.slugs.iter().any(|s| s == &new_slug)
             {
                 app.set_status(
                     format!("Name '{}' is already in use.", values[0]),
@@ -672,7 +680,7 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                     note_at_top,
                 ),
             };
-            let old_slug = app.character_editor_slug.clone();
+            let old_slug = app.character.editor_slug.clone();
             let save_result = app
                 .db
                 .as_ref()
@@ -695,18 +703,19 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                         .as_ref()
                         .and_then(|db| db.list_characters().ok())
                         .unwrap_or_default();
-                    app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
-                    app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
-                    app.character_selected = app
-                        .character_slugs
+                    app.character.names = chars.iter().map(|(_, name)| name.clone()).collect();
+                    app.character.slugs = chars.into_iter().map(|(slug, _)| slug).collect();
+                    app.character.selected = app
+                        .character
+                        .slugs
                         .iter()
                         .position(|existing| existing == &new_slug)
                         .unwrap_or(0)
-                        .min(app.character_slugs.len().saturating_sub(1));
-                    app.character_editor_slug = new_slug.clone();
+                        .min(app.character.slugs.len().saturating_sub(1));
+                    app.character.editor_slug = new_slug.clone();
                     app.set_status(format!("Saved character: {}", card.name), StatusLevel::Info);
                     let is_active = app.session.character.as_deref().is_some_and(|name| {
-                        libllm_core::character::slugify(name) == app.character_editor_slug
+                        libllm_core::character::slugify(name) == app.character.editor_slug
                     });
                     if is_active {
                         let cfg = libllm_config::load();
@@ -727,13 +736,14 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                     app.set_status(format!("Failed to save character: {e}"), StatusLevel::Error)
                 }
             }
-            app.character_editor = None;
+            app.character.editor = None;
             app.focus = Focus::CharacterDialog;
             None
         }
         DialogKind::WorldbookEntryEditor => {
             if !app
-                .worldbook_entry_editor
+                .worldbook
+                .entry_editor
                 .as_ref()
                 .expect("worldbook_entry editor is present while its dialog is focused")
                 .has_changes()
@@ -741,19 +751,20 @@ pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Act
                 app.set_status("No changes found.".to_owned(), StatusLevel::Info);
             } else {
                 let values = &app
-                    .worldbook_entry_editor
+                    .worldbook
+                    .entry_editor
                     .as_ref()
                     .expect("worldbook_entry editor is present while its dialog is focused")
                     .values;
-                let idx = app.worldbook_entry_editor_index;
-                if idx < app.worldbook_editor_entries.len() {
-                    app.worldbook_editor_entries[idx] = dialogs::worldbook::values_to_entry(
+                let idx = app.worldbook.entry_editor_index;
+                if idx < app.worldbook.editor_entries.len() {
+                    app.worldbook.editor_entries[idx] = dialogs::worldbook::values_to_entry(
                         values,
-                        &app.worldbook_editor_entries[idx],
+                        &app.worldbook.editor_entries[idx],
                     );
                 }
             }
-            app.worldbook_entry_editor = None;
+            app.worldbook.entry_editor = None;
             app.focus = Focus::WorldbookEditorDialog;
             None
         }
@@ -778,11 +789,11 @@ pub(super) fn discard_field_dialog(app: &mut App, kind: DialogKind) {
         DialogKind::Config => discard_config_dialog(app),
         DialogKind::Theme => discard_theme_dialog(app),
         DialogKind::PresetEditor => {
-            app.preset_editor = None;
+            app.preset.editor = None;
             app.focus = Focus::PresetPickerDialog;
         }
         DialogKind::PersonaEditor => {
-            app.persona_editor = None;
+            app.persona.editor = None;
             if app.cli_overrides.persona.is_some() {
                 return_to_input(app);
             } else {
@@ -794,16 +805,16 @@ pub(super) fn discard_field_dialog(app: &mut App, kind: DialogKind) {
             return_to_input(app);
         }
         DialogKind::CharacterEditor => {
-            app.character_editor = None;
+            app.character.editor = None;
             app.focus = Focus::CharacterDialog;
         }
         DialogKind::SystemPromptEditor => {
-            app.system_prompt_editor = None;
-            app.system_editor_read_only = false;
-            app.focus = app.system_editor_return_focus;
+            app.system_prompt.editor = None;
+            app.system_prompt.editor_read_only = false;
+            app.focus = app.system_prompt.editor_return_focus;
         }
         DialogKind::WorldbookEntryEditor => {
-            app.worldbook_entry_editor = None;
+            app.worldbook.entry_editor = None;
             app.focus = Focus::WorldbookEditorDialog;
         }
     }

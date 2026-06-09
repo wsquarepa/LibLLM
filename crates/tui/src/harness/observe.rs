@@ -88,22 +88,25 @@ fn dialog_dirty_for(app: &App) -> bool {
     match app.focus {
         Focus::ConfigDialog => app.config_dialog.as_ref().is_some_and(|d| d.has_changes()),
         Focus::ThemeDialog => app.theme_dialog.as_ref().is_some_and(|d| d.has_changes()),
-        Focus::PresetEditorDialog => app.preset_editor.as_ref().is_some_and(|d| d.has_changes()),
-        Focus::PersonaEditorDialog => app.persona_editor.as_ref().is_some_and(|d| d.has_changes()),
+        Focus::PresetEditorDialog => app.preset.editor.as_ref().is_some_and(|d| d.has_changes()),
+        Focus::PersonaEditorDialog => app.persona.editor.as_ref().is_some_and(|d| d.has_changes()),
         Focus::AuthorNoteEditorDialog => app
             .author_note_editor
             .as_ref()
             .is_some_and(|d| d.has_changes()),
         Focus::CharacterEditorDialog => app
-            .character_editor
+            .character
+            .editor
             .as_ref()
             .is_some_and(|d| d.has_changes()),
         Focus::WorldbookEntryEditorDialog => app
-            .worldbook_entry_editor
+            .worldbook
+            .entry_editor
             .as_ref()
             .is_some_and(|d| d.has_changes()),
         Focus::SystemPromptEditorDialog => app
-            .system_prompt_editor
+            .system_prompt
+            .editor
             .as_ref()
             .is_some_and(|d| d.has_changes()),
         Focus::RegexEditorDialog => app.regex_editor.as_ref().is_some_and(|d| d.is_dirty()),

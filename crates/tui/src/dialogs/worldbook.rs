@@ -32,19 +32,20 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
 }
 
 pub(crate) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let visible_indices = super::filter_indices(&app.worldbook_list, &app.dialog_search);
-    let unfiltered_total = app.worldbook_list.len();
+    let visible_indices = super::filter_indices(&app.worldbook.list, &app.dialog_search);
+    let unfiltered_total = app.worldbook.list.len();
     let count = visible_indices.len();
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected =
-        super::filtered_selection_position(&visible_indices, app.worldbook_selected).unwrap_or(0);
+        super::filtered_selection_position(&visible_indices, app.worldbook.list_selected)
+            .unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| {
-            let name = &app.worldbook_list[i];
+            let name = &app.worldbook.list[i];
             let state = worldbook_state(app, name);
             let (checkbox, color) = match state {
                 WorldbookState::Global => ("[G]", Color::Green),
@@ -88,7 +89,7 @@ pub(crate) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: R
 }
 
 pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.worldbook_list.is_empty() && !app.dialog_search.active {
+    if app.worldbook.list.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_worldbook(app);
@@ -103,8 +104,8 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
-        &mut app.worldbook_selected,
-        &app.worldbook_list,
+        &mut app.worldbook.list_selected,
+        &app.worldbook.list,
         visible,
         key,
         Some(&mut app.dialog_search),
@@ -118,8 +119,9 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
         return None;
     }
 
-    let visible_indices = super::filter_indices(&app.worldbook_list, &app.dialog_search);
-    let Some(selected) = super::visible_selection(&visible_indices, app.worldbook_selected) else {
+    let visible_indices = super::filter_indices(&app.worldbook.list, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.worldbook.list_selected)
+    else {
         if key.code == KeyCode::Char('a') {
             create_and_edit_worldbook(app);
         } else if key.code == KeyCode::Esc {
@@ -130,7 +132,7 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 
     match key.code {
         KeyCode::Enter | KeyCode::Char(' ') => {
-            let name = app.worldbook_list[selected].clone();
+            let name = app.worldbook.list[selected].clone();
             match worldbook_state(app, &name) {
                 WorldbookState::Off => {
                     app.session.worldbooks.push(name.clone());
@@ -162,17 +164,17 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
             }
         }
         KeyCode::Right => {
-            let name = app.worldbook_list[selected].clone();
+            let name = app.worldbook.list[selected].clone();
             let slug = libllm_core::character::slugify(&name);
             match app.db.as_ref().and_then(|db| db.load_worldbook(&slug).ok()) {
                 Some(wb) => {
-                    app.worldbook_editor_original_name = wb.name.clone();
-                    app.worldbook_editor_original_entries = wb.entries.clone();
-                    app.worldbook_editor_entries = wb.entries;
-                    app.worldbook_editor_name = wb.name;
-                    app.worldbook_editor_name_selected = true;
-                    app.worldbook_editor_name_editing = false;
-                    app.worldbook_editor_selected = 0;
+                    app.worldbook.editor_original_name = wb.name.clone();
+                    app.worldbook.editor_original_entries = wb.entries.clone();
+                    app.worldbook.editor_entries = wb.entries;
+                    app.worldbook.editor_name = wb.name;
+                    app.worldbook.editor_name_selected = true;
+                    app.worldbook.editor_name_editing = false;
+                    app.worldbook.editor_selected = 0;
                     app.focus = Focus::WorldbookEditorDialog;
                 }
                 None => {
@@ -187,7 +189,7 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
             create_and_edit_worldbook(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.worldbook_list[selected].clone();
+            let name = app.worldbook.list[selected].clone();
             app.delete_confirm_filename = name.clone();
             app.delete_confirm_selected = 0;
             app.delete_context = DeleteContext::Worldbook { name };
@@ -203,7 +205,8 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 
 pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let entry_labels: Vec<String> = app
-        .worldbook_editor_entries
+        .worldbook
+        .editor_entries
         .iter()
         .map(|entry| {
             let enabled = if entry.enabled { "+" } else { "-" };
@@ -232,8 +235,8 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         ));
     f.render_widget(block, dialog);
 
-    let name_selected = app.worldbook_editor_name_selected && !app.worldbook_editor_name_editing;
-    let name_editing = app.worldbook_editor_name_editing;
+    let name_selected = app.worldbook.editor_name_selected && !app.worldbook.editor_name_editing;
+    let name_editing = app.worldbook.editor_name_editing;
     let name_marker = if name_selected || name_editing {
         "> "
     } else {
@@ -252,9 +255,9 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         Style::default().fg(app.theme.border_focused)
     };
     let name_display = if name_editing {
-        format!("{name_marker}Name: {}_", app.worldbook_editor_name)
+        format!("{name_marker}Name: {}_", app.worldbook.editor_name)
     } else {
-        format!("{name_marker}Name: {}", app.worldbook_editor_name)
+        format!("{name_marker}Name: {}", app.worldbook.editor_name)
     };
     let name_row = Rect {
         x: dialog.x + 1,
@@ -277,7 +280,7 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| {
-            let entry = &app.worldbook_editor_entries[i];
+            let entry = &app.worldbook.editor_entries[i];
             let enabled = if entry.enabled { "+" } else { "-" };
             let label = if entry.keys.is_empty() {
                 format!("[{enabled}] (no keys)")
@@ -303,12 +306,12 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         })
         .collect();
 
-    let effective_selected = if app.worldbook_editor_name_selected {
+    let effective_selected = if app.worldbook.editor_name_selected {
         usize::MAX
     } else {
         visible_indices
             .iter()
-            .position(|&i| i == app.worldbook_editor_selected)
+            .position(|&i| i == app.worldbook.editor_selected)
             .unwrap_or(0)
     };
 
@@ -329,7 +332,7 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
 
 pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if is_save_shortcut(&key) {
-        app.worldbook_editor_name_editing = false;
+        app.worldbook.editor_name_editing = false;
         app.dialog_search.deactivate_and_clear();
         save_worldbook_editor(app);
         app.focus = Focus::WorldbookDialog;
@@ -338,7 +341,8 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
     let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
     if app.dialog_search.active || is_ctrl_f {
         let labels: Vec<String> = app
-            .worldbook_editor_entries
+            .worldbook
+            .editor_entries
             .iter()
             .map(|entry| {
                 let enabled = if entry.enabled { "+" } else { "-" };
@@ -355,10 +359,10 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
             super::LIST_DIALOG_TALL_PADDING + 2,
         );
         if is_ctrl_f && !app.dialog_search.active {
-            app.worldbook_editor_name_selected = false;
+            app.worldbook.editor_name_selected = false;
         }
         let action = super::handle_paged_list_key(
-            &mut app.worldbook_editor_selected,
+            &mut app.worldbook.editor_selected,
             &labels,
             visible,
             key,
@@ -374,37 +378,37 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
         }
     }
 
-    if app.worldbook_editor_name_editing {
+    if app.worldbook.editor_name_editing {
         match key.code {
             KeyCode::Char(c) => {
-                if app.worldbook_editor_name.chars().count() < super::MAX_NAME_LENGTH {
-                    app.worldbook_editor_name.push(c);
+                if app.worldbook.editor_name.chars().count() < super::MAX_NAME_LENGTH {
+                    app.worldbook.editor_name.push(c);
                 } else {
                     app.input_reject_flash = Some(std::time::Instant::now());
                 }
             }
             KeyCode::Backspace => {
-                app.worldbook_editor_name.pop();
+                app.worldbook.editor_name.pop();
             }
             KeyCode::Enter | KeyCode::Esc => {
-                app.worldbook_editor_name_editing = false;
+                app.worldbook.editor_name_editing = false;
             }
             _ => {}
         }
         return None;
     }
 
-    if app.worldbook_editor_name_selected {
+    if app.worldbook.editor_name_selected {
         match key.code {
-            KeyCode::Down if !app.worldbook_editor_entries.is_empty() => {
-                app.worldbook_editor_name_selected = false;
-                app.worldbook_editor_selected = 0;
+            KeyCode::Down if !app.worldbook.editor_entries.is_empty() => {
+                app.worldbook.editor_name_selected = false;
+                app.worldbook.editor_selected = 0;
             }
             KeyCode::Right | KeyCode::Enter => {
-                app.worldbook_editor_name_editing = true;
+                app.worldbook.editor_name_editing = true;
             }
             KeyCode::Char('a') => {
-                app.worldbook_editor_name_selected = false;
+                app.worldbook.editor_name_selected = false;
                 add_new_entry(app);
             }
             KeyCode::Esc => close_worldbook_editor(app),
@@ -413,10 +417,10 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
         return None;
     }
 
-    if app.worldbook_editor_entries.is_empty() {
+    if app.worldbook.editor_entries.is_empty() {
         match key.code {
             KeyCode::Up => {
-                app.worldbook_editor_name_selected = true;
+                app.worldbook.editor_name_selected = true;
             }
             KeyCode::Esc => close_worldbook_editor(app),
             KeyCode::Char('a') => {
@@ -428,7 +432,8 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
     }
 
     let labels: Vec<String> = app
-        .worldbook_editor_entries
+        .worldbook
+        .editor_entries
         .iter()
         .map(|entry| {
             let enabled = if entry.enabled { "+" } else { "-" };
@@ -443,15 +448,15 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
 
     match key.code {
         KeyCode::Up => {
-            if app.worldbook_editor_selected == 0 && !app.dialog_search.is_filtering() {
-                app.worldbook_editor_name_selected = true;
+            if app.worldbook.editor_selected == 0 && !app.dialog_search.is_filtering() {
+                app.worldbook.editor_name_selected = true;
             } else {
                 let visible = super::page_size(
                     app.last_terminal_height,
                     super::LIST_DIALOG_TALL_PADDING + 2,
                 );
                 super::handle_paged_list_key(
-                    &mut app.worldbook_editor_selected,
+                    &mut app.worldbook.editor_selected,
                     &labels,
                     visible,
                     key,
@@ -465,7 +470,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
                 super::LIST_DIALOG_TALL_PADDING + 2,
             );
             super::handle_paged_list_key(
-                &mut app.worldbook_editor_selected,
+                &mut app.worldbook.editor_selected,
                 &labels,
                 visible,
                 key,
@@ -473,16 +478,16 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
             );
         }
         KeyCode::Right | KeyCode::Enter => {
-            let idx = app.worldbook_editor_selected;
-            let entry = &app.worldbook_editor_entries[idx];
+            let idx = app.worldbook.editor_selected;
+            let entry = &app.worldbook.editor_entries[idx];
             open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
         }
         KeyCode::Char('a') => {
             add_new_entry(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let idx = app.worldbook_editor_selected;
-            let entry = &app.worldbook_editor_entries[idx];
+            let idx = app.worldbook.editor_selected;
+            let entry = &app.worldbook.editor_entries[idx];
             let content_lines = entry.content.lines().count();
             let keys_desc = if entry.keys.is_empty() {
                 "(no keys)".to_owned()
@@ -500,7 +505,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
 }
 
 fn create_and_edit_worldbook(app: &mut App) {
-    let existing: std::collections::HashSet<String> = app.worldbook_list.iter().cloned().collect();
+    let existing: std::collections::HashSet<String> = app.worldbook.list.iter().cloned().collect();
     let new_name = super::generate_unique_name("worldbook", &existing);
     let wb = libllm_core::worldinfo::WorldBook {
         name: new_name.clone(),
@@ -519,14 +524,14 @@ fn create_and_edit_worldbook(app: &mut App) {
         );
         return;
     }
-    app.worldbook_list.push(new_name.clone());
-    app.worldbook_selected = app.worldbook_list.len() - 1;
-    app.worldbook_editor_entries = Vec::new();
-    app.worldbook_editor_original_name = new_name.clone();
-    app.worldbook_editor_original_entries = Vec::new();
-    app.worldbook_editor_name = new_name;
-    app.worldbook_editor_selected = 0;
-    app.worldbook_editor_name_selected = true;
+    app.worldbook.list.push(new_name.clone());
+    app.worldbook.list_selected = app.worldbook.list.len() - 1;
+    app.worldbook.editor_entries = Vec::new();
+    app.worldbook.editor_original_name = new_name.clone();
+    app.worldbook.editor_original_entries = Vec::new();
+    app.worldbook.editor_name = new_name;
+    app.worldbook.editor_selected = 0;
+    app.worldbook.editor_name_selected = true;
     app.focus = Focus::WorldbookEditorDialog;
 }
 
@@ -542,20 +547,20 @@ fn add_new_entry(app: &mut App) {
         depth: 4,
         case_sensitive: false,
     };
-    app.worldbook_editor_entries.push(new_entry);
-    let idx = app.worldbook_editor_entries.len() - 1;
-    app.worldbook_editor_selected = idx;
-    let entry = &app.worldbook_editor_entries[idx];
+    app.worldbook.editor_entries.push(new_entry);
+    let idx = app.worldbook.editor_entries.len() - 1;
+    app.worldbook.editor_selected = idx;
+    let entry = &app.worldbook.editor_entries[idx];
     open_entry_editor(app, idx, entry_to_values(entry), entry.selective);
 }
 
 fn open_entry_editor(app: &mut App, idx: usize, values: Vec<String>, selective: bool) {
-    app.worldbook_entry_editor = Some(if selective {
+    app.worldbook.entry_editor = Some(if selective {
         super::open_entry_editor(values)
     } else {
         super::open_entry_editor_non_selective(values)
     });
-    app.worldbook_entry_editor_index = idx;
+    app.worldbook.entry_editor_index = idx;
     app.focus = Focus::WorldbookEntryEditorDialog;
 }
 
@@ -608,12 +613,12 @@ pub(crate) fn render_entry_delete_dialog(f: &mut ratatui::Frame, app: &App, area
 pub(crate) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match super::delete_confirm::handle_confirm_key(key, &mut app.delete_confirm_selected) {
         super::delete_confirm::ConfirmResult::Confirmed => {
-            let idx = app.worldbook_editor_selected;
-            app.worldbook_editor_entries.remove(idx);
-            if app.worldbook_editor_selected >= app.worldbook_editor_entries.len()
-                && app.worldbook_editor_selected > 0
+            let idx = app.worldbook.editor_selected;
+            app.worldbook.editor_entries.remove(idx);
+            if app.worldbook.editor_selected >= app.worldbook.editor_entries.len()
+                && app.worldbook.editor_selected > 0
             {
-                app.worldbook_editor_selected -= 1;
+                app.worldbook.editor_selected -= 1;
             }
             app.focus = Focus::WorldbookEditorDialog;
         }
@@ -636,23 +641,23 @@ fn worldbook_editor_is_dirty_inner(
 
 fn worldbook_editor_is_dirty(app: &App) -> bool {
     worldbook_editor_is_dirty_inner(
-        &app.worldbook_editor_original_name,
-        &app.worldbook_editor_name,
-        &app.worldbook_editor_original_entries,
-        &app.worldbook_editor_entries,
+        &app.worldbook.editor_original_name,
+        &app.worldbook.editor_name,
+        &app.worldbook.editor_original_entries,
+        &app.worldbook.editor_entries,
     )
 }
 
 fn close_worldbook_editor(app: &mut App) {
     if worldbook_editor_is_dirty(app) {
-        app.worldbook_editor_name_editing = false;
+        app.worldbook.editor_name_editing = false;
         app.dialog_search.deactivate_and_clear();
         app.unsaved_warning = Some(crate::dialogs::unsaved_warning::UnsavedWarningState::new(
             Focus::WorldbookEditorDialog,
         ));
         app.focus = Focus::UnsavedWarningDialog;
     } else {
-        app.worldbook_editor_name_editing = false;
+        app.worldbook.editor_name_editing = false;
         app.dialog_search.deactivate_and_clear();
         app.focus = Focus::WorldbookDialog;
     }
@@ -664,10 +669,10 @@ pub(crate) fn commit_editor_and_close(app: &mut App) {
 }
 
 fn save_worldbook_editor(app: &mut App) {
-    let original = app.worldbook_editor_original_name.clone();
-    let new_name = app.worldbook_editor_name.clone();
+    let original = app.worldbook.editor_original_name.clone();
+    let new_name = app.worldbook.editor_name.clone();
 
-    if original == new_name && app.worldbook_editor_entries == app.worldbook_editor_original_entries
+    if original == new_name && app.worldbook.editor_entries == app.worldbook.editor_original_entries
     {
         app.set_status(
             "No changes found.".to_owned(),
@@ -676,7 +681,7 @@ fn save_worldbook_editor(app: &mut App) {
         return;
     }
 
-    if original != new_name && app.worldbook_list.iter().any(|n| n == &new_name) {
+    if original != new_name && app.worldbook.list.iter().any(|n| n == &new_name) {
         app.set_status(
             format!("Name '{new_name}' is already in use."),
             super::super::StatusLevel::Error,
@@ -686,7 +691,7 @@ fn save_worldbook_editor(app: &mut App) {
 
     let wb = libllm_core::worldinfo::WorldBook {
         name: new_name.clone(),
-        entries: app.worldbook_editor_entries.clone(),
+        entries: app.worldbook.editor_entries.clone(),
     };
     let slug = libllm_core::character::slugify(&new_name);
     let old_slug = libllm_core::character::slugify(&original);
@@ -729,9 +734,10 @@ fn save_worldbook_editor(app: &mut App) {
                 .as_ref()
                 .and_then(|db| db.list_worldbooks().ok())
                 .unwrap_or_default();
-            app.worldbook_list = books.into_iter().map(|(_, n)| n).collect();
-            app.worldbook_selected = app
-                .worldbook_list
+            app.worldbook.list = books.into_iter().map(|(_, n)| n).collect();
+            app.worldbook.list_selected = app
+                .worldbook
+                .list
                 .iter()
                 .position(|n| n == &new_name)
                 .unwrap_or(0);
@@ -792,8 +798,8 @@ pub(crate) fn handle_worldbook_paste(path: &std::path::Path, ext: &str, app: &mu
                         .as_ref()
                         .and_then(|db| db.list_worldbooks().ok())
                         .unwrap_or_default();
-                    app.worldbook_list = books.into_iter().map(|(_, n)| n).collect();
-                    app.worldbook_selected = 0;
+                    app.worldbook.list = books.into_iter().map(|(_, n)| n).collect();
+                    app.worldbook.list_selected = 0;
                     app.invalidate_worldbook_cache();
                     app.set_status(
                         format!("Imported worldbook: {name}"),

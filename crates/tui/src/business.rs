@@ -31,7 +31,8 @@ pub(super) fn group_display_name(app: &App) -> String {
         .characters
         .iter()
         .map(|c| {
-            app.character_cards_cache
+            app.character
+                .cards_cache
                 .get(&c.slug)
                 .map(|card| card.name.clone())
                 .unwrap_or_else(|| c.slug.clone())
@@ -67,7 +68,8 @@ pub(super) fn predict_next_speaker(app: &App) -> Option<String> {
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))?;
     let slug = chars[idx].slug.as_str();
     let name = app
-        .character_cards_cache
+        .character
+        .cards_cache
         .get(slug)
         .map(|c| c.name.clone())
         .unwrap_or_else(|| slug.to_owned());
@@ -906,20 +908,21 @@ pub(super) fn load_active_persona(app: &mut App) {
         && let Some(ref db) = app.db
         && let Ok(pf) = db.load_persona(name)
     {
-        app.active_persona_name = Some(pf.name);
-        app.active_persona_desc = Some(pf.persona);
+        app.persona.active_name = Some(pf.name);
+        app.persona.active_desc = Some(pf.persona);
         return;
     }
-    app.active_persona_name = None;
-    app.active_persona_desc = None;
+    app.persona.active_name = None;
+    app.persona.active_desc = None;
 }
 
 pub(super) fn rebuild_character_cards_cache(app: &mut App) {
-    app.character_cards_cache.clear();
+    app.character.cards_cache.clear();
     let Some(ref db) = app.db else { return };
     for attachment in &app.session.characters {
         if let Ok(card) = db.load_character(&attachment.slug) {
-            app.character_cards_cache
+            app.character
+                .cards_cache
                 .insert(attachment.slug.clone(), card);
         }
     }

@@ -68,7 +68,7 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
 
     match app.focus {
         crate::Focus::CharacterDialog => {
-            let indices = super::filter_indices(&app.character_names, &app.dialog_search);
+            let indices = super::filter_indices(&app.character.names, &app.dialog_search);
             let dialog = super::list_dialog_rect(
                 terminal_area,
                 indices.len(),
@@ -78,24 +78,24 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.character_selected,
+                app.character.selected,
                 mouse.column,
                 mouse.row,
                 Some(&app.dialog_search),
             ) {
-                ListDialogHit::Item(i) => app.character_selected = i,
+                ListDialogHit::Item(i) => app.character.selected = i,
                 ListDialogHit::Outside => {
                     app.dialog_search.deactivate_and_clear();
                     app.focus = crate::Focus::Input;
                 }
                 ListDialogHit::SearchTitle => {
-                    activate_search_for_dialog(&mut app.dialog_search, app.character_selected);
+                    activate_search_for_dialog(&mut app.dialog_search, app.character.selected);
                 }
                 ListDialogHit::Inside => {}
             }
         }
         crate::Focus::PersonaDialog => {
-            let indices = super::filter_indices(&app.persona_names, &app.dialog_search);
+            let indices = super::filter_indices(&app.persona.names, &app.dialog_search);
             let dialog = super::list_dialog_rect(
                 terminal_area,
                 indices.len(),
@@ -105,24 +105,24 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.persona_selected,
+                app.persona.selected,
                 mouse.column,
                 mouse.row,
                 Some(&app.dialog_search),
             ) {
-                ListDialogHit::Item(i) => app.persona_selected = i,
+                ListDialogHit::Item(i) => app.persona.selected = i,
                 ListDialogHit::Outside => {
                     app.dialog_search.deactivate_and_clear();
                     app.focus = crate::Focus::Input;
                 }
                 ListDialogHit::SearchTitle => {
-                    activate_search_for_dialog(&mut app.dialog_search, app.persona_selected);
+                    activate_search_for_dialog(&mut app.dialog_search, app.persona.selected);
                 }
                 ListDialogHit::Inside => {}
             }
         }
         crate::Focus::SystemPromptDialog => {
-            let indices = super::filter_indices(&app.system_prompt_list, &app.dialog_search);
+            let indices = super::filter_indices(&app.system_prompt.list, &app.dialog_search);
             let dialog = super::list_dialog_rect(
                 terminal_area,
                 indices.len(),
@@ -132,18 +132,18 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.system_prompt_selected,
+                app.system_prompt.selected,
                 mouse.column,
                 mouse.row,
                 Some(&app.dialog_search),
             ) {
-                ListDialogHit::Item(i) => app.system_prompt_selected = i,
+                ListDialogHit::Item(i) => app.system_prompt.selected = i,
                 ListDialogHit::Outside => {
                     app.dialog_search.deactivate_and_clear();
-                    app.focus = app.system_editor_return_focus;
+                    app.focus = app.system_prompt.editor_return_focus;
                 }
                 ListDialogHit::SearchTitle => {
-                    activate_search_for_dialog(&mut app.dialog_search, app.system_prompt_selected);
+                    activate_search_for_dialog(&mut app.dialog_search, app.system_prompt.selected);
                 }
                 ListDialogHit::Inside => {}
             }
@@ -181,7 +181,7 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             }
         }
         crate::Focus::WorldbookDialog => {
-            let indices = super::filter_indices(&app.worldbook_list, &app.dialog_search);
+            let indices = super::filter_indices(&app.worldbook.list, &app.dialog_search);
             let dialog = super::list_dialog_rect(
                 terminal_area,
                 indices.len(),
@@ -191,24 +191,24 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.worldbook_selected,
+                app.worldbook.list_selected,
                 mouse.column,
                 mouse.row,
                 Some(&app.dialog_search),
             ) {
-                ListDialogHit::Item(i) => app.worldbook_selected = i,
+                ListDialogHit::Item(i) => app.worldbook.list_selected = i,
                 ListDialogHit::Outside => {
                     app.dialog_search.deactivate_and_clear();
                     app.focus = crate::Focus::Input;
                 }
                 ListDialogHit::SearchTitle => {
-                    activate_search_for_dialog(&mut app.dialog_search, app.worldbook_selected);
+                    activate_search_for_dialog(&mut app.dialog_search, app.worldbook.list_selected);
                 }
                 ListDialogHit::Inside => {}
             }
         }
         crate::Focus::PresetPickerDialog => {
-            let indices = super::filter_indices(&app.preset_picker_names, &app.dialog_search);
+            let indices = super::filter_indices(&app.preset.picker_names, &app.dialog_search);
             let dialog = super::list_dialog_rect(
                 terminal_area,
                 indices.len(),
@@ -218,18 +218,18 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.preset_picker_selected,
+                app.preset.picker_selected,
                 mouse.column,
                 mouse.row,
                 Some(&app.dialog_search),
             ) {
-                ListDialogHit::Item(i) => app.preset_picker_selected = i,
+                ListDialogHit::Item(i) => app.preset.picker_selected = i,
                 ListDialogHit::Outside => {
                     app.dialog_search.deactivate_and_clear();
                     app.focus = crate::Focus::ConfigDialog;
                 }
                 ListDialogHit::SearchTitle => {
-                    activate_search_for_dialog(&mut app.dialog_search, app.preset_picker_selected);
+                    activate_search_for_dialog(&mut app.dialog_search, app.preset.picker_selected);
                 }
                 ListDialogHit::Inside => {}
             }
@@ -284,14 +284,14 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             }
         }
         crate::Focus::PresetEditorDialog => {
-            if let Some(ref mut d) = app.preset_editor
+            if let Some(ref mut d) = app.preset.editor
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
             {
                 app.focus = crate::Focus::ConfigDialog;
             }
         }
         crate::Focus::PersonaEditorDialog => {
-            if let Some(ref mut d) = app.persona_editor
+            if let Some(ref mut d) = app.persona.editor
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
             {
                 app.focus = crate::Focus::PersonaDialog;
@@ -305,21 +305,21 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             }
         }
         crate::Focus::CharacterEditorDialog => {
-            if let Some(ref mut d) = app.character_editor
+            if let Some(ref mut d) = app.character.editor
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
             {
                 app.focus = crate::Focus::CharacterDialog;
             }
         }
         crate::Focus::SystemPromptEditorDialog => {
-            if let Some(ref mut d) = app.system_prompt_editor
+            if let Some(ref mut d) = app.system_prompt.editor
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
             {
                 app.focus = crate::Focus::SystemPromptDialog;
             }
         }
         crate::Focus::WorldbookEntryEditorDialog => {
-            if let Some(ref mut d) = app.worldbook_entry_editor
+            if let Some(ref mut d) = app.worldbook.entry_editor
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
             {
                 app.focus = crate::Focus::WorldbookEditorDialog;
@@ -330,7 +330,8 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
         }
         crate::Focus::WorldbookEditorDialog => {
             let entry_labels: Vec<String> = app
-                .worldbook_editor_entries
+                .worldbook
+                .editor_entries
                 .iter()
                 .map(|entry| {
                     let enabled = if entry.enabled { "+" } else { "-" };
@@ -357,11 +358,11 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
                 && hit_search_region(&app.dialog_search, dialog, mouse.column)
             {
                 if !app.dialog_search.active {
-                    app.worldbook_editor_name_selected = false;
-                    app.dialog_search.enter(app.worldbook_editor_selected);
+                    app.worldbook.editor_name_selected = false;
+                    app.dialog_search.enter(app.worldbook.editor_selected);
                 }
             } else if mouse.row == dialog.y + 1 {
-                app.worldbook_editor_name_selected = true;
+                app.worldbook.editor_name_selected = true;
             } else {
                 let items_area = Rect {
                     x: dialog.x + 1,
@@ -372,11 +373,11 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
                 if let Some(entry_idx) = super::map_list_click(
                     items_area,
                     &indices,
-                    app.worldbook_editor_selected,
+                    app.worldbook.editor_selected,
                     mouse.row,
                 ) {
-                    app.worldbook_editor_name_selected = false;
-                    app.worldbook_editor_selected = entry_idx;
+                    app.worldbook.editor_name_selected = false;
+                    app.worldbook.editor_selected = entry_idx;
                 }
             }
         }

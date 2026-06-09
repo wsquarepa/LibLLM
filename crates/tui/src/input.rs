@@ -22,7 +22,8 @@ pub fn handle_input_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             .characters
             .iter()
             .filter_map(|c| {
-                app.character_cards_cache
+                app.character
+                    .cards_cache
                     .get(&c.slug)
                     .map(|card| (c.slug.as_str(), card.name.as_str()))
             })

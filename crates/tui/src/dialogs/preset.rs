@@ -16,11 +16,11 @@ pub enum PresetKind {
 }
 
 pub(crate) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let names = &app.preset_picker_names;
+    let names = &app.preset.picker_names;
     let visible_indices = super::filter_indices(names, &app.dialog_search);
     let unfiltered_total = names.len();
     let count = visible_indices.len();
-    let title = match app.preset_picker_kind {
+    let title = match app.preset.picker_kind {
         PresetKind::Template => " Select Template Preset ",
         PresetKind::Instruct => " Select Instruct Preset ",
         PresetKind::Reasoning => " Select Reasoning Preset ",
@@ -30,7 +30,7 @@ pub(crate) fn render_preset_dialog(f: &mut ratatui::Frame, app: &App, area: Rect
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected =
-        super::filtered_selection_position(&visible_indices, app.preset_picker_selected)
+        super::filtered_selection_position(&visible_indices, app.preset.picker_selected)
             .unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
@@ -68,7 +68,7 @@ pub(crate) fn handle_preset_dialog_key(
     key: KeyEvent,
     app: &mut App,
 ) -> Option<super::super::Action> {
-    if app.preset_picker_names.is_empty() && !app.dialog_search.active {
+    if app.preset.picker_names.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_preset(app);
@@ -83,8 +83,8 @@ pub(crate) fn handle_preset_dialog_key(
 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
-        &mut app.preset_picker_selected,
-        &app.preset_picker_names,
+        &mut app.preset.picker_selected,
+        &app.preset.picker_names,
         visible,
         key,
         Some(&mut app.dialog_search),
@@ -98,8 +98,8 @@ pub(crate) fn handle_preset_dialog_key(
         return None;
     }
 
-    let visible_indices = super::filter_indices(&app.preset_picker_names, &app.dialog_search);
-    let Some(selected) = super::visible_selection(&visible_indices, app.preset_picker_selected)
+    let visible_indices = super::filter_indices(&app.preset.picker_names, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.preset.picker_selected)
     else {
         if key.code == KeyCode::Char('a') {
             create_and_edit_preset(app);
@@ -111,29 +111,29 @@ pub(crate) fn handle_preset_dialog_key(
 
     match key.code {
         KeyCode::Enter => {
-            let chosen = app.preset_picker_names[selected].clone();
+            let chosen = app.preset.picker_names[selected].clone();
             apply_preset_selection(app, chosen);
             app.focus = Focus::ConfigDialog;
         }
         KeyCode::Right => {
-            let name = app.preset_picker_names[selected].clone();
+            let name = app.preset.picker_names[selected].clone();
             if name == "OFF" || name == "Raw" {
                 return None;
             }
-            open_preset_editor(app, app.preset_picker_kind, &name);
+            open_preset_editor(app, app.preset.picker_kind, &name);
         }
         KeyCode::Char('a') => {
             create_and_edit_preset(app);
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.preset_picker_names[selected].clone();
+            let name = app.preset.picker_names[selected].clone();
             if name == "OFF" || name == "Raw" {
                 return None;
             }
             app.delete_confirm_filename = name;
             app.delete_confirm_selected = 0;
             app.delete_context = DeleteContext::Preset {
-                kind: app.preset_picker_kind,
+                kind: app.preset.picker_kind,
             };
             app.focus = Focus::DeleteConfirmDialog;
         }
@@ -149,7 +149,7 @@ fn apply_preset_selection(app: &mut App, chosen: String) {
     let Some(ref mut dialog) = app.config_dialog else {
         return;
     };
-    match app.preset_picker_kind {
+    match app.preset.picker_kind {
         PresetKind::Template => dialog.set_value(0, 2, chosen),
         PresetKind::Instruct => dialog.set_value(0, 3, chosen),
         PresetKind::Reasoning => dialog.set_value(0, 4, chosen),
@@ -184,9 +184,9 @@ pub(crate) fn open_preset_picker(app: &mut App, kind: PresetKind) {
         .position(|n| n.eq_ignore_ascii_case(current))
         .unwrap_or(0);
 
-    app.preset_picker_kind = kind;
-    app.preset_picker_names = names;
-    app.preset_picker_selected = selected;
+    app.preset.picker_kind = kind;
+    app.preset.picker_names = names;
+    app.preset.picker_selected = selected;
     app.open_paged_dialog(Focus::PresetPickerDialog);
 }
 
@@ -203,8 +203,8 @@ fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {
                 preset.example_separator,
                 preset.chat_start,
             ];
-            app.preset_editor = Some(super::open_template_editor(values));
-            app.preset_editor_original_name = preset.name;
+            app.preset.editor = Some(super::open_template_editor(values));
+            app.preset.editor_original_name = preset.name;
         }
         PresetKind::Instruct => {
             let preset = libllm_core::preset::resolve_instruct_preset(
@@ -229,8 +229,8 @@ fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {
                 preset.system_same_as_user.to_string(),
                 preset.sequences_as_stop_strings.to_string(),
             ];
-            app.preset_editor = Some(super::open_instruct_editor(values));
-            app.preset_editor_original_name = preset.name;
+            app.preset.editor = Some(super::open_instruct_editor(values));
+            app.preset.editor_original_name = preset.name;
         }
         PresetKind::Reasoning => {
             if let Some(preset) = libllm_core::preset::resolve_reasoning_preset(
@@ -243,21 +243,21 @@ fn open_preset_editor(app: &mut App, kind: PresetKind, name: &str) {
                     preset.suffix,
                     preset.separator,
                 ];
-                app.preset_editor = Some(super::open_reasoning_editor(values));
-                app.preset_editor_original_name = preset.name;
+                app.preset.editor = Some(super::open_reasoning_editor(values));
+                app.preset.editor_original_name = preset.name;
             } else {
                 return;
             }
         }
     }
-    app.preset_editor_kind = kind;
+    app.preset.editor_kind = kind;
     app.focus = Focus::PresetEditorDialog;
 }
 
 fn create_and_edit_preset(app: &mut App) {
-    let kind = app.preset_picker_kind;
+    let kind = app.preset.picker_kind;
     let existing: std::collections::HashSet<String> =
-        app.preset_picker_names.iter().cloned().collect();
+        app.preset.picker_names.iter().cloned().collect();
     let base = match kind {
         PresetKind::Template => "template",
         PresetKind::Instruct => "instruct",
@@ -273,7 +273,7 @@ fn create_and_edit_preset(app: &mut App) {
                 String::new(),
                 String::new(),
             ];
-            app.preset_editor = Some(super::open_template_editor(values));
+            app.preset.editor = Some(super::open_template_editor(values));
         }
         PresetKind::Instruct => {
             let values = vec![
@@ -290,7 +290,7 @@ fn create_and_edit_preset(app: &mut App) {
                 "false".to_owned(),
                 "false".to_owned(),
             ];
-            app.preset_editor = Some(super::open_instruct_editor(values));
+            app.preset.editor = Some(super::open_instruct_editor(values));
         }
         PresetKind::Reasoning => {
             let values = vec![
@@ -299,14 +299,14 @@ fn create_and_edit_preset(app: &mut App) {
                 String::new(),
                 String::new(),
             ];
-            app.preset_editor = Some(super::open_reasoning_editor(values));
+            app.preset.editor = Some(super::open_reasoning_editor(values));
         }
     }
 
-    app.preset_editor_kind = kind;
-    app.preset_editor_original_name = String::new();
-    app.preset_picker_names.push(new_name);
-    app.preset_picker_selected = app.preset_picker_names.len() - 1;
+    app.preset.editor_kind = kind;
+    app.preset.editor_original_name = String::new();
+    app.preset.picker_names.push(new_name);
+    app.preset.picker_selected = app.preset.picker_names.len() - 1;
     app.focus = Focus::PresetEditorDialog;
 }
 
@@ -409,7 +409,7 @@ pub(crate) fn delete_preset(kind: PresetKind, name: &str) {
 }
 
 pub(crate) fn refresh_preset_list(app: &mut App) {
-    let names = match app.preset_picker_kind {
+    let names = match app.preset.picker_kind {
         PresetKind::Template => {
             libllm_core::preset::list_template_preset_names(&libllm_config::template_presets_dir())
         }
@@ -420,10 +420,11 @@ pub(crate) fn refresh_preset_list(app: &mut App) {
             libllm_core::preset::list_reasoning_preset_names(&libllm_config::reasoning_presets_dir())
         }
     };
-    app.preset_picker_selected = app
-        .preset_picker_selected
+    app.preset.picker_selected = app
+        .preset
+        .picker_selected
         .min(names.len().saturating_sub(1));
-    app.preset_picker_names = names;
+    app.preset.picker_names = names;
 }
 
 #[cfg(test)]

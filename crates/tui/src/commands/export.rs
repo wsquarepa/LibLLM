@@ -87,7 +87,7 @@ pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
     };
 
     let character = app.session.character.as_deref().filter(|s| !s.is_empty());
-    let persona = app.active_persona_name.as_deref().filter(|s| !s.is_empty());
+    let persona = app.persona.active_name.as_deref().filter(|s| !s.is_empty());
     let model = app
         .model_name
         .as_deref()

@@ -243,8 +243,8 @@ fn delete_persona(app: &mut App, slug: &str) {
     }
 
     if app.session.persona.as_deref() == Some(slug) {
-        app.active_persona_name = None;
-        app.active_persona_desc = None;
+        app.persona.active_name = None;
+        app.persona.active_desc = None;
         app.session.persona = None;
         app.invalidate_chat_caches();
     }

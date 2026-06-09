@@ -474,7 +474,7 @@ pub fn render_chat(
         trigger_percent,
     } = token_display;
     let char_name = app.session.character.as_deref().unwrap_or("");
-    let user_name = app.active_persona_name.as_deref().unwrap_or("User");
+    let user_name = app.persona.active_name.as_deref().unwrap_or("User");
     let in_group = app.session.characters.len() >= 2;
     let has_replacements = app.session.character.is_some() || !app.session.characters.is_empty();
     let fallback_group_char_name: String = app
@@ -482,7 +482,8 @@ pub fn render_chat(
         .characters
         .first()
         .and_then(|c| {
-            app.character_cards_cache
+            app.character
+                .cards_cache
                 .get(&c.slug)
                 .map(|card| card.name.clone())
                 .or_else(|| Some(c.slug.clone()))
@@ -491,7 +492,7 @@ pub fn render_chat(
 
     let resolve_char_name = |speaker: Option<&str>| -> &str {
         if let Some(slug) = speaker
-            && let Some(card) = app.character_cards_cache.get(slug)
+            && let Some(card) = app.character.cards_cache.get(slug)
         {
             return card.name.as_str();
         }
@@ -510,7 +511,7 @@ pub fn render_chat(
         }
     };
 
-    let user_label = if has_replacements && app.active_persona_name.is_some() {
+    let user_label = if has_replacements && app.persona.active_name.is_some() {
         user_name.to_owned()
     } else {
         "You".to_owned()
@@ -542,7 +543,8 @@ pub fn render_chat(
         .map(|c| {
             (
                 c.slug.clone(),
-                app.character_cards_cache
+                app.character
+                    .cards_cache
                     .get(&c.slug)
                     .map(|card| card.name.clone())
                     .unwrap_or_default(),
@@ -619,7 +621,8 @@ pub fn render_chat(
                             let fg = app.theme.group_character_palette()[palette_idx];
                             let bg = app.theme.group_character_bg_palette()[palette_idx];
                             let display_name = app
-                                .character_cards_cache
+                                .character
+                                .cards_cache
                                 .get(slug)
                                 .map(|c| c.name.clone())
                                 .unwrap_or_else(|| slug.to_owned());
@@ -708,7 +711,8 @@ pub fn render_chat(
                     if msg.role == Role::Assistant {
                         let displayed = if let Some(slug) = group_speaker {
                             let display_name = app
-                                .character_cards_cache
+                                .character
+                                .cards_cache
                                 .get(slug)
                                 .map(|c| c.name.as_str())
                                 .unwrap_or(slug);
@@ -1150,8 +1154,9 @@ fn truncate_with_ellipsis(text: &str, max_chars: usize) -> String {
 
 fn queue_user_label(app: &App) -> String {
     let has_replacements = app.session.character.is_some() || !app.session.characters.is_empty();
-    if has_replacements && app.active_persona_name.is_some() {
-        app.active_persona_name
+    if has_replacements && app.persona.active_name.is_some() {
+        app.persona
+            .active_name
             .as_deref()
             .unwrap_or("User")
             .to_owned()
@@ -1242,7 +1247,8 @@ pub fn render_next_arg_picker(f: &mut ratatui::Frame, app: &App, arg: &str, chat
         .characters
         .iter()
         .filter_map(|c| {
-            app.character_cards_cache
+            app.character
+                .cards_cache
                 .get(&c.slug)
                 .map(|card| (c.slug.as_str(), card.name.as_str()))
         })

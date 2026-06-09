@@ -300,6 +300,59 @@ pub(super) struct SetPasskeyState {
     pub(super) is_initial: bool,
 }
 
+pub(super) struct PresetUi<'a> {
+    pub(super) picker_kind: dialogs::preset::PresetKind,
+    pub(super) picker_names: Vec<String>,
+    pub(super) picker_selected: usize,
+    pub(super) editor: Option<dialogs::FieldDialog<'a>>,
+    pub(super) editor_kind: dialogs::preset::PresetKind,
+    pub(super) editor_original_name: String,
+}
+
+pub(super) struct CharacterUi<'a> {
+    pub(super) names: Vec<String>,
+    pub(super) slugs: Vec<String>,
+    pub(super) selected: usize,
+    pub(super) picks: Vec<bool>,
+    pub(super) editor: Option<dialogs::FieldDialog<'a>>,
+    pub(super) editor_slug: String,
+    pub(super) cards_cache:
+        std::collections::HashMap<String, libllm_core::character::CharacterCard>,
+}
+
+pub(super) struct PersonaUi<'a> {
+    pub(super) slugs: Vec<String>,
+    pub(super) names: Vec<String>,
+    pub(super) selected: usize,
+    pub(super) editor: Option<dialogs::FieldDialog<'a>>,
+    pub(super) editor_slug: String,
+    pub(super) active_name: Option<String>,
+    pub(super) active_desc: Option<String>,
+}
+
+pub(super) struct SystemPromptUi<'a> {
+    pub(super) list: Vec<String>,
+    pub(super) selected: usize,
+    pub(super) editor: Option<dialogs::FieldDialog<'a>>,
+    pub(super) editor_prompt_name: String,
+    pub(super) editor_return_focus: Focus,
+    pub(super) editor_read_only: bool,
+}
+
+pub(super) struct WorldbookUi<'a> {
+    pub(super) list: Vec<String>,
+    pub(super) list_selected: usize,
+    pub(super) editor_entries: Vec<libllm_core::worldinfo::Entry>,
+    pub(super) editor_original_entries: Vec<libllm_core::worldinfo::Entry>,
+    pub(super) editor_name: String,
+    pub(super) editor_original_name: String,
+    pub(super) editor_name_selected: bool,
+    pub(super) editor_name_editing: bool,
+    pub(super) editor_selected: usize,
+    pub(super) entry_editor: Option<dialogs::FieldDialog<'a>>,
+    pub(super) entry_editor_index: usize,
+}
+
 pub(super) struct App<'a> {
     pub(super) client: ApiClient,
     pub(super) session: &'a mut Session,
@@ -343,49 +396,19 @@ pub(super) struct App<'a> {
     pub(super) theme_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
     pub(super) base_theme_picker_names: Vec<String>,
     pub(super) base_theme_picker_selected: usize,
-    pub(super) persona_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) author_note_editor: Option<dialogs::FieldDialog<'a>>,
-    pub(super) system_prompt_editor: Option<dialogs::FieldDialog<'a>>,
-    pub(super) system_editor_prompt_name: String,
-    pub(super) system_editor_return_focus: Focus,
-    pub(super) system_editor_read_only: bool,
-
-    pub(super) system_prompt_list: Vec<String>,
-    pub(super) system_prompt_selected: usize,
+    pub(super) system_prompt: SystemPromptUi<'a>,
     pub(super) edit_editor: Option<TextArea<'a>>,
     pub(super) unsaved_warning: Option<dialogs::unsaved_warning::UnsavedWarningState>,
     pub(super) last_unsaved_warning_return_focus: Option<Focus>,
 
-    pub(super) preset_picker_kind: dialogs::preset::PresetKind,
-    pub(super) preset_picker_names: Vec<String>,
-    pub(super) preset_picker_selected: usize,
-    pub(super) preset_editor: Option<dialogs::FieldDialog<'a>>,
-    pub(super) preset_editor_kind: dialogs::preset::PresetKind,
-    pub(super) preset_editor_original_name: String,
-
-    pub(super) character_names: Vec<String>,
-    pub(super) character_slugs: Vec<String>,
-    pub(super) character_selected: usize,
-    pub(super) character_picks: Vec<bool>,
-
-    pub(super) worldbook_list: Vec<String>,
-    pub(super) worldbook_selected: usize,
+    pub(super) preset: PresetUi<'a>,
+    pub(super) character: CharacterUi<'a>,
+    pub(super) worldbook: WorldbookUi<'a>,
 
     pub(super) regex_list_selected: usize,
     pub(super) regex_editor: Option<dialogs::regex::RegexEditorState>,
     pub(super) skipped_regex_rules_pending_status: usize,
-
-    pub(super) character_editor: Option<dialogs::FieldDialog<'a>>,
-    pub(super) character_editor_slug: String,
-    pub(super) worldbook_editor_entries: Vec<libllm_core::worldinfo::Entry>,
-    pub(super) worldbook_editor_original_entries: Vec<libllm_core::worldinfo::Entry>,
-    pub(super) worldbook_editor_name: String,
-    pub(super) worldbook_editor_original_name: String,
-    pub(super) worldbook_editor_name_selected: bool,
-    pub(super) worldbook_editor_name_editing: bool,
-    pub(super) worldbook_editor_selected: usize,
-    pub(super) worldbook_entry_editor: Option<dialogs::FieldDialog<'a>>,
-    pub(super) worldbook_entry_editor_index: usize,
 
     pub(super) compiled_regex: Vec<libllm_core::regex_rules::CompiledRule>,
     pub(super) display_regex_cache: std::collections::HashMap<libllm_core::session::NodeId, String>,
@@ -402,13 +425,8 @@ pub(super) struct App<'a> {
     pub(super) delete_confirm_selected: usize,
     pub(super) delete_confirm_filename: String,
     pub(super) delete_context: DeleteContext,
-    pub(super) active_persona_name: Option<String>,
-    pub(super) active_persona_desc: Option<String>,
     pub(super) active_card_author_note: Option<libllm_core::author_note::AuthorNote>,
-    pub(super) persona_slugs: Vec<String>,
-    pub(super) persona_names: Vec<String>,
-    pub(super) persona_selected: usize,
-    pub(super) persona_editor_slug: String,
+    pub(super) persona: PersonaUi<'a>,
     pub(super) config: libllm_core::config::Config,
     pub(super) theme: theme::Theme,
     pub(super) cli_overrides: CliOverrides,
@@ -445,8 +463,6 @@ pub(super) struct App<'a> {
     pub(super) scenario_editor: Option<TextArea<'a>>,
     pub(super) scenario_scroll_top: u16,
     pub(super) group_chat: GroupChatState,
-    pub(super) character_cards_cache:
-        std::collections::HashMap<String, libllm_core::character::CharacterCard>,
 }
 
 impl<'a> App<'a> {

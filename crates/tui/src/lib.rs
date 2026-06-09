@@ -262,44 +262,51 @@ impl<'a> App<'a> {
             theme_dialog: None,
             base_theme_picker_names: Vec::new(),
             base_theme_picker_selected: 0,
-            persona_editor: None,
             author_note_editor: None,
-            system_prompt_editor: None,
-            system_editor_prompt_name: String::new(),
-            system_editor_return_focus: Focus::Input,
-            system_editor_read_only: false,
-            system_prompt_list: Vec::new(),
-            system_prompt_selected: 0,
+            system_prompt: SystemPromptUi {
+                list: Vec::new(),
+                selected: 0,
+                editor: None,
+                editor_prompt_name: String::new(),
+                editor_return_focus: Focus::Input,
+                editor_read_only: false,
+            },
             edit_editor: None,
             unsaved_warning: None,
             last_unsaved_warning_return_focus: None,
-            preset_picker_kind: dialogs::preset::PresetKind::Instruct,
-            preset_picker_names: Vec::new(),
-            preset_picker_selected: 0,
-            preset_editor: None,
-            preset_editor_kind: dialogs::preset::PresetKind::Instruct,
-            preset_editor_original_name: String::new(),
-            character_names: Vec::new(),
-            character_slugs: Vec::new(),
-            character_selected: 0,
-            character_picks: Vec::new(),
-            worldbook_list: Vec::new(),
-            worldbook_selected: 0,
-
+            preset: PresetUi {
+                picker_kind: dialogs::preset::PresetKind::Instruct,
+                picker_names: Vec::new(),
+                picker_selected: 0,
+                editor: None,
+                editor_kind: dialogs::preset::PresetKind::Instruct,
+                editor_original_name: String::new(),
+            },
+            character: CharacterUi {
+                names: Vec::new(),
+                slugs: Vec::new(),
+                selected: 0,
+                picks: Vec::new(),
+                editor: None,
+                editor_slug: String::new(),
+                cards_cache: std::collections::HashMap::new(),
+            },
+            worldbook: WorldbookUi {
+                list: Vec::new(),
+                list_selected: 0,
+                editor_entries: Vec::new(),
+                editor_original_entries: Vec::new(),
+                editor_name: String::new(),
+                editor_original_name: String::new(),
+                editor_name_selected: true,
+                editor_name_editing: false,
+                editor_selected: 0,
+                entry_editor: None,
+                entry_editor_index: 0,
+            },
             regex_list_selected: 0,
             regex_editor: None,
             skipped_regex_rules_pending_status: skipped_regex_rules,
-            character_editor: None,
-            character_editor_slug: String::new(),
-            worldbook_editor_entries: Vec::new(),
-            worldbook_editor_original_entries: Vec::new(),
-            worldbook_editor_name: String::new(),
-            worldbook_editor_original_name: String::new(),
-            worldbook_editor_name_selected: true,
-            worldbook_editor_name_editing: false,
-            worldbook_editor_selected: 0,
-            worldbook_entry_editor: None,
-            worldbook_entry_editor_index: 0,
             compiled_regex,
             display_regex_cache: std::collections::HashMap::new(),
             chat_content_cache: None,
@@ -315,13 +322,16 @@ impl<'a> App<'a> {
             delete_confirm_selected: 0,
             delete_confirm_filename: String::new(),
             delete_context: DeleteContext::Session,
-            active_persona_name: None,
-            active_persona_desc: None,
             active_card_author_note: None,
-            persona_slugs: Vec::new(),
-            persona_names: Vec::new(),
-            persona_selected: 0,
-            persona_editor_slug: String::new(),
+            persona: PersonaUi {
+                slugs: Vec::new(),
+                names: Vec::new(),
+                selected: 0,
+                editor: None,
+                editor_slug: String::new(),
+                active_name: None,
+                active_desc: None,
+            },
             theme: theme::resolve_theme(&config),
             config,
             cli_overrides,
@@ -355,7 +365,6 @@ impl<'a> App<'a> {
                 remaining_budget: 0.0,
                 creation_pending: false,
             },
-            character_cards_cache: std::collections::HashMap::new(),
         };
 
         business::load_active_persona(&mut app);
@@ -572,7 +581,7 @@ pub(crate) fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
             .session
             .characters
             .iter()
-            .filter(|c| !app.character_cards_cache.contains_key(&c.slug))
+            .filter(|c| !app.character.cards_cache.contains_key(&c.slug))
             .count();
         let chip = format!(" {n} chars · {} ", app.session.chat_mode.as_str());
         let mut spans = vec![Span::styled(chip, Style::default().fg(app.theme.dimmed))];
@@ -895,7 +904,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             dialogs::auth::render_type_picker(f, app, f.area());
         }
         Focus::PresetEditorDialog => {
-            if let Some(ref dialog) = app.preset_editor {
+            if let Some(ref dialog) = app.preset.editor {
                 dialog.render(f, f.area());
             }
         }
@@ -903,7 +912,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             dialogs::persona::render_persona_dialog(f, app, f.area());
         }
         Focus::PersonaEditorDialog => {
-            if let Some(ref dialog) = app.persona_editor {
+            if let Some(ref dialog) = app.persona.editor {
                 dialog.render(f, f.area());
             }
         }
@@ -916,7 +925,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             dialogs::character::render_character_dialog(f, app, f.area());
         }
         Focus::CharacterEditorDialog => {
-            if let Some(ref dialog) = app.character_editor {
+            if let Some(ref dialog) = app.character.editor {
                 dialog.render(f, f.area());
             }
         }
@@ -933,7 +942,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             dialogs::worldbook::render_worldbook_editor(f, app, f.area());
         }
         Focus::WorldbookEntryEditorDialog => {
-            if let Some(ref dialog) = app.worldbook_entry_editor {
+            if let Some(ref dialog) = app.worldbook.entry_editor {
                 dialog.render(f, f.area());
             }
         }
@@ -944,7 +953,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             dialogs::system_prompt::render_system_prompt_dialog(f, app, f.area());
         }
         Focus::SystemPromptEditorDialog => {
-            if let Some(ref dialog) = app.system_prompt_editor {
+            if let Some(ref dialog) = app.system_prompt.editor {
                 dialog.render(f, f.area());
             }
         }

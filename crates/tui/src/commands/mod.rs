@@ -71,10 +71,10 @@ fn cmd_clear(app: &mut App) {
     app.session.persona = None;
     app.session.characters = vec![];
     app.session.chat_mode = libllm_core::group_chat::ChatMode::default();
-    app.character_cards_cache.clear();
+    app.character.cards_cache.clear();
     app.session.author_note = None;
-    app.active_persona_name = None;
-    app.active_persona_desc = None;
+    app.persona.active_name = None;
+    app.persona.active_desc = None;
     app.active_card_author_note = None;
     app.discard_pending_session_save();
     app.invalidate_chat_caches();
@@ -162,7 +162,7 @@ async fn cmd_continue(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamT
         }
         let Some(slug) = resolve_speaker_by_name(
             &app.session.characters,
-            &app.character_cards_cache,
+            &app.character.cards_cache,
             target_speaker,
         ) else {
             app.set_status(
@@ -280,7 +280,7 @@ async fn start_group_continuation(
     let prompt = match libllm_core::group_chat::build_turn_prompt(
         libllm_core::group_chat::TurnPromptInputs {
             session: app.session,
-            cards: &app.character_cards_cache,
+            cards: &app.character.cards_cache,
             persona: persona.as_ref(),
             template: Some(&template),
             speaker_slug,
@@ -379,10 +379,10 @@ fn cmd_system(app: &mut App) {
             .to_owned();
         let values = vec!["(set via -r)".to_owned(), content];
         let dialog = dialogs::open_system_prompt_editor(values).with_locked_fields(vec![0, 1]);
-        app.system_prompt_editor = Some(dialog);
-        app.system_editor_read_only = true;
-        app.system_editor_prompt_name = String::new();
-        app.system_editor_return_focus = Focus::Input;
+        app.system_prompt.editor = Some(dialog);
+        app.system_prompt.editor_read_only = true;
+        app.system_prompt.editor_prompt_name = String::new();
+        app.system_prompt.editor_return_focus = Focus::Input;
         app.focus = Focus::SystemPromptEditorDialog;
         return;
     }
@@ -395,8 +395,8 @@ fn cmd_system(app: &mut App) {
     if prompts.is_empty() {
         app.set_status("No system prompts found.".to_owned(), StatusLevel::Warning);
     } else {
-        app.system_prompt_list = prompts.into_iter().map(|e| e.name).collect();
-        app.system_prompt_selected = 0;
+        app.system_prompt.list = prompts.into_iter().map(|e| e.name).collect();
+        app.system_prompt.selected = 0;
         app.open_paged_dialog(Focus::SystemPromptDialog);
     }
 }
@@ -476,8 +476,8 @@ fn cmd_persona(app: &mut App) {
             None => vec![persona_slug.clone(), String::new()],
         };
         let all_locked = vec![0, 1];
-        app.persona_editor_slug = persona_slug.clone();
-        app.persona_editor =
+        app.persona.editor_slug = persona_slug.clone();
+        app.persona.editor =
             Some(dialogs::open_persona_editor(values).with_locked_fields(all_locked));
         app.focus = Focus::PersonaEditorDialog;
         return;
@@ -488,9 +488,9 @@ fn cmd_persona(app: &mut App) {
         .as_ref()
         .and_then(|db| db.list_personas().ok())
         .unwrap_or_default();
-    app.persona_names = personas.iter().map(|(_, name)| name.clone()).collect();
-    app.persona_slugs = personas.into_iter().map(|(slug, _)| slug).collect();
-    app.persona_selected = 0;
+    app.persona.names = personas.iter().map(|(_, name)| name.clone()).collect();
+    app.persona.slugs = personas.into_iter().map(|(slug, _)| slug).collect();
+    app.persona.selected = 0;
     app.open_paged_dialog(Focus::PersonaDialog);
 }
 
@@ -528,8 +528,8 @@ fn cmd_worldbook(app: &mut App) {
         .as_ref()
         .and_then(|db| db.list_worldbooks().ok())
         .unwrap_or_default();
-    app.worldbook_list = books.into_iter().map(|(_, name)| name).collect();
-    app.worldbook_selected = 0;
+    app.worldbook.list = books.into_iter().map(|(_, name)| name).collect();
+    app.worldbook.list_selected = 0;
     app.open_paged_dialog(Focus::WorldbookDialog);
 }
 
@@ -543,17 +543,18 @@ fn cmd_character(app: &mut App) {
         .as_ref()
         .and_then(|db| db.list_characters().ok())
         .unwrap_or_default();
-    app.character_names = chars.iter().map(|(_, name)| name.clone()).collect();
-    app.character_slugs = chars.into_iter().map(|(slug, _)| slug).collect();
-    app.character_selected = 0;
+    app.character.names = chars.iter().map(|(_, name)| name.clone()).collect();
+    app.character.slugs = chars.into_iter().map(|(slug, _)| slug).collect();
+    app.character.selected = 0;
     let active_slugs: std::collections::HashSet<&str> = app
         .session
         .characters
         .iter()
         .map(|a| a.slug.as_str())
         .collect();
-    app.character_picks = app
-        .character_slugs
+    app.character.picks = app
+        .character
+        .slugs
         .iter()
         .map(|s| active_slugs.contains(s.as_str()))
         .collect();
@@ -723,7 +724,7 @@ async fn cmd_next(app: &mut App<'_>, arg: &str, sender: mpsc::Sender<StreamToken
         start_group_chat_loop(app, &sender).await;
         return;
     }
-    match resolve_speaker_by_name(&app.session.characters, &app.character_cards_cache, needle) {
+    match resolve_speaker_by_name(&app.session.characters, &app.character.cards_cache, needle) {
         Some(slug) => {
             let snapshot_before: std::collections::HashMap<String, f32> = app
                 .session

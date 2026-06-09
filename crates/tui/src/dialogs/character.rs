@@ -12,24 +12,24 @@ use crate::{Action, App, DeleteContext, Focus};
 use libllm_core::session::{self, Message, Role};
 
 pub(crate) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
-    let unfiltered_total = app.character_names.len();
+    let visible_indices = super::filter_indices(&app.character.names, &app.dialog_search);
+    let unfiltered_total = app.character.names.len();
     let count = visible_indices.len();
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING);
     let dialog = clear_centered(f, super::LIST_DIALOG_WIDTH, height, area);
 
     let filtered_selected =
-        super::filtered_selection_position(&visible_indices, app.character_selected).unwrap_or(0);
+        super::filtered_selection_position(&visible_indices, app.character.selected).unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
         .map(|&i| {
-            let mark = if app.character_picks.get(i).copied().unwrap_or(false) {
+            let mark = if app.character.picks.get(i).copied().unwrap_or(false) {
                 "[x] "
             } else {
                 "[ ] "
             };
-            ListItem::new(format!("{mark}{}", app.character_names[i]))
+            ListItem::new(format!("{mark}{}", app.character.names[i]))
         })
         .collect();
 
@@ -61,7 +61,7 @@ pub(crate) fn render_character_dialog(f: &mut ratatui::Frame, app: &App, area: R
 }
 
 pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    if app.character_names.is_empty() && !app.dialog_search.active {
+    if app.character.names.is_empty() && !app.dialog_search.active {
         match key.code {
             KeyCode::Char('a') => {
                 create_and_edit_character(app);
@@ -76,8 +76,8 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 
     let visible = super::page_size(app.last_terminal_height, super::LIST_DIALOG_TALL_PADDING);
     let action = super::handle_paged_list_key(
-        &mut app.character_selected,
-        &app.character_names,
+        &mut app.character.selected,
+        &app.character.names,
         visible,
         key,
         Some(&mut app.dialog_search),
@@ -91,8 +91,8 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
         return None;
     }
 
-    let visible_indices = super::filter_indices(&app.character_names, &app.dialog_search);
-    let Some(selected) = super::visible_selection(&visible_indices, app.character_selected) else {
+    let visible_indices = super::filter_indices(&app.character.names, &app.dialog_search);
+    let Some(selected) = super::visible_selection(&visible_indices, app.character.selected) else {
         if key.code == KeyCode::Esc {
             return_to_input(app);
         }
@@ -101,7 +101,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 
     match key.code {
         KeyCode::Char(' ') => {
-            if let Some(pick) = app.character_picks.get_mut(selected) {
+            if let Some(pick) = app.character.picks.get_mut(selected) {
                 *pick = !*pick;
             }
             return None;
@@ -110,20 +110,20 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
             let picked: Vec<usize> = visible_indices
                 .iter()
                 .copied()
-                .filter(|&i| app.character_picks.get(i).copied().unwrap_or(false))
+                .filter(|&i| app.character.picks.get(i).copied().unwrap_or(false))
                 .collect();
 
             if picked.len() >= 2 {
                 let slugs: Vec<String> = picked
                     .iter()
-                    .map(|&i| app.character_slugs[i].clone())
+                    .map(|&i| app.character.slugs[i].clone())
                     .collect();
                 let names_by_slug: std::collections::HashMap<String, String> = picked
                     .iter()
                     .map(|&i| {
                         (
-                            app.character_slugs[i].clone(),
-                            app.character_names[i].clone(),
+                            app.character.slugs[i].clone(),
+                            app.character.names[i].clone(),
                         )
                     })
                     .collect();
@@ -189,7 +189,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
             if !app.flush_session_before_transition() {
                 return None;
             }
-            let slug = app.character_slugs[single_index].clone();
+            let slug = app.character.slugs[single_index].clone();
             let load_result = app.db.as_ref().and_then(|db| db.load_character(&slug).ok());
             match load_result {
                 Some(card) => {
@@ -241,7 +241,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
             }
         }
         KeyCode::Right => {
-            let slug = app.character_slugs[selected].clone();
+            let slug = app.character.slugs[selected].clone();
             match app.db.as_ref().and_then(|db| db.load_character(&slug).ok()) {
                 Some(card) => {
                     let values = vec![
@@ -267,8 +267,8 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
                             "false".to_owned()
                         },
                     ];
-                    app.character_editor = Some(super::open_character_editor(values));
-                    app.character_editor_slug = slug;
+                    app.character.editor = Some(super::open_character_editor(values));
+                    app.character.editor_slug = slug;
                     app.focus = Focus::CharacterEditorDialog;
                 }
                 None => {
@@ -280,8 +280,8 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
             }
         }
         KeyCode::Backspace | KeyCode::Delete => {
-            let name = app.character_names[selected].clone();
-            let slug = app.character_slugs[selected].clone();
+            let name = app.character.names[selected].clone();
+            let slug = app.character.slugs[selected].clone();
             app.delete_confirm_filename = name;
             app.delete_confirm_selected = 0;
             app.delete_context = DeleteContext::Character { slug };
@@ -299,7 +299,7 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 }
 
 fn create_and_edit_character(app: &mut App) {
-    let existing: std::collections::HashSet<String> = app.character_names.iter().cloned().collect();
+    let existing: std::collections::HashSet<String> = app.character.names.iter().cloned().collect();
     let new_name = super::generate_unique_name("character", &existing);
     let card = libllm_core::character::CharacterCard {
         name: new_name.clone(),
@@ -329,9 +329,9 @@ fn create_and_edit_character(app: &mut App) {
         );
         return;
     }
-    app.character_names.push(new_name);
-    app.character_slugs.push(slug.clone());
-    app.character_selected = app.character_names.len() - 1;
+    app.character.names.push(new_name);
+    app.character.slugs.push(slug.clone());
+    app.character.selected = app.character.names.len() - 1;
 
     let values = vec![
         card.name,
@@ -346,8 +346,8 @@ fn create_and_edit_character(app: &mut App) {
         libllm_core::author_note::DEFAULT_DEPTH.to_string(),
         "false".to_owned(),
     ];
-    app.character_editor = Some(super::open_character_editor(values));
-    app.character_editor_slug = slug;
+    app.character.editor = Some(super::open_character_editor(values));
+    app.character.editor_slug = slug;
     app.focus = Focus::CharacterEditorDialog;
 }
 
@@ -390,9 +390,9 @@ pub(crate) fn handle_character_paste(path: &std::path::Path, ext: &str, app: &mu
                         .as_ref()
                         .and_then(|db| db.list_characters().ok())
                         .unwrap_or_default();
-                    app.character_names = chars.iter().map(|(_, n)| n.clone()).collect();
-                    app.character_slugs = chars.into_iter().map(|(s, _)| s).collect();
-                    app.character_selected = 0;
+                    app.character.names = chars.iter().map(|(_, n)| n.clone()).collect();
+                    app.character.slugs = chars.into_iter().map(|(s, _)| s).collect();
+                    app.character.selected = 0;
                     app.set_status(
                         format!("Imported character: {name}"),
                         super::super::StatusLevel::Info,

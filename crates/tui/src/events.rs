@@ -102,12 +102,12 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
             }
         }
         Focus::PresetEditorDialog => {
-            if let Some(ref mut d) = app.preset_editor {
+            if let Some(ref mut d) = app.preset.editor {
                 d.insert_into_active_editor(&text);
             }
         }
         Focus::PersonaEditorDialog => {
-            if let Some(ref mut d) = app.persona_editor {
+            if let Some(ref mut d) = app.persona.editor {
                 d.insert_into_active_editor(&text);
             }
         }
@@ -117,17 +117,17 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
             }
         }
         Focus::CharacterEditorDialog => {
-            if let Some(ref mut d) = app.character_editor {
+            if let Some(ref mut d) = app.character.editor {
                 d.insert_into_active_editor(&text);
             }
         }
         Focus::SystemPromptEditorDialog => {
-            if let Some(ref mut d) = app.system_prompt_editor {
+            if let Some(ref mut d) = app.system_prompt.editor {
                 d.insert_into_active_editor(&text);
             }
         }
         Focus::WorldbookEntryEditorDialog => {
-            if let Some(ref mut d) = app.worldbook_entry_editor {
+            if let Some(ref mut d) = app.worldbook.entry_editor {
                 d.insert_into_active_editor(&text);
             }
         }
@@ -252,7 +252,7 @@ pub(super) async fn process_action(
                     crate::dialogs::worldbook::commit_editor_and_close(app);
                 }
                 (Focus::WorldbookEditorDialog, UnsavedButton::Discard) => {
-                    app.worldbook_editor_name_editing = false;
+                    app.worldbook.editor_name_editing = false;
                     app.dialog_search.deactivate_and_clear();
                     app.focus = Focus::WorldbookDialog;
                 }
@@ -482,12 +482,12 @@ fn handle_key(
         let invariant_ok = match app.focus {
             Focus::ConfigDialog => app.config_dialog.is_some(),
             Focus::ThemeDialog => app.theme_dialog.is_some(),
-            Focus::PresetEditorDialog => app.preset_editor.is_some(),
-            Focus::PersonaEditorDialog => app.persona_editor.is_some(),
+            Focus::PresetEditorDialog => app.preset.editor.is_some(),
+            Focus::PersonaEditorDialog => app.persona.editor.is_some(),
             Focus::AuthorNoteEditorDialog => app.author_note_editor.is_some(),
-            Focus::CharacterEditorDialog => app.character_editor.is_some(),
-            Focus::SystemPromptEditorDialog => app.system_prompt_editor.is_some(),
-            Focus::WorldbookEntryEditorDialog => app.worldbook_entry_editor.is_some(),
+            Focus::CharacterEditorDialog => app.character.editor.is_some(),
+            Focus::SystemPromptEditorDialog => app.system_prompt.editor.is_some(),
+            Focus::WorldbookEntryEditorDialog => app.worldbook.entry_editor.is_some(),
             Focus::ScenarioEditorDialog => app.scenario_editor.is_some(),
             Focus::EditDialog => app.edit_editor.is_some(),
             Focus::UnsavedWarningDialog => app.unsaved_warning.is_some(),
@@ -1214,12 +1214,12 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
             }
         }
         Focus::PresetEditorDialog => {
-            if let Some(ref mut d) = app.preset_editor {
+            if let Some(ref mut d) = app.preset.editor {
                 return d.scroll_editor_by(rows);
             }
         }
         Focus::PersonaEditorDialog => {
-            if let Some(ref mut d) = app.persona_editor {
+            if let Some(ref mut d) = app.persona.editor {
                 return d.scroll_editor_by(rows);
             }
         }
@@ -1229,17 +1229,17 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
             }
         }
         Focus::CharacterEditorDialog => {
-            if let Some(ref mut d) = app.character_editor {
+            if let Some(ref mut d) = app.character.editor {
                 return d.scroll_editor_by(rows);
             }
         }
         Focus::SystemPromptEditorDialog => {
-            if let Some(ref mut d) = app.system_prompt_editor {
+            if let Some(ref mut d) = app.system_prompt.editor {
                 return d.scroll_editor_by(rows);
             }
         }
         Focus::WorldbookEntryEditorDialog => {
-            if let Some(ref mut d) = app.worldbook_entry_editor {
+            if let Some(ref mut d) = app.worldbook.entry_editor {
                 return d.scroll_editor_by(rows);
             }
         }
@@ -1268,12 +1268,12 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
     let terminal_area = Rect::new(0, 0, tw, th);
     match app.focus {
         Focus::PresetEditorDialog => {
-            if let Some(ref mut d) = app.preset_editor {
+            if let Some(ref mut d) = app.preset.editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }
         Focus::PersonaEditorDialog => {
-            if let Some(ref mut d) = app.persona_editor {
+            if let Some(ref mut d) = app.persona.editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }
@@ -1283,17 +1283,17 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
             }
         }
         Focus::CharacterEditorDialog => {
-            if let Some(ref mut d) = app.character_editor {
+            if let Some(ref mut d) = app.character.editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }
         Focus::SystemPromptEditorDialog => {
-            if let Some(ref mut d) = app.system_prompt_editor {
+            if let Some(ref mut d) = app.system_prompt.editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }
         Focus::WorldbookEntryEditorDialog => {
-            if let Some(ref mut d) = app.worldbook_entry_editor {
+            if let Some(ref mut d) = app.worldbook.entry_editor {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }

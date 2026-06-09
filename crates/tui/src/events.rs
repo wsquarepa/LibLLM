@@ -97,7 +97,7 @@ fn handle_paste(text: String, raw_event: Event, app: &mut App) -> Option<Action>
             }
         }
         Focus::EditDialog => {
-            if let Some(ref mut editor) = app.edit_editor {
+            if let Some(ref mut editor) = app.edit.editor {
                 editor.insert_str(&text);
             }
         }
@@ -245,7 +245,7 @@ pub(super) async fn process_action(
                     dialogs::regex::commit_editor_and_close(app);
                 }
                 (Focus::RegexEditorDialog, UnsavedButton::Discard) => {
-                    app.regex_editor = None;
+                    app.regex.editor = None;
                     app.focus = Focus::RegexDialog;
                 }
                 (Focus::WorldbookEditorDialog, UnsavedButton::SaveAndClose) => {
@@ -423,7 +423,7 @@ pub(crate) fn handle_edit_message(
         app.config.files.summarize_mode == libllm_core::config::FileSummarizeMode::Eager,
         app.config.summarization.enabled,
         app.save_mode.id(),
-        app.file_summarizer.as_ref(),
+        app.file_summary.summarizer.as_ref(),
     ) {
         (false, _, _, _) => {
             tracing::debug!(reason = "mode_lazy", "files.summary.eager_schedule.skipped")
@@ -481,15 +481,15 @@ fn handle_key(
     {
         let invariant_ok = match app.focus {
             Focus::ConfigDialog => app.config_dialog.is_some(),
-            Focus::ThemeDialog => app.theme_dialog.is_some(),
+            Focus::ThemeDialog => app.theme_ui.dialog.is_some(),
             Focus::PresetEditorDialog => app.preset.editor.is_some(),
             Focus::PersonaEditorDialog => app.persona.editor.is_some(),
             Focus::AuthorNoteEditorDialog => app.author_note_editor.is_some(),
             Focus::CharacterEditorDialog => app.character.editor.is_some(),
             Focus::SystemPromptEditorDialog => app.system_prompt.editor.is_some(),
             Focus::WorldbookEntryEditorDialog => app.worldbook.entry_editor.is_some(),
-            Focus::ScenarioEditorDialog => app.scenario_editor.is_some(),
-            Focus::EditDialog => app.edit_editor.is_some(),
+            Focus::ScenarioEditorDialog => app.scenario.editor.is_some(),
+            Focus::EditDialog => app.edit.editor.is_some(),
             Focus::UnsavedWarningDialog => app.unsaved_warning.is_some(),
             Focus::FilePickerDialog => app.file_picker.is_some(),
             Focus::FileReferenceConfirmDialog => app.file_reference_confirm.is_some(),
@@ -660,24 +660,24 @@ fn handle_key(
         return None;
     }
     if app.focus == Focus::DangerConfirmDialog {
-        let mut sel = app.danger_confirm_selected.unwrap_or(0);
+        let mut sel = app.danger.confirm_selected.unwrap_or(0);
         let r = handle_danger_confirm_key(key, &mut sel);
-        app.danger_confirm_selected = Some(sel);
+        app.danger.confirm_selected = Some(sel);
         match r {
             DangerConfirmResult::Pending => {}
             DangerConfirmResult::Cancel => {
-                app.danger_confirm_op = None;
-                app.danger_confirm_selected = None;
+                app.danger.confirm_op = None;
+                app.danger.confirm_selected = None;
                 app.focus = Focus::ConfigDialog;
             }
             DangerConfirmResult::Confirm => {
-                if let Some(op) = app.danger_confirm_op.take() {
+                if let Some(op) = app.danger.confirm_op.take() {
                     match commands::danger::dispatch_sync(app, op) {
                         Ok(summary) => commands::danger::report_summary(app, op, &summary),
                         Err(err) => app.set_status(format!("Op failed: {err}"), StatusLevel::Error),
                     }
                 }
-                app.danger_confirm_selected = None;
+                app.danger.confirm_selected = None;
                 app.focus = Focus::ConfigDialog;
             }
         }
@@ -685,23 +685,23 @@ fn handle_key(
     }
 
     if app.focus == Focus::DangerTypedConfirmDialog {
-        let Some(state) = app.danger_typed_confirm.as_mut() else {
+        let Some(state) = app.danger.typed_confirm.as_mut() else {
             app.focus = Focus::ConfigDialog;
             return None;
         };
         match handle_danger_typed_key(key, state) {
             DangerTypedResult::Pending => {}
             DangerTypedResult::Cancel => {
-                app.danger_typed_confirm = None;
+                app.danger.typed_confirm = None;
                 app.focus = Focus::ConfigDialog;
             }
             DangerTypedResult::Destroy => {
-                if let Some(state) = app.danger_typed_confirm.take() {
+                if let Some(state) = app.danger.typed_confirm.take() {
                     crate::commands::danger::spawn_destroy_all(
                         app.bg_tx.clone(),
                         libllm_config::data_dir(),
                         state.snapshot_path,
-                        app.file_summarizer.clone(),
+                        app.file_summary.summarizer.clone(),
                     );
                     app.set_status("Creating snapshot\u{2026}".to_owned(), StatusLevel::Info);
                 }
@@ -1059,7 +1059,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                     mouse.row,
                 );
             } else if app.focus == Focus::EditDialog
-                && let Some(ref mut editor) = app.edit_editor
+                && let Some(ref mut editor) = app.edit.editor
                 && let Ok((tw, th)) = crossterm::terminal::size()
             {
                 let terminal_area = Rect::new(0, 0, tw, th);
@@ -1078,7 +1078,7 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Option<Action> {
                 move_textarea_cursor_to_mouse(
                     editor,
                     editor_area,
-                    app.edit_scroll_top,
+                    app.edit.scroll_top,
                     mouse.column,
                     mouse.row,
                 );
@@ -1208,7 +1208,7 @@ fn scroll_dialog(app: &mut App, direction: ScrollDirection) {
 fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
     match app.focus {
         Focus::EditDialog => {
-            if let Some(ref mut editor) = app.edit_editor {
+            if let Some(ref mut editor) = app.edit.editor {
                 editor.scroll((rows, 0));
                 return true;
             }
@@ -1252,7 +1252,7 @@ fn dispatch_editor_wheel(app: &mut App, rows: i16) -> bool {
             }
         }
         Focus::ThemeDialog => {
-            if let Some(ref mut d) = app.theme_dialog {
+            if let Some(ref mut d) = app.theme_ui.dialog {
                 return d.scroll_editor_by(rows);
             }
         }
@@ -1306,7 +1306,7 @@ fn dispatch_dialog_editor_drag(app: &mut App, screen_col: u16, screen_row: u16) 
             }
         }
         Focus::ThemeDialog => {
-            if let Some(ref mut d) = app.theme_dialog {
+            if let Some(ref mut d) = app.theme_ui.dialog {
                 d.handle_mouse_drag(terminal_area, screen_col, screen_row);
             }
         }
@@ -1470,22 +1470,23 @@ pub(super) fn is_dialog_focus(focus: Focus) -> bool {
 
 fn handle_base_theme_picker_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     match key.code {
-        KeyCode::Up if app.base_theme_picker_selected > 0 => {
-            app.base_theme_picker_selected -= 1;
+        KeyCode::Up if app.theme_ui.base_picker_selected > 0 => {
+            app.theme_ui.base_picker_selected -= 1;
         }
         KeyCode::Down => {
-            let count = app.base_theme_picker_names.len();
-            if count > 0 && app.base_theme_picker_selected + 1 < count {
-                app.base_theme_picker_selected += 1;
+            let count = app.theme_ui.base_picker_names.len();
+            if count > 0 && app.theme_ui.base_picker_selected + 1 < count {
+                app.theme_ui.base_picker_selected += 1;
             }
         }
         KeyCode::Enter => {
             let chosen = app
-                .base_theme_picker_names
-                .get(app.base_theme_picker_selected)
+                .theme_ui
+                .base_picker_names
+                .get(app.theme_ui.base_picker_selected)
                 .cloned()
                 .unwrap_or_default();
-            if let Some(ref mut dialog) = app.theme_dialog {
+            if let Some(ref mut dialog) = app.theme_ui.dialog {
                 dialog.set_value(0, 0, chosen);
             }
             app.focus = Focus::ThemeDialog;

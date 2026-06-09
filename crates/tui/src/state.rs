@@ -47,7 +47,7 @@ impl App<'_> {
                 needs_redraw = true;
             }
         }
-        if let Some(d) = self.theme_dialog.as_mut()
+        if let Some(d) = self.theme_ui.dialog.as_mut()
             && let Some(t) = d.reject_flash
         {
             if dialogs::is_flash_active(Some(t)) {

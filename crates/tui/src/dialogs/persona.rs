@@ -144,9 +144,9 @@ pub(crate) fn handle_persona_dialog_key(key: KeyEvent, app: &mut App) -> Option<
         KeyCode::Backspace | KeyCode::Delete => {
             let name = app.persona.names[selected].clone();
             let slug = app.persona.slugs[selected].clone();
-            app.delete_confirm_filename = name;
-            app.delete_confirm_selected = 0;
-            app.delete_context = DeleteContext::Persona { slug };
+            app.delete_confirm.filename = name;
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.context = DeleteContext::Persona { slug };
             app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {

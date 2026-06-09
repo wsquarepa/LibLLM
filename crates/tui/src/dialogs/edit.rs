@@ -15,15 +15,15 @@ pub(crate) fn render_edit_dialog(f: &mut ratatui::Frame, app: &mut App, area: Re
 
     f.render_widget(dialog_block(" Edit Message ", Color::Yellow), dialog);
 
-    if let Some(ref editor) = app.edit_editor {
+    if let Some(ref editor) = app.edit.editor {
         let editor_area = Rect {
             x: dialog.x + 2,
             y: dialog.y + 1,
             width: dialog.width.saturating_sub(4),
             height: dialog.height.saturating_sub(2),
         };
-        app.edit_scroll_top =
-            crate::events::update_scroll_top(app.edit_scroll_top, editor, editor_area);
+        app.edit.scroll_top =
+            crate::events::update_scroll_top(app.edit.scroll_top, editor, editor_area);
         f.render_widget(editor, editor_area);
     }
 
@@ -42,15 +42,15 @@ fn is_commit_key(key: &KeyEvent) -> bool {
 }
 
 pub(crate) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    let editor = app.edit_editor.as_mut()?;
+    let editor = app.edit.editor.as_mut()?;
 
     let is_confirm = is_commit_key(&key);
 
     if key.code == KeyCode::Esc {
         let current_content = editor.lines().join("\n");
-        if current_content == app.edit_original_content {
-            app.edit_editor = None;
-            app.raw_edit_node = None;
+        if current_content == app.edit.original_content {
+            app.edit.editor = None;
+            app.edit.raw_node = None;
             app.focus = Focus::Chat;
         } else {
             app.unsaved_warning = Some(crate::dialogs::unsaved_warning::UnsavedWarningState::new(
@@ -63,8 +63,8 @@ pub(crate) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 
     if is_confirm {
         let content = editor.lines().join("\n").trim().to_owned();
-        let node_id = app.raw_edit_node.take();
-        app.edit_editor = None;
+        let node_id = app.edit.raw_node.take();
+        app.edit.editor = None;
         app.focus = Focus::Chat;
 
         if content.is_empty() {
@@ -88,13 +88,13 @@ pub(crate) fn handle_edit_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 pub(crate) fn commit_edit_dialog(app: &mut App) {
-    let Some(ref editor) = app.edit_editor else {
+    let Some(ref editor) = app.edit.editor else {
         crate::dialog_handler::return_to_input(app);
         return;
     };
     let content = editor.lines().join("\n").trim().to_owned();
-    let node_id = app.raw_edit_node.take();
-    app.edit_editor = None;
+    let node_id = app.edit.raw_node.take();
+    app.edit.editor = None;
     app.focus = Focus::Chat;
     if content.is_empty() {
         return;
@@ -105,8 +105,8 @@ pub(crate) fn commit_edit_dialog(app: &mut App) {
 }
 
 pub(crate) fn discard_edit_dialog(app: &mut App) {
-    app.edit_editor = None;
-    app.raw_edit_node = None;
+    app.edit.editor = None;
+    app.edit.raw_node = None;
     app.focus = Focus::Chat;
 }
 

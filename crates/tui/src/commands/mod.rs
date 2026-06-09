@@ -436,7 +436,7 @@ fn cmd_branch(app: &mut App) {
     }
 
     const BRANCH_PREVIEW_CHARS: usize = 60;
-    app.branch_dialog_items = siblings
+    app.branch.items = siblings
         .iter()
         .map(|&sib_id| {
             let node = app
@@ -461,7 +461,7 @@ fn cmd_branch(app: &mut App) {
         .collect();
 
     let current_idx = siblings.iter().position(|&s| s == target_id).unwrap_or(0);
-    app.branch_dialog_selected = current_idx;
+    app.branch.selected = current_idx;
     app.open_paged_dialog(Focus::BranchDialog);
 }
 
@@ -602,7 +602,7 @@ fn cmd_theme(app: &mut App, arg: &str) {
     let arg = arg.trim();
     if arg.is_empty() {
         let cfg = libllm_config::load();
-        app.theme_dialog = Some(dialogs::open_theme_editor(&cfg));
+        app.theme_ui.dialog = Some(dialogs::open_theme_editor(&cfg));
         app.focus = Focus::ThemeDialog;
         return;
     }
@@ -884,7 +884,7 @@ pub(crate) async fn run_periodic_tasks(
             needs_redraw = true;
         }
     }
-    while let Ok(event) = app.file_summary_ready_rx.try_recv() {
+    while let Ok(event) = app.file_summary.ready_rx.try_recv() {
         tracing::debug!(
             session_id = %event.session_id,
             content_hash = %event.content_hash,
@@ -892,7 +892,7 @@ pub(crate) async fn run_periodic_tasks(
             "tui.file_summary.ready"
         );
         app.invalidate_chat_render_cache();
-        app.file_summary_revision = app.file_summary_revision.wrapping_add(1);
+        app.file_summary.revision = app.file_summary.revision.wrapping_add(1);
         needs_redraw = true;
     }
     if matches!(app.focus, Focus::SearchDialog)

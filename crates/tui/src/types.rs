@@ -353,6 +353,57 @@ pub(super) struct WorldbookUi<'a> {
     pub(super) entry_editor_index: usize,
 }
 
+pub(super) struct ThemeUi<'a> {
+    pub(super) dialog: Option<dialogs::TabbedFieldDialog<'a>>,
+    pub(super) base_picker_names: Vec<String>,
+    pub(super) base_picker_selected: usize,
+}
+
+pub(super) struct EditUi<'a> {
+    pub(super) editor: Option<TextArea<'a>>,
+    pub(super) raw_node: Option<NodeId>,
+    pub(super) original_content: String,
+    pub(super) scroll_top: u16,
+}
+
+pub(super) struct DeleteConfirmUi {
+    pub(super) selected: usize,
+    pub(super) filename: String,
+    pub(super) context: DeleteContext,
+}
+
+pub(super) struct BranchUi {
+    pub(super) items: Vec<(NodeId, String)>,
+    pub(super) selected: usize,
+}
+
+pub(super) struct DangerUi {
+    pub(super) selected: usize,
+    pub(super) confirm_op: Option<DangerOp>,
+    pub(super) confirm_selected: Option<usize>,
+    pub(super) typed_confirm: Option<TypedConfirmState>,
+}
+
+pub(super) struct RegexUi {
+    pub(super) list_selected: usize,
+    pub(super) editor: Option<dialogs::regex::RegexEditorState>,
+    pub(super) skipped_pending_status: usize,
+}
+
+pub(super) struct ScenarioUi<'a> {
+    pub(super) editor: Option<TextArea<'a>>,
+    pub(super) scroll_top: u16,
+}
+
+pub(super) struct FileSummaryUi {
+    pub(super) summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>>,
+    pub(super) ready_tx: tokio::sync::mpsc::UnboundedSender<libllm_core::files::ReadyEvent>,
+    pub(super) ready_rx: tokio::sync::mpsc::UnboundedReceiver<libllm_core::files::ReadyEvent>,
+    /// Monotonic counter bumped on each file-summary completion so that the
+    /// next render sees `scroll_dirty` and re-snaps to the new bottom.
+    pub(super) revision: u64,
+}
+
 pub(super) struct App<'a> {
     pub(super) client: ApiClient,
     pub(super) session: &'a mut Session,
@@ -369,7 +420,6 @@ pub(super) struct App<'a> {
     pub(super) focus: Focus,
     pub(super) textarea: TextArea<'a>,
     pub(super) input_scroll_top: u16,
-    pub(super) edit_scroll_top: u16,
     pub(super) chat_scroll: u16,
     pub(super) chat_max_scroll: u16,
     pub(super) auto_scroll: bool,
@@ -393,12 +443,10 @@ pub(super) struct App<'a> {
 
     pub(super) config_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
     pub(super) auth_dialog: Option<dialogs::auth::AuthDialogState>,
-    pub(super) theme_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
-    pub(super) base_theme_picker_names: Vec<String>,
-    pub(super) base_theme_picker_selected: usize,
+    pub(super) theme_ui: ThemeUi<'a>,
     pub(super) author_note_editor: Option<dialogs::FieldDialog<'a>>,
     pub(super) system_prompt: SystemPromptUi<'a>,
-    pub(super) edit_editor: Option<TextArea<'a>>,
+    pub(super) edit: EditUi<'a>,
     pub(super) unsaved_warning: Option<dialogs::unsaved_warning::UnsavedWarningState>,
     pub(super) last_unsaved_warning_return_focus: Option<Focus>,
 
@@ -406,9 +454,7 @@ pub(super) struct App<'a> {
     pub(super) character: CharacterUi<'a>,
     pub(super) worldbook: WorldbookUi<'a>,
 
-    pub(super) regex_list_selected: usize,
-    pub(super) regex_editor: Option<dialogs::regex::RegexEditorState>,
-    pub(super) skipped_regex_rules_pending_status: usize,
+    pub(super) regex: RegexUi,
 
     pub(super) compiled_regex: Vec<libllm_core::regex_rules::CompiledRule>,
     pub(super) display_regex_cache: std::collections::HashMap<libllm_core::session::NodeId, String>,
@@ -416,15 +462,10 @@ pub(super) struct App<'a> {
     pub(super) cached_token_count: Option<libllm_protocol::tokenizer::CountState>,
     pub(super) token_counter: libllm_protocol::tokenizer::TokenCounter,
     pub(super) tokenizer_tx: mpsc::Sender<libllm_protocol::tokenizer::TokenCountUpdate>,
-    pub(super) raw_edit_node: Option<NodeId>,
-    pub(super) edit_original_content: String,
     pub(super) nav_cursor: Option<NodeId>,
-    pub(super) branch_dialog_items: Vec<(NodeId, String)>,
-    pub(super) branch_dialog_selected: usize,
+    pub(super) branch: BranchUi,
     pub(super) search_dialog: Option<dialogs::search::SearchDialogState>,
-    pub(super) delete_confirm_selected: usize,
-    pub(super) delete_confirm_filename: String,
-    pub(super) delete_context: DeleteContext,
+    pub(super) delete_confirm: DeleteConfirmUi,
     pub(super) active_card_author_note: Option<libllm_core::author_note::AuthorNote>,
     pub(super) persona: PersonaUi<'a>,
     pub(super) config: libllm_core::config::Config,
@@ -445,23 +486,12 @@ pub(super) struct App<'a> {
     /// decide whether to reuse the existing file-snapshot parent chain or
     /// push a fresh one.
     pub(super) recall_refs: Option<Vec<String>>,
-    pub(super) file_summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>>,
-    pub(super) file_summary_ready_tx:
-        tokio::sync::mpsc::UnboundedSender<libllm_core::files::ReadyEvent>,
-    pub(super) file_summary_ready_rx:
-        tokio::sync::mpsc::UnboundedReceiver<libllm_core::files::ReadyEvent>,
-    /// Monotonic counter bumped on each file-summary completion so that the
-    /// next render sees `scroll_dirty` and re-snaps to the new bottom.
-    pub(super) file_summary_revision: u64,
+    pub(super) file_summary: FileSummaryUi,
     pub(super) pending_template_prompt: Option<TemplatePromptState>,
     pub(super) template_prompt_state: Option<TemplatePromptState>,
-    pub(super) danger_selected: usize,
-    pub(super) danger_confirm_op: Option<DangerOp>,
-    pub(super) danger_confirm_selected: Option<usize>,
-    pub(super) danger_typed_confirm: Option<TypedConfirmState>,
+    pub(super) danger: DangerUi,
     pub(super) chat_settings_dialog: Option<dialogs::chat_settings::ChatSettingsDialog>,
-    pub(super) scenario_editor: Option<TextArea<'a>>,
-    pub(super) scenario_scroll_top: u16,
+    pub(super) scenario: ScenarioUi<'a>,
     pub(super) group_chat: GroupChatState,
 }
 

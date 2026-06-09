@@ -63,7 +63,7 @@ fn destroy_all_finalize(app: &mut App, snapshot_path: std::path::PathBuf) {
 
     // Drop owned references before deletion — FileSummarizer holds a second DB connection.
     // Other tasks holding Arcs may keep the file alive briefly; acceptable for the destroy path.
-    app.file_summarizer = None;
+    app.file_summary.summarizer = None;
     app.db = None;
 
     if let Err(err) = std::fs::remove_dir_all(&data_dir) {

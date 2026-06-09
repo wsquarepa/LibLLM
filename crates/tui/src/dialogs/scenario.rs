@@ -29,8 +29,8 @@ pub(crate) fn open(app: &mut App) {
     };
     let mut editor = TextArea::from(lines);
     dialog_handler::configure_textarea_at_start(&mut editor);
-    app.scenario_editor = Some(editor);
-    app.scenario_scroll_top = 0;
+    app.scenario.editor = Some(editor);
+    app.scenario.scroll_top = 0;
     app.focus = Focus::ScenarioEditorDialog;
 }
 
@@ -50,7 +50,7 @@ fn dialog_rect(area: Rect) -> Rect {
 }
 
 pub(crate) fn render(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(ref editor) = app.scenario_editor else {
+    let Some(ref editor) = app.scenario.editor else {
         return;
     };
     let width = (area.width as f32 * DIALOG_WIDTH_RATIO) as u16;
@@ -60,8 +60,8 @@ pub(crate) fn render(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(dialog_block(" Edit Scenario ", Color::Yellow), dialog);
 
     let editor_rect = editor_area(dialog);
-    app.scenario_scroll_top =
-        events::update_scroll_top(app.scenario_scroll_top, editor, editor_rect);
+    app.scenario.scroll_top =
+        events::update_scroll_top(app.scenario.scroll_top, editor, editor_rect);
     f.render_widget(editor, editor_rect);
 
     render_hints_below_dialog(f, dialog, area, &[Line::from("Esc: close")]);
@@ -73,7 +73,7 @@ pub(crate) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         return None;
     }
 
-    let editor = app.scenario_editor.as_mut()?;
+    let editor = app.scenario.editor.as_mut()?;
     let (consumed, warning) = clipboard::handle_clipboard_key(&key, editor);
     if !consumed {
         dialog_handler::input_with_eof_jump(editor, key);
@@ -85,13 +85,13 @@ pub(crate) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 pub(crate) fn insert_text(app: &mut App, text: &str) {
-    if let Some(ref mut editor) = app.scenario_editor {
+    if let Some(ref mut editor) = app.scenario.editor {
         editor.insert_str(text);
     }
 }
 
 pub(crate) fn scroll_by(app: &mut App, rows: i16) -> bool {
-    if let Some(ref mut editor) = app.scenario_editor {
+    if let Some(ref mut editor) = app.scenario.editor {
         editor.scroll((rows, 0));
         return true;
     }
@@ -106,13 +106,13 @@ pub(crate) fn handle_mouse_click(app: &mut App, screen_col: u16, screen_row: u16
     let dialog = dialog_rect(terminal_area);
     let inside = dialog.contains(ratatui::layout::Position::new(screen_col, screen_row));
 
-    let Some(ref mut editor) = app.scenario_editor else {
+    let Some(ref mut editor) = app.scenario.editor else {
         return;
     };
 
     if inside {
         let editor_rect = editor_area(dialog);
-        let scroll_top = app.scenario_scroll_top;
+        let scroll_top = app.scenario.scroll_top;
         editor.cancel_selection();
         events::move_textarea_cursor_to_mouse(
             editor,
@@ -128,7 +128,8 @@ pub(crate) fn handle_mouse_click(app: &mut App, screen_col: u16, screen_row: u16
 
 fn stage_provisional_and_close(app: &mut App) {
     let content = app
-        .scenario_editor
+        .scenario
+        .editor
         .take()
         .map(|e| e.lines().join("\n"))
         .unwrap_or_default();
@@ -141,13 +142,13 @@ fn stage_provisional_and_close(app: &mut App) {
     if let Some(dlg) = app.chat_settings_dialog.as_mut() {
         dlg.set_provisional_scenario(provisional);
     }
-    app.scenario_scroll_top = 0;
+    app.scenario.scroll_top = 0;
     app.invalidate_chat_caches();
     app.focus = Focus::ChatSettingsDialog;
 }
 
 pub(crate) fn handle_mouse_drag(app: &mut App, screen_col: u16, screen_row: u16) {
-    let Some(ref mut editor) = app.scenario_editor else {
+    let Some(ref mut editor) = app.scenario.editor else {
         return;
     };
     let Ok((tw, th)) = crossterm::terminal::size() else {
@@ -156,7 +157,7 @@ pub(crate) fn handle_mouse_drag(app: &mut App, screen_col: u16, screen_row: u16)
     let terminal_area = Rect::new(0, 0, tw, th);
     let dialog = dialog_rect(terminal_area);
     let editor_rect = editor_area(dialog);
-    let scroll_top = app.scenario_scroll_top;
+    let scroll_top = app.scenario.scroll_top;
     if editor.selection_range().is_none() {
         editor.start_selection();
     }

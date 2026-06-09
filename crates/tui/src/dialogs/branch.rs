@@ -11,7 +11,8 @@ use crate::{Action, App};
 
 pub(crate) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let labels: Vec<String> = app
-        .branch_dialog_items
+        .branch
+        .items
         .iter()
         .map(|(_, label)| label.clone())
         .collect();
@@ -23,12 +24,11 @@ pub(crate) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect
     let dialog = clear_centered(f, width, height, area);
 
     let filtered_selected =
-        super::filtered_selection_position(&visible_indices, app.branch_dialog_selected)
-            .unwrap_or(0);
+        super::filtered_selection_position(&visible_indices, app.branch.selected).unwrap_or(0);
 
     let items: Vec<ListItem<'_>> = visible_indices
         .iter()
-        .map(|&i| ListItem::new(app.branch_dialog_items[i].1.clone()))
+        .map(|&i| ListItem::new(app.branch.items[i].1.clone()))
         .collect();
 
     super::render_paged_list(
@@ -57,7 +57,8 @@ pub(crate) fn render_branch_dialog(f: &mut ratatui::Frame, app: &App, area: Rect
 
 pub(crate) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let labels: Vec<String> = app
-        .branch_dialog_items
+        .branch
+        .items
         .iter()
         .map(|(_, label)| label.clone())
         .collect();
@@ -71,7 +72,7 @@ pub(crate) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> Option<A
 
     let visible = super::page_size(app.last_terminal_height, super::FIELD_DIALOG_PADDING_ROWS);
     let action = super::handle_paged_list_key(
-        &mut app.branch_dialog_selected,
+        &mut app.branch.selected,
         &labels,
         visible,
         key,
@@ -87,8 +88,7 @@ pub(crate) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> Option<A
     }
 
     let visible_indices = super::filter_indices(&labels, &app.dialog_search);
-    let Some(selected) = super::visible_selection(&visible_indices, app.branch_dialog_selected)
-    else {
+    let Some(selected) = super::visible_selection(&visible_indices, app.branch.selected) else {
         if key.code == KeyCode::Esc {
             return_to_input(app);
         }
@@ -97,7 +97,7 @@ pub(crate) fn handle_branch_dialog_key(key: KeyEvent, app: &mut App) -> Option<A
 
     match key.code {
         KeyCode::Enter => {
-            let (node_id, _) = app.branch_dialog_items[selected];
+            let (node_id, _) = app.branch.items[selected];
             app.session.tree.switch_to(node_id);
             app.invalidate_chat_caches();
             app.nav_cursor = None;

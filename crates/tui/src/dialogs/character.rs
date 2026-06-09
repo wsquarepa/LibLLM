@@ -282,9 +282,9 @@ pub(crate) fn handle_character_dialog_key(key: KeyEvent, app: &mut App) -> Optio
         KeyCode::Backspace | KeyCode::Delete => {
             let name = app.character.names[selected].clone();
             let slug = app.character.slugs[selected].clone();
-            app.delete_confirm_filename = name;
-            app.delete_confirm_selected = 0;
-            app.delete_context = DeleteContext::Character { slug };
+            app.delete_confirm.filename = name;
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.context = DeleteContext::Character { slug };
             app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Char('a') => {

@@ -26,7 +26,7 @@ const ITEMS: &[(DangerOp, &str)] = &[
 /// Render the body of the Danger tab inside the /config dialog.
 ///
 /// `area` is the body rect inside the dialog border, below the tab bar.
-/// Highlights the item at `app.danger_selected` with a reversed style.
+/// Highlights the item at `app.danger.selected` with a reversed style.
 /// `DestroyAll` is always rendered in the error foreground color to signal
 /// its destructive nature regardless of selection state.
 pub(crate) fn render_danger_tab_body(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
@@ -35,13 +35,13 @@ pub(crate) fn render_danger_tab_body(f: &mut Frame, area: Rect, app: &App, theme
         Line::from(""),
     ];
     for (idx, (op, label)) in ITEMS.iter().enumerate() {
-        let prefix = if idx == app.danger_selected {
+        let prefix = if idx == app.danger.selected {
             "    > "
         } else {
             "      "
         };
         let is_destroy_all = matches!(op, DangerOp::DestroyAll);
-        let style = if idx == app.danger_selected {
+        let style = if idx == app.danger.selected {
             if is_destroy_all {
                 Style::default()
                     .fg(theme.status_error_fg)

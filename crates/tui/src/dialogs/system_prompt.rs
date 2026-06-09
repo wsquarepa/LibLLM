@@ -146,9 +146,9 @@ pub(crate) fn handle_system_prompt_dialog_key(key: KeyEvent, app: &mut App) -> O
                     super::super::StatusLevel::Warning,
                 );
             } else {
-                app.delete_confirm_filename = name.clone();
-                app.delete_confirm_selected = 0;
-                app.delete_context = DeleteContext::SystemPrompt { name };
+                app.delete_confirm.filename = name.clone();
+                app.delete_confirm.selected = 0;
+                app.delete_confirm.context = DeleteContext::SystemPrompt { name };
                 app.focus = Focus::DeleteConfirmDialog;
             }
         }

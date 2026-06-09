@@ -714,7 +714,7 @@ pub(crate) async fn start_streaming(
         }
     };
 
-    if app.config.summarization.enabled && app.file_summarizer.is_some() {
+    if app.config.summarization.enabled && app.file_summary.summarizer.is_some() {
         let context_size = app.context_mgr.token_limit();
         for file in &resolved {
             if let Err(err) = libllm_protocol::summarize::check_file_fits(
@@ -744,7 +744,7 @@ pub(crate) async fn start_streaming(
         app.config.files.summarize_mode == libllm_core::config::FileSummarizeMode::Eager,
         app.config.summarization.enabled,
         app.save_mode.id(),
-        app.file_summarizer.as_ref(),
+        app.file_summary.summarizer.as_ref(),
     ) {
         (false, _, _, _) => {
             tracing::debug!(reason = "mode_lazy", "files.summary.eager_schedule.skipped")
@@ -993,7 +993,7 @@ pub(crate) async fn handle_stream_token(
                         if !files_to_wait_on.is_empty() {
                             if let (Some(session_id), Some(summarizer_svc)) = (
                                 session_id_for_summarizer.as_deref(),
-                                app.file_summarizer.as_ref(),
+                                app.file_summary.summarizer.as_ref(),
                             ) {
                                 tracing::info!(
                                     session_id = %session_id,
@@ -1014,7 +1014,7 @@ pub(crate) async fn handle_stream_token(
                                 tracing::debug!(
                                     file_count = files_to_wait_on.len(),
                                     session_present = app.save_mode.id().is_some(),
-                                    summarizer_present = app.file_summarizer.is_some(),
+                                    summarizer_present = app.file_summary.summarizer.is_some(),
                                     "files.summary.ensure_ready.skipped"
                                 );
                             }
@@ -1023,7 +1023,7 @@ pub(crate) async fn handle_stream_token(
                         let summaries_snapshot: HashMap<String, libllm_core::files::FileSummary> =
                             if let (Some(session_id), Some(summarizer_svc)) = (
                                 session_id_for_summarizer.as_deref(),
-                                app.file_summarizer.as_ref(),
+                                app.file_summary.summarizer.as_ref(),
                             ) {
                                 let snapshot: HashMap<String, libllm_core::files::FileSummary> =
                                     files_to_wait_on

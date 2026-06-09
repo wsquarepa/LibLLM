@@ -190,9 +190,9 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
         }
         KeyCode::Backspace | KeyCode::Delete => {
             let name = app.worldbook.list[selected].clone();
-            app.delete_confirm_filename = name.clone();
-            app.delete_confirm_selected = 0;
-            app.delete_context = DeleteContext::Worldbook { name };
+            app.delete_confirm.filename = name.clone();
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.context = DeleteContext::Worldbook { name };
             app.focus = Focus::DeleteConfirmDialog;
         }
         KeyCode::Esc => {
@@ -494,8 +494,8 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
             } else {
                 entry.keys.join(", ")
             };
-            app.delete_confirm_filename = format!("{keys_desc} ({content_lines} lines)");
-            app.delete_confirm_selected = 0;
+            app.delete_confirm.filename = format!("{keys_desc} ({content_lines} lines)");
+            app.delete_confirm.selected = 0;
             app.focus = Focus::WorldbookEntryDeleteDialog;
         }
         KeyCode::Esc => close_worldbook_editor(app),
@@ -605,13 +605,13 @@ pub(crate) fn render_entry_delete_dialog(f: &mut ratatui::Frame, app: &App, area
     super::delete_confirm::render_confirm_dialog(
         f,
         area,
-        &format!("Delete {}?", app.delete_confirm_filename),
-        app.delete_confirm_selected,
+        &format!("Delete {}?", app.delete_confirm.filename),
+        app.delete_confirm.selected,
     );
 }
 
 pub(crate) fn handle_entry_delete_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    match super::delete_confirm::handle_confirm_key(key, &mut app.delete_confirm_selected) {
+    match super::delete_confirm::handle_confirm_key(key, &mut app.delete_confirm.selected) {
         super::delete_confirm::ConfirmResult::Confirmed => {
             let idx = app.worldbook.editor_selected;
             app.worldbook.editor_entries.remove(idx);

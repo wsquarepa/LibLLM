@@ -528,7 +528,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     );
                 } else {
                     let content = node.message.content.clone();
-                    app.raw_edit_node = Some(node_id);
+                    app.edit.raw_node = Some(node_id);
                     super::dialog_handler::open_edit_dialog_with(app, &content);
                     app.focus = super::Focus::EditDialog;
                 }
@@ -561,9 +561,9 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                 return None;
             }
 
-            app.delete_confirm_selected = 0;
-            app.delete_confirm_filename = preview;
-            app.delete_context = super::DeleteContext::ChatMessage { node_id };
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.filename = preview;
+            app.delete_confirm.context = super::DeleteContext::ChatMessage { node_id };
             app.focus = super::Focus::DeleteConfirmDialog;
             None
         }
@@ -665,9 +665,9 @@ pub fn handle_sidebar_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             if entry.is_new_chat {
                 return None;
             }
-            app.delete_confirm_filename = entry.id.clone();
-            app.delete_confirm_selected = 0;
-            app.delete_context = super::DeleteContext::Session;
+            app.delete_confirm.filename = entry.id.clone();
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.context = super::DeleteContext::Session;
             app.focus = super::Focus::DeleteConfirmDialog;
             None
         }

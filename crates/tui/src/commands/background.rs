@@ -75,9 +75,9 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                         Some(&key),
                         &app.config,
                         &app.cli_overrides,
-                        app.file_summary_ready_tx.clone(),
+                        app.file_summary.ready_tx.clone(),
                     ) {
-                        Ok(fs) => app.file_summarizer = Some(fs),
+                        Ok(fs) => app.file_summary.summarizer = Some(fs),
                         Err(err) => {
                             tracing::error!(
                                 error = %err,
@@ -159,9 +159,9 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                             Some(&new_key),
                             &app.config,
                             &app.cli_overrides,
-                            app.file_summary_ready_tx.clone(),
+                            app.file_summary.ready_tx.clone(),
                         ) {
-                            Ok(fs) => app.file_summarizer = Some(fs),
+                            Ok(fs) => app.file_summary.summarizer = Some(fs),
                             Err(err) => {
                                 tracing::error!(
                                     error = %err,

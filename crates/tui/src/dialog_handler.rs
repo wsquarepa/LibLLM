@@ -117,9 +117,9 @@ pub(super) fn open_edit_dialog_with(app: &mut App, content: &str) {
         lines
     });
     configure_textarea_at_start(&mut editor);
-    app.edit_editor = Some(editor);
-    app.edit_scroll_top = 0;
-    app.edit_original_content = content.lines().collect::<Vec<_>>().join("\n");
+    app.edit.editor = Some(editor);
+    app.edit.scroll_top = 0;
+    app.edit.original_content = content.lines().collect::<Vec<_>>().join("\n");
     app.focus = Focus::EditDialog;
 }
 
@@ -178,9 +178,9 @@ pub(super) fn handle_field_dialog_key(
         let dialog = app.config_dialog.as_mut()?;
         if dialog.current_tab() == crate::dialogs::danger_tab::DANGER_TAB_INDEX {
             use crate::dialogs::danger_tab::{DangerTabResult, handle_danger_tab_key};
-            let mut sel = app.danger_selected;
+            let mut sel = app.danger.selected;
             let result = handle_danger_tab_key(key, &mut sel);
-            app.danger_selected = sel;
+            app.danger.selected = sel;
             match result {
                 DangerTabResult::Pending => return None,
                 DangerTabResult::OpenConfirm(op) => {
@@ -188,7 +188,7 @@ pub(super) fn handle_field_dialog_key(
                         let challenge = crate::dialogs::danger_typed_confirm::generate_challenge();
                         let snapshot_path = std::env::temp_dir()
                             .join(format!("libllm-{}.tar.zst", uuid::Uuid::new_v4()));
-                        app.danger_typed_confirm = Some(TypedConfirmState {
+                        app.danger.typed_confirm = Some(TypedConfirmState {
                             challenge,
                             input: String::new(),
                             cursor_pos: 0,
@@ -198,8 +198,8 @@ pub(super) fn handle_field_dialog_key(
                         });
                         app.focus = Focus::DangerTypedConfirmDialog;
                     } else {
-                        app.danger_confirm_op = Some(op);
-                        app.danger_confirm_selected = Some(0);
+                        app.danger.confirm_op = Some(op);
+                        app.danger.confirm_selected = Some(0);
                         app.focus = Focus::DangerConfirmDialog;
                     }
                     return None;
@@ -262,7 +262,7 @@ pub(super) fn handle_field_dialog_key(
     }
 
     if matches!(kind, DialogKind::Theme) {
-        let dialog = app.theme_dialog.as_mut()?;
+        let dialog = app.theme_ui.dialog.as_mut()?;
         let action = dialog.handle_key(key);
         let value_changed = dialog.take_value_changed();
         if value_changed {
@@ -290,16 +290,16 @@ pub(super) fn handle_field_dialog_key(
                 section: 0,
                 field: 2,
             } => {
-                app.delete_confirm_filename = "all color overrides".to_owned();
-                app.delete_confirm_selected = 1;
-                app.delete_context = DeleteContext::ThemeResetColors;
+                app.delete_confirm.filename = "all color overrides".to_owned();
+                app.delete_confirm.selected = 1;
+                app.delete_confirm.context = DeleteContext::ThemeResetColors;
                 app.focus = Focus::DeleteConfirmDialog;
             }
             dialogs::TabbedFieldAction::InvokeAction {
                 section: 0,
                 field: 3,
             } => {
-                if let Some(dialog) = app.theme_dialog.as_mut() {
+                if let Some(dialog) = app.theme_ui.dialog.as_mut() {
                     for section in dialog.sections_mut() {
                         section.values = section.original_values.clone();
                     }
@@ -307,7 +307,7 @@ pub(super) fn handle_field_dialog_key(
                 app.config = libllm_config::load();
                 app.theme = crate::theme::resolve_theme(&app.config);
                 app.invalidate_chat_render_cache();
-                app.theme_dialog = None;
+                app.theme_ui.dialog = None;
                 return_to_input(app);
             }
             dialogs::TabbedFieldAction::InvokeAction { .. } => {}
@@ -853,7 +853,7 @@ pub(super) fn discard_config_dialog(app: &mut App) {
 }
 
 pub(super) fn commit_theme_dialog(app: &mut App) {
-    let sections: Vec<Vec<String>> = match app.theme_dialog.as_ref() {
+    let sections: Vec<Vec<String>> = match app.theme_ui.dialog.as_ref() {
         Some(d) => d.sections().iter().map(|s| s.values.clone()).collect(),
         None => return,
     };
@@ -865,7 +865,7 @@ pub(super) fn commit_theme_dialog(app: &mut App) {
         app.theme = crate::theme::resolve_theme(&app.config);
         app.invalidate_chat_render_cache();
     }
-    app.theme_dialog = None;
+    app.theme_ui.dialog = None;
     return_to_input(app);
 }
 
@@ -873,12 +873,12 @@ pub(super) fn discard_theme_dialog(app: &mut App) {
     app.config = libllm_config::load();
     app.theme = crate::theme::resolve_theme(&app.config);
     app.invalidate_chat_render_cache();
-    app.theme_dialog = None;
+    app.theme_ui.dialog = None;
     return_to_input(app);
 }
 
 pub(crate) fn live_apply_theme_dialog(app: &mut App) {
-    let Some(dialog) = app.theme_dialog.as_ref() else {
+    let Some(dialog) = app.theme_ui.dialog.as_ref() else {
         return;
     };
     let sections: Vec<Vec<String>> = dialog.sections().iter().map(|s| s.values.clone()).collect();
@@ -918,12 +918,13 @@ pub(super) fn open_base_theme_picker(app: &mut App) {
         .map(|s| (*s).to_owned())
         .collect();
     let current = app
-        .theme_dialog
+        .theme_ui
+        .dialog
         .as_ref()
         .map(|d| d.sections()[0].values[0].clone())
         .unwrap_or_default();
     let selected = names.iter().position(|n| *n == current).unwrap_or(0);
-    app.base_theme_picker_names = names;
-    app.base_theme_picker_selected = selected;
+    app.theme_ui.base_picker_names = names;
+    app.theme_ui.base_picker_selected = selected;
     app.focus = Focus::BaseThemePickerDialog;
 }

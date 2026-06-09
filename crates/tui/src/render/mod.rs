@@ -679,7 +679,7 @@ pub fn render_chat(
                 {
                     let inner = libllm_core::files::snapshot_inner_text(&msg.content);
                     let hash = libllm_core::files::content_hash_hex(inner.as_bytes());
-                    let summary = match (app.save_mode.id(), app.file_summarizer.as_ref()) {
+                    let summary = match (app.save_mode.id(), app.file_summary.summarizer.as_ref()) {
                         (Some(sid), Some(s)) => s.lookup(sid, &hash),
                         _ => None,
                     };

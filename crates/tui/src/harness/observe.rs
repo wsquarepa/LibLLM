@@ -87,7 +87,11 @@ pub(crate) fn active_dialog_name_for(focus: Focus) -> Option<String> {
 fn dialog_dirty_for(app: &App) -> bool {
     match app.focus {
         Focus::ConfigDialog => app.config_dialog.as_ref().is_some_and(|d| d.has_changes()),
-        Focus::ThemeDialog => app.theme_dialog.as_ref().is_some_and(|d| d.has_changes()),
+        Focus::ThemeDialog => app
+            .theme_ui
+            .dialog
+            .as_ref()
+            .is_some_and(|d| d.has_changes()),
         Focus::PresetEditorDialog => app.preset.editor.as_ref().is_some_and(|d| d.has_changes()),
         Focus::PersonaEditorDialog => app.persona.editor.as_ref().is_some_and(|d| d.has_changes()),
         Focus::AuthorNoteEditorDialog => app
@@ -109,7 +113,7 @@ fn dialog_dirty_for(app: &App) -> bool {
             .editor
             .as_ref()
             .is_some_and(|d| d.has_changes()),
-        Focus::RegexEditorDialog => app.regex_editor.as_ref().is_some_and(|d| d.is_dirty()),
+        Focus::RegexEditorDialog => app.regex.editor.as_ref().is_some_and(|d| d.is_dirty()),
         _ => false,
     }
 }

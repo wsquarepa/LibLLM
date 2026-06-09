@@ -833,7 +833,7 @@ pub(super) fn apply_config(app: &mut App) {
         EffectiveConnectionConfig::from_config(&app.config, &app.cli_overrides);
     let runtime = load_runtime_reload_state(&app.cli_overrides);
 
-    app.file_summarizer = app.file_summarizer.as_ref().map(|existing| {
+    app.file_summary.summarizer = app.file_summary.summarizer.as_ref().map(|existing| {
         std::sync::Arc::new(crate::file_summarizer::FileSummarizer::new(
             existing.conn_clone_for_reload(),
             build_summarize_client(&runtime.config, &app.cli_overrides),

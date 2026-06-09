@@ -150,7 +150,8 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
         }
         crate::Focus::BranchDialog => {
             let labels: Vec<String> = app
-                .branch_dialog_items
+                .branch
+                .items
                 .iter()
                 .map(|(_, label)| label.clone())
                 .collect();
@@ -164,18 +165,18 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.branch_dialog_selected,
+                app.branch.selected,
                 mouse.column,
                 mouse.row,
                 Some(&app.dialog_search),
             ) {
-                ListDialogHit::Item(i) => app.branch_dialog_selected = i,
+                ListDialogHit::Item(i) => app.branch.selected = i,
                 ListDialogHit::Outside => {
                     app.dialog_search.deactivate_and_clear();
                     app.focus = crate::Focus::Input;
                 }
                 ListDialogHit::SearchTitle => {
-                    activate_search_for_dialog(&mut app.dialog_search, app.branch_dialog_selected);
+                    activate_search_for_dialog(&mut app.dialog_search, app.branch.selected);
                 }
                 ListDialogHit::Inside => {}
             }
@@ -242,9 +243,9 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             } else {
                 let mid = dialog.x + dialog.width / 2;
                 if mouse.column < mid {
-                    app.delete_confirm_selected = 0;
+                    app.delete_confirm.selected = 0;
                 } else {
-                    app.delete_confirm_selected = 1;
+                    app.delete_confirm.selected = 1;
                 }
             }
         }
@@ -256,14 +257,14 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             }
         }
         crate::Focus::ThemeDialog => {
-            if let Some(ref mut d) = app.theme_dialog
+            if let Some(ref mut d) = app.theme_ui.dialog
                 && !d.handle_mouse_click(terminal_area, mouse.column, mouse.row)
             {
                 app.focus = crate::Focus::Input;
             }
         }
         crate::Focus::BaseThemePickerDialog => {
-            let indices: Vec<usize> = (0..app.base_theme_picker_names.len()).collect();
+            let indices: Vec<usize> = (0..app.theme_ui.base_picker_names.len()).collect();
             let dialog = super::list_dialog_rect(
                 terminal_area,
                 indices.len(),
@@ -273,12 +274,12 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             match hit_test_list_dialog(
                 dialog,
                 &indices,
-                app.base_theme_picker_selected,
+                app.theme_ui.base_picker_selected,
                 mouse.column,
                 mouse.row,
                 None,
             ) {
-                ListDialogHit::Item(i) => app.base_theme_picker_selected = i,
+                ListDialogHit::Item(i) => app.theme_ui.base_picker_selected = i,
                 ListDialogHit::Outside => app.focus = crate::Focus::ThemeDialog,
                 ListDialogHit::Inside | ListDialogHit::SearchTitle => {}
             }
@@ -389,7 +390,7 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             }
         }
         crate::Focus::EditDialog => {
-            if let Some(ref mut editor) = app.edit_editor {
+            if let Some(ref mut editor) = app.edit.editor {
                 let width = (terminal_area.width as f32 * DIALOG_WIDTH_RATIO) as u16;
                 let height = (terminal_area.height as f32 * DIALOG_HEIGHT_RATIO) as u16;
                 let dialog = crate::render::centered_rect(width, height, terminal_area);
@@ -403,7 +404,7 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
                 crate::events::move_textarea_cursor_to_mouse(
                     editor,
                     editor_area,
-                    app.edit_scroll_top,
+                    app.edit.scroll_top,
                     mouse.column,
                     mouse.row,
                 );

@@ -130,9 +130,9 @@ pub(crate) fn handle_preset_dialog_key(
             if name == "OFF" || name == "Raw" {
                 return None;
             }
-            app.delete_confirm_filename = name;
-            app.delete_confirm_selected = 0;
-            app.delete_context = DeleteContext::Preset {
+            app.delete_confirm.filename = name;
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.context = DeleteContext::Preset {
                 kind: app.preset.picker_kind,
             };
             app.focus = Focus::DeleteConfirmDialog;

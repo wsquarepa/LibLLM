@@ -94,10 +94,11 @@ impl EditorField {
 }
 
 pub(crate) fn open(app: &mut App) {
-    app.regex_list_selected = app
-        .regex_list_selected
+    app.regex.list_selected = app
+        .regex
+        .list_selected
         .min(app.config.regex.len().saturating_sub(1));
-    app.regex_editor = None;
+    app.regex.editor = None;
     app.focus = Focus::RegexDialog;
 }
 
@@ -113,7 +114,7 @@ pub(crate) fn render_regex_dialog(f: &mut ratatui::Frame, app: &App, area: Rect)
         dialog,
         &app.theme,
         super::PagedListContent {
-            selected: app.regex_list_selected,
+            selected: app.regex.list_selected,
             items,
             title_base: " Regex rules ",
             search: None,
@@ -129,7 +130,7 @@ pub(crate) fn render_regex_dialog(f: &mut ratatui::Frame, app: &App, area: Rect)
 }
 
 pub(crate) fn render_regex_editor_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let Some(ed) = app.regex_editor.as_ref() else {
+    let Some(ed) = app.regex.editor.as_ref() else {
         return;
     };
     let dialog = clear_centered(
@@ -389,50 +390,50 @@ pub(crate) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> Option<Ac
             return_to_input(app);
         }
         KeyCode::Up
-            if !key.modifiers.contains(KeyModifiers::SHIFT) && app.regex_list_selected > 0 =>
+            if !key.modifiers.contains(KeyModifiers::SHIFT) && app.regex.list_selected > 0 =>
         {
-            app.regex_list_selected -= 1;
+            app.regex.list_selected -= 1;
         }
         KeyCode::Down
             if !key.modifiers.contains(KeyModifiers::SHIFT)
-                && app.regex_list_selected + 1 < len =>
+                && app.regex.list_selected + 1 < len =>
         {
-            app.regex_list_selected += 1;
+            app.regex.list_selected += 1;
         }
         KeyCode::Up
             if key.modifiers.contains(KeyModifiers::SHIFT)
-                && app.regex_list_selected > 0
+                && app.regex.list_selected > 0
                 && len >= 2 =>
         {
-            let i = app.regex_list_selected;
+            let i = app.regex.list_selected;
             app.config.regex.swap(i, i - 1);
-            app.regex_list_selected -= 1;
+            app.regex.list_selected -= 1;
             save_and_recompile(app);
         }
         KeyCode::Down
-            if key.modifiers.contains(KeyModifiers::SHIFT) && app.regex_list_selected + 1 < len =>
+            if key.modifiers.contains(KeyModifiers::SHIFT) && app.regex.list_selected + 1 < len =>
         {
-            let i = app.regex_list_selected;
+            let i = app.regex.list_selected;
             app.config.regex.swap(i, i + 1);
-            app.regex_list_selected += 1;
+            app.regex.list_selected += 1;
             save_and_recompile(app);
         }
         KeyCode::Char(' ') if len > 0 => {
-            let i = app.regex_list_selected;
+            let i = app.regex.list_selected;
             app.config.regex[i].enabled = !app.config.regex[i].enabled;
             save_and_recompile(app);
         }
         KeyCode::Enter if len > 0 => {
-            open_editor_for_existing(app, app.regex_list_selected);
+            open_editor_for_existing(app, app.regex.list_selected);
         }
         KeyCode::Char('n') => {
             open_editor_for_new(app);
         }
         KeyCode::Char('d') if len > 0 => {
-            let i = app.regex_list_selected;
-            app.delete_context = crate::types::DeleteContext::Regex;
-            app.delete_confirm_selected = 0;
-            app.delete_confirm_filename = app.config.regex[i].name.clone();
+            let i = app.regex.list_selected;
+            app.delete_confirm.context = crate::types::DeleteContext::Regex;
+            app.delete_confirm.selected = 0;
+            app.delete_confirm.filename = app.config.regex[i].name.clone();
             app.focus = Focus::DeleteConfirmDialog;
         }
         _ => {}
@@ -442,14 +443,14 @@ pub(crate) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> Option<Ac
 
 pub(crate) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if is_save_shortcut(&key) {
-        if let Some(ed) = app.regex_editor.as_mut() {
+        if let Some(ed) = app.regex.editor.as_mut() {
             ed.editing = false;
         }
         commit_editor_and_close(app);
         return None;
     }
 
-    let Some(ed) = app.regex_editor.as_mut() else {
+    let Some(ed) = app.regex.editor.as_mut() else {
         app.focus = Focus::RegexDialog;
         return None;
     };
@@ -471,7 +472,8 @@ pub(crate) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Ac
     match key.code {
         KeyCode::Esc => {
             let dirty = app
-                .regex_editor
+                .regex
+                .editor
                 .as_ref()
                 .map(RegexEditorState::is_dirty)
                 .unwrap_or(false);
@@ -482,22 +484,22 @@ pub(crate) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Ac
                     ));
                 app.focus = Focus::UnsavedWarningDialog;
             } else {
-                app.regex_editor = None;
+                app.regex.editor = None;
                 app.focus = Focus::RegexDialog;
             }
         }
         KeyCode::Up => {
-            if let Some(ed) = app.regex_editor.as_mut() {
+            if let Some(ed) = app.regex.editor.as_mut() {
                 ed.field = ed.field.prev();
             }
         }
         KeyCode::Down => {
-            if let Some(ed) = app.regex_editor.as_mut() {
+            if let Some(ed) = app.regex.editor.as_mut() {
                 ed.field = ed.field.next();
             }
         }
         KeyCode::Left => {
-            if let Some(ed) = app.regex_editor.as_mut() {
+            if let Some(ed) = app.regex.editor.as_mut() {
                 match ed.field {
                     EditorField::ScopeToggles => {
                         ed.scope_cursor = ed.scope_cursor.saturating_sub(1);
@@ -510,7 +512,7 @@ pub(crate) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Ac
             }
         }
         KeyCode::Right => {
-            if let Some(ed) = app.regex_editor.as_mut() {
+            if let Some(ed) = app.regex.editor.as_mut() {
                 match ed.field {
                     EditorField::ScopeToggles if ed.scope_cursor + 1 < SCOPE_ORDER.len() => {
                         ed.scope_cursor += 1;
@@ -524,13 +526,13 @@ pub(crate) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Ac
         }
         KeyCode::Char(' ') | KeyCode::Enter
             if matches!(
-                app.regex_editor.as_ref().map(|e| e.field),
+                app.regex.editor.as_ref().map(|e| e.field),
                 Some(EditorField::ScopeToggles)
                     | Some(EditorField::TargetToggles)
                     | Some(EditorField::Enabled)
             ) =>
         {
-            if let Some(ed) = app.regex_editor.as_mut() {
+            if let Some(ed) = app.regex.editor.as_mut() {
                 match ed.field {
                     EditorField::ScopeToggles => toggle_scope_at_cursor(ed),
                     EditorField::TargetToggles => toggle_target_at_cursor(ed),
@@ -540,7 +542,7 @@ pub(crate) fn handle_regex_editor_key(key: KeyEvent, app: &mut App) -> Option<Ac
             }
         }
         KeyCode::Enter => {
-            if let Some(ed) = app.regex_editor.as_mut()
+            if let Some(ed) = app.regex.editor.as_mut()
                 && ed.field.is_text()
             {
                 ed.editing = true;
@@ -609,7 +611,7 @@ pub(crate) fn commit_editor_and_close(app: &mut App) {
 }
 
 fn commit_editor(app: &mut App) {
-    let Some(mut ed) = app.regex_editor.take() else {
+    let Some(mut ed) = app.regex.editor.take() else {
         return;
     };
     if let Some(msg) = validate_pattern(&mut ed.draft) {
@@ -627,7 +629,7 @@ fn commit_editor(app: &mut App) {
 
 fn open_editor_for_existing(app: &mut App, index: usize) {
     let draft = app.config.regex[index].clone();
-    app.regex_editor = Some(RegexEditorState {
+    app.regex.editor = Some(RegexEditorState {
         original_index: Some(index),
         original_draft: draft.clone(),
         draft,
@@ -651,7 +653,7 @@ fn open_editor_for_new(app: &mut App) {
         enabled: true,
         compile_error: None,
     };
-    app.regex_editor = Some(RegexEditorState {
+    app.regex.editor = Some(RegexEditorState {
         original_index: None,
         original_draft: draft.clone(),
         draft,
@@ -666,13 +668,13 @@ fn open_editor_for_new(app: &mut App) {
 }
 
 pub(crate) fn perform_delete_selected(app: &mut App) {
-    let i = app.regex_list_selected;
+    let i = app.regex.list_selected;
     if i >= app.config.regex.len() {
         return;
     }
     app.config.regex.remove(i);
-    if app.regex_list_selected >= app.config.regex.len() && app.regex_list_selected > 0 {
-        app.regex_list_selected -= 1;
+    if app.regex.list_selected >= app.config.regex.len() && app.regex.list_selected > 0 {
+        app.regex.list_selected -= 1;
     }
     save_and_recompile(app);
 }

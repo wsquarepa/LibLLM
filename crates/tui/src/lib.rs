@@ -193,7 +193,6 @@ impl<'a> App<'a> {
             context_mgr: ContextManager::new(config.summarization.context_size),
             textarea,
             input_scroll_top: 0,
-            edit_scroll_top: 0,
             chat_scroll: 0,
             chat_max_scroll: 0,
             auto_scroll: true,
@@ -259,9 +258,11 @@ impl<'a> App<'a> {
             },
             config_dialog: None,
             auth_dialog: None,
-            theme_dialog: None,
-            base_theme_picker_names: Vec::new(),
-            base_theme_picker_selected: 0,
+            theme_ui: ThemeUi {
+                dialog: None,
+                base_picker_names: Vec::new(),
+                base_picker_selected: 0,
+            },
             author_note_editor: None,
             system_prompt: SystemPromptUi {
                 list: Vec::new(),
@@ -271,7 +272,12 @@ impl<'a> App<'a> {
                 editor_return_focus: Focus::Input,
                 editor_read_only: false,
             },
-            edit_editor: None,
+            edit: EditUi {
+                editor: None,
+                raw_node: None,
+                original_content: String::new(),
+                scroll_top: 0,
+            },
             unsaved_warning: None,
             last_unsaved_warning_return_focus: None,
             preset: PresetUi {
@@ -304,24 +310,28 @@ impl<'a> App<'a> {
                 entry_editor: None,
                 entry_editor_index: 0,
             },
-            regex_list_selected: 0,
-            regex_editor: None,
-            skipped_regex_rules_pending_status: skipped_regex_rules,
+            regex: RegexUi {
+                list_selected: 0,
+                editor: None,
+                skipped_pending_status: skipped_regex_rules,
+            },
             compiled_regex,
             display_regex_cache: std::collections::HashMap::new(),
             chat_content_cache: None,
             cached_token_count: None,
             token_counter,
             tokenizer_tx,
-            raw_edit_node: None,
-            edit_original_content: String::new(),
             nav_cursor: None,
-            branch_dialog_items: Vec::new(),
-            branch_dialog_selected: 0,
+            branch: BranchUi {
+                items: Vec::new(),
+                selected: 0,
+            },
             search_dialog: None,
-            delete_confirm_selected: 0,
-            delete_confirm_filename: String::new(),
-            delete_context: DeleteContext::Session,
+            delete_confirm: DeleteConfirmUi {
+                selected: 0,
+                filename: String::new(),
+                context: DeleteContext::Session,
+            },
             active_card_author_note: None,
             persona: PersonaUi {
                 slugs: Vec::new(),
@@ -345,19 +355,25 @@ impl<'a> App<'a> {
             last_terminal_height: 0,
             input_file_cache: input_file_cache::InputFileCache::new(),
             recall_refs: None,
-            file_summarizer,
-            file_summary_ready_tx,
-            file_summary_ready_rx,
-            file_summary_revision: 0,
+            file_summary: FileSummaryUi {
+                summarizer: file_summarizer,
+                ready_tx: file_summary_ready_tx,
+                ready_rx: file_summary_ready_rx,
+                revision: 0,
+            },
             pending_template_prompt: None,
             template_prompt_state: None,
-            danger_selected: 0,
-            danger_confirm_op: None,
-            danger_confirm_selected: None,
-            danger_typed_confirm: None,
+            danger: DangerUi {
+                selected: 0,
+                confirm_op: None,
+                confirm_selected: None,
+                typed_confirm: None,
+            },
             chat_settings_dialog: None,
-            scenario_editor: None,
-            scenario_scroll_top: 0,
+            scenario: ScenarioUi {
+                editor: None,
+                scroll_top: 0,
+            },
             group_chat: GroupChatState {
                 loop_rng: None,
                 consecutive: 0,
@@ -437,13 +453,13 @@ pub async fn run(
     libllm_core::timed_result!(tracing::Level::INFO, "startup.phase", phase = "first_draw" ; {
         terminal.draw(|f| render_frame(f, &mut app))
     })?;
-    if app.skipped_regex_rules_pending_status > 0 {
-        let count = app.skipped_regex_rules_pending_status;
+    if app.regex.skipped_pending_status > 0 {
+        let count = app.regex.skipped_pending_status;
         app.set_status(
             format!("{count} regex rule(s) skipped — see /regex"),
             StatusLevel::Warning,
         );
-        app.skipped_regex_rules_pending_status = 0;
+        app.regex.skipped_pending_status = 0;
     }
     {
         let _span = tracing::info_span!("startup.phase", phase = "maintenance_schedule").entered();
@@ -635,7 +651,7 @@ pub(crate) fn render_frame(f: &mut ratatui::Frame, app: &mut App) {
         first_think_closed: app.streaming.first_think_closed_at.is_some(),
         width: messages_area.width,
         height: messages_area.height,
-        summary_revision: app.file_summary_revision,
+        summary_revision: app.file_summary.revision,
     };
     let scroll_dirty = current_scroll_state != app.last_scroll_state;
     let mut chat_scroll = app.chat_scroll;
@@ -887,7 +903,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             }
         }
         Focus::ThemeDialog => {
-            if let Some(ref dialog) = app.theme_dialog {
+            if let Some(ref dialog) = app.theme_ui.dialog {
                 dialog.render(f, f.area(), &app.theme);
             }
         }
@@ -970,7 +986,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
                         }
                     }
                     Focus::ThemeDialog => {
-                        if let Some(ref dialog) = app.theme_dialog {
+                        if let Some(ref dialog) = app.theme_ui.dialog {
                             dialog.render(f, f.area(), &app.theme);
                         }
                     }
@@ -1022,13 +1038,13 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
             }
         }
         Focus::DangerConfirmDialog => {
-            if let Some(op) = app.danger_confirm_op {
-                let sel = app.danger_confirm_selected.unwrap_or(0);
+            if let Some(op) = app.danger.confirm_op {
+                let sel = app.danger.confirm_selected.unwrap_or(0);
                 dialogs::danger_confirm::render_danger_confirm(f, f.area(), op, sel);
             }
         }
         Focus::DangerTypedConfirmDialog => {
-            if let Some(ref state) = app.danger_typed_confirm {
+            if let Some(ref state) = app.danger.typed_confirm {
                 dialogs::danger_typed_confirm::render_danger_typed_confirm(f, f.area(), state);
             }
         }
@@ -1051,7 +1067,7 @@ fn render_dialog(f: &mut ratatui::Frame, app: &mut App) {
 }
 
 fn render_base_theme_picker(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
-    let names = &app.base_theme_picker_names;
+    let names = &app.theme_ui.base_picker_names;
     let count = names.len();
     let dialog = render::clear_centered(
         f,
@@ -1062,7 +1078,7 @@ fn render_base_theme_picker(f: &mut ratatui::Frame, app: &App, area: ratatui::la
 
     let mut lines: Vec<Line> = vec![Line::from("")];
     for (i, name) in names.iter().enumerate() {
-        let is_selected = i == app.base_theme_picker_selected;
+        let is_selected = i == app.theme_ui.base_picker_selected;
         let marker = if is_selected { "> " } else { "  " };
         let style = if is_selected {
             Style::default()

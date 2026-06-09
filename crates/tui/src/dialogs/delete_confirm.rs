@@ -83,8 +83,8 @@ pub(crate) fn render_delete_confirm_dialog(f: &mut ratatui::Frame, app: &App, ar
     let dialog = render_confirm_dialog(
         f,
         area,
-        &format!("Delete \"{}\"?", app.delete_confirm_filename),
-        app.delete_confirm_selected,
+        &format!("Delete \"{}\"?", app.delete_confirm.filename),
+        app.delete_confirm.selected,
     );
     render_hints_below_dialog(
         f,
@@ -97,9 +97,10 @@ pub(crate) fn render_delete_confirm_dialog(f: &mut ratatui::Frame, app: &App, ar
 }
 
 pub(crate) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<Action> {
-    match handle_confirm_key(key, &mut app.delete_confirm_selected) {
+    match handle_confirm_key(key, &mut app.delete_confirm.selected) {
         ConfirmResult::Confirmed => {
-            let context = std::mem::replace(&mut app.delete_context, DeleteContext::Session);
+            let context =
+                std::mem::replace(&mut app.delete_confirm.context, DeleteContext::Session);
             match context {
                 DeleteContext::Session => {
                     delete_selected_session(app);
@@ -122,12 +123,12 @@ pub(crate) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<
                     app.focus = Focus::WorldbookDialog;
                 }
                 DeleteContext::Preset { kind } => {
-                    super::preset::delete_preset(kind, &app.delete_confirm_filename);
+                    super::preset::delete_preset(kind, &app.delete_confirm.filename);
                     super::preset::refresh_preset_list(app);
                     app.focus = Focus::PresetPickerDialog;
                 }
                 DeleteContext::ThemeResetColors => {
-                    if let Some(dialog) = app.theme_dialog.as_mut() {
+                    if let Some(dialog) = app.theme_ui.dialog.as_mut() {
                         let count = dialog.sections().len();
                         for section_idx in 1..count {
                             let labels_len = dialog.sections()[section_idx].labels.len();
@@ -150,7 +151,8 @@ pub(crate) fn handle_delete_confirm_key(key: KeyEvent, app: &mut App) -> Option<
             }
         }
         ConfirmResult::Cancelled => {
-            let context = std::mem::replace(&mut app.delete_context, DeleteContext::Session);
+            let context =
+                std::mem::replace(&mut app.delete_confirm.context, DeleteContext::Session);
             app.focus = match context {
                 DeleteContext::Session => Focus::Sidebar,
                 DeleteContext::Character { .. } => Focus::CharacterDialog,
@@ -285,7 +287,7 @@ fn delete_chat_message(app: &mut App, node_id: libllm_core::session::NodeId) {
 
     app.nav_cursor = None;
     app.hover_node = None;
-    app.raw_edit_node = None;
+    app.edit.raw_node = None;
     app.invalidate_chat_caches();
     app.mark_session_dirty(super::super::SaveTrigger::Debounced, false);
 

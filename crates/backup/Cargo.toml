@@ -1,5 +1,5 @@
 [package]
-name = "backup"
+name = "libllm-backup"
 version.workspace = true
 edition.workspace = true
 

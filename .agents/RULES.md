@@ -15,7 +15,7 @@ LibLLM is a Rust TUI/CLI chat client for the llama.cpp completions API. It is a 
 - `libllm-diagnostics` (`crates/diagnostics`) — logging/diagnostics infrastructure: tracing-subscriber setup, the diagnostics global state, log-file management, the `--timings` report, and the startup banner's sysinfo collection. Depends on core. (The `timed_result!` macro stays in `libllm-core` because core itself uses it.)
 - `libllm-tui` (`crates/tui`) — the TUI: rendering, dialogs, input handling, view state, and the `FileSummarizer` orchestrator. Depends on core/storage/protocol/config.
 - `libllm-cli` (`crates/cli`) — argument parsing, command dispatch, subcommands, startup orchestration (`app::run`), and the thin `src/main.rs`. Produces the `libllm` binary (via `[[bin]] name = "libllm"`). Depends on `libllm-tui` and core/storage/protocol/config.
-- `backup` (`crates/backup`) — backup and recovery library. Depends on core.
+- `libllm-backup` (`crates/backup`) — backup and recovery library. Depends on core.
 
 Dependencies flow inward: cli -> tui -> storage/protocol/config/diagnostics -> core. Core never depends on an outer crate. Application crates depend on the concrete library crates directly (`libllm_core`, `libllm_storage`, `libllm_protocol`, `libllm_config`, `libllm_diagnostics`) — there is no umbrella/facade crate.
 
@@ -150,7 +150,7 @@ Migrations run exactly once per process: `Database::open` (in `crates/storage/sr
 `crates/cli/src/cli/db/` exposes `db {sql, shell, dump, import}` for direct database inspection and editing through the existing decryption pipeline. Read the README's "Direct database access" section for user-facing semantics. Implementation gotchas:
 
 - `sql` and `shell` open with `PRAGMA query_only = ON` and only lift it when launched with `--write`. All SQL routes through `Database::execute_query` plus `Database::changes()` for the affected-row count when there are no result columns — this handles `INSERT ... RETURNING`, bare `VALUES`, and comment-leading SQL uniformly. Do not reintroduce a leading-keyword heuristic.
-- `import` always invokes `backup::snapshot::create_snapshot` before swapping the database file. There is no `--no-backup` flag; this is intentional. The pre-swap backup is the recovery story for any failure between `build_replacement` and `fs::rename`.
+- `import` always invokes `libllm_backup::snapshot::create_snapshot` before swapping the database file. There is no `--no-backup` flag; this is intentional. The pre-swap backup is the recovery story for any failure between `build_replacement` and `fs::rename`.
 - `dump` and `import` both call `wal_liveness_check` (in `cli/db/mod.rs`) which probes for `SQLITE_BUSY` via `BEGIN IMMEDIATE; ROLLBACK;` to refuse if another LibLLM process holds the database. The check early-returns when the database file does not exist (otherwise `Connection::open` would silently create an empty file).
 - Tmp-path computation in `dump` appends `.tmp` to the user's path (it does not use `Path::with_extension`, which would replace any existing `.tmp` and collide with the destination).
 - Schema-version compatibility is gated on `libllm_storage::db::CURRENT_VERSION` (re-exported from `db::migrations`). If you add a new migration, both the import gate and the migration runner read the same constant — see the "Database migrations" section above.

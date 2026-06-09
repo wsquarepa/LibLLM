@@ -51,8 +51,12 @@ pub fn run(ctx: &DbContext, yes: bool, path: &Path) -> Result<()> {
             rebase_threshold_percent: 50,
             rebase_hard_ceiling: 10,
         };
-        backup::snapshot::create_snapshot(&ctx.data_dir, ctx.passkey.as_deref(), &backup_config)
-            .context("mandatory pre-import backup failed; refusing to proceed")?;
+        libllm_backup::snapshot::create_snapshot(
+            &ctx.data_dir,
+            ctx.passkey.as_deref(),
+            &backup_config,
+        )
+        .context("mandatory pre-import backup failed; refusing to proceed")?;
     }
 
     let tmp_path = append_suffix(&ctx.db_path, ".import.tmp");

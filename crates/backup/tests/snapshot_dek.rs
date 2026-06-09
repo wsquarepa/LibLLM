@@ -1,6 +1,6 @@
-use backup::crypto::{resolve_backup_key, unwrap_dek};
-use backup::index::{BackupType, FingerprintField, open_index};
-use backup::snapshot::create_snapshot;
+use libllm_backup::crypto::{resolve_backup_key, unwrap_dek};
+use libllm_backup::index::{BackupType, FingerprintField, open_index};
+use libllm_backup::snapshot::create_snapshot;
 use libllm_core::config::BackupConfig;
 use tempfile::TempDir;
 
@@ -107,6 +107,6 @@ fn diff_backup_reuses_chain_dek_and_restore_succeeds() {
     );
 
     let last_id = idx.entries.last().unwrap().id.clone();
-    backup::restore::restore_to_point(data_dir, &last_id, Some(passkey), None).unwrap();
+    libllm_backup::restore::restore_to_point(data_dir, &last_id, Some(passkey), None).unwrap();
     assert_eq!(count_kv_encrypted(data_dir, passkey), 2);
 }

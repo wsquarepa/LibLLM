@@ -681,7 +681,7 @@ fn try_backup(
         return;
     }
 
-    if let Err(err) = backup::snapshot::create_snapshot(data_dir, passkey, config) {
+    if let Err(err) = libllm_backup::snapshot::create_snapshot(data_dir, passkey, config) {
         eprintln!("Warning: backup failed: {err}");
     }
 }

@@ -20,7 +20,7 @@ libllm-core = { path = "crates/core" }
 libllm-diagnostics = { path = "crates/diagnostics" }
 libllm-protocol = { path = "crates/protocol" }
 libllm-storage = { path = "crates/storage" }
-backup = { path = "crates/backup" }
+libllm-backup = { path = "crates/backup" }
 
 anyhow = "1"
 arboard = "3"

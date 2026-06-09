@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::time::Duration;
 
-use backup::BackupConfig;
-use backup::index::{self, BackupType};
-use backup::restore;
-use backup::snapshot;
-use backup::verify;
+use libllm_backup::BackupConfig;
+use libllm_backup::index::{self, BackupType};
+use libllm_backup::restore;
+use libllm_backup::snapshot;
+use libllm_backup::verify;
 
 fn setup_db(dir: &Path) -> std::path::PathBuf {
     let db_path = dir.join("data.db");

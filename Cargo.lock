@@ -194,31 +194,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "backup"
-version = "3.1.4"
-dependencies = [
- "argon2",
- "base64",
- "blake3",
- "bsdiff",
- "chacha20poly1305",
- "chrono",
- "clap",
- "hkdf",
- "libllm-core",
- "rand 0.10.1",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
- "zeroize",
- "zstd",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1824,17 +1799,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
+name = "libllm-backup"
+version = "3.1.4"
+dependencies = [
+ "argon2",
+ "base64",
+ "blake3",
+ "bsdiff",
+ "chacha20poly1305",
+ "chrono",
+ "clap",
+ "hkdf",
+ "libllm-core",
+ "rand 0.10.1",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
 name = "libllm-cli"
 version = "3.1.4"
 dependencies = [
  "anyhow",
- "backup",
  "chrono",
  "clap",
  "crossterm",
  "dialoguer",
  "dirs",
  "futures-util",
+ "libllm-backup",
  "libllm-config",
  "libllm-core",
  "libllm-diagnostics",
@@ -1955,11 +1955,11 @@ version = "3.1.4"
 dependencies = [
  "anyhow",
  "arboard",
- "backup",
  "chrono",
  "crossterm",
  "dirs",
  "futures-util",
+ "libllm-backup",
  "libllm-config",
  "libllm-core",
  "libllm-diagnostics",

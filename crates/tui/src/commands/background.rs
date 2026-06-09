@@ -16,10 +16,10 @@ fn prepare_backup_rekey(
     old_passkey: &str,
     new_passkey: &str,
 ) -> anyhow::Result<()> {
-    let old_kek = backup::crypto::resolve_backup_key(data_dir, Some(old_passkey))?;
-    let new_kek = backup::crypto::resolve_backup_key(data_dir, Some(new_passkey))?;
+    let old_kek = libllm_backup::crypto::resolve_backup_key(data_dir, Some(old_passkey))?;
+    let new_kek = libllm_backup::crypto::resolve_backup_key(data_dir, Some(new_passkey))?;
     match (old_kek, new_kek) {
-        (Some(ok), Some(nk)) => Ok(backup::rekey::prepare_rekey(data_dir, &ok, &nk)?),
+        (Some(ok), Some(nk)) => Ok(libllm_backup::rekey::prepare_rekey(data_dir, &ok, &nk)?),
         _ => Ok(()),
     }
 }
@@ -213,7 +213,7 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                     match db.rekey(&new_key) {
                         Ok(()) => {
                             app.resolved_passkey = new_passkey;
-                            if let Err(err) = backup::rekey::finalize_rekey(&data_dir) {
+                            if let Err(err) = libllm_backup::rekey::finalize_rekey(&data_dir) {
                                 app.set_status(
                                     format!("Passkey changed, but failed to clean up backup journal: {err}"),
                                     StatusLevel::Warning,
@@ -223,7 +223,7 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                             app.should_quit = true;
                         }
                         Err(err) => {
-                            if let Err(rb_err) = backup::rekey::rollback_rekey(&data_dir) {
+                            if let Err(rb_err) = libllm_backup::rekey::rollback_rekey(&data_dir) {
                                 app.set_status(
                                     format!(
                                         "Failed to change passkey: {err}; additionally, backup rollback failed: {rb_err}"

@@ -6,9 +6,9 @@ mod common;
 
 use std::process::Command;
 
-use backup::index::load_index;
-use backup::snapshot::create_snapshot;
 use common::client_bin;
+use libllm_backup::index::load_index;
+use libllm_backup::snapshot::create_snapshot;
 use libllm_core::config::BackupConfig;
 use libllm_core::persona::PersonaFile;
 use libllm_storage::db::Database;
@@ -251,7 +251,7 @@ fn recover_rebuild_index_preserves_diff_restore_points() {
     let diff_id = original_index
         .entries
         .iter()
-        .find(|entry| entry.entry_type == backup::index::BackupType::Diff)
+        .find(|entry| entry.entry_type == libllm_backup::index::BackupType::Diff)
         .expect("diff entry")
         .id
         .clone();
@@ -474,7 +474,7 @@ fn recover_rebuild_index_refuses_regression_and_backs_up() {
     let base = index_before
         .entries
         .iter()
-        .find(|e| e.entry_type == backup::index::BackupType::Base)
+        .find(|e| e.entry_type == libllm_backup::index::BackupType::Base)
         .unwrap();
     std::fs::write(backups_dir.join(&base.filename), [0u8; 256]).unwrap();
 

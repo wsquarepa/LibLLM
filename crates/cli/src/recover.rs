@@ -6,10 +6,10 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use clap::CommandFactory;
 
-use backup::index::{BackupType, load_index, open_index};
-use backup::restore::restore_to_point;
-use backup::snapshot::rebuild_index;
-use backup::verify::verify_chain;
+use libllm_backup::index::{BackupType, load_index, open_index};
+use libllm_backup::restore::restore_to_point;
+use libllm_backup::snapshot::rebuild_index;
+use libllm_backup::verify::verify_chain;
 
 use crate::cli::RecoverCommand;
 use crate::time::format_relative;
@@ -136,7 +136,7 @@ fn run_interactive_menu(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
 fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let backup_key = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+    let backup_key = libllm_backup::crypto::resolve_backup_key(data_dir, passkey)?;
     let index = open_index(&index_path, backup_key.as_ref())?;
 
     if index.entries.is_empty() {
@@ -147,7 +147,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let now = chrono::Utc::now();
     let current_fp = backup_key
         .as_ref()
-        .map(backup::crypto::compute_kek_fingerprint);
+        .map(libllm_backup::crypto::compute_kek_fingerprint);
 
     let display_order: Vec<usize> = (0..index.entries.len()).rev().collect();
     let rows: Vec<String> = display_order
@@ -156,8 +156,8 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             let entry = &index.entries[i];
             let time_col = format_relative(now, entry.created_at);
             let type_col = match entry.entry_type {
-                backup::index::BackupType::Base => "Base",
-                backup::index::BackupType::Diff => "Diff",
+                libllm_backup::index::BackupType::Base => "Base",
+                libllm_backup::index::BackupType::Diff => "Diff",
             };
             let size_col = format!("{:>8}", format_size(entry.plaintext_size));
             let status_col = if backup_key.is_none() {
@@ -165,15 +165,15 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
             } else {
                 let root = chain_root_for(&index, entry);
                 match &root.kek_fingerprint {
-                    Some(backup::index::FingerprintField::Known(fp))
+                    Some(libllm_backup::index::FingerprintField::Known(fp))
                         if Some(fp) == current_fp.as_ref() =>
                     {
                         "current".to_string()
                     }
-                    Some(backup::index::FingerprintField::Known(fp)) => {
+                    Some(libllm_backup::index::FingerprintField::Known(fp)) => {
                         format!("archived  fp:{}", &fp[..8.min(fp.len())])
                     }
-                    Some(backup::index::FingerprintField::Unknown) => {
+                    Some(libllm_backup::index::FingerprintField::Unknown) => {
                         "archived  fp:unknown".to_string()
                     }
                     None => "archived  fp:unknown".to_string(),
@@ -195,10 +195,12 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let entry = &index.entries[display_order[chosen]];
     let root = chain_root_for(&index, entry);
     let status_detail = match &root.kek_fingerprint {
-        Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
+        Some(libllm_backup::index::FingerprintField::Known(fp))
+            if Some(fp) == current_fp.as_ref() =>
+        {
             "current passkey".to_string()
         }
-        Some(backup::index::FingerprintField::Known(fp)) => {
+        Some(libllm_backup::index::FingerprintField::Known(fp)) => {
             format!(
                 "ARCHIVED -- passkey fingerprint: {fp}\n\
                  Restore will refuse unless you re-run non-interactively:\n\
@@ -206,7 +208,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
                 entry.id
             )
         }
-        Some(backup::index::FingerprintField::Unknown) => format!(
+        Some(libllm_backup::index::FingerprintField::Unknown) => format!(
             "ARCHIVED -- fingerprint unknown (rebuilt from a foreign backup).\n\
              Restore will refuse unless you re-run non-interactively:\n\
              libllm recover restore {} --archived-passkey <the-archived-passkey>",
@@ -230,10 +232,10 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
     let archived = matches!(
         &root.kek_fingerprint,
-        Some(backup::index::FingerprintField::Known(fp)) if Some(fp) != current_fp.as_ref()
+        Some(libllm_backup::index::FingerprintField::Known(fp)) if Some(fp) != current_fp.as_ref()
     ) || matches!(
         &root.kek_fingerprint,
-        Some(backup::index::FingerprintField::Unknown)
+        Some(libllm_backup::index::FingerprintField::Unknown)
     );
 
     if archived {
@@ -271,10 +273,10 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 }
 
 fn chain_root_for<'a>(
-    index: &'a backup::index::BackupIndex,
-    entry: &'a backup::index::BackupEntry,
-) -> &'a backup::index::BackupEntry {
-    if entry.entry_type == backup::index::BackupType::Base {
+    index: &'a libllm_backup::index::BackupIndex,
+    entry: &'a libllm_backup::index::BackupEntry,
+) -> &'a libllm_backup::index::BackupEntry {
+    if entry.entry_type == libllm_backup::index::BackupType::Base {
         return entry;
     }
     entry
@@ -286,7 +288,7 @@ fn chain_root_for<'a>(
 
 fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+    let kek = libllm_backup::crypto::resolve_backup_key(data_dir, passkey)?;
     let index = open_index(&index_path, kek.as_ref())?;
     tracing::info!(
         result = "ok",
@@ -299,7 +301,9 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    let current_fp = kek.as_ref().map(backup::crypto::compute_kek_fingerprint);
+    let current_fp = kek
+        .as_ref()
+        .map(libllm_backup::crypto::compute_kek_fingerprint);
 
     println!(
         "{:<20} {:<6} {:<12} {:<12} {:<10} {:<26} Status",
@@ -310,11 +314,13 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     for entry in index.entries.iter().rev() {
         let root = chain_root_for(&index, entry);
         let status = match &root.kek_fingerprint {
-            Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
+            Some(libllm_backup::index::FingerprintField::Known(fp))
+                if Some(fp) == current_fp.as_ref() =>
+            {
                 "current".to_string()
             }
-            Some(backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
-            Some(backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
+            Some(libllm_backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
+            Some(libllm_backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
             None => "n/a".to_string(),
         };
         println!(
@@ -377,21 +383,25 @@ fn cmd_restore(
     archived_passkey: Option<&str>,
 ) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
-    let kek = backup::crypto::resolve_backup_key(data_dir, passkey)?;
+    let kek = libllm_backup::crypto::resolve_backup_key(data_dir, passkey)?;
     let index = open_index(&index_path, kek.as_ref())?;
 
     let entry = index
         .find_entry(id)
         .with_context(|| format!("backup id not found: {id}"))?;
 
-    let current_fp = kek.as_ref().map(backup::crypto::compute_kek_fingerprint);
+    let current_fp = kek
+        .as_ref()
+        .map(libllm_backup::crypto::compute_kek_fingerprint);
     let root = chain_root_for(&index, entry);
     let status = match &root.kek_fingerprint {
-        Some(backup::index::FingerprintField::Known(fp)) if Some(fp) == current_fp.as_ref() => {
+        Some(libllm_backup::index::FingerprintField::Known(fp))
+            if Some(fp) == current_fp.as_ref() =>
+        {
             "current".to_string()
         }
-        Some(backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
-        Some(backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
+        Some(libllm_backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
+        Some(libllm_backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
         None => "n/a".to_string(),
     };
 
@@ -523,7 +533,7 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>, interactive: bool) 
                 }
             }
         }
-        backup::index::save_index(&index_path, &rebuilt)?;
+        libllm_backup::index::save_index(&index_path, &rebuilt)?;
 
         println!("Rebuilt index with {} entry/entries.", rebuilt.entries.len());
         Ok(())

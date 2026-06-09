@@ -68,7 +68,7 @@ Actual layout:
 │   ├── RULES.md        # agent operational guide (authoritative for build/test)
 │   └── STANDARDS.md    # this document
 ├── assets/
-├── docs/               # user-facing docs: cli, configuration, install, usage
+├── docs/               # user-facing docs: cli, configuration, install, troubleshooting, usage
 ├── crates/
 │   ├── core/           # libllm-core
 │   ├── config/         # libllm-config

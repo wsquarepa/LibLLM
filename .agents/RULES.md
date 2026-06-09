@@ -74,7 +74,7 @@ Never silence compiler warnings with `#[allow(...)]` attributes, `#![allow(...)]
 - Unused import → delete it.
 - Unused variable → delete it or use it.
 
-The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; the clippy step of `cargo xtask ci` (`cargo clippy --workspace --all-targets -- -D warnings`) fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,build}.yml` runs the same lint on every PR and push; `cargo xtask ci` runs it locally before you push. Read clippy results back from the ci log as shown under [Verifying results](#verifying-results) — do not re-run just to re-read its output.
+The workspace enforces this via `[workspace.lints.clippy] allow_attributes = "deny"` in the root `Cargo.toml`; the clippy step of `cargo xtask ci` (`cargo clippy --workspace --all-targets -- -D warnings`) fails if any `#[allow(...)]` is present. A dedicated `clippy` job in `.github/workflows/{check,release}.yml` runs the same lint on every PR and push; `cargo xtask ci` runs it locally before you push. Read clippy results back from the ci log as shown under [Verifying results](#verifying-results) — do not re-run just to re-read its output.
 
 `#[expect(lint, reason = "...")]` is permissible for documented structural cases that are not real bugs. It is self-verifying: if the underlying warning stops firing, `expect` itself warns, forcing a follow-up cleanup. Example: each `crates/cli/tests/*.rs` binary compiles its own copy of `mod common;` and uses a different subset of the helpers, which makes `dead_code` fire legitimately per-binary. The fix is `#[expect(dead_code, reason = "each test binary uses a different subset of common helpers")]`, not `#[allow]`. Any `#[expect]` must carry a `reason` explaining the structural cause.
 
@@ -129,6 +129,8 @@ For timed blocks, use `tracing::info_span!("name", field = value).entered()` or 
 
 Default filter is `info`. Users override via `--log-filter <DIRECTIVE>` (requires `--debug`) or `LIBLLM_LOG` (ignored unless `--debug` is set). Both take `env_logger`-style directives, e.g. `info,libllm_storage::db=debug,libllm_tui::render=off`.
 
+The debug-log target column strips workspace-crate prefixes via `STRIP_PREFIXES` in `crates/diagnostics/src/format.rs`; when adding or renaming a workspace crate, update that list or its log targets render unstripped.
+
 ### Conversation tree
 
 Messages form a tree (`MessageTree` in `crates/core/src/session/tree.rs`, re-exported as `libllm_core::session::MessageTree`) using an arena (`Vec<Node>` + `NodeId`). `/retry` and `/edit` create sibling branches. `branch_path()` walks from head to root.
@@ -143,7 +145,7 @@ Migrations live under `crates/storage/src/db/migrations/` — one file per versi
 
 `apply_migration` runs each migration and stamps its version inside one transaction, so a crash mid-upgrade rolls back cleanly instead of leaving a half-applied schema. Individual `migrate` bodies therefore stay plain `&Connection` statements and must **not** open their own transaction.
 
-Migrations run exactly once per process: `Database::open` (in `crates/storage/src/db/mod.rs`) calls `migrations::run_migrations(&conn)` on the main connection after applying the SQLCipher key. The `FileSummarizer`'s dedicated second connection (built in the `libllm-tui` crate, `crates/tui/src/file_summarizer.rs`) does **not** run migrations — it observes the already-migrated schema over SQLite's WAL file locking.
+Migrations run exactly once per process: `Database::open` (in `crates/storage/src/db/mod.rs`) calls `migrations::run_migrations(&conn)` on the main connection after applying the SQLCipher key. The `FileSummarizer`'s dedicated second connection (built by `build_file_summarizer` in `crates/tui/src/business.rs` and held by `crates/tui/src/file_summarizer.rs`) does **not** run migrations — it observes the already-migrated schema over SQLite's WAL file locking.
 
 ### `libllm db` subcommand group
 

@@ -89,13 +89,13 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                             );
                         }
                     }
-                    app.passkey_deriving = false;
+                    app.passkey.deriving = false;
                     post_passkey_focus(app);
                     business::refresh_sidebar(app);
                 }
                 Err(err) => {
-                    app.passkey_deriving = false;
-                    app.passkey_error = format!("Failed to open database: {err}");
+                    app.passkey.deriving = false;
+                    app.passkey.error = format!("Failed to open database: {err}");
                 }
             }
         }
@@ -107,9 +107,9 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                 );
                 tracing::warn!(phase = "ui_complete", kind = unlock_dbg.kind, result = "error", elapsed_ms = elapsed_ms.as_str(), error = %err, "unlock.phase");
             }
-            app.passkey_deriving = false;
-            app.passkey_error = format!("Failed: {err}");
-            app.resolved_passkey = None;
+            app.passkey.deriving = false;
+            app.passkey.error = format!("Failed: {err}");
+            app.passkey.resolved = None;
         }
         BackgroundEvent::PasskeySet(new_key) => {
             if let Some(unlock_dbg) = app.unlock_debug.take() {
@@ -125,10 +125,10 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                     "unlock.phase"
                 );
             }
-            app.set_passkey_deriving = false;
+            app.set_passkey.deriving = false;
             app.invalidate_worldbook_cache();
             app.invalidate_chat_render_cache();
-            if app.set_passkey_is_initial {
+            if app.set_passkey.is_initial {
                 let db_path = libllm_config::data_dir().join("data.db");
                 match Database::open(&db_path, Some(&new_key)) {
                     Ok(db) => {
@@ -186,8 +186,8 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
             } else {
                 if let Some(ref db) = app.db {
                     let data_dir = libllm_config::data_dir();
-                    let old_passkey = app.resolved_passkey.clone();
-                    let new_passkey = app.pending_new_passkey.take();
+                    let old_passkey = app.passkey.resolved.clone();
+                    let new_passkey = app.passkey.pending_new.take();
 
                     let rekey_result = match (old_passkey.as_deref(), new_passkey.as_deref()) {
                         (Some(old_pw), Some(new_pw)) => {
@@ -212,14 +212,14 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
 
                     match db.rekey(&new_key) {
                         Ok(()) => {
-                            app.resolved_passkey = new_passkey;
+                            app.passkey.resolved = new_passkey;
                             if let Err(err) = libllm_backup::rekey::finalize_rekey(&data_dir) {
                                 app.set_status(
                                     format!("Passkey changed, but failed to clean up backup journal: {err}"),
                                     StatusLevel::Warning,
                                 );
                             }
-                            app.passkey_changed = true;
+                            app.passkey.changed = true;
                             app.should_quit = true;
                         }
                         Err(err) => {
@@ -255,8 +255,8 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                 );
                 tracing::warn!(phase = "ui_complete", kind = unlock_dbg.kind, result = "error", elapsed_ms = elapsed_ms.as_str(), error = %err, "unlock.phase");
             }
-            app.set_passkey_deriving = false;
-            app.set_passkey_error = format!("Failed: {err}");
+            app.set_passkey.deriving = false;
+            app.set_passkey.error = format!("Failed: {err}");
         }
         BackgroundEvent::ModelFetched(Ok(name)) => {
             tracing::info!(result = "ok", name = %name, "api.model");

@@ -18,7 +18,7 @@ pub(crate) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rec
     let dialog = clear_centered(f, DIALOG_WIDTH, DIALOG_HEIGHT, area);
 
     let max_visible = DIALOG_WIDTH as usize - 2 - LABEL_PREFIX_LEN - 1;
-    let masked_full: String = "*".repeat(app.passkey_input.len());
+    let masked_full: String = "*".repeat(app.passkey.input.len());
     let masked: String = if masked_full.len() > max_visible {
         masked_full[masked_full.len() - max_visible..].to_owned()
     } else {
@@ -34,7 +34,7 @@ pub(crate) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rec
         Line::from(vec![
             Span::raw("  Passkey: "),
             Span::styled(&masked, Style::default().fg(passkey_color)),
-            if app.passkey_deriving {
+            if app.passkey.deriving {
                 Span::raw("")
             } else {
                 Span::styled(
@@ -48,14 +48,14 @@ pub(crate) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rec
         Line::from(""),
     ];
 
-    if app.passkey_deriving {
+    if app.passkey.deriving {
         lines.push(Line::from(Span::styled(
             "  Deriving key...",
             Style::default().fg(Color::Yellow),
         )));
-    } else if !app.passkey_error.is_empty() {
+    } else if !app.passkey.error.is_empty() {
         lines.push(Line::from(Span::styled(
-            format!("  {}", app.passkey_error),
+            format!("  {}", app.passkey.error),
             Style::default().fg(Color::Red),
         )));
     }
@@ -65,7 +65,7 @@ pub(crate) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rec
 
     f.render_widget(paragraph, dialog);
 
-    if !app.passkey_deriving && app.passkey_error.is_empty() {
+    if !app.passkey.deriving && app.passkey.error.is_empty() {
         render_hints_below_dialog(
             f,
             dialog,
@@ -80,12 +80,12 @@ pub(crate) fn handle_passkey_key(
     app: &mut App,
     bg_tx: mpsc::Sender<BackgroundEvent>,
 ) -> Option<Action> {
-    if app.passkey_deriving {
+    if app.passkey.deriving {
         return None;
     }
     match key.code {
         KeyCode::Enter => {
-            let passkey = app.passkey_input.clone();
+            let passkey = app.passkey.input.clone();
             if !matches!(
                 &app.save_mode,
                 libllm_core::session::SaveMode::PendingPasskey { .. }
@@ -94,10 +94,10 @@ pub(crate) fn handle_passkey_key(
             }
             let db_path = libllm_config::data_dir().join("data.db");
             let salt_path = libllm_config::salt_path();
-            app.resolved_passkey = Some(passkey.clone());
-            app.passkey_input.clear();
-            app.passkey_error.clear();
-            app.passkey_deriving = true;
+            app.passkey.resolved = Some(passkey.clone());
+            app.passkey.input.clear();
+            app.passkey.error.clear();
+            app.passkey.deriving = true;
             app.unlock_debug = Some(crate::UnlockDebugState {
                 kind: "unlock",
                 started_at: std::time::Instant::now(),
@@ -144,17 +144,17 @@ pub(crate) fn handle_passkey_key(
             None
         }
         KeyCode::Char(c) => {
-            if app.passkey_input.len() < super::MAX_PASSKEY_LENGTH {
-                app.passkey_input.push(c);
+            if app.passkey.input.len() < super::MAX_PASSKEY_LENGTH {
+                app.passkey.input.push(c);
             } else {
                 app.input_reject_flash = Some(std::time::Instant::now());
             }
-            app.passkey_error.clear();
+            app.passkey.error.clear();
             None
         }
         KeyCode::Backspace => {
-            app.passkey_input.pop();
-            app.passkey_error.clear();
+            app.passkey.input.pop();
+            app.passkey.error.clear();
             None
         }
         KeyCode::Esc => Some(Action::Quit),

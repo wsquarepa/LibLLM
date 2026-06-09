@@ -259,6 +259,24 @@ pub(super) struct LayoutAreas {
     pub(super) input: Rect,
 }
 
+pub(super) struct PasskeyPromptState {
+    pub(super) input: String,
+    pub(super) error: String,
+    pub(super) deriving: bool,
+    pub(super) resolved: Option<String>,
+    pub(super) pending_new: Option<String>,
+    pub(super) changed: bool,
+}
+
+pub(super) struct SetPasskeyState {
+    pub(super) input: String,
+    pub(super) confirm: String,
+    pub(super) active_field: u8,
+    pub(super) error: String,
+    pub(super) deriving: bool,
+    pub(super) is_initial: bool,
+}
+
 pub(super) struct App<'a> {
     pub(super) client: ApiClient,
     pub(super) session: &'a mut Session,
@@ -293,21 +311,10 @@ pub(super) struct App<'a> {
     pub(super) injection_warning: Option<dialogs::injection_warning::InjectionWarning>,
     pub(super) status_message: Option<StatusMessage>,
     pub(super) should_quit: bool,
-    pub(super) passkey_changed: bool,
+    pub(super) passkey: PasskeyPromptState,
     pub(super) command_picker_selected: usize,
 
-    pub(super) passkey_input: String,
-    pub(super) passkey_error: String,
-    pub(super) passkey_deriving: bool,
-    pub(super) resolved_passkey: Option<String>,
-    pub(super) pending_new_passkey: Option<String>,
-
-    pub(super) set_passkey_input: String,
-    pub(super) set_passkey_confirm: String,
-    pub(super) set_passkey_active_field: u8,
-    pub(super) set_passkey_error: String,
-    pub(super) set_passkey_deriving: bool,
-    pub(super) set_passkey_is_initial: bool,
+    pub(super) set_passkey: SetPasskeyState,
 
     pub(super) config_dialog: Option<dialogs::TabbedFieldDialog<'a>>,
     pub(super) auth_dialog: Option<dialogs::auth::AuthDialogState>,

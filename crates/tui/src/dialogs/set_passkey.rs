@@ -17,34 +17,34 @@ const LABEL_PREFIX_LEN: usize = 19; // "  New Passkey:     "
 pub(crate) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let dialog = clear_centered(f, DIALOG_WIDTH, DIALOG_HEIGHT, area);
 
-    let title = if app.set_passkey_is_initial {
+    let title = if app.set_passkey.is_initial {
         " Set Passkey "
     } else {
         " Change Passkey "
     };
 
     let max_visible = DIALOG_WIDTH as usize - 2 - LABEL_PREFIX_LEN - 1;
-    let new_masked_full: String = "*".repeat(app.set_passkey_input.len());
+    let new_masked_full: String = "*".repeat(app.set_passkey.input.len());
     let new_masked: String = if new_masked_full.len() > max_visible {
         new_masked_full[new_masked_full.len() - max_visible..].to_owned()
     } else {
         new_masked_full
     };
-    let confirm_masked_full: String = "*".repeat(app.set_passkey_confirm.len());
+    let confirm_masked_full: String = "*".repeat(app.set_passkey.confirm.len());
     let confirm_masked: String = if confirm_masked_full.len() > max_visible {
         confirm_masked_full[confirm_masked_full.len() - max_visible..].to_owned()
     } else {
         confirm_masked_full
     };
 
-    let new_label_style = if app.set_passkey_active_field == 0 {
+    let new_label_style = if app.set_passkey.active_field == 0 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let confirm_label_style = if app.set_passkey_active_field == 1 {
+    let confirm_label_style = if app.set_passkey.active_field == 1 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
@@ -53,23 +53,23 @@ pub(crate) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &App, area:
     };
 
     let flashing = super::is_flash_active(app.input_reject_flash);
-    let new_value_style = if app.set_passkey_active_field == 0 && flashing {
+    let new_value_style = if app.set_passkey.active_field == 0 && flashing {
         Style::default().fg(Color::Yellow)
-    } else if app.set_passkey_active_field == 0 {
+    } else if app.set_passkey.active_field == 0 {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default()
     };
-    let confirm_value_style = if app.set_passkey_active_field == 1 && flashing {
+    let confirm_value_style = if app.set_passkey.active_field == 1 && flashing {
         Style::default().fg(Color::Yellow)
-    } else if app.set_passkey_active_field == 1 {
+    } else if app.set_passkey.active_field == 1 {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default()
     };
 
     let cursor = |active: bool| -> Span {
-        if active && !app.set_passkey_deriving {
+        if active && !app.set_passkey.deriving {
             Span::styled(
                 "_",
                 Style::default()
@@ -86,24 +86,24 @@ pub(crate) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &App, area:
         Line::from(vec![
             Span::styled("  New Passkey:     ", new_label_style),
             Span::styled(&new_masked, new_value_style),
-            cursor(app.set_passkey_active_field == 0),
+            cursor(app.set_passkey.active_field == 0),
         ]),
         Line::from(vec![
             Span::styled("  Confirm:         ", confirm_label_style),
             Span::styled(&confirm_masked, confirm_value_style),
-            cursor(app.set_passkey_active_field == 1),
+            cursor(app.set_passkey.active_field == 1),
         ]),
         Line::from(""),
     ];
 
-    if app.set_passkey_deriving {
+    if app.set_passkey.deriving {
         lines.push(Line::from(Span::styled(
             "  Deriving key...",
             Style::default().fg(Color::Yellow),
         )));
-    } else if !app.set_passkey_error.is_empty() {
+    } else if !app.set_passkey.error.is_empty() {
         lines.push(Line::from(Span::styled(
-            format!("  {}", app.set_passkey_error),
+            format!("  {}", app.set_passkey.error),
             Style::default().fg(Color::Red),
         )));
     }
@@ -112,7 +112,7 @@ pub(crate) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &App, area:
 
     f.render_widget(paragraph, dialog);
 
-    if !app.set_passkey_deriving && app.set_passkey_error.is_empty() {
+    if !app.set_passkey.deriving && app.set_passkey.error.is_empty() {
         render_hints_below_dialog(
             f,
             dialog,
@@ -127,43 +127,43 @@ pub(crate) fn handle_set_passkey_key(
     app: &mut App,
     bg_tx: mpsc::Sender<BackgroundEvent>,
 ) -> Option<Action> {
-    if app.set_passkey_deriving {
+    if app.set_passkey.deriving {
         return None;
     }
     match key.code {
         KeyCode::Tab | KeyCode::Up | KeyCode::Down | KeyCode::BackTab => {
-            app.set_passkey_active_field = 1 - app.set_passkey_active_field;
+            app.set_passkey.active_field = 1 - app.set_passkey.active_field;
             None
         }
         KeyCode::Enter => {
-            if app.set_passkey_input.is_empty() {
-                app.set_passkey_error = "Passkey cannot be empty".to_owned();
+            if app.set_passkey.input.is_empty() {
+                app.set_passkey.error = "Passkey cannot be empty".to_owned();
                 return None;
             }
-            if app.set_passkey_input != app.set_passkey_confirm {
-                app.set_passkey_error = "Passkeys do not match".to_owned();
+            if app.set_passkey.input != app.set_passkey.confirm {
+                app.set_passkey.error = "Passkeys do not match".to_owned();
                 return None;
             }
 
-            let passkey = app.set_passkey_input.clone();
-            if app.set_passkey_is_initial {
-                app.resolved_passkey = Some(passkey.clone());
+            let passkey = app.set_passkey.input.clone();
+            if app.set_passkey.is_initial {
+                app.passkey.resolved = Some(passkey.clone());
             } else {
-                app.pending_new_passkey = Some(passkey.clone());
+                app.passkey.pending_new = Some(passkey.clone());
             }
-            app.set_passkey_input.clear();
-            app.set_passkey_confirm.clear();
-            app.set_passkey_error.clear();
-            app.set_passkey_deriving = true;
+            app.set_passkey.input.clear();
+            app.set_passkey.confirm.clear();
+            app.set_passkey.error.clear();
+            app.set_passkey.deriving = true;
             app.unlock_debug = Some(crate::UnlockDebugState {
-                kind: if app.set_passkey_is_initial {
+                kind: if app.set_passkey.is_initial {
                     "set_passkey"
                 } else {
                     "change_passkey"
                 },
                 started_at: std::time::Instant::now(),
             });
-            let is_initial = app.set_passkey_is_initial;
+            let is_initial = app.set_passkey.is_initial;
             let debug_kind = if is_initial {
                 "set_passkey"
             } else {
@@ -194,15 +194,15 @@ pub(crate) fn handle_set_passkey_key(
         }
         KeyCode::Char(c) => {
             let rejected;
-            if app.set_passkey_active_field == 0 {
-                if app.set_passkey_input.len() < super::MAX_PASSKEY_LENGTH {
-                    app.set_passkey_input.push(c);
+            if app.set_passkey.active_field == 0 {
+                if app.set_passkey.input.len() < super::MAX_PASSKEY_LENGTH {
+                    app.set_passkey.input.push(c);
                     rejected = false;
                 } else {
                     rejected = true;
                 }
-            } else if app.set_passkey_confirm.len() < super::MAX_PASSKEY_LENGTH {
-                app.set_passkey_confirm.push(c);
+            } else if app.set_passkey.confirm.len() < super::MAX_PASSKEY_LENGTH {
+                app.set_passkey.confirm.push(c);
                 rejected = false;
             } else {
                 rejected = true;
@@ -210,26 +210,26 @@ pub(crate) fn handle_set_passkey_key(
             if rejected {
                 app.input_reject_flash = Some(std::time::Instant::now());
             }
-            app.set_passkey_error.clear();
+            app.set_passkey.error.clear();
             None
         }
         KeyCode::Backspace => {
-            if app.set_passkey_active_field == 0 {
-                app.set_passkey_input.pop();
+            if app.set_passkey.active_field == 0 {
+                app.set_passkey.input.pop();
             } else {
-                app.set_passkey_confirm.pop();
+                app.set_passkey.confirm.pop();
             }
-            app.set_passkey_error.clear();
+            app.set_passkey.error.clear();
             None
         }
         KeyCode::Esc => {
-            if app.set_passkey_is_initial {
+            if app.set_passkey.is_initial {
                 Some(Action::Quit)
             } else {
-                app.set_passkey_input.clear();
-                app.set_passkey_confirm.clear();
-                app.set_passkey_error.clear();
-                app.set_passkey_active_field = 0;
+                app.set_passkey.input.clear();
+                app.set_passkey.confirm.clear();
+                app.set_passkey.error.clear();
+                app.set_passkey.active_field = 0;
                 app.focus = crate::Focus::Input;
                 None
             }

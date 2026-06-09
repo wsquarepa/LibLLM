@@ -571,12 +571,12 @@ fn cmd_passkey(app: &mut App) {
     match &app.save_mode {
         SaveMode::Database { .. } => {
             if app.db.is_some() {
-                app.set_passkey_input.clear();
-                app.set_passkey_confirm.clear();
-                app.set_passkey_active_field = 0;
-                app.set_passkey_error.clear();
-                app.set_passkey_deriving = false;
-                app.set_passkey_is_initial = false;
+                app.set_passkey.input.clear();
+                app.set_passkey.confirm.clear();
+                app.set_passkey.active_field = 0;
+                app.set_passkey.error.clear();
+                app.set_passkey.deriving = false;
+                app.set_passkey.is_initial = false;
                 app.focus = Focus::SetPasskeyDialog;
             } else {
                 app.set_status("Database not available.".to_owned(), StatusLevel::Error);

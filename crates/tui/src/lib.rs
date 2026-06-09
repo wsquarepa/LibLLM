@@ -237,19 +237,23 @@ impl<'a> App<'a> {
             injection_warning: None,
             status_message: None,
             should_quit: false,
-            passkey_changed: false,
+            passkey: PasskeyPromptState {
+                changed: false,
+                input: String::new(),
+                error: String::new(),
+                deriving: false,
+                resolved: None,
+                pending_new: None,
+            },
             command_picker_selected: 0,
-            passkey_input: String::new(),
-            passkey_error: String::new(),
-            passkey_deriving: false,
-            resolved_passkey: None,
-            pending_new_passkey: None,
-            set_passkey_input: String::new(),
-            set_passkey_confirm: String::new(),
-            set_passkey_active_field: 0,
-            set_passkey_error: String::new(),
-            set_passkey_deriving: false,
-            set_passkey_is_initial: initial_passkey_setup,
+            set_passkey: SetPasskeyState {
+                input: String::new(),
+                confirm: String::new(),
+                active_field: 0,
+                error: String::new(),
+                deriving: false,
+                is_initial: initial_passkey_setup,
+            },
             config_dialog: None,
             auth_dialog: None,
             theme_dialog: None,
@@ -498,11 +502,11 @@ pub async fn run(
         crossterm::event::DisableBracketedPaste
     )?;
 
-    if app.passkey_changed {
+    if app.passkey.changed {
         println!("Passkey changed. Please re-launch to authenticate with your new passkey.");
     }
 
-    Ok(app.resolved_passkey.clone())
+    Ok(app.passkey.resolved.clone())
 }
 
 pub(crate) fn render_frame(f: &mut ratatui::Frame, app: &mut App) {

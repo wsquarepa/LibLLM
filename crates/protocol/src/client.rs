@@ -452,9 +452,9 @@ impl ApiClient {
         Ok(content)
     }
 
-    /// Queries the llama.cpp server for its context size (`n_ctx`).
-    /// Returns `None` if the server doesn't support the endpoint or the field is missing.
-    pub async fn fetch_server_context_size(&self) -> Option<usize> {
+    /// Fetches `{server}/props` as JSON, logging failures under `log_target`.
+    /// Returns `None` on auth, transport, HTTP-status, or body-parse failure.
+    async fn fetch_props_json(&self, log_target: &'static str) -> Option<serde_json::Value> {
         let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
         let builder = match apply_auth(&self.auth, self.client.get(&url)) {
@@ -466,7 +466,7 @@ impl ApiClient {
                     result = "error",
                     elapsed_ms = elapsed_ms,
                     error = %err,
-                    "client.props"
+                    "{}", log_target
                 );
                 return None;
             }
@@ -484,7 +484,7 @@ impl ApiClient {
                     result = "error",
                     elapsed_ms = elapsed_ms,
                     error = %err,
-                    "client.props"
+                    "{}", log_target
                 );
                 return None;
             }
@@ -497,12 +497,13 @@ impl ApiClient {
                 result = "error",
                 elapsed_ms = elapsed_ms,
                 status = status.as_u16(),
-                "client.props"
+                "{}",
+                log_target
             );
             return None;
         }
-        let json: serde_json::Value = match resp.json().await {
-            Ok(json) => json,
+        match resp.json().await {
+            Ok(json) => Some(json),
             Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                 tracing::error!(
@@ -510,11 +511,18 @@ impl ApiClient {
                     result = "error",
                     elapsed_ms = elapsed_ms,
                     error = %err,
-                    "client.props"
+                    "{}", log_target
                 );
-                return None;
+                None
             }
-        };
+        }
+    }
+
+    /// Queries the llama.cpp server for its context size (`n_ctx`).
+    /// Returns `None` if the server doesn't support the endpoint or the field is missing.
+    pub async fn fetch_server_context_size(&self) -> Option<usize> {
+        let start = Instant::now();
+        let json = self.fetch_props_json("client.props").await?;
         let n_ctx = json["default_generation_settings"]["n_ctx"]
             .as_u64()
             .map(|n| n as usize);
@@ -541,66 +549,8 @@ impl ApiClient {
     /// Returns `None` if the field is missing/empty or the request fails.
     /// Strips trailing NUL bytes (a known llama.cpp quirk).
     pub async fn fetch_server_chat_template(&self) -> Option<String> {
-        let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
-        let builder = match apply_auth(&self.auth, self.client.get(&url)) {
-            Ok(b) => b,
-            Err(err) => {
-                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                tracing::error!(
-                    phase = "request",
-                    result = "error",
-                    elapsed_ms = elapsed_ms,
-                    error = %err,
-                    "client.props.chat_template"
-                );
-                return None;
-            }
-        };
-        let resp = match builder
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
-            .await
-        {
-            Ok(resp) => resp,
-            Err(err) => {
-                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                tracing::error!(
-                    phase = "request",
-                    result = "error",
-                    elapsed_ms = elapsed_ms,
-                    error = %err,
-                    "client.props.chat_template"
-                );
-                return None;
-            }
-        };
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-            tracing::error!(
-                phase = "request",
-                result = "error",
-                elapsed_ms = elapsed_ms,
-                status = status.as_u16(),
-                "client.props.chat_template"
-            );
-            return None;
-        }
-        let json: serde_json::Value = match resp.json().await {
-            Ok(json) => json,
-            Err(err) => {
-                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-                tracing::error!(
-                    phase = "request",
-                    result = "error",
-                    elapsed_ms = elapsed_ms,
-                    error = %err,
-                    "client.props.chat_template"
-                );
-                return None;
-            }
-        };
+        let json = self.fetch_props_json("client.props.chat_template").await?;
         let template = json["chat_template"]
             .as_str()
             .map(|s| s.trim_end_matches('\0').to_owned());
@@ -628,22 +578,26 @@ impl ApiClient {
         }
     }
 
-    /// Calls `POST {server}/tokenize` with the given text and returns the token count.
-    /// When `add_special` is true, BOS/EOS tokens are included in the count.
-    pub async fn tokenize(&self, text: &str, add_special: bool) -> Result<usize> {
-        let url = format!("{}/tokenize", self.base_url.trim_end_matches("/v1"));
+    /// POSTs `body` to `{server}{endpoint}` and extracts a token count from the JSON
+    /// response. `extract` returns `None` when the expected value is absent or the
+    /// wrong type; `field` is the name recorded in `ApiError::MissingField`.
+    async fn tokenize_request(
+        &self,
+        endpoint: &'static str,
+        body: serde_json::Value,
+        log_target: &'static str,
+        field: &'static str,
+        extract: fn(&serde_json::Value) -> Option<usize>,
+    ) -> Result<usize> {
+        let url = format!("{}{}", self.base_url.trim_end_matches("/v1"), endpoint);
         let start = Instant::now();
-        let body = serde_json::json!({
-            "content": text,
-            "add_special": add_special,
-        });
         let builder =
             apply_auth(&self.auth, self.client.post(&url).json(&body)).map_err(|err| {
                 tracing::error!(
                     phase = "auth",
                     result = "error",
                     error = %err,
-                    "client.tokenize"
+                    "{}", log_target
                 );
                 err
             })?;
@@ -655,7 +609,7 @@ impl ApiClient {
                 result = "error",
                 elapsed_ms = elapsed_ms,
                 error = %err,
-                "client.tokenize"
+                "{}", log_target
             );
             err
         })?;
@@ -668,7 +622,8 @@ impl ApiClient {
                 result = "error",
                 elapsed_ms = elapsed_ms,
                 status = status.as_u16(),
-                "client.tokenize"
+                "{}",
+                log_target
             );
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
@@ -683,18 +638,12 @@ impl ApiClient {
                 result = "error",
                 elapsed_ms = elapsed_ms,
                 error = %err,
-                "client.tokenize"
+                "{}", log_target
             );
             ApiError::Request(err)
         })?;
 
-        let count = json["tokens"]
-            .as_array()
-            .ok_or(ApiError::MissingField {
-                endpoint: "/tokenize",
-                field: "tokens",
-            })?
-            .len();
+        let count = extract(&json).ok_or(ApiError::MissingField { endpoint, field })?;
 
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         tracing::debug!(
@@ -702,85 +651,34 @@ impl ApiClient {
             result = "ok",
             elapsed_ms = elapsed_ms,
             count = count,
-            "client.tokenize"
+            "{}",
+            log_target
         );
         Ok(count)
+    }
+
+    /// Calls `POST {server}/tokenize` with the given text and returns the token count.
+    /// When `add_special` is true, BOS/EOS tokens are included in the count.
+    pub async fn tokenize(&self, text: &str, add_special: bool) -> Result<usize> {
+        let body = serde_json::json!({ "content": text, "add_special": add_special });
+        self.tokenize_request("/tokenize", body, "client.tokenize", "tokens", |json| {
+            json["tokens"].as_array().map(|a| a.len())
+        })
+        .await
     }
 
     /// Calls `POST {server}/api/extra/tokencount` (KoboldCPP) with the given text and returns the token count.
     /// KoboldCPP does not expose an `add_special` toggle; it always counts as the configured model does.
     pub async fn tokenize_kobold(&self, text: &str) -> Result<usize> {
-        let url = format!(
-            "{}/api/extra/tokencount",
-            self.base_url.trim_end_matches("/v1")
-        );
-        let start = Instant::now();
         let body = serde_json::json!({ "prompt": text });
-        let builder =
-            apply_auth(&self.auth, self.client.post(&url).json(&body)).map_err(|err| {
-                tracing::error!(
-                    phase = "auth",
-                    result = "error",
-                    error = %err,
-                    "client.tokenize_kobold"
-                );
-                err
-            })?;
-
-        let resp = builder.send().await.map_err(|err| {
-            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-            tracing::error!(
-                phase = "request",
-                result = "error",
-                elapsed_ms = elapsed_ms,
-                error = %err,
-                "client.tokenize_kobold"
-            );
-            err
-        })?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-            tracing::error!(
-                phase = "request",
-                result = "error",
-                elapsed_ms = elapsed_ms,
-                status = status.as_u16(),
-                "client.tokenize_kobold"
-            );
-            return Err(ApiError::HttpStatus {
-                status: status.as_u16(),
-                body: String::new(),
-            });
-        }
-
-        let json: serde_json::Value = resp.json().await.map_err(|err| {
-            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-            tracing::error!(
-                phase = "request",
-                result = "error",
-                elapsed_ms = elapsed_ms,
-                error = %err,
-                "client.tokenize_kobold"
-            );
-            ApiError::Request(err)
-        })?;
-
-        let count = json["value"].as_u64().ok_or(ApiError::MissingField {
-            endpoint: "/api/extra/tokencount",
-            field: "value",
-        })? as usize;
-
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        tracing::debug!(
-            phase = "request",
-            result = "ok",
-            elapsed_ms = elapsed_ms,
-            count = count,
-            "client.tokenize_kobold"
-        );
-        Ok(count)
+        self.tokenize_request(
+            "/api/extra/tokencount",
+            body,
+            "client.tokenize_kobold",
+            "value",
+            |json| json["value"].as_u64().map(|v| v as usize),
+        )
+        .await
     }
 
     pub fn base_url(&self) -> &str {

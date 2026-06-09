@@ -1,3 +1,8 @@
+//! Author's notes: per-session and per-character-card instruction blocks
+//! injected into the prompt at a configurable depth. Owns the `AuthorNote`
+//! type, the `DEFAULT_DEPTH` constant, and the `inject_author_notes` function
+//! that inserts both notes into a message vec before the API call.
+
 use crate::session::{Message, Role};
 use serde::{Deserialize, Serialize};
 

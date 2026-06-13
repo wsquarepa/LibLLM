@@ -329,7 +329,8 @@ fn push_user_segments(app: &mut App<'_>, content: &str) {
     for c in app.session.characters.iter_mut() {
         c.spoke_this_round = false;
     }
-    libllm_core::group_chat::renormalize_action_values(&mut app.session.characters);
+    app.session.characters =
+        libllm_core::group_chat::renormalize_action_values(&app.session.characters);
     let mut parent = app.session.tree.head();
     let segments: Vec<String> = if app.session.character.is_some() {
         libllm_core::side_character::split_user_input(content)

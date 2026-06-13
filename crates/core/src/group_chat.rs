@@ -563,12 +563,15 @@ pub fn inherit_card_scenario(scenario: &str) -> Option<String> {
     }
 }
 
-/// Renormalizes action values so the minimum across all characters is zero. Called when
-/// a new user message arrives (the start of a fresh cascade), to keep AV magnitudes
-/// bounded across many rounds. Preserves relative ordering exactly.
-pub fn renormalize_action_values(characters: &mut [CharacterAttachment]) {
+/// Returns a new list of attachments with action values renormalized so the minimum
+/// across all (finite) characters is zero. Called when a new user message arrives (the
+/// start of a fresh cascade), to keep AV magnitudes bounded across many rounds.
+/// Preserves relative ordering and all other fields exactly (including spoke_this_round).
+/// For the empty list or when the min is already zero (or all non-finite), returns an
+/// equivalent list (cloned data).
+pub fn renormalize_action_values(characters: &[CharacterAttachment]) -> Vec<CharacterAttachment> {
     if characters.is_empty() {
-        return;
+        return Vec::new();
     }
     let min_av = characters
         .iter()
@@ -576,13 +579,18 @@ pub fn renormalize_action_values(characters: &mut [CharacterAttachment]) {
         .filter(|av| av.is_finite())
         .fold(f32::INFINITY, f32::min);
     if !min_av.is_finite() || min_av == 0.0 {
-        return;
+        return characters.to_vec();
     }
-    for c in characters.iter_mut() {
-        if c.action_points.is_finite() {
-            c.action_points -= min_av;
-        }
-    }
+    characters
+        .iter()
+        .map(|c| {
+            let mut nc = c.clone();
+            if nc.action_points.is_finite() {
+                nc.action_points -= min_av;
+            }
+            nc
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -950,8 +958,8 @@ mod tests {
 
     #[test]
     fn renormalize_action_values_subtracts_minimum() {
-        let mut cs = vec![att("a", 0.5, -4.0), att("b", 0.5, -2.0), att("c", 0.5, 6.0)];
-        renormalize_action_values(&mut cs);
+        let cs = vec![att("a", 0.5, -4.0), att("b", 0.5, -2.0), att("c", 0.5, 6.0)];
+        let cs = renormalize_action_values(&cs);
         assert!((cs[0].action_points - 0.0).abs() < 1e-5);
         assert!((cs[1].action_points - 2.0).abs() < 1e-5);
         assert!((cs[2].action_points - 10.0).abs() < 1e-5);
@@ -959,8 +967,8 @@ mod tests {
 
     #[test]
     fn renormalize_action_values_handles_infinity() {
-        let mut cs = vec![att("a", 0.0, f32::INFINITY), att("b", 0.5, 2.0)];
-        renormalize_action_values(&mut cs);
+        let cs = vec![att("a", 0.0, f32::INFINITY), att("b", 0.5, 2.0)];
+        let cs = renormalize_action_values(&cs);
         // Min is 2.0 (infinity ignored). a stays infinite, b drops to 0.
         assert_eq!(cs[0].action_points, f32::INFINITY);
         assert!((cs[1].action_points - 0.0).abs() < 1e-5);
@@ -1051,24 +1059,30 @@ mod tests {
         let mut state = characters;
         let mut rounds: Vec<Vec<String>> = Vec::new();
         for _ in 0..user_rounds {
-            for c in state.iter_mut() {
+            for c in &mut state {
                 c.spoke_this_round = false;
             }
-            renormalize_action_values(&mut state);
+            state = renormalize_action_values(&state);
             let mut order = Vec::new();
             for _ in 0..max_per_round {
                 let Some(d) = decide_next_speaker(&state, mode, &mut rng, None) else {
                     break;
                 };
                 order.push(d.speaker_slug.clone());
-                for (slug, av) in d.updated_action_points {
-                    if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
-                        c.action_points = av;
-                    }
-                }
-                if let Some(c) = state.iter_mut().find(|c| c.slug == d.speaker_slug) {
-                    c.spoke_this_round = true;
-                }
+                state = state
+                    .into_iter()
+                    .map(|mut c| {
+                        if let Some((_, av)) =
+                            d.updated_action_points.iter().find(|(s, _)| s == &c.slug)
+                        {
+                            c.action_points = *av;
+                        }
+                        if c.slug == d.speaker_slug {
+                            c.spoke_this_round = true;
+                        }
+                        c
+                    })
+                    .collect();
             }
             rounds.push(order);
         }
@@ -1124,29 +1138,43 @@ mod tests {
         mode: ChatMode,
         rng: &mut StdRng,
     ) -> Vec<String> {
-        for c in state.iter_mut() {
+        let mut local: Vec<_> = state.to_vec();
+        for c in &mut local {
             c.spoke_this_round = false;
         }
-        renormalize_action_values(state);
+        local = renormalize_action_values(&local);
         let mut order = Vec::new();
         let mut budget = DEFAULT_TURN_TIME_BUDGET;
         let mut first = true;
         loop {
             let tb = if first { None } else { Some(budget) };
-            let Some(d) = decide_next_speaker(state, mode, rng, tb) else {
+            let Some(d) = decide_next_speaker(&local, mode, rng, tb) else {
                 break;
             };
             order.push(d.speaker_slug.clone());
             budget -= d.time_advanced.max(0.0);
-            for (slug, av) in d.updated_action_points {
-                if let Some(c) = state.iter_mut().find(|c| c.slug == slug) {
-                    c.action_points = av;
-                }
-            }
-            if let Some(c) = state.iter_mut().find(|c| c.slug == d.speaker_slug) {
-                c.spoke_this_round = true;
-            }
+            local = local
+                .into_iter()
+                .map(|mut c| {
+                    if let Some((_, av)) =
+                        d.updated_action_points.iter().find(|(s, _)| s == &c.slug)
+                    {
+                        c.action_points = *av;
+                    }
+                    if c.slug == d.speaker_slug {
+                        c.spoke_this_round = true;
+                    }
+                    c
+                })
+                .collect();
             first = false;
+        }
+        // Propagate final state (AVs + spoke flags) back to the caller's slice so that
+        // subsequent rounds in long-running simulations see the updated values. This
+        // preserves the original &mut contract of the test helper while keeping the
+        // renormalize/apply math pure.
+        for (dst, src) in state.iter_mut().zip(local.iter()) {
+            *dst = src.clone();
         }
         order
     }
@@ -1166,7 +1194,7 @@ mod tests {
         for _ in 0..50 {
             run_cascade(&mut state, ChatMode::ActionValue, &mut rng);
         }
-        renormalize_action_values(&mut state);
+        state = renormalize_action_values(&state);
         let finite_min = state
             .iter()
             .map(|c| c.action_points)

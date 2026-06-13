@@ -10,6 +10,20 @@ use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::dialog_handler::return_to_input;
 use crate::{Action, App, DeleteContext, Focus};
 
+pub(crate) struct WorldbookUi<'a> {
+    pub list: Vec<String>,
+    pub list_selected: usize,
+    pub editor_entries: Vec<libllm_core::worldinfo::Entry>,
+    pub editor_original_entries: Vec<libllm_core::worldinfo::Entry>,
+    pub editor_name: String,
+    pub editor_original_name: String,
+    pub editor_name_selected: bool,
+    pub editor_name_editing: bool,
+    pub editor_selected: usize,
+    pub entry_editor: Option<super::FieldDialog<'a>>,
+    pub entry_editor_index: usize,
+}
+
 fn is_save_shortcut(key: &KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))

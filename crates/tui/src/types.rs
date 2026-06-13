@@ -339,20 +339,6 @@ pub(super) struct SystemPromptUi<'a> {
     pub(super) editor_read_only: bool,
 }
 
-pub(super) struct WorldbookUi<'a> {
-    pub(super) list: Vec<String>,
-    pub(super) list_selected: usize,
-    pub(super) editor_entries: Vec<libllm_core::worldinfo::Entry>,
-    pub(super) editor_original_entries: Vec<libllm_core::worldinfo::Entry>,
-    pub(super) editor_name: String,
-    pub(super) editor_original_name: String,
-    pub(super) editor_name_selected: bool,
-    pub(super) editor_name_editing: bool,
-    pub(super) editor_selected: usize,
-    pub(super) entry_editor: Option<dialogs::FieldDialog<'a>>,
-    pub(super) entry_editor_index: usize,
-}
-
 pub(super) struct ThemeUi<'a> {
     pub(super) dialog: Option<dialogs::TabbedFieldDialog<'a>>,
     pub(super) base_picker_names: Vec<String>,
@@ -452,7 +438,7 @@ pub(super) struct App<'a> {
 
     pub(super) preset: PresetUi<'a>,
     pub(super) character: CharacterUi<'a>,
-    pub(super) worldbook: WorldbookUi<'a>,
+    pub(super) worldbook: dialogs::worldbook::WorldbookUi<'a>,
 
     pub(super) regex: RegexUi,
 

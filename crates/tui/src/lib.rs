@@ -297,7 +297,7 @@ impl<'a> App<'a> {
                 editor_slug: String::new(),
                 cards_cache: std::collections::HashMap::new(),
             },
-            worldbook: WorldbookUi {
+            worldbook: dialogs::worldbook::WorldbookUi {
                 list: Vec::new(),
                 list_selected: 0,
                 editor_entries: Vec::new(),

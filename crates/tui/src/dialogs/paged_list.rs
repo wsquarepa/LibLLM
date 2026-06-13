@@ -3,8 +3,6 @@
 //! Exposes a pure `viewport` function, a `paged_list_height` sizing helper,
 //! a `handle_paged_list_key` motion helper, and a `render_paged_list` composer.
 
-use std::ops::Range;
-
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
@@ -17,6 +15,10 @@ use regex::{Regex, RegexBuilder};
 
 use crate::render::dialog_block;
 use crate::theme::Theme;
+
+mod logic;
+
+pub(crate) use logic::{page_size, paged_list_height, viewport};
 
 pub(crate) struct SearchState {
     pub query: String,
@@ -149,43 +151,6 @@ pub(crate) enum PagedListAction {
     Passthrough,
     EnteredSearch,
     ExitedSearch,
-}
-
-pub(crate) fn viewport(total: usize, selected: usize, visible: usize) -> Range<usize> {
-    if total == 0 {
-        return 0..0;
-    }
-    let clamped = selected.min(total - 1);
-    if visible == 0 {
-        return clamped..clamped + 1;
-    }
-    if total <= visible {
-        return 0..total;
-    }
-    let center_offset = visible / 2;
-    let start = clamped.saturating_sub(center_offset);
-    let start = start.min(total - visible);
-    start..start + visible
-}
-
-pub(crate) fn paged_list_height(items: usize, terminal_height: u16, chrome: u16) -> u16 {
-    let cap = (terminal_height as f32 * 0.7) as u16;
-    let content_sized = (items as u16).saturating_add(chrome);
-    let desired = cap.min(content_sized);
-
-    let floor = chrome.saturating_add(3);
-    if terminal_height >= floor {
-        desired.max(floor).min(terminal_height)
-    } else {
-        terminal_height
-    }
-}
-
-pub(crate) fn page_size(terminal_height: u16, chrome: u16) -> usize {
-    terminal_height
-        .saturating_sub(chrome)
-        .saturating_sub(3)
-        .max(1) as usize
 }
 
 pub(crate) fn handle_paged_list_key(

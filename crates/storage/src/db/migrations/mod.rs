@@ -8,6 +8,7 @@
 
 mod v1;
 mod v10;
+mod v11;
 mod v2;
 mod v3;
 mod v4;
@@ -21,7 +22,7 @@ use rusqlite::Connection;
 
 use crate::error::{DbError, Result};
 
-pub const CURRENT_VERSION: i64 = 10;
+pub const CURRENT_VERSION: i64 = 11;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -85,6 +86,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         }
         if version < 10 {
             apply_migration(conn, 10, v10::migrate)?;
+            applied += 1;
+        }
+        if version < 11 {
+            apply_migration(conn, 11, v11::migrate)?;
             applied += 1;
         }
 
@@ -810,6 +815,123 @@ mod tests {
                 "column '{expected}' missing after idempotent v6; got {cols:?}"
             );
         }
+    }
+
+    fn assert_author_note_columns(conn: &Connection, table: &str) {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap();
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        for expected in ["author_note", "author_note_depth", "author_note_at_top"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column '{expected}' on {table}; got {cols:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v6_heals_partial_author_note_columns_from_v5() {
+        // Intermediate build stamped at v5 added only `author_note` (not depth /
+        // at_top). Upgrading through v6 must add the missing columns independently.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+            .unwrap();
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        super::v5::migrate(&conn).unwrap();
+        for v in 1..=5i64 {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![v],
+            )
+            .unwrap();
+        }
+        conn.execute_batch(
+            "ALTER TABLE sessions ADD COLUMN author_note TEXT;
+             ALTER TABLE characters ADD COLUMN author_note TEXT;",
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, super::CURRENT_VERSION);
+        assert_author_note_columns(&conn, "sessions");
+        assert_author_note_columns(&conn, "characters");
+
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('s-partial', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        let depth: i64 = conn
+            .query_row(
+                "SELECT author_note_depth FROM sessions WHERE id = 's-partial'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(depth, 4);
+    }
+
+    #[test]
+    fn v11_heals_partial_author_note_columns_already_stamped_past_v6() {
+        // Buggy v6 only checked for `author_note` and skipped depth/at_top when
+        // it was already present. DBs stamped >= 6 never re-ran v6, so v11 heals.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+            .unwrap();
+        super::v1::migrate(&conn).unwrap();
+        super::v2::migrate(&conn).unwrap();
+        super::v3::migrate(&conn).unwrap();
+        super::v4::migrate(&conn).unwrap();
+        super::v5::migrate(&conn).unwrap();
+        // Stamp through v10 without the real v6 body: only author_note landed.
+        for v in 1..=10i64 {
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![v],
+            )
+            .unwrap();
+        }
+        conn.execute_batch(
+            "ALTER TABLE sessions ADD COLUMN author_note TEXT;
+             ALTER TABLE characters ADD COLUMN author_note TEXT;",
+        )
+        .unwrap();
+
+        // Only author_note is present before v11.
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let cols_before: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(cols_before.iter().any(|c| c == "author_note"));
+        assert!(!cols_before.iter().any(|c| c == "author_note_depth"));
+        assert!(!cols_before.iter().any(|c| c == "author_note_at_top"));
+
+        run_migrations(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, super::CURRENT_VERSION);
+        assert_author_note_columns(&conn, "sessions");
+        assert_author_note_columns(&conn, "characters");
     }
 
     #[test]

@@ -346,6 +346,24 @@ pub enum BackupError {
         source: Box<BackupError>,
     },
 
+    /// Reading a base backup file during rekey failed.
+    #[error("read base backup {id} at {path}: {source}")]
+    RekeyReadBase {
+        id: String,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// Rewriting a base backup header during rekey failed.
+    #[error("rewrite base backup {id} at {path}: {source}")]
+    RekeyRewriteBase {
+        id: String,
+        path: PathBuf,
+        #[source]
+        source: CryptoError,
+    },
+
     /// The rekey journal is present but the current passkey fingerprint matches neither old nor new.
     #[error(transparent)]
     RekeyJournalUnresolvable(Box<RekeyJournalUnresolvable>),

@@ -299,6 +299,7 @@ impl ApiClient {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
                 Err(err) => {
+                    let err = ApiError::from(err);
                     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                     tracing::error!(
                         phase = "done",
@@ -309,7 +310,7 @@ impl ApiClient {
                         error = %err,
                         "client.stream"
                     );
-                    return Err(err.into());
+                    return Err(err);
                 }
             };
             buffer.extend_from_slice(&chunk);
@@ -426,6 +427,7 @@ impl ApiClient {
         let json: serde_json::Value = match resp.json().await {
             Ok(json) => json,
             Err(err) => {
+                let err = ApiError::from(err);
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                 tracing::error!(
                     phase = "done",
@@ -434,7 +436,7 @@ impl ApiClient {
                     error = %err,
                     "client.complete"
                 );
-                return Err(err.into());
+                return Err(err);
             }
         };
         let content = json["choices"][0]["text"]
@@ -478,6 +480,7 @@ impl ApiClient {
         {
             Ok(resp) => resp,
             Err(err) => {
+                let err = ApiError::from(err);
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                 tracing::error!(
                     phase = "request",
@@ -505,6 +508,7 @@ impl ApiClient {
         match resp.json().await {
             Ok(json) => Some(json),
             Err(err) => {
+                let err = ApiError::from(err);
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                 tracing::error!(
                     phase = "request",
@@ -603,6 +607,7 @@ impl ApiClient {
             })?;
 
         let resp = builder.send().await.map_err(|err| {
+            let err = ApiError::from(err);
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             tracing::error!(
                 phase = "request",
@@ -632,6 +637,7 @@ impl ApiClient {
         }
 
         let json: serde_json::Value = resp.json().await.map_err(|err| {
+            let err = ApiError::from(err);
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             tracing::error!(
                 phase = "request",
@@ -640,7 +646,7 @@ impl ApiClient {
                 error = %err,
                 "{}", log_target
             );
-            ApiError::Request(err)
+            err
         })?;
 
         let count = extract(&json).ok_or(ApiError::MissingField { endpoint, field })?;
@@ -1132,6 +1138,46 @@ mod tests {
                 value: "v".into()
             })
             .is_ok()
+        );
+    }
+
+    /// Closed port + Auth::Query must never leak the secret via error Display.
+    #[tokio::test]
+    async fn query_auth_secret_absent_from_connection_errors() {
+        const SECRET: &str = "LIBLLM_SECRET_TOKEN_123";
+        let auth = Auth::Query {
+            name: "api_key".into(),
+            value: SECRET.into(),
+        };
+        // Port 9 is conventionally closed / discard; connection fails quickly.
+        let client = ApiClient::new("http://127.0.0.1:9/v1", false, auth);
+        let sampling = SamplingParams::default();
+
+        let fetch_err = client.fetch_model_name().await.unwrap_err();
+        assert!(
+            !fetch_err.contains(SECRET),
+            "fetch_model_name leaked secret: {fetch_err}"
+        );
+
+        let complete_err = client
+            .complete("hi", &[], &sampling)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            !complete_err.contains(SECRET),
+            "complete leaked secret: {complete_err}"
+        );
+
+        let mut sink = Vec::new();
+        let stream_err = client
+            .stream_completion("hi", &[], &sampling, &mut sink)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            !stream_err.contains(SECRET),
+            "stream_completion leaked secret: {stream_err}"
         );
     }
 }

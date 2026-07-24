@@ -4,6 +4,7 @@
 pub mod client;
 pub mod crypto_provider;
 pub mod error;
+pub mod redact;
 pub mod summarize;
 pub mod tokenizer;
 

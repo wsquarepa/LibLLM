@@ -36,4 +36,7 @@ pub mod crypto;
 pub mod export;
 pub mod files;
 
+// Shared text helpers
+pub mod text;
+
 mod timing;

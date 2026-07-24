@@ -456,3 +456,88 @@ fn scenario_editor_save_commits_provisional_to_session() {
         "Save must commit the provisional scenario to the session"
     );
 }
+
+#[test]
+fn cleared_provisional_scenario_reopens_empty() {
+    use libllm_core::group_chat::CharacterAttachment;
+    use libllm_core::session::Session;
+    use libllm_tui::dialogs::chat_settings::{ChatSettingsDialog, ProvisionalScenario};
+
+    let session = Session {
+        scenario: Some("original".to_owned()),
+        characters: vec![CharacterAttachment::new("alice".to_owned())],
+        ..Session::default()
+    };
+    let mut dialog = ChatSettingsDialog::for_session(&session);
+
+    // Simulate the scenario editor closed with an empty field (user cleared the text).
+    dialog.set_provisional_scenario(None);
+
+    match dialog.provisional_scenario_state() {
+        ProvisionalScenario::Cleared => {}
+        other => panic!("expected Cleared, got {other:?}"),
+    }
+
+    // Mirror scenario::open selection logic: Cleared must not fall back to session.scenario.
+    let initial = match dialog.provisional_scenario_state() {
+        ProvisionalScenario::Absent => session.scenario.clone().unwrap_or_default(),
+        ProvisionalScenario::Cleared => String::new(),
+        ProvisionalScenario::Text(s) => s,
+    };
+    assert_eq!(
+        initial, "",
+        "cleared provisional must reopen empty, not restore session.scenario"
+    );
+}
+
+#[test]
+fn cleared_provisional_scenario_save_commits_none() {
+    use libllm_core::group_chat::CharacterAttachment;
+    use libllm_core::session::Session;
+    use libllm_tui::dialogs::chat_settings::{ChatSettingsDialog, ProvisionalScenario};
+
+    let mut session = Session {
+        scenario: Some("original".to_owned()),
+        characters: vec![CharacterAttachment::new("alice".to_owned())],
+        ..Session::default()
+    };
+    let mut dialog = ChatSettingsDialog::for_session(&session);
+
+    dialog.set_provisional_scenario(None);
+    assert!(matches!(
+        dialog.provisional_scenario_state(),
+        ProvisionalScenario::Cleared
+    ));
+
+    dialog.commit_provisional_scenario(&mut session);
+    assert_eq!(
+        session.scenario, None,
+        "Save after clear must commit None, not leave the stale session scenario"
+    );
+}
+
+#[test]
+fn absent_provisional_scenario_keeps_session_on_save() {
+    use libllm_core::group_chat::CharacterAttachment;
+    use libllm_core::session::Session;
+    use libllm_tui::dialogs::chat_settings::{ChatSettingsDialog, ProvisionalScenario};
+
+    let mut session = Session {
+        scenario: Some("original".to_owned()),
+        characters: vec![CharacterAttachment::new("alice".to_owned())],
+        ..Session::default()
+    };
+    let mut dialog = ChatSettingsDialog::for_session(&session);
+
+    assert!(matches!(
+        dialog.provisional_scenario_state(),
+        ProvisionalScenario::Absent
+    ));
+
+    dialog.commit_provisional_scenario(&mut session);
+    assert_eq!(
+        session.scenario.as_deref(),
+        Some("original"),
+        "Save without opening the editor must leave session.scenario untouched"
+    );
+}

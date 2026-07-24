@@ -13,6 +13,20 @@ use libllm_core::session::{MessageTree, Session};
 
 use crate::theme::Theme;
 
+/// Tri-state view of the provisional scenario staged by the child editor.
+///
+/// Distinguishes "editor never opened" from "editor opened and cleared", which the flat
+/// `provisional_scenario()` getter collapses to `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProvisionalScenario {
+    /// Scenario editor has not been opened this dialog session.
+    Absent,
+    /// Editor was opened and closed with an empty field (user cleared the scenario).
+    Cleared,
+    /// Editor was opened and closed with non-empty text.
+    Text(String),
+}
+
 pub struct ChatSettingsDialog {
     pub selected: usize,
     pub rows: Vec<Row>,
@@ -124,9 +138,18 @@ impl ChatSettingsDialog {
     /// Returns the pending provisional scenario text for pre-populating the editor on reopen.
     ///
     /// Returns `None` both when the editor has never been opened and when the user cleared
-    /// the field. Callers that need to distinguish the two states must inspect the raw field.
+    /// the field. Prefer [`provisional_scenario_state`] when those two states must differ.
     pub fn provisional_scenario(&self) -> Option<&str> {
         self.provisional_scenario.as_ref()?.as_deref()
+    }
+
+    /// Returns the full tri-state provisional scenario (never opened / cleared / text).
+    pub fn provisional_scenario_state(&self) -> ProvisionalScenario {
+        match &self.provisional_scenario {
+            None => ProvisionalScenario::Absent,
+            Some(None) => ProvisionalScenario::Cleared,
+            Some(Some(s)) => ProvisionalScenario::Text(s.clone()),
+        }
     }
 
     /// Writes the provisional scenario into the session. Called only on Save.

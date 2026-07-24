@@ -15,13 +15,16 @@ use crate::types::{App, Focus, StatusLevel};
 use crate::{Action, clipboard, dialog_handler, events};
 
 pub(crate) fn open(app: &mut App) {
-    let initial = app
-        .chat_settings_dialog
-        .as_ref()
-        .and_then(|dlg| dlg.provisional_scenario())
-        .map(str::to_owned)
-        .or_else(|| app.session.scenario.clone())
-        .unwrap_or_default();
+    use super::chat_settings::ProvisionalScenario;
+
+    let initial = match app.chat_settings_dialog.as_ref() {
+        Some(dlg) => match dlg.provisional_scenario_state() {
+            ProvisionalScenario::Absent => app.session.scenario.clone().unwrap_or_default(),
+            ProvisionalScenario::Cleared => String::new(),
+            ProvisionalScenario::Text(s) => s,
+        },
+        None => app.session.scenario.clone().unwrap_or_default(),
+    };
     let lines: Vec<String> = if initial.is_empty() {
         vec![String::new()]
     } else {

@@ -1800,7 +1800,7 @@ checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
 name = "libllm-backup"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "argon2",
  "base64",
@@ -1825,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-cli"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1862,7 +1862,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-config"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "dirs",
  "libllm-core",
@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-core"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "argon2",
  "base64",
@@ -1904,7 +1904,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-diagnostics"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "libllm-core",
  "sysinfo",
@@ -1918,7 +1918,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-protocol"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "futures",
  "futures-util",
@@ -1937,7 +1937,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-storage"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "anyhow",
  "libllm-core",
@@ -1951,7 +1951,7 @@ dependencies = [
 
 [[package]]
 name = "libllm-tui"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "anyhow",
  "arboard",
@@ -4934,7 +4934,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "3.1.4"
+version = "3.1.5"
 dependencies = [
  "chrono",
  "rand 0.10.1",

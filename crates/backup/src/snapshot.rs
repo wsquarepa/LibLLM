@@ -225,9 +225,11 @@ fn build_payload(
 /// behavior depends on the file format:
 ///
 /// - **Type-3 (header present):** unwraps the DEK from the header with the KEK,
-///   decrypts the payload, and records the real plaintext hash and size.
-/// - **No header, KEK-direct decrypt succeeds (type-1 legacy):** generates a fresh
-///   DEK, re-encrypts in the type-3 header format, records `"unknown"` plaintext_hash.
+///   decrypts the payload, and records the real plaintext hash and size. Following
+///   diffs already under that DEK are left untouched.
+/// - **No header, KEK-direct decrypt succeeds (type-1 legacy):** generates **one**
+///   fresh chain DEK, re-encrypts the base as type-3 and re-encrypts every following
+///   type-1 (KEK-direct) diff under that same DEK, records `"unknown"` plaintext_hash.
 /// - **No header, KEK decrypt fails (type-2 orphaned, index lost):** skips with an
 ///   honest warning; the DEK is gone with the lost index and cannot be recovered.
 ///
@@ -489,6 +491,72 @@ pub fn rebuild_index(
                 let base_id = base_entry.id.clone();
 
                 let (plaintext_hash, plaintext_size) = if dir_is_encrypted {
+                    // Encrypted diffs must share the chain DEK on the base. Type-3
+                    // chains already do; type-1 (KEK-direct) diffs must be rekeyed
+                    // under that DEK so restore can decrypt the whole chain uniformly.
+                    let Some(kek) = backup_key.as_ref() else {
+                        let msg = format!(
+                            "skipping {filename}: encrypted backup requires a passkey to rebuild DEK"
+                        );
+                        tracing::warn!(
+                            result = "error",
+                            filename = %filename,
+                            "backup.rebuild_index.encrypted_no_kek"
+                        );
+                        warnings.push(msg);
+                        continue;
+                    };
+
+                    let chain_dek = match resolve_chain_dek(&index, kek) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            let msg = format!(
+                                "skipping {filename}: chain DEK unavailable for rekey: {e}"
+                            );
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_dek_unavailable");
+                            warnings.push(msg);
+                            continue;
+                        }
+                    };
+
+                    if crate::crypto::decrypt_payload(&file_bytes, &chain_dek).is_err() {
+                        // Not under the chain DEK — try legacy KEK-direct (type-1).
+                        let compressed = match crate::crypto::decrypt_payload(&file_bytes, kek) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                let msg =
+                                    format!("skipping {filename}: decryption failed: {e}");
+                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
+                                warnings.push(msg);
+                                continue;
+                            }
+                        };
+                        let new_blob =
+                            match crate::crypto::encrypt_payload(&compressed, &chain_dek) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    let msg = format!(
+                                        "skipping {filename}: re-encryption failed: {e}"
+                                    );
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+                        if let Err(e) =
+                            libllm_core::crypto::write_atomic(&file_path, &new_blob)
+                        {
+                            let msg = format!(
+                                "skipping {filename}: failed to persist re-encrypted file: {e}"
+                            );
+                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.write_failed");
+                            warnings.push(msg);
+                            continue;
+                        }
+                        file_hash = crate::hash::hash_bytes(&new_blob);
+                        stored_size = new_blob.len() as u64;
+                    }
+
                     ("unknown".to_string(), stored_size)
                 } else {
                     let chain = match index.chain_to(&base_id) {
@@ -839,8 +907,10 @@ mod tests {
         let base_filename = backup_filename(&base_id, BackupType::Base);
         let diff_filename = backup_filename(&diff_id, BackupType::Diff);
 
-        let base_blob = crate::crypto::encrypt_payload(b"db-snapshot-base-content", &kek).unwrap();
-        let diff_blob = crate::crypto::encrypt_payload(b"db-snapshot-diff-content", &kek).unwrap();
+        let base_plain = b"db-snapshot-base-content";
+        let diff_plain = b"db-snapshot-diff-content";
+        let base_blob = crate::crypto::encrypt_payload(base_plain, &kek).unwrap();
+        let diff_blob = crate::crypto::encrypt_payload(diff_plain, &kek).unwrap();
         let base_path = backups_dir.join(&base_filename);
         let diff_path = backups_dir.join(&diff_filename);
         libllm_core::crypto::write_atomic(&base_path, &base_blob).unwrap();
@@ -886,6 +956,87 @@ mod tests {
             ),
             "rebuilt encrypted base must have a Known kek_fingerprint, got {:?}",
             base.kek_fingerprint
+        );
+
+        // Diff must be rekeyed under the same chain DEK as the upgraded base.
+        let chain_dek =
+            crate::crypto::unwrap_dek(base.wrapped_dek.as_ref().unwrap(), &kek).unwrap();
+        let base_on_disk = std::fs::read(&base_path).unwrap();
+        let (_, base_payload) =
+            crate::format::decode_base_blob(&base_on_disk).expect("base upgraded to type-3");
+        assert_eq!(
+            crate::crypto::decrypt_payload(base_payload, &chain_dek).unwrap(),
+            base_plain,
+            "base ciphertext must decrypt under the chain DEK"
+        );
+        let diff_on_disk = std::fs::read(&diff_path).unwrap();
+        assert_eq!(
+            crate::crypto::decrypt_payload(&diff_on_disk, &chain_dek).unwrap(),
+            diff_plain,
+            "diff must decrypt under the same chain DEK as the base"
+        );
+        assert!(
+            crate::crypto::decrypt_payload(&diff_on_disk, &kek).is_err(),
+            "diff must no longer be KEK-direct after rebuild"
+        );
+    }
+
+    #[test]
+    fn rebuild_index_encrypted_base_and_diff_restore() {
+        use crate::index::backup_filename;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let data_dir = dir.path();
+        let backups_dir = data_dir.join("backups");
+        std::fs::create_dir_all(&backups_dir).unwrap();
+
+        let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw"))
+            .unwrap()
+            .unwrap();
+
+        let base_plain = b"legacy type-1 base database bytes";
+        let after_diff_plain = b"legacy type-1 base database bytes with a small update";
+
+        let base_compressed = crate::diff::compress(base_plain).unwrap();
+        let patch = crate::diff::compute_diff(base_plain, after_diff_plain).unwrap();
+        let patch_compressed = crate::diff::compress(&patch).unwrap();
+
+        let base_id = "20260615T000000.000Z".to_string();
+        let diff_id = "20260615T000001.000Z".to_string();
+        let base_filename = backup_filename(&base_id, BackupType::Base);
+        let diff_filename = backup_filename(&diff_id, BackupType::Diff);
+        let base_path = backups_dir.join(&base_filename);
+        let diff_path = backups_dir.join(&diff_filename);
+
+        // Legacy type-1: KEK-direct ciphertext, no type-3 header, no index.
+        let base_blob = crate::crypto::encrypt_payload(&base_compressed, &kek).unwrap();
+        let diff_blob = crate::crypto::encrypt_payload(&patch_compressed, &kek).unwrap();
+        libllm_core::crypto::write_atomic(&base_path, &base_blob).unwrap();
+        libllm_core::crypto::write_atomic(&diff_path, &diff_blob).unwrap();
+
+        let base_mtime = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(60))
+            .unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&base_path)
+            .unwrap()
+            .set_modified(base_mtime)
+            .unwrap();
+
+        let (rebuilt, warnings) = rebuild_index(&backups_dir, Some("pw")).unwrap();
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {warnings:?}"
+        );
+        assert_eq!(rebuilt.entries.len(), 2);
+
+        let chain = rebuilt.chain_to(&diff_id).unwrap();
+        let restored =
+            crate::restore::replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
+        assert_eq!(
+            restored, after_diff_plain,
+            "rebuilt encrypted base+diff chain must restore to the post-diff plaintext"
         );
     }
 

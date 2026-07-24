@@ -257,7 +257,10 @@ fn render_hits(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &
     for (i, hit) in state.hits.iter().enumerate().take(area.height as usize) {
         let y = area.y + i as u16;
         let prefix = if i == state.selected { "> " } else { "  " };
-        let session = trunc(&hit.session_display_name, session_col_width);
+        let session = trunc(
+            &strip_terminal_controls(&hit.session_display_name),
+            session_col_width,
+        );
         let role = trunc(&hit.role.to_string(), 6);
         let snippet_spans = highlight_spans(&collapse_newlines(&hit.snippet), theme);
         let mut line = vec![
@@ -952,5 +955,26 @@ mod tests {
             "ESC byte must not appear in rendered output"
         );
         assert!(rendered.contains("name"));
+    }
+
+    #[test]
+    fn render_hits_strips_escape_in_session_name() {
+        let theme = crate::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.session_display_name = "sess\x1b[31m\x1b[0mion".into();
+            hit.snippet = "match body".into();
+            hit
+        }];
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+        let rendered = buffer_to_string(&buf);
+        assert!(
+            !rendered.contains('\x1b'),
+            "ESC byte must not appear in hit-list session names"
+        );
+        assert!(rendered.contains("session"));
     }
 }

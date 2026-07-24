@@ -533,7 +533,6 @@ mod tests {
             entry.wrapped_dek.as_ref().unwrap().blob,
             "header wrap bytes must match index wrap after rollback"
         );
-        let _ = id;
     }
 
     #[test]

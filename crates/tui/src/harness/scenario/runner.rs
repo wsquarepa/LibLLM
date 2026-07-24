@@ -1,9 +1,10 @@
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use libllm_core::config::CliOverrides;
 use libllm_core::session::Session;
 
+use super::parser::is_safe_snapshot_name;
 use super::{ApiSetup, DbSetup, Matcher, Scenario, Setup, Step};
 use crate::harness::Harness;
 
@@ -171,6 +172,26 @@ fn json_value_to_string(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+/// Builds `{stem}.{name}.snap` under `golden_dir`, rejecting names that would escape.
+///
+/// Parser already requires a single safe segment; this is defense in depth so a
+/// hand-built `Step::Snapshot` cannot write outside `golden_dir`.
+fn resolve_snapshot_path(golden_dir: &Path, stem: &str, name: &str) -> Result<PathBuf, String> {
+    if !is_safe_snapshot_name(name) {
+        return Err(format!("invalid snapshot name {name:?}"));
+    }
+    let file_name = format!("{stem}.{name}.snap");
+    let path = golden_dir.join(&file_name);
+    let Ok(rel) = path.strip_prefix(golden_dir) else {
+        return Err("snapshot path escapes golden_dir".to_owned());
+    };
+    let mut comps = rel.components();
+    match (comps.next(), comps.next()) {
+        (Some(Component::Normal(_)), None) => Ok(path),
+        _ => Err("snapshot path escapes golden_dir".to_owned()),
     }
 }
 
@@ -387,9 +408,21 @@ async fn execute_step(
 
         Step::Snapshot(name) => {
             let actual = harness.screen();
-            let golden_path = golden_dir.join(format!("{stem}.{name}.snap"));
+            let golden_path = match resolve_snapshot_path(golden_dir, stem, name) {
+                Ok(path) => path,
+                Err(detail) => {
+                    report.failures.push(Failure {
+                        step_index: i,
+                        verb: "snapshot".to_owned(),
+                        detail,
+                        screen: actual,
+                    });
+                    return;
+                }
+            };
             match mode {
                 RunMode::Bless => {
+                    // Parent is golden_dir itself after resolve_snapshot_path confinement.
                     if let Some(parent) = golden_path.parent()
                         && let Err(e) = std::fs::create_dir_all(parent)
                     {
@@ -452,6 +485,21 @@ mod tests {
             overrides: Vec::new(),
             seed: None,
         }
+    }
+
+    #[test]
+    fn resolve_snapshot_path_rejects_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(resolve_snapshot_path(dir.path(), "stem", "../../escape").is_err());
+        assert!(resolve_snapshot_path(dir.path(), "stem", "a/b").is_err());
+    }
+
+    #[test]
+    fn resolve_snapshot_path_accepts_normal_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = resolve_snapshot_path(dir.path(), "stem", "boot").unwrap();
+        assert_eq!(path, dir.path().join("stem.boot.snap"));
+        assert!(path.starts_with(dir.path()));
     }
 
     #[test]

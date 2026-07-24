@@ -145,6 +145,9 @@ fn parse_step_line(line: &str, lineno: usize) -> Result<Step> {
             if name.is_empty() {
                 bail!("line {lineno}: snapshot requires a name");
             }
+            if !is_safe_snapshot_name(name) {
+                bail!("line {lineno}: invalid snapshot name");
+            }
             Ok(Step::Snapshot(name.to_string()))
         }
         "enqueue" => parse_enqueue(rest.trim(), lineno),
@@ -253,6 +256,19 @@ fn parse_duration(s: &str, lineno: usize) -> Result<std::time::Duration> {
     } else {
         bail!("line {lineno}: duration must end with ms or s, got {s:?}");
     }
+}
+
+/// Returns true when `name` is a single safe path segment usable as a snapshot label.
+///
+/// Rejects empty names, path separators, `..`, absolute paths, and control characters
+/// so `golden_dir.join(format!("{stem}.{name}.snap"))` cannot escape the golden dir.
+pub(super) fn is_safe_snapshot_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+        && !std::path::Path::new(name).is_absolute()
+        && !name.chars().any(|c| c.is_control())
 }
 
 /// Splits off the first whitespace-delimited token from a string.
@@ -438,6 +454,30 @@ advance 6s
         let s = parse("[steps]\npaste \"a\\nb\"\nsnapshot persona_open\n").unwrap();
         assert_eq!(s.steps[0], Step::Paste("a\nb".into()));
         assert_eq!(s.steps[1], Step::Snapshot("persona_open".into()));
+    }
+
+    #[test]
+    fn snapshot_name_rejects_traversal() {
+        let err = parse("[steps]\nsnapshot ../../escape\n").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid snapshot name"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn snapshot_name_rejects_separator() {
+        let err = parse("[steps]\nsnapshot a/b\n").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid snapshot name"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn snapshot_name_rejects_backslash_and_controls() {
+        assert!(parse("[steps]\nsnapshot a\\b\n").is_err());
+        assert!(parse("[steps]\nsnapshot evil\x1bname\n").is_err());
     }
 
     #[test]

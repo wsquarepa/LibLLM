@@ -82,7 +82,7 @@ pub fn create_snapshot(
     let stored = match (&dek_for_this_entry, &wrapped_dek_for_base) {
         (Some(dek), Some(wrapped)) => {
             let payload = crate::crypto::encrypt_payload(&compressed, dek)?;
-            crate::format::encode_base_blob(wrapped, &payload)
+            crate::format::encode_base_blob(wrapped, &payload)?
         }
         (Some(dek), None) => crate::crypto::encrypt_payload(&compressed, dek)?,
         (None, _) => compressed,
@@ -407,7 +407,18 @@ pub fn rebuild_index(
                                 }
                             };
 
-                            let new_blob = crate::format::encode_base_blob(&wrapped, &payload);
+                            let new_blob =
+                                match crate::format::encode_base_blob(&wrapped, &payload) {
+                                    Ok(blob) => blob,
+                                    Err(e) => {
+                                        let msg = format!(
+                                            "skipping {filename}: failed to encode base header: {e}"
+                                        );
+                                        tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.encode_failed");
+                                        warnings.push(msg);
+                                        continue;
+                                    }
+                                };
                             if let Err(e) = libllm_core::crypto::write_atomic(&file_path, &new_blob)
                             {
                                 let msg = format!(

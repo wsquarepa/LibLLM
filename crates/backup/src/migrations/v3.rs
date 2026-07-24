@@ -67,7 +67,7 @@ pub(super) fn migrate(
                 .ok_or_else(|| BackupError::MigrationV3MissingWrappedDek {
                     id: base_id.clone(),
                 })?;
-        let new_blob = crate::format::encode_base_blob(&wrapped, &bytes);
+        let new_blob = crate::format::encode_base_blob(&wrapped, &bytes)?;
         libllm_core::crypto::write_atomic(&path, &new_blob).map_err(|source| {
             BackupError::MigrationV3RewriteFile {
                 path: path.clone(),
@@ -252,7 +252,7 @@ mod tests {
         // Simulate a crash after the file was rewritten with the header but before
         // the index was persisted: the on-disk file has the header, the index does not.
         let wrapped = entry.wrapped_dek.clone().unwrap();
-        let headered = crate::format::encode_base_blob(&wrapped, &payload);
+        let headered = crate::format::encode_base_blob(&wrapped, &payload).unwrap();
         write_atomic(&backups_dir.join(&filename), &headered).unwrap();
         entry.stored_size = payload.len() as u64;
         entry.file_hash = crate::hash::hash_bytes(&payload);

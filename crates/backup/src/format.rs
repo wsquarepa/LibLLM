@@ -10,6 +10,7 @@
 //! "type-3" refers to the v3 backup-index schema introduced alongside this header;
 //! files written by earlier schema versions carry no header.
 
+use crate::error::{BackupError, Result};
 use crate::index::WrappedDek;
 
 const MAGIC: [u8; 4] = *b"LBKD";
@@ -17,16 +18,17 @@ const FORMAT_VERSION: u8 = 1;
 const HEADER_PREFIX_LEN: usize = MAGIC.len() + 1 + 2;
 
 /// Prepends the type-3 header carrying `wrapped` to `payload`.
-pub fn encode_base_blob(wrapped: &WrappedDek, payload: &[u8]) -> Vec<u8> {
-    let dek_len =
-        u16::try_from(wrapped.blob.len()).expect("WrappedDek blob length exceeds u16 capacity");
+pub fn encode_base_blob(wrapped: &WrappedDek, payload: &[u8]) -> Result<Vec<u8>> {
+    let dek_len = u16::try_from(wrapped.blob.len()).map_err(|_| BackupError::WrappedDekTooLarge {
+        len: wrapped.blob.len(),
+    })?;
     let mut out = Vec::with_capacity(HEADER_PREFIX_LEN + wrapped.blob.len() + payload.len());
     out.extend_from_slice(&MAGIC);
     out.push(FORMAT_VERSION);
     out.extend_from_slice(&dek_len.to_be_bytes());
     out.extend_from_slice(&wrapped.blob);
     out.extend_from_slice(payload);
-    out
+    Ok(out)
 }
 
 /// Splits a type-3 base file into its wrapped DEK and payload slice.
@@ -62,10 +64,24 @@ mod tests {
             blob: vec![7u8; 72],
         };
         let payload = b"ciphertext-payload-bytes";
-        let encoded = encode_base_blob(&wrapped, payload);
+        let encoded = encode_base_blob(&wrapped, payload).unwrap();
         let (decoded_wrapped, decoded_payload) = decode_base_blob(&encoded).expect("decodes");
         assert_eq!(decoded_wrapped.blob, wrapped.blob);
         assert_eq!(decoded_payload, payload);
+    }
+
+    #[test]
+    fn encode_rejects_wrapped_dek_over_u16_max() {
+        let wrapped = WrappedDek {
+            blob: vec![0u8; (u16::MAX as usize) + 1],
+        };
+        let err = encode_base_blob(&wrapped, b"payload").unwrap_err();
+        match err {
+            BackupError::WrappedDekTooLarge { len } => {
+                assert_eq!(len, (u16::MAX as usize) + 1);
+            }
+            other => panic!("expected WrappedDekTooLarge, got {other:?}"),
+        }
     }
 
     #[test]
@@ -79,7 +95,7 @@ mod tests {
         let wrapped = WrappedDek {
             blob: vec![3u8; 72],
         };
-        let encoded = encode_base_blob(&wrapped, b"payload");
+        let encoded = encode_base_blob(&wrapped, b"payload").unwrap();
         let truncated = &encoded[..HEADER_PREFIX_LEN + 10];
         assert!(decode_base_blob(truncated).is_none());
     }
@@ -96,7 +112,7 @@ mod tests {
         let wrapped = WrappedDek {
             blob: vec![5u8; 72],
         };
-        let mut encoded = encode_base_blob(&wrapped, b"payload");
+        let mut encoded = encode_base_blob(&wrapped, b"payload").unwrap();
         encoded[MAGIC.len()] = FORMAT_VERSION + 1;
         assert!(decode_base_blob(&encoded).is_none());
     }

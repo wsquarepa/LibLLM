@@ -288,6 +288,10 @@ pub enum BackupError {
     #[error("unwrapped DEK has wrong length: got {actual}, expected 32")]
     UnwrappedDekWrongLength { actual: usize },
 
+    /// A wrapped DEK exceeds the u16 length field used in the type-3 base header.
+    #[error("wrapped DEK too large for base header: {len} bytes exceeds u16::MAX")]
+    WrappedDekTooLarge { len: usize },
+
     // ---- libllm_core::crypto forwarded errors ----
     /// A call into `libllm_core::crypto` (salt, key derivation, atomic write) failed.
     #[error("{0}")]

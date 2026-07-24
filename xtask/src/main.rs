@@ -7,7 +7,7 @@
 //! - `cargo xtask scenario <file> [--bless]` — replay a `.scenario` file.
 
 use std::env;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -51,8 +51,7 @@ fn workspace_root() -> PathBuf {
 /// failing step.
 fn ci() -> Result<(), String> {
     let log_path = ci_log_path();
-    let file = File::create(&log_path)
-        .map_err(|err| format!("failed to create {}: {err}", log_path.display()))?;
+    let file = create_ci_log(&log_path)?;
     let log = Arc::new(Mutex::new(file));
     println!("xtask ci: logging to {}", log_path.display());
 
@@ -108,6 +107,22 @@ fn ci_log_path() -> PathBuf {
         .collect();
     let stamp = Utc::now().format("%Y%m%d-%H%M%S%3f");
     env::temp_dir().join(format!("libllm-ci-{stamp}-{suffix}.log"))
+}
+
+/// Creates the CI log at `path` exclusively (`O_CREAT|O_EXCL`) with owner-only mode
+/// 0600 on Unix, so other local users cannot read run output and an existing path
+/// (including a symlink) cannot be overwritten.
+fn create_ci_log(path: &Path) -> Result<File, String> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(path)
+        .map_err(|err| format!("failed to create {}: {err}", path.display()))
 }
 
 /// Spawns `cargo <args>` in the workspace root, streaming its stdout and stderr to both
@@ -265,7 +280,7 @@ fn scenario(rest: &[String]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ci_log_path, replace_workspace_version, validate_version};
+    use super::{ci_log_path, create_ci_log, replace_workspace_version, validate_version};
 
     #[test]
     fn ci_log_path_is_a_timestamped_temp_log() {
@@ -285,6 +300,34 @@ mod tests {
             parts
                 .iter()
                 .all(|part| part.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_ci_log_mode_is_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = ci_log_path();
+        let _file = create_ci_log(&path).expect("create_ci_log should succeed on a fresh path");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "ci log must be owner read/write only"
+        );
+    }
+
+    #[test]
+    fn create_ci_log_rejects_existing_path() {
+        let path = ci_log_path();
+        let _first = create_ci_log(&path).expect("first create should succeed");
+        let err = create_ci_log(&path).expect_err("second create must refuse an existing path");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            err.contains("failed to create"),
+            "unexpected error: {err}"
         );
     }
 

@@ -371,7 +371,7 @@ pub fn rebuild_index(
                                 Ok(p) => p,
                                 Err(_) => {
                                     let msg = format!(
-                                        "skipping {filename}: DEK unavailable (no header; index lost) — cannot rebuild"
+                                        "skipping {filename}: DEK unavailable (no header; index lost); cannot rebuild"
                                     );
                                     tracing::warn!(
                                         result = "error",
@@ -541,7 +541,7 @@ pub fn rebuild_index(
                         match crate::crypto::decrypt_payload(&file_bytes, &chain_dek) {
                             Ok(c) => c,
                             Err(_) => {
-                                // Not under the chain DEK — try legacy KEK-direct (type-1).
+                                // Not under the chain DEK; try legacy KEK-direct (type-1).
                                 let compressed = match crate::crypto::decrypt_payload(
                                     &file_bytes,
                                     kek,
@@ -935,7 +935,7 @@ mod tests {
 
         // Files created with create_snapshot are DEK-encrypted and cannot be decrypted with the
         // KEK alone. rebuild_index is designed for the pre-v2 (v1) format where files were
-        // encrypted directly with the KEK — the same scenario v2 migration handles. We
+        // encrypted directly with the KEK; the same scenario v2 migration handles. We
         // simulate that here by encrypting files directly with the KEK.
         let kek = crate::crypto::resolve_backup_key(data_dir, Some("pw"))
             .unwrap()

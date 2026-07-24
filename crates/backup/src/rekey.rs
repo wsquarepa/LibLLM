@@ -191,14 +191,62 @@ pub fn finalize_rekey(data_dir: &Path) -> Result<()> {
 }
 
 /// Called by the caller's rollback path if db.rekey() failed. Restores the
-/// pre-rekey index.json and removes the journal.
+/// pre-rekey index.json, re-embeds each base's index `wrapped_dek` into the
+/// on-disk type-3 header (so headers match the restored index again), and
+/// removes the journal.
+///
+/// `prepare_rekey` rewrites base headers under the new KEK before the index is
+/// saved under that KEK. If the subsequent SQLCipher rekey fails, only the
+/// index is rolled back from the sidecar unless this step also rewrites the
+/// headers; otherwise restore would see a new-KEK header, an old-KEK index
+/// wrap, and (without a header-aware payload split) would feed the whole
+/// LBKD file into `decrypt_payload`.
 pub fn rollback_rekey(data_dir: &Path) -> Result<()> {
     let backups_dir = data_dir.join("backups");
+    let index_path = backups_dir.join("index.json");
     let sidecar = sidecar_path(&backups_dir);
     if sidecar.exists() {
-        std::fs::rename(&sidecar, backups_dir.join("index.json"))
-            .map_err(BackupError::RekeyRestoreIndexSidecar)?;
+        std::fs::rename(&sidecar, &index_path).map_err(BackupError::RekeyRestoreIndexSidecar)?;
     }
+
+    // Re-embed the restored index wraps into base files that still carry a
+    // post-prepare header. No KEK is required: the sidecar's wrapped_dek bytes
+    // are the pre-rekey wraps, and the payload ciphertext never changed.
+    if index_path.exists() {
+        let index = crate::index::load_index(&index_path)?;
+        for entry in &index.entries {
+            if entry.entry_type != BackupType::Base {
+                continue;
+            }
+            let Some(index_wrapped) = entry.wrapped_dek.as_ref() else {
+                continue;
+            };
+            let path = backups_dir.join(&entry.filename);
+            if !path.exists() {
+                continue;
+            }
+            let bytes = std::fs::read(&path).map_err(|source| BackupError::RekeyReadBase {
+                id: entry.id.clone(),
+                path: path.clone(),
+                source,
+            })?;
+            let Some((header_wrapped, payload)) = decode_base_blob(&bytes) else {
+                continue;
+            };
+            if header_wrapped.blob == index_wrapped.blob {
+                continue;
+            }
+            let restored_blob = encode_base_blob(index_wrapped, payload)?;
+            libllm_core::crypto::write_atomic(&path, &restored_blob).map_err(|source| {
+                BackupError::RekeyRewriteBase {
+                    id: entry.id.clone(),
+                    path: path.clone(),
+                    source,
+                }
+            })?;
+        }
+    }
+
     let j = journal_path(&backups_dir);
     if j.exists() {
         std::fs::remove_file(&j).map_err(|source| BackupError::RekeyRemoveFile {
@@ -447,7 +495,7 @@ mod tests {
     #[test]
     fn recover_rollback_when_current_matches_old_fp() {
         let tmp = TempDir::new().unwrap();
-        let (old_kek, _dek, _id) = make_populated(tmp.path(), "old-pw");
+        let (old_kek, dek, id) = make_populated(tmp.path(), "old-pw");
         let pre = std::fs::read(tmp.path().join("backups/index.json")).unwrap();
         let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
             .unwrap()
@@ -459,6 +507,60 @@ mod tests {
         assert!(!sidecar_path(&backups_dir).exists());
         let post = std::fs::read(backups_dir.join("index.json")).unwrap();
         assert_eq!(post, pre, "index.json restored from sidecar");
+
+        // Headers must be re-embedded under the restored index wrap so the
+        // working (old) passkey can replay after a failed SQLCipher rekey.
+        let index = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let entry = index.find_entry(&id).unwrap();
+        let bytes = std::fs::read(backups_dir.join(&entry.filename)).unwrap();
+        let (header, _payload) = decode_base_blob(&bytes).expect("type-3 after rollback");
+        assert_eq!(
+            unwrap_dek(&header, &old_kek).unwrap(),
+            dek,
+            "rollback must restore base header to old KEK"
+        );
+        assert!(
+            unwrap_dek(&header, &new_kek).is_err(),
+            "rollback header must not unwrap under the abandoned new KEK"
+        );
+        assert_eq!(
+            entry.file_hash,
+            hash_bytes(&bytes),
+            "on-disk base must match restored index file_hash after header re-embed"
+        );
+        assert_eq!(
+            header.blob,
+            entry.wrapped_dek.as_ref().unwrap().blob,
+            "header wrap bytes must match index wrap after rollback"
+        );
+        let _ = id;
+    }
+
+    #[test]
+    fn rollback_after_prepare_restores_base_and_diff_with_old_kek() {
+        let tmp = TempDir::new().unwrap();
+        let (old_kek, _dek, base_id, diff_id) = make_populated_with_diff(tmp.path(), "old-pw");
+        let new_kek = resolve_backup_key(tmp.path(), Some("new-pw"))
+            .unwrap()
+            .unwrap();
+        prepare_rekey(tmp.path(), &old_kek, &new_kek).unwrap();
+        // Direct rollback (same path as failed db.rekey), not only journal recovery.
+        rollback_rekey(tmp.path()).unwrap();
+
+        let backups_dir = tmp.path().join("backups");
+        let index = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let base_chain = index.chain_to(&base_id).unwrap();
+        let diff_chain = index.chain_to(&diff_id).unwrap();
+        let restored_base =
+            crate::restore::replay_chain(&backups_dir, &base_chain, &Some(old_kek)).unwrap();
+        let restored_diff =
+            crate::restore::replay_chain(&backups_dir, &diff_chain, &Some(old_kek)).unwrap();
+        assert_eq!(restored_base, b"base-database-bytes");
+        assert_eq!(restored_diff, b"base-database-bytes-with-diff");
+        assert!(
+            crate::restore::replay_chain(&backups_dir, &base_chain, &Some(new_kek)).is_err(),
+            "abandoned new KEK must not restore after rollback"
+        );
     }
 
     #[test]

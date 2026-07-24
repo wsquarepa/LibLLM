@@ -35,23 +35,29 @@ pub(crate) fn replay_chain(
 
     // Resolve the chain DEK and the base payload slice. Precedence: self-describing
     // header (type 3) -> index wrapped_dek (type 2) -> legacy KEK-direct (type 1).
-    let type3_result = match backup_key {
-        Some(kek) if base_entry.encrypted => match crate::format::decode_base_blob(&base_bytes) {
-            Some((wrapped, payload)) => {
-                // A matched magic whose DEK fails to unwrap (a ~2^-32 nonce collision,
-                // or a wrong KEK) falls through to the index/legacy paths, which surface
-                // any genuine authentication error via `?`.
-                crate::crypto::unwrap_dek(&wrapped, kek)
-                    .ok()
-                    .map(|dek| (dek, payload))
-            }
-            None => None,
-        },
-        _ => None,
+    //
+    // When a type-3 header is present but does not unwrap under the supplied KEK
+    // (e.g. prepare_rekey rewrote headers under a new KEK, then rollback restored
+    // only the old index), still treat the on-disk body as header|payload: fall
+    // through to the index wrap for the DEK and decrypt the *payload slice only*.
+    // Feeding the whole file (including the LBKD header) into decrypt_payload fails.
+    let decoded_header = if base_entry.encrypted {
+        crate::format::decode_base_blob(&base_bytes)
+    } else {
+        None
     };
 
-    let (chain_dek, base_payload): (Option<[u8; 32]>, &[u8]) = match (backup_key, type3_result) {
-        (_, Some((dek, payload))) => (Some(dek), payload),
+    let (chain_dek, base_payload): (Option<[u8; 32]>, &[u8]) = match (backup_key, decoded_header) {
+        (Some(kek), Some((wrapped, payload))) => match crate::crypto::unwrap_dek(&wrapped, kek) {
+            Ok(dek) => (Some(dek), payload),
+            Err(_) => {
+                let dek = match base_entry.wrapped_dek.as_ref() {
+                    Some(index_wrapped) => crate::crypto::unwrap_dek(index_wrapped, kek)?,
+                    None => *kek,
+                };
+                (Some(dek), payload)
+            }
+        },
         (Some(kek), None) if base_entry.encrypted => {
             let dek = match base_entry.wrapped_dek.as_ref() {
                 Some(wrapped) => crate::crypto::unwrap_dek(wrapped, kek)?,

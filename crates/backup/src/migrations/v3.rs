@@ -5,9 +5,10 @@ use crate::index::{BackupIndex, BackupType, save_index};
 
 /// v2 -> v3: rewrite each encrypted base file into the self-describing header
 /// format by prepending its wrapped DEK (already present in the index) ahead of
-/// the unchanged payload. Idempotent: files already carrying the header are left
-/// untouched. The KEK is not needed for the rewrite; it is required only to refuse
-/// migrating an encrypted index without one, matching the v2 contract.
+/// the unchanged payload. Idempotent: files already carrying an authenticated
+/// header are left untouched (size/hash may still be reconciled). The KEK is
+/// required for encrypted indexes both to gate the rewrite and to authenticate
+/// any pre-existing header before reconciling metadata.
 pub(super) fn migrate(
     index: &mut BackupIndex,
     backups_dir: &Path,
@@ -36,10 +37,27 @@ pub(super) fn migrate(
             source,
         })?;
 
-        if crate::format::decode_base_blob(&bytes).is_some() {
+        if let Some((header_wrapped, _payload)) = crate::format::decode_base_blob(&bytes) {
             // The file already carries a header (e.g. a prior run wrote it but
-            // crashed before persisting the index). Reconcile the entry's size
-            // and hash with the on-disk file rather than leaving them stale.
+            // crashed before persisting the index). Authenticate the header
+            // against the index wrapped DEK before reconciling size/hash, so a
+            // syntactically valid but tampered header cannot bless a new file_hash.
+            let kek = kek.ok_or(BackupError::MigrationV3EncryptedNoKek)?;
+            let index_wrapped =
+                entry
+                    .wrapped_dek
+                    .clone()
+                    .ok_or_else(|| BackupError::MigrationV3MissingWrappedDek {
+                        id: base_id.clone(),
+                    })?;
+            let header_dek = crate::crypto::unwrap_dek(&header_wrapped, kek)?;
+            let index_dek = crate::crypto::unwrap_dek(&index_wrapped, kek)?;
+            if header_dek != index_dek {
+                return Err(BackupError::MigrationV3HeaderMismatch {
+                    id: base_id.clone(),
+                });
+            }
+
             let correct_size = bytes.len() as u64;
             let correct_hash = crate::hash::hash_bytes(&bytes);
             let entry = index
@@ -251,8 +269,11 @@ mod tests {
 
         // Simulate a crash after the file was rewritten with the header but before
         // the index was persisted: the on-disk file has the header, the index does not.
-        let wrapped = entry.wrapped_dek.clone().unwrap();
-        let headered = crate::format::encode_base_blob(&wrapped, &payload).unwrap();
+        // Header and index share the same DEK (re-wrapped for a distinct blob).
+        let index_wrapped = entry.wrapped_dek.clone().unwrap();
+        let index_dek = crate::crypto::unwrap_dek(&index_wrapped, &kek).unwrap();
+        let header_wrapped = wrap_dek(&index_dek, &kek).unwrap();
+        let headered = crate::format::encode_base_blob(&header_wrapped, &payload).unwrap();
         write_atomic(&backups_dir.join(&filename), &headered).unwrap();
         entry.stored_size = payload.len() as u64;
         entry.file_hash = crate::hash::hash_bytes(&payload);
@@ -276,6 +297,56 @@ mod tests {
             crate::hash::hash_bytes(&on_disk),
             "stale file_hash must be reconciled to the headered file"
         );
+    }
+
+    #[test]
+    fn rejects_tampered_header_without_updating_file_hash() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path();
+        let kek = resolve_backup_key(data_dir, Some("pw")).unwrap().unwrap();
+        let (mut entry, payload) = type2_base(data_dir, &kek, "20260601T070000.000Z");
+        let backups_dir = data_dir.join("backups");
+        let filename = entry.filename.clone();
+
+        // Syntactically valid type-3 header whose wrapped DEK decrypts under the
+        // KEK but yields a different DEK than the index. Must hard-error and
+        // leave the index file_hash untouched.
+        let foreign_dek = generate_dek();
+        let foreign_wrapped = wrap_dek(&foreign_dek, &kek).unwrap();
+        let tampered = crate::format::encode_base_blob(&foreign_wrapped, &payload).unwrap();
+        write_atomic(&backups_dir.join(&filename), &tampered).unwrap();
+
+        let stale_size = payload.len() as u64;
+        let stale_hash = crate::hash::hash_bytes(&payload);
+        entry.stored_size = stale_size;
+        entry.file_hash = stale_hash.clone();
+
+        let mut index = BackupIndex {
+            version: 2,
+            entries: vec![entry],
+        };
+        save_index(&backups_dir.join("index.json"), &index).unwrap();
+
+        let err = migrate(&mut index, &backups_dir, Some(&kek)).unwrap_err();
+        match &err {
+            crate::error::BackupError::MigrationV3HeaderMismatch { id } => {
+                assert_eq!(id, "20260601T070000.000Z");
+            }
+            other => panic!("expected MigrationV3HeaderMismatch, got: {other}"),
+        }
+        assert_eq!(
+            index.entries[0].file_hash, stale_hash,
+            "tampered header must not update file_hash"
+        );
+        assert_eq!(
+            index.entries[0].stored_size, stale_size,
+            "tampered header must not update stored_size"
+        );
+        // On-disk index must also remain unblessed.
+        let reloaded =
+            crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        assert_eq!(reloaded.entries[0].file_hash, stale_hash);
+        assert_eq!(reloaded.entries[0].stored_size, stale_size);
     }
 
     #[test]

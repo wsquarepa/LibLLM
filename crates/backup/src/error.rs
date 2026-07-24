@@ -434,6 +434,13 @@ pub enum BackupError {
     #[error("base {id} is encrypted but has no wrapped DEK to embed at v3")]
     MigrationV3MissingWrappedDek { id: String },
 
+    /// The on-disk type-3 header unwraps to a different DEK than the index entry.
+    #[error(
+        "base {id}: on-disk header DEK does not match index wrapped DEK \
+         (file may be tampered; refusing to reconcile metadata)"
+    )]
+    MigrationV3HeaderMismatch { id: String },
+
     /// A v3 migration file rewrite failed.
     #[error("rewrite {path} with header: {source}")]
     MigrationV3RewriteFile {

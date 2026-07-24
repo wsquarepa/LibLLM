@@ -138,7 +138,7 @@ impl ChatSettingsDialog {
     /// Returns the pending provisional scenario text for pre-populating the editor on reopen.
     ///
     /// Returns `None` both when the editor has never been opened and when the user cleared
-    /// the field. Prefer [`provisional_scenario_state`] when those two states must differ.
+    /// the field. Prefer [`Self::provisional_scenario_state`] when those two states must differ.
     pub fn provisional_scenario(&self) -> Option<&str> {
         self.provisional_scenario.as_ref()?.as_deref()
     }

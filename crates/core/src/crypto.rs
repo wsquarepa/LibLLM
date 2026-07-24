@@ -167,14 +167,14 @@ impl DerivedKey {
     /// Builds the `PRAGMA key = "x'<hex>'";` statement used to unlock an
     /// SQLCipher database. The returned string zeroizes on drop.
     pub fn key_pragma(&self) -> Zeroizing<String> {
-        Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", &*self.hex()))
+        Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", *self.hex()))
     }
 
     /// Builds the `PRAGMA rekey = "x'<hex>'";` statement used to rotate the
     /// encryption key of an open SQLCipher database. The returned string
     /// zeroizes on drop.
     pub fn rekey_pragma(&self) -> Zeroizing<String> {
-        Zeroizing::new(format!("PRAGMA rekey = \"x'{}'\";", &*self.hex()))
+        Zeroizing::new(format!("PRAGMA rekey = \"x'{}'\";", *self.hex()))
     }
 }
 

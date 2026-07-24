@@ -74,7 +74,7 @@ mod tests {
     fn create_encrypted_db(dir: &TempDir, key: &DerivedKey) -> std::path::PathBuf {
         let db_path = dir.path().join("encrypted.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", &*key.hex()))
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", *key.hex()))
             .unwrap();
         conn.execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);")
             .unwrap();

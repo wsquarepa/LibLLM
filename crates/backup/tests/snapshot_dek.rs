@@ -20,7 +20,7 @@ fn setup_encrypted_db(data_dir: &std::path::Path, passkey: &str) {
     let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = data_dir.join("data.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
         .unwrap();
     conn.execute_batch("PRAGMA journal_mode = WAL;").unwrap();
     conn.execute_batch("CREATE TABLE kv (k TEXT, v TEXT);")
@@ -32,7 +32,7 @@ fn insert_encrypted(data_dir: &std::path::Path, passkey: &str, k: &str, v: &str)
     let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = data_dir.join("data.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
         .unwrap();
     conn.execute(
         "INSERT INTO kv (k, v) VALUES (?1, ?2)",
@@ -46,7 +46,7 @@ fn count_kv_encrypted(data_dir: &std::path::Path, passkey: &str) -> i64 {
     let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = data_dir.join("data.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", &*key.hex()))
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
         .unwrap();
     conn.query_row("SELECT COUNT(*) FROM kv", [], |row| row.get(0))
         .unwrap()

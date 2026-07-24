@@ -220,7 +220,7 @@ pub fn restore_to_point(
                  SELECT sqlcipher_export('encrypted');\
                  DETACH DATABASE encrypted;",
                 db_path.display().to_string().replace('\'', "''"),
-                &*key_hex,
+                *key_hex,
             ));
             src.execute_batch(&attach_sql)
                 .map_err(BackupError::ExportAsEncrypted)?;

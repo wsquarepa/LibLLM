@@ -220,16 +220,17 @@ fn build_payload(
 /// failures. Callers should surface these warnings to the user; they are also
 /// emitted via `tracing::warn!` for debug-log subscribers.
 ///
-/// For unencrypted data dirs, the rebuilt index carries accurate
-/// `plaintext_hash` and `plaintext_size` values. For encrypted data dirs, the
-/// behavior depends on the file format:
+/// For both unencrypted and encrypted data dirs, the rebuilt index carries accurate
+/// `plaintext_hash` and `plaintext_size` values when the payload can be recovered.
+/// For encrypted data dirs, the behavior depends on the file format:
 ///
 /// - **Type-3 (header present):** unwraps the DEK from the header with the KEK,
 ///   decrypts the payload, and records the real plaintext hash and size. Following
-///   diffs already under that DEK are left untouched.
+///   diffs already under that DEK are left untouched and hashed via chain replay.
 /// - **No header, KEK-direct decrypt succeeds (type-1 legacy):** generates **one**
-///   fresh chain DEK, re-encrypts the base as type-3 and re-encrypts every following
-///   type-1 (KEK-direct) diff under that same DEK, records `"unknown"` plaintext_hash.
+///   fresh chain DEK, decompresses to record the real plaintext hash and size,
+///   re-encrypts the base as type-3 and re-encrypts every following type-1
+///   (KEK-direct) diff under that same DEK (hashing each diff via chain replay).
 /// - **No header, KEK decrypt fails (type-2 orphaned, index lost):** skips with an
 ///   honest warning; the DEK is gone with the lost index and cannot be recovered.
 ///
@@ -382,6 +383,21 @@ pub fn rebuild_index(
                                 }
                             };
 
+                            // Hash the real plaintext before re-encrypting so restore/verify
+                            // can match against the stored hash after the type-1 → type-3 upgrade.
+                            let plaintext = match crate::diff::decompress(&plaintext_compressed) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let msg =
+                                        format!("skipping {filename}: decompression failed: {e}");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decompress_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
+                            let plaintext_hash = crate::hash::hash_bytes(&plaintext);
+                            let plaintext_size = plaintext.len() as u64;
+
                             let dek = crate::crypto::generate_dek();
                             let payload = match crate::crypto::encrypt_payload(
                                 &plaintext_compressed,
@@ -436,8 +452,8 @@ pub fn rebuild_index(
 
                             let fp = crate::crypto::compute_kek_fingerprint(kek);
                             (
-                                "unknown".to_string(),
-                                stored_size,
+                                plaintext_hash,
+                                plaintext_size,
                                 Some(FingerprintField::Known(fp)),
                                 Some(wrapped),
                             )
@@ -490,75 +506,85 @@ pub fn rebuild_index(
 
                 let base_id = base_entry.id.clone();
 
-                let (plaintext_hash, plaintext_size) = if dir_is_encrypted {
+                let (plaintext_hash, plaintext_size) = {
                     // Encrypted diffs must share the chain DEK on the base. Type-3
                     // chains already do; type-1 (KEK-direct) diffs must be rekeyed
                     // under that DEK so restore can decrypt the whole chain uniformly.
-                    let Some(kek) = backup_key.as_ref() else {
-                        let msg = format!(
-                            "skipping {filename}: encrypted backup requires a passkey to rebuild DEK"
-                        );
-                        tracing::warn!(
-                            result = "error",
-                            filename = %filename,
-                            "backup.rebuild_index.encrypted_no_kek"
-                        );
-                        warnings.push(msg);
-                        continue;
-                    };
-
-                    let chain_dek = match resolve_chain_dek(&index, kek) {
-                        Ok(d) => d,
-                        Err(e) => {
+                    // After alignment, both branches decompress the patch and apply it
+                    // over the base so the index records the real plaintext hash/size.
+                    let compressed_patch: Vec<u8> = if dir_is_encrypted {
+                        let Some(kek) = backup_key.as_ref() else {
                             let msg = format!(
-                                "skipping {filename}: chain DEK unavailable for rekey: {e}"
+                                "skipping {filename}: encrypted backup requires a passkey to rebuild DEK"
                             );
-                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_dek_unavailable");
+                            tracing::warn!(
+                                result = "error",
+                                filename = %filename,
+                                "backup.rebuild_index.encrypted_no_kek"
+                            );
                             warnings.push(msg);
                             continue;
-                        }
-                    };
+                        };
 
-                    if crate::crypto::decrypt_payload(&file_bytes, &chain_dek).is_err() {
-                        // Not under the chain DEK — try legacy KEK-direct (type-1).
-                        let compressed = match crate::crypto::decrypt_payload(&file_bytes, kek) {
-                            Ok(c) => c,
+                        let chain_dek = match resolve_chain_dek(&index, kek) {
+                            Ok(d) => d,
                             Err(e) => {
-                                let msg =
-                                    format!("skipping {filename}: decryption failed: {e}");
-                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
+                                let msg = format!(
+                                    "skipping {filename}: chain DEK unavailable for rekey: {e}"
+                                );
+                                tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.chain_dek_unavailable");
                                 warnings.push(msg);
                                 continue;
                             }
                         };
-                        let new_blob =
-                            match crate::crypto::encrypt_payload(&compressed, &chain_dek) {
-                                Ok(b) => b,
-                                Err(e) => {
+
+                        match crate::crypto::decrypt_payload(&file_bytes, &chain_dek) {
+                            Ok(c) => c,
+                            Err(_) => {
+                                // Not under the chain DEK — try legacy KEK-direct (type-1).
+                                let compressed =
+                                    match crate::crypto::decrypt_payload(&file_bytes, kek) {
+                                        Ok(c) => c,
+                                        Err(e) => {
+                                            let msg = format!(
+                                                "skipping {filename}: decryption failed: {e}"
+                                            );
+                                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
+                                            warnings.push(msg);
+                                            continue;
+                                        }
+                                    };
+                                let new_blob =
+                                    match crate::crypto::encrypt_payload(&compressed, &chain_dek) {
+                                        Ok(b) => b,
+                                        Err(e) => {
+                                            let msg = format!(
+                                                "skipping {filename}: re-encryption failed: {e}"
+                                            );
+                                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
+                                            warnings.push(msg);
+                                            continue;
+                                        }
+                                    };
+                                if let Err(e) =
+                                    libllm_core::crypto::write_atomic(&file_path, &new_blob)
+                                {
                                     let msg = format!(
-                                        "skipping {filename}: re-encryption failed: {e}"
+                                        "skipping {filename}: failed to persist re-encrypted file: {e}"
                                     );
-                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.write_failed");
                                     warnings.push(msg);
                                     continue;
                                 }
-                            };
-                        if let Err(e) =
-                            libllm_core::crypto::write_atomic(&file_path, &new_blob)
-                        {
-                            let msg = format!(
-                                "skipping {filename}: failed to persist re-encrypted file: {e}"
-                            );
-                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.write_failed");
-                            warnings.push(msg);
-                            continue;
+                                file_hash = crate::hash::hash_bytes(&new_blob);
+                                stored_size = new_blob.len() as u64;
+                                compressed
+                            }
                         }
-                        file_hash = crate::hash::hash_bytes(&new_blob);
-                        stored_size = new_blob.len() as u64;
-                    }
+                    } else {
+                        file_bytes
+                    };
 
-                    ("unknown".to_string(), stored_size)
-                } else {
                     let chain = match index.chain_to(&base_id) {
                         Ok(c) => c.into_iter().cloned().collect::<Vec<_>>(),
                         Err(e) => {
@@ -584,7 +610,7 @@ pub fn rebuild_index(
                         }
                     };
 
-                    let patch = match crate::diff::decompress(&file_bytes) {
+                    let patch = match crate::diff::decompress(&compressed_patch) {
                         Ok(p) => p,
                         Err(e) => {
                             let msg =
@@ -917,10 +943,15 @@ mod tests {
         let base_filename = backup_filename(&base_id, BackupType::Base);
         let diff_filename = backup_filename(&diff_id, BackupType::Diff);
 
+        // Real backups store zstd-compressed payloads under encryption; diffs are
+        // bsdiff patches against the base, not independent compressed blobs.
         let base_plain = b"db-snapshot-base-content";
-        let diff_plain = b"db-snapshot-diff-content";
-        let base_blob = crate::crypto::encrypt_payload(base_plain, &kek).unwrap();
-        let diff_blob = crate::crypto::encrypt_payload(diff_plain, &kek).unwrap();
+        let after_diff_plain = b"db-snapshot-base-content-with-diff";
+        let base_compressed = crate::diff::compress(base_plain).unwrap();
+        let patch = crate::diff::compute_diff(base_plain, after_diff_plain).unwrap();
+        let patch_compressed = crate::diff::compress(&patch).unwrap();
+        let base_blob = crate::crypto::encrypt_payload(&base_compressed, &kek).unwrap();
+        let diff_blob = crate::crypto::encrypt_payload(&patch_compressed, &kek).unwrap();
         let base_path = backups_dir.join(&base_filename);
         let diff_path = backups_dir.join(&diff_filename);
         libllm_core::crypto::write_atomic(&base_path, &base_blob).unwrap();
@@ -975,19 +1006,40 @@ mod tests {
         let (_, base_payload) =
             crate::format::decode_base_blob(&base_on_disk).expect("base upgraded to type-3");
         assert_eq!(
-            crate::crypto::decrypt_payload(base_payload, &chain_dek).unwrap(),
+            crate::diff::decompress(
+                &crate::crypto::decrypt_payload(base_payload, &chain_dek).unwrap()
+            )
+            .unwrap(),
             base_plain,
             "base ciphertext must decrypt under the chain DEK"
         );
         let diff_on_disk = std::fs::read(&diff_path).unwrap();
         assert_eq!(
-            crate::crypto::decrypt_payload(&diff_on_disk, &chain_dek).unwrap(),
-            diff_plain,
+            crate::diff::decompress(
+                &crate::crypto::decrypt_payload(&diff_on_disk, &chain_dek).unwrap()
+            )
+            .unwrap(),
+            patch,
             "diff must decrypt under the same chain DEK as the base"
         );
         assert!(
             crate::crypto::decrypt_payload(&diff_on_disk, &kek).is_err(),
             "diff must no longer be KEK-direct after rebuild"
+        );
+        assert_eq!(
+            base.plaintext_hash,
+            crate::hash::hash_bytes(base_plain),
+            "rebuilt base must record the real plaintext hash"
+        );
+        let diff = rebuilt
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Diff)
+            .expect("diff entry must be present");
+        assert_eq!(
+            diff.plaintext_hash,
+            crate::hash::hash_bytes(after_diff_plain),
+            "rebuilt diff must record the real plaintext hash"
         );
     }
 
@@ -1004,11 +1056,28 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let base_plain = b"legacy type-1 base database bytes";
-        let after_diff_plain = b"legacy type-1 base database bytes with a small update";
+        // Valid SQLite payloads so restore_to_point can sqlcipher_export after hash check.
+        let base_db = tempfile::NamedTempFile::new().unwrap();
+        {
+            let conn = rusqlite::Connection::open(base_db.path()).unwrap();
+            conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);")
+                .unwrap();
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["base"]).unwrap();
+        }
+        let base_plain = std::fs::read(base_db.path()).unwrap();
 
-        let base_compressed = crate::diff::compress(base_plain).unwrap();
-        let patch = crate::diff::compute_diff(base_plain, after_diff_plain).unwrap();
+        let after_db = tempfile::NamedTempFile::new().unwrap();
+        {
+            let conn = rusqlite::Connection::open(after_db.path()).unwrap();
+            conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);")
+                .unwrap();
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["base"]).unwrap();
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["diff"]).unwrap();
+        }
+        let after_diff_plain = std::fs::read(after_db.path()).unwrap();
+
+        let base_compressed = crate::diff::compress(&base_plain).unwrap();
+        let patch = crate::diff::compute_diff(&base_plain, &after_diff_plain).unwrap();
         let patch_compressed = crate::diff::compress(&patch).unwrap();
 
         let base_id = "20260615T000000.000Z".to_string();
@@ -1041,12 +1110,49 @@ mod tests {
         );
         assert_eq!(rebuilt.entries.len(), 2);
 
-        let chain = rebuilt.chain_to(&diff_id).unwrap();
-        let restored =
-            crate::restore::replay_chain(&backups_dir, &chain, &Some(kek)).unwrap();
+        let base = rebuilt
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Base)
+            .expect("base entry");
+        let diff = rebuilt
+            .entries
+            .iter()
+            .find(|e| e.entry_type == BackupType::Diff)
+            .expect("diff entry");
         assert_eq!(
-            restored, after_diff_plain,
-            "rebuilt encrypted base+diff chain must restore to the post-diff plaintext"
+            base.plaintext_hash,
+            crate::hash::hash_bytes(&base_plain),
+            "type-1 base upgrade must record the real plaintext hash"
+        );
+        assert_eq!(base.plaintext_size, base_plain.len() as u64);
+        assert_eq!(
+            diff.plaintext_hash,
+            crate::hash::hash_bytes(&after_diff_plain),
+            "rekeyed encrypted diff must record the real plaintext hash"
+        );
+        assert_eq!(diff.plaintext_size, after_diff_plain.len() as u64);
+
+        // Persist the rebuilt index and exercise the full restore path (hash check included).
+        crate::index::save_index(&backups_dir.join("index.json"), &rebuilt).unwrap();
+        crate::restore::restore_to_point(data_dir, &diff_id, Some("pw"), None)
+            .expect("restore_to_point must succeed when rebuilt hashes match plaintext");
+
+        let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
+        let db_key = libllm_core::crypto::derive_key("pw", &salt).unwrap();
+        let conn = rusqlite::Connection::open(data_dir.join("data.db")).unwrap();
+        conn.execute_batch(&db_key.key_pragma()).unwrap();
+        let values: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT v FROM t ORDER BY id").unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(
+            values,
+            vec!["base".to_string(), "diff".to_string()],
+            "restore_to_point after encrypted rebuild must yield the post-diff rows"
         );
     }
 

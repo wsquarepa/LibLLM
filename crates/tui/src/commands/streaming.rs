@@ -120,7 +120,11 @@ where
             // File-snapshot system messages have their delimiter structure validated
             // at attach time. Applying PromptSend rules to them can transform escaped
             // content into exact delimiter lines, bypassing that validation.
-            if libllm_core::files::is_snapshot(&m.content) {
+            // Only System-role snapshots skip PromptSend; user/assistant content that
+            // happens to match the snapshot shape still runs through the rules.
+            if m.role == libllm_core::session::Role::System
+                && libllm_core::files::is_snapshot(&m.content)
+            {
                 return m;
             }
             let new_content = libllm_core::regex_rules::apply(

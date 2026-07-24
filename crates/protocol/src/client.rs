@@ -13,6 +13,10 @@ use tokio::sync::mpsc;
 use libllm_core::config::{Auth, AuthKind};
 use libllm_core::sampling::SamplingParams;
 
+/// Maximum accepted body size for `GET /props`. Real props payloads are a few KB;
+/// 1 MiB bounds hostile servers while remaining well above legitimate templates.
+const MAX_PROPS_BODY_BYTES: usize = 1_048_576;
+
 #[derive(Debug)]
 pub enum AuthError {
     EmptyRequiredField {
@@ -455,7 +459,7 @@ impl ApiClient {
     }
 
     /// Fetches `{server}/props` as JSON, logging failures under `log_target`.
-    /// Returns `None` on auth, transport, HTTP-status, or body-parse failure.
+    /// Returns `None` on auth, transport, HTTP-status, body-too-large, or body-parse failure.
     async fn fetch_props_json(&self, log_target: &'static str) -> Option<serde_json::Value> {
         let url = format!("{}/props", self.base_url.trim_end_matches("/v1"));
         let start = Instant::now();
@@ -505,10 +509,39 @@ impl ApiClient {
             );
             return None;
         }
-        match resp.json().await {
-            Ok(json) => Some(json),
+        // Cap the untrusted /props body before JSON parse so a hostile server cannot
+        // force multi-MB allocations during template discovery.
+        let bytes = match resp.bytes().await {
+            Ok(bytes) => bytes,
             Err(err) => {
                 let err = ApiError::from(err);
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                tracing::error!(
+                    phase = "request",
+                    result = "error",
+                    elapsed_ms = elapsed_ms,
+                    error = %err,
+                    "{}", log_target
+                );
+                return None;
+            }
+        };
+        if bytes.len() > MAX_PROPS_BODY_BYTES {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            tracing::error!(
+                phase = "request",
+                result = "error",
+                elapsed_ms = elapsed_ms,
+                body_bytes = bytes.len(),
+                max_bytes = MAX_PROPS_BODY_BYTES,
+                "{}",
+                log_target
+            );
+            return None;
+        }
+        match serde_json::from_slice(&bytes) {
+            Ok(json) => Some(json),
+            Err(err) => {
                 let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                 tracing::error!(
                     phase = "request",
@@ -934,6 +967,26 @@ mod tests {
             client.fetch_server_chat_template().await.as_deref(),
             Some("hello")
         );
+    }
+
+    #[tokio::test]
+    async fn fetch_props_rejects_body_over_max_bytes() {
+        let server = MockServer::start().await;
+        // Oversized body: padded JSON object larger than MAX_PROPS_BODY_BYTES.
+        let padding = "x".repeat(MAX_PROPS_BODY_BYTES);
+        let body = format!(r#"{{"chat_template":"{padding}"}}"#);
+        assert!(body.len() > MAX_PROPS_BODY_BYTES);
+        Mock::given(method("GET"))
+            .and(path("/props"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+
+        let base = format!("{}/v1", server.uri());
+        let client = ApiClient::new(&base, false, libllm_core::config::Auth::None);
+
+        assert!(client.fetch_server_chat_template().await.is_none());
+        assert!(client.fetch_server_context_size().await.is_none());
     }
 
     fn test_client() -> reqwest::Client {

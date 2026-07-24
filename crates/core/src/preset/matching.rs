@@ -110,6 +110,9 @@ pub enum RenderTemplateError {
     #[error("failed to render server chat_template: {0}")]
     Render(minijinja::Error),
 
+    #[error("server chat_template source exceeds {max_bytes} bytes (got {got})")]
+    SourceTooLarge { max_bytes: usize, got: usize },
+
     #[error("rendered chat_template output exceeds {max_bytes} bytes")]
     OutputTooLarge { max_bytes: usize },
 }
@@ -121,6 +124,10 @@ const RENDER_FUEL: u64 = 1_000_000;
 // bound output size. MAX_RENDER_BYTES catches that specific vector.
 const MAX_RENDER_BYTES: usize = 1024 * 1024;
 
+// Reject oversized untrusted template source before parse/render. Real chat templates
+// are a few KB; 256 KiB leaves headroom for verbose multi-modal templates.
+const MAX_TEMPLATE_SOURCE_BYTES: usize = 256 * 1024;
+
 /// Render a server-supplied Jinja `chat_template` string against the canonical context.
 /// Uses `UndefinedBehavior::Lenient` so missing variables (`tools`, `documents`, etc.)
 /// render as empty rather than raising.
@@ -128,7 +135,15 @@ const MAX_RENDER_BYTES: usize = 1024 * 1024;
 /// Fuel cap of `RENDER_FUEL` instructions blocks crafted templates that expand
 /// unboundedly (e.g. `{{ 'A' * 50000000 }}`). Real templates consume under 5 000
 /// instructions; 1 000 000 is a 200x safety margin.
+///
+/// Source size is rejected before parse when it exceeds `MAX_TEMPLATE_SOURCE_BYTES`.
 pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String, RenderTemplateError> {
+    if template.len() > MAX_TEMPLATE_SOURCE_BYTES {
+        return Err(RenderTemplateError::SourceTooLarge {
+            max_bytes: MAX_TEMPLATE_SOURCE_BYTES,
+            got: template.len(),
+        });
+    }
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Lenient);
     env.set_fuel(Some(RENDER_FUEL));
@@ -586,6 +601,28 @@ mod tests {
     }
 
     #[test]
+    fn rejects_template_source_over_max_bytes() {
+        let huge = "x".repeat(MAX_TEMPLATE_SOURCE_BYTES + 1);
+        let result = render_jinja(&huge, &CanonicalContext::fixed());
+        match result {
+            Err(RenderTemplateError::SourceTooLarge { max_bytes, got }) => {
+                assert_eq!(max_bytes, MAX_TEMPLATE_SOURCE_BYTES);
+                assert_eq!(got, MAX_TEMPLATE_SOURCE_BYTES + 1);
+            }
+            other => panic!("expected SourceTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_jinja_accepts_source_at_max_bytes_boundary() {
+        // A non-template string of exactly MAX bytes is still valid source: minijinja
+        // treats plain text as a constant template. Confirms the check is exclusive (`>`).
+        let at_limit = "x".repeat(MAX_TEMPLATE_SOURCE_BYTES);
+        let out = render_jinja(&at_limit, &CanonicalContext::fixed()).unwrap();
+        assert_eq!(out, at_limit);
+    }
+
+    #[test]
     fn pick_best_match_dos_template_returns_no_match() {
         let presets = all_builtin_presets();
         let outcome = pick_best_match("{{ 'A' * 50000000 }}", &presets, "");
@@ -593,5 +630,13 @@ mod tests {
             matches!(outcome, MatchOutcome::NoMatch { .. }),
             "expected NoMatch from DoS template, got {outcome:?}"
         );
+    }
+
+    #[test]
+    fn pick_best_match_oversized_source_returns_no_match() {
+        let presets = all_builtin_presets();
+        let huge = "x".repeat(MAX_TEMPLATE_SOURCE_BYTES + 1);
+        let outcome = pick_best_match(&huge, &presets, "");
+        assert_eq!(outcome, MatchOutcome::NoMatch { best_score: 0.0 });
     }
 }

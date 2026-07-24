@@ -626,7 +626,17 @@ pub fn rebuild_index(
         }
     }
 
+    let warnings = warnings
+        .into_iter()
+        .map(|w| sanitize_rebuild_warning(&w))
+        .collect();
     Ok((index, warnings))
+}
+
+/// Strips terminal control sequences from rebuild-index warning text so untrusted
+/// filenames or OS error strings cannot inject ANSI/OSC escapes into caller output.
+fn sanitize_rebuild_warning(text: &str) -> String {
+    libllm_core::text::strip_terminal_controls(text)
 }
 
 fn resolve_chain_dek(index: &BackupIndex, kek: &[u8; 32]) -> Result<[u8; 32]> {
@@ -1320,5 +1330,16 @@ mod tests {
             1,
             "only the valid entry should be in the rebuilt index"
         );
+    }
+
+    #[test]
+    fn sanitize_rebuild_warning_strips_esc_sequences() {
+        let raw = "skipping before\x1b[31mRED\x1b[0m-base.bak: failed to read file";
+        let clean = sanitize_rebuild_warning(raw);
+        assert!(
+            !clean.contains('\x1b'),
+            "ESC must be stripped from rebuild warnings: {clean:?}"
+        );
+        assert_eq!(clean, "skipping beforeRED-base.bak: failed to read file");
     }
 }

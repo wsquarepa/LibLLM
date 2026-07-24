@@ -258,8 +258,9 @@ pub fn parse_backup_filename(filename: &str) -> Option<(String, BackupType)> {
 
 /// Returns true when `name` is safe to use as a backup filename inside the backups directory.
 ///
-/// Rejects empty strings, path separators, parent-directory references, and absolute paths so
-/// that `Path::join(&name)` cannot escape the backups directory regardless of the value.
+/// Rejects empty strings, path separators, parent-directory references, absolute paths, and
+/// ASCII control characters so that `Path::join(&name)` cannot escape the backups directory
+/// and filenames cannot inject terminal escape sequences into rebuild warnings.
 pub fn is_safe_backup_filename(name: &str) -> bool {
     !name.is_empty()
         && !name.contains('/')
@@ -267,6 +268,7 @@ pub fn is_safe_backup_filename(name: &str) -> bool {
         && name != "."
         && name != ".."
         && !std::path::Path::new(name).is_absolute()
+        && !name.chars().any(|c| c.is_ascii_control())
 }
 
 /// Loads a `BackupIndex` from the given path.
@@ -515,6 +517,16 @@ mod tests {
         assert!(!is_safe_backup_filename("/etc/passwd"));
         assert!(!is_safe_backup_filename("sub/dir"));
         assert!(!is_safe_backup_filename("back\\slash"));
+    }
+
+    #[test]
+    fn is_safe_backup_filename_rejects_ascii_control_chars() {
+        assert!(!is_safe_backup_filename("evil\x1b[31m-base.bak"));
+        assert!(!is_safe_backup_filename("evil\n-base.bak"));
+        assert!(!is_safe_backup_filename("evil\t-base.bak"));
+        assert!(!is_safe_backup_filename("evil\x00-base.bak"));
+        assert!(!is_safe_backup_filename("evil\x7f-base.bak"));
+        assert!(!is_safe_backup_filename("\x1b[2J20260414T073656Z-base.bak"));
     }
 
     #[test]

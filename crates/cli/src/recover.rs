@@ -467,7 +467,8 @@ fn cmd_rebuild_index(data_dir: &Path, passkey: Option<&str>, interactive: bool) 
         )?;
 
         for warning in &warnings {
-            eprintln!("Warning: {warning}");
+            let safe = libllm_core::text::strip_terminal_controls(warning);
+            eprintln!("Warning: {safe}");
         }
 
         let base_count = rebuilt

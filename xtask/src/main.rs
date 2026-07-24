@@ -312,11 +312,7 @@ mod tests {
         let _file = create_ci_log(&path).expect("create_ci_log should succeed on a fresh path");
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         let _ = std::fs::remove_file(&path);
-        assert_eq!(
-            mode & 0o777,
-            0o600,
-            "ci log must be owner read/write only"
-        );
+        assert_eq!(mode & 0o777, 0o600, "ci log must be owner read/write only");
     }
 
     #[test]
@@ -325,10 +321,7 @@ mod tests {
         let _first = create_ci_log(&path).expect("first create should succeed");
         let err = create_ci_log(&path).expect_err("second create must refuse an existing path");
         let _ = std::fs::remove_file(&path);
-        assert!(
-            err.contains("failed to create"),
-            "unexpected error: {err}"
-        );
+        assert!(err.contains("failed to create"), "unexpected error: {err}");
     }
 
     #[test]

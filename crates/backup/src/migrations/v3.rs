@@ -43,13 +43,11 @@ pub(super) fn migrate(
             // against the index wrapped DEK before reconciling size/hash, so a
             // syntactically valid but tampered header cannot bless a new file_hash.
             let kek = kek.ok_or(BackupError::MigrationV3EncryptedNoKek)?;
-            let index_wrapped =
-                entry
-                    .wrapped_dek
-                    .clone()
-                    .ok_or_else(|| BackupError::MigrationV3MissingWrappedDek {
-                        id: base_id.clone(),
-                    })?;
+            let index_wrapped = entry.wrapped_dek.clone().ok_or_else(|| {
+                BackupError::MigrationV3MissingWrappedDek {
+                    id: base_id.clone(),
+                }
+            })?;
             let header_dek = crate::crypto::unwrap_dek(&header_wrapped, kek)?;
             let index_dek = crate::crypto::unwrap_dek(&index_wrapped, kek)?;
             if header_dek != index_dek {
@@ -343,8 +341,7 @@ mod tests {
             "tampered header must not update stored_size"
         );
         // On-disk index must also remain unblessed.
-        let reloaded =
-            crate::index::load_index(&backups_dir.join("index.json")).unwrap();
+        let reloaded = crate::index::load_index(&backups_dir.join("index.json")).unwrap();
         assert_eq!(reloaded.entries[0].file_hash, stale_hash);
         assert_eq!(reloaded.entries[0].stored_size, stale_size);
     }

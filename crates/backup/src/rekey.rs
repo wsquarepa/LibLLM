@@ -133,11 +133,12 @@ pub fn prepare_rekey(data_dir: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) ->
                 (dek, payload.to_vec())
             }
             None => {
-                let dek =
-                    unwrap_dek(index_wrapped, old_kek).map_err(|source| BackupError::RekeyUnwrapDek {
+                let dek = unwrap_dek(index_wrapped, old_kek).map_err(|source| {
+                    BackupError::RekeyUnwrapDek {
                         id: entry.id.clone(),
                         source: Box::new(source),
-                    })?;
+                    }
+                })?;
                 (dek, bytes)
             }
         };

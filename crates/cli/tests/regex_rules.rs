@@ -228,13 +228,12 @@ fn prompt_send_system_rule_does_not_rewrite_snapshot_messages() {
     // The guard used in build_rendered_prompt_common: skip PromptSend only for
     // System-role snapshot bodies.
     let role = Role::System;
-    let content_after_guard = if role == Role::System
-        && libllm_core::files::is_snapshot(&snapshot_body)
-    {
-        snapshot_body.clone()
-    } else {
-        raw_applied.into_owned()
-    };
+    let content_after_guard =
+        if role == Role::System && libllm_core::files::is_snapshot(&snapshot_body) {
+            snapshot_body.clone()
+        } else {
+            raw_applied.into_owned()
+        };
     assert_eq!(
         content_after_guard, snapshot_body,
         "System + snapshot body must not be rewritten by PromptSend rules"
@@ -277,19 +276,13 @@ fn prompt_send_still_rewrites_snapshot_shaped_user_and_assistant() {
         let compiled = libllm_core::regex_rules::compile_rules(&[rule]);
 
         // Mirror build_rendered_prompt_common's role-gated guard.
-        let content_after_guard = if role == Role::System
-            && libllm_core::files::is_snapshot(&snapshot_body)
-        {
-            snapshot_body.clone()
-        } else {
-            libllm_core::regex_rules::apply(
-                &compiled,
-                Scope::PromptSend,
-                role,
-                &snapshot_body,
-            )
-            .into_owned()
-        };
+        let content_after_guard =
+            if role == Role::System && libllm_core::files::is_snapshot(&snapshot_body) {
+                snapshot_body.clone()
+            } else {
+                libllm_core::regex_rules::apply(&compiled, Scope::PromptSend, role, &snapshot_body)
+                    .into_owned()
+            };
 
         assert_ne!(
             content_after_guard, snapshot_body,

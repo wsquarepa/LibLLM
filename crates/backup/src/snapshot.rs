@@ -425,18 +425,18 @@ pub fn rebuild_index(
                                 }
                             };
 
-                            let new_blob =
-                                match crate::format::encode_base_blob(&wrapped, &payload) {
-                                    Ok(blob) => blob,
-                                    Err(e) => {
-                                        let msg = format!(
-                                            "skipping {filename}: failed to encode base header: {e}"
-                                        );
-                                        tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.encode_failed");
-                                        warnings.push(msg);
-                                        continue;
-                                    }
-                                };
+                            let new_blob = match crate::format::encode_base_blob(&wrapped, &payload)
+                            {
+                                Ok(blob) => blob,
+                                Err(e) => {
+                                    let msg = format!(
+                                        "skipping {filename}: failed to encode base header: {e}"
+                                    );
+                                    tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.encode_failed");
+                                    warnings.push(msg);
+                                    continue;
+                                }
+                            };
                             if let Err(e) = libllm_core::crypto::write_atomic(&file_path, &new_blob)
                             {
                                 let msg = format!(
@@ -542,30 +542,33 @@ pub fn rebuild_index(
                             Ok(c) => c,
                             Err(_) => {
                                 // Not under the chain DEK — try legacy KEK-direct (type-1).
-                                let compressed =
-                                    match crate::crypto::decrypt_payload(&file_bytes, kek) {
-                                        Ok(c) => c,
-                                        Err(e) => {
-                                            let msg = format!(
-                                                "skipping {filename}: decryption failed: {e}"
-                                            );
-                                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
-                                            warnings.push(msg);
-                                            continue;
-                                        }
-                                    };
-                                let new_blob =
-                                    match crate::crypto::encrypt_payload(&compressed, &chain_dek) {
-                                        Ok(b) => b,
-                                        Err(e) => {
-                                            let msg = format!(
-                                                "skipping {filename}: re-encryption failed: {e}"
-                                            );
-                                            tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
-                                            warnings.push(msg);
-                                            continue;
-                                        }
-                                    };
+                                let compressed = match crate::crypto::decrypt_payload(
+                                    &file_bytes,
+                                    kek,
+                                ) {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let msg =
+                                            format!("skipping {filename}: decryption failed: {e}");
+                                        tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.decrypt_failed");
+                                        warnings.push(msg);
+                                        continue;
+                                    }
+                                };
+                                let new_blob = match crate::crypto::encrypt_payload(
+                                    &compressed,
+                                    &chain_dek,
+                                ) {
+                                    Ok(b) => b,
+                                    Err(e) => {
+                                        let msg = format!(
+                                            "skipping {filename}: re-encryption failed: {e}"
+                                        );
+                                        tracing::warn!(result = "error", filename = %filename, error = %e, "backup.rebuild_index.reencrypt_failed");
+                                        warnings.push(msg);
+                                        continue;
+                                    }
+                                };
                                 if let Err(e) =
                                     libllm_core::crypto::write_atomic(&file_path, &new_blob)
                                 {
@@ -1062,7 +1065,8 @@ mod tests {
             let conn = rusqlite::Connection::open(base_db.path()).unwrap();
             conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);")
                 .unwrap();
-            conn.execute("INSERT INTO t (v) VALUES (?1)", ["base"]).unwrap();
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["base"])
+                .unwrap();
         }
         let base_plain = std::fs::read(base_db.path()).unwrap();
 
@@ -1071,8 +1075,10 @@ mod tests {
             let conn = rusqlite::Connection::open(after_db.path()).unwrap();
             conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);")
                 .unwrap();
-            conn.execute("INSERT INTO t (v) VALUES (?1)", ["base"]).unwrap();
-            conn.execute("INSERT INTO t (v) VALUES (?1)", ["diff"]).unwrap();
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["base"])
+                .unwrap();
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["diff"])
+                .unwrap();
         }
         let after_diff_plain = std::fs::read(after_db.path()).unwrap();
 

@@ -197,10 +197,11 @@ impl FileSummarizer {
 
     /// Signals shutdown and waits up to 2 seconds for in-flight tasks to complete.
     ///
-    /// After this returns, `schedule` will silently drop any new requests. Callers
-    /// that need to delete the data directory (e.g., Destroy All Data) should await
-    /// this before proceeding so open file descriptors are less likely to block
-    /// directory removal on Windows.
+    /// After this returns, `schedule` will silently drop any new requests on
+    /// **this** instance. Destroy All awaits this before `snapshot_data_dir` so
+    /// the recovery archive is not taken while summarizer tasks can still write
+    /// SQLite/WAL. On snapshot failure the UI replaces the instance (fresh latch)
+    /// rather than clearing the latch in place.
     pub async fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);

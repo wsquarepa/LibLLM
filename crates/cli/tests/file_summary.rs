@@ -368,51 +368,6 @@ fn build_file_summarizer_opens_encrypted_db() {
 }
 
 #[tokio::test]
-async fn schedule_remains_live_without_shutdown() {
-    let conn = setup_summarizer_conn("s1");
-    let (tx, _rx) = mpsc::unbounded_channel();
-    let summarizer = FileSummarizer::new(
-        Arc::clone(&conn),
-        libllm_protocol::client::ApiClient::new(
-            "http://127.0.0.1:1",
-            true,
-            libllm_core::config::Auth::None,
-        ),
-        "Summarize the file.".to_owned(),
-        tx,
-    );
-
-    let file_a = FileToSummarize {
-        basename: "a.md".to_owned(),
-        content_hash: "hash-a-live".to_owned(),
-        body: "body a".to_owned(),
-    };
-    // Pre-shutdown schedule must insert a pending row.
-    summarizer.schedule("s1", &file_a);
-    assert!(
-        file_summaries::lookup(&conn.lock().unwrap(), "s1", "hash-a-live")
-            .unwrap()
-            .is_some(),
-        "pre-condition: row must exist before any shutdown"
-    );
-
-    // Represent the new (fixed) error path: snapshot failed, so shutdown is
-    // NOT called. A second schedule call must still insert a pending row.
-    let file_b = FileToSummarize {
-        basename: "b.md".to_owned(),
-        content_hash: "hash-b-live".to_owned(),
-        body: "body b".to_owned(),
-    };
-    summarizer.schedule("s1", &file_b);
-    assert!(
-        file_summaries::lookup(&conn.lock().unwrap(), "s1", "hash-b-live")
-            .unwrap()
-            .is_some(),
-        "schedule must insert a pending row when shutdown was never called (fixed error path)"
-    );
-}
-
-#[tokio::test]
 async fn shutdown_then_schedule_drops_work() {
     let conn = setup_summarizer_conn("s2");
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -441,5 +396,77 @@ async fn shutdown_then_schedule_drops_work() {
             .unwrap()
             .is_none(),
         "schedule must drop work once shutdown latch is set"
+    );
+}
+
+/// Destroy All always quiesces the summarizer before snapshot. When the
+/// snapshot then fails, the UI re-inits a fresh instance on the same connection
+/// so scheduling works again without a process restart.
+#[tokio::test]
+async fn reinit_after_shutdown_restores_schedule() {
+    let conn = setup_summarizer_conn("s-reinit");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let summarizer = FileSummarizer::new(
+        Arc::clone(&conn),
+        libllm_protocol::client::ApiClient::new(
+            "http://127.0.0.1:1",
+            true,
+            libllm_core::config::Auth::None,
+        ),
+        "Summarize the file.".to_owned(),
+        tx.clone(),
+    );
+
+    let file_pre = FileToSummarize {
+        basename: "pre.md".to_owned(),
+        content_hash: "hash-pre".to_owned(),
+        body: "body pre".to_owned(),
+    };
+    summarizer.schedule("s-reinit", &file_pre);
+    assert!(
+        file_summaries::lookup(&conn.lock().unwrap(), "s-reinit", "hash-pre")
+            .unwrap()
+            .is_some(),
+        "pre-condition: schedule must work before shutdown"
+    );
+
+    // Destroy All quiesce step.
+    summarizer.shutdown().await;
+    let file_dead = FileToSummarize {
+        basename: "dead.md".to_owned(),
+        content_hash: "hash-dead".to_owned(),
+        body: "body dead".to_owned(),
+    };
+    summarizer.schedule("s-reinit", &file_dead);
+    assert!(
+        file_summaries::lookup(&conn.lock().unwrap(), "s-reinit", "hash-dead")
+            .unwrap()
+            .is_none(),
+        "shut-down instance must refuse new work"
+    );
+
+    // Snapshot-failed recovery path: install a new instance on the same conn
+    // (mirrors business::reinit_file_summarizer_after_failed_snapshot).
+    let restored = FileSummarizer::new(
+        summarizer.conn_clone_for_reload(),
+        libllm_protocol::client::ApiClient::new(
+            "http://127.0.0.1:1",
+            true,
+            libllm_core::config::Auth::None,
+        ),
+        "Summarize the file.".to_owned(),
+        summarizer.ready_tx_clone_for_reload(),
+    );
+    let file_post = FileToSummarize {
+        basename: "post.md".to_owned(),
+        content_hash: "hash-post".to_owned(),
+        body: "body post".to_owned(),
+    };
+    restored.schedule("s-reinit", &file_post);
+    assert!(
+        file_summaries::lookup(&conn.lock().unwrap(), "s-reinit", "hash-post")
+            .unwrap()
+            .is_some(),
+        "re-inited summarizer must accept schedule after failed destroy-all snapshot"
     );
 }

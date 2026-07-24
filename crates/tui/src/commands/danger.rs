@@ -14,6 +14,11 @@ pub(crate) fn spawn_destroy_all(
     summarizer: Option<std::sync::Arc<crate::file_summarizer::FileSummarizer>>,
 ) {
     tokio::spawn(async move {
+        // Quiesce summarizer first so the recovery snapshot is not taken while
+        // background tasks can still write to the SQLite/WAL files.
+        if let Some(s) = &summarizer {
+            s.shutdown().await;
+        }
         let snapshot_path_for_task = snapshot_path.clone();
         let result = tokio::task::spawn_blocking(move || {
             libllm_core::archive::snapshot_data_dir(&data_dir, &snapshot_path_for_task, "backups")
@@ -22,11 +27,6 @@ pub(crate) fn spawn_destroy_all(
         })
         .await
         .unwrap_or_else(|join_err| Err(join_err.to_string()));
-        if result.is_ok()
-            && let Some(s) = &summarizer
-        {
-            s.shutdown().await;
-        }
         let _ = bg_tx
             .send(crate::types::BackgroundEvent::DangerOpComplete(
                 crate::types::DangerOp::DestroyAll,
@@ -50,6 +50,9 @@ pub(crate) fn handle_op_complete(
                 format!("Snapshot failed: {err}; data dir intact"),
                 StatusLevel::Error,
             );
+            // Shutdown ran before the failed snapshot; restore a live
+            // FileSummarizer so scheduling works without a process restart.
+            crate::business::reinit_file_summarizer_after_failed_snapshot(app);
         }
         (op, Ok(summary)) => report_summary(app, op, &summary),
         (_, Err(err)) => {

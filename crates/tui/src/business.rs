@@ -828,6 +828,29 @@ pub fn build_file_summarizer(
     ))
 }
 
+/// Restore a live `FileSummarizer` after Destroy All quiesced it and the
+/// recovery snapshot then failed.
+///
+/// Shutdown is irreversible on an instance (the latch stays set), so this
+/// drops the dead orchestrator and builds a fresh one on the same DB
+/// connection (same construction path as config reload), avoiding a
+/// second SQLCipher key derivation on the UI thread.
+pub(crate) fn reinit_file_summarizer_after_failed_snapshot(app: &mut App) {
+    let Some(existing) = app.file_summary.summarizer.take() else {
+        // No prior instance (summarization never started); nothing to restore.
+        return;
+    };
+    tracing::info!("tui.file_summarizer.reinit_after_failed_destroy_snapshot");
+    app.file_summary.summarizer = Some(std::sync::Arc::new(
+        crate::file_summarizer::FileSummarizer::new(
+            existing.conn_clone_for_reload(),
+            build_summarize_client(&app.config, &app.cli_overrides),
+            app.config.files.summary_prompt.clone(),
+            existing.ready_tx_clone_for_reload(),
+        ),
+    ));
+}
+
 pub(super) fn apply_config(app: &mut App) {
     let previous_connection =
         EffectiveConnectionConfig::from_config(&app.config, &app.cli_overrides);

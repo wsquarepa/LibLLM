@@ -20,5 +20,3 @@ target
 # Scratch
 tmp/
 
-# Git worktrees
-.worktrees/

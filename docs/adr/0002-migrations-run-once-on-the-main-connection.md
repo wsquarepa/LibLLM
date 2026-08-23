@@ -1,0 +1,3 @@
+# Migrations run once, on the main connection
+
+`Database::open` runs the migration chain on the main connection right after applying the SQLCipher key, and that is the only place migrations run. The file summarizer's dedicated second connection does not run them; it observes the already-migrated schema through SQLite's WAL file locking. Each migration is applied and version-stamped inside one transaction so a crash mid-upgrade rolls back rather than leaving a half-applied schema; individual migration bodies therefore must not open their own transaction. Running migrations from every connection was rejected because concurrent upgraders would race on the same schema.

@@ -1,0 +1,3 @@
+# Statusbar default content is sacred
+
+The statusbar's default content (version/build status on the left, keybind hints on the right) is always visible unless a status message is active. Status messages auto-clear after 5 seconds; Info and Warning slide in over the hints, Error takes over the whole bar centered. Everything else lives elsewhere by design: the model name and token count in the chat block's bottom border, the per-message branch indicator (`[1/2]`) inline in the chat, the input token estimate in the input-box title. The statusbar was repeatedly becoming a dumping ground for hints that duplicated visible UI state, so new hints there are rejected on review.

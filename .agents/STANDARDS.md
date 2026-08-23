@@ -2,9 +2,9 @@
 
 This document defines how this repository is organized and maintained. It
 describes the actual conventions of this codebase and its target state. Where
-`.agents/RULES.md` documents operational detail (build commands, test layout,
-migrations, dialog keybindings), RULES.md is authoritative and this document
-defers to it.
+`.agents/RULES.md` documents operational detail (build commands, test layout),
+RULES.md is authoritative and this document defers to it. Domain vocabulary is
+in `CONTEXT.md` and durable decisions are recorded in `docs/adr/`.
 
 ## Source Basis
 
@@ -60,6 +60,7 @@ Actual layout:
 ├── Cargo.toml
 ├── Cargo.lock
 ├── README.md
+├── CONTEXT.md          # domain glossary
 ├── rustfmt.toml
 ├── install.sh
 ├── AGENTS.md -> .agents/RULES.md
@@ -68,7 +69,7 @@ Actual layout:
 │   ├── RULES.md        # agent operational guide (authoritative for build/test)
 │   └── STANDARDS.md    # this document
 ├── assets/
-├── docs/               # user-facing docs: cli, configuration, install, troubleshooting, usage
+├── docs/               # user docs (cli, configuration, install, troubleshooting, usage), releasing, adr/, agents/
 ├── crates/
 │   ├── core/           # libllm-core
 │   ├── config/         # libllm-config
@@ -318,23 +319,44 @@ Rules:
 
 ## Observability
 
-Use structured diagnostics via `tracing`. The authoritative level rubric and
-filter configuration live in RULES.md ("Diagnostics authoring"); in brief:
-`trace` for per-frame/per-keystroke events, `debug` for state transitions,
-`info` for DB operations and API summaries, `warn` for retries and degraded
-fallbacks, `error` for unrecoverable failures.
+Use structured diagnostics via `tracing`. Pick levels by this rubric:
+
+- `TRACE`: per-frame or per-keystroke events (render, input, layout).
+- `DEBUG`: state transitions, config reads, background task lifecycle.
+- `INFO`: DB operations, migrations, session save/load, API summaries.
+- `WARN`: retries, degraded fallbacks, recoverable problems.
+- `ERROR`: unrecoverable failures.
+
+The default filter is `info`. Users override it via `--log-filter <DIRECTIVE>`
+(requires `--debug`) or `LIBLLM_LOG` (ignored unless `--debug` is set), both
+taking `env_logger`-style directives such as
+`info,libllm_storage::db=debug,libllm_tui::render=off`.
 
 Rules:
 
 - Libraries use `tracing`, not `println!`.
 - The CLI writes intentional user output to stdout and diagnostics to stderr.
 - Log dynamic values as fields, not by formatting them into the message string.
-- For timed blocks, use spans (or `timed_result!`) so elapsed time feeds the
-  `--timings` report; do not write elapsed fields manually.
+- For timed blocks, use `tracing::info_span!("name", field = value).entered()`
+  or `libllm_core::timed_result!` (which records `elapsed_ms` and
+  `result=ok|error` automatically) so span close feeds the `--timings` report;
+  do not write elapsed fields manually.
+- The debug-log target column strips workspace-crate prefixes via
+  `STRIP_PREFIXES` in `crates/diagnostics/src/format.rs`; update that list
+  when adding or renaming a workspace crate.
 
 Do not log secrets, passphrases, tokens, private message bodies, or full
 request payloads unless the payload is explicitly non-sensitive and the
 diagnostic mode requires it.
+
+## TUI
+
+- All colors in `crates/tui/src/render/` read from `app.theme`; no hardcoded
+  color constants.
+- The statusbar's default content is reserved (ADR-0001); temporary notices go
+  through `App::set_status()` with a `StatusLevel`.
+- Every dialog follows the shared keybinding contract and dirty-check rule
+  (ADR-0004).
 
 ## Unsafe Code
 
@@ -360,8 +382,10 @@ Rules:
 - Never suppress warnings with `#[allow(...)]` — `clippy::allow_attributes`
   is denied workspace-wide. Fix the code instead. The only sanctioned
   mechanism for a documented structural false-positive is
-  `#[expect(lint, reason = "...")]`, which self-verifies. See RULES.md
-  ("No warning suppression").
+  `#[expect(lint, reason = "...")]`, which self-verifies: if the warning stops
+  firing, `expect` itself warns. Dead code is deleted, unused imports and
+  variables removed, unreachable branches restructured; `RUSTFLAGS=-Awarnings`
+  and `#![allow(...)]` are equally forbidden.
 
 Verification is one command:
 
@@ -465,7 +489,7 @@ Use this checklist when reviewing a Rust change:
 - New tests sit at the correct boundary and are deterministic; RULES.md's
   test-file list is updated if a binary was added.
 - New configuration is typed, validated, and passed explicitly.
-- New dialogs follow the keybinding contract in RULES.md.
+- New dialogs follow the keybinding contract in ADR-0004.
 - `cargo xtask ci` passes.
 
 ## Anti-Patterns

@@ -75,6 +75,9 @@ fn resolve_context(args: &Args) -> Result<DbContext> {
 /// Probe whether another process holds the database. We attempt to acquire an
 /// immediate write lock; on WAL-mode SQLite this fails with `SQLITE_BUSY` when
 /// another connection has a pending write.
+///
+/// Returns `Ok` without probing when the file does not exist, because
+/// `Connection::open` would otherwise silently create an empty database.
 pub fn wal_liveness_check(db_path: &Path, key: Option<&DerivedKey>) -> Result<()> {
     if !db_path.exists() {
         return Ok(());

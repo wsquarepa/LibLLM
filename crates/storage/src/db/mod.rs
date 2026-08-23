@@ -333,6 +333,12 @@ impl Database {
     /// Errors propagate the underlying rusqlite error verbatim, including
     /// `attempt to write a readonly database` when called on a connection
     /// opened with `PRAGMA query_only = ON`.
+    ///
+    /// Statements without result columns (plain `INSERT`, `UPDATE`, ...) yield
+    /// no headers; callers read [`Database::changes`] afterwards for the
+    /// affected-row count. Routing every statement through here handles
+    /// `INSERT ... RETURNING`, bare `VALUES`, and comment-leading SQL uniformly,
+    /// so callers must not reintroduce a leading-keyword heuristic.
     pub fn execute_query(&self, sql: &str) -> Result<QueryRows> {
         let mut stmt = self.conn.prepare(sql).map_err(|source| DbError::Query {
             context: "failed to prepare query".to_owned(),

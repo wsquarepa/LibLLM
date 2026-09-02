@@ -407,22 +407,7 @@ impl<'a> FieldDialog<'a> {
     }
 
     pub fn render(&self, f: &mut ratatui::Frame, area: Rect) {
-        let default_height = self.labels.len() as u16 + FIELD_DIALOG_PADDING_ROWS;
-        let (w, h) = match (self.width, self.height) {
-            (Some(wp), Some(hp)) => {
-                let w = (area.width as f32 * wp as f32 / 100.0) as u16;
-                let h = (area.height as f32 * hp as f32 / 100.0) as u16;
-                (w, h)
-            }
-            _ => {
-                let editor_extra = if self.editor.is_some() {
-                    FIELD_DIALOG_EDITOR_EXTRA
-                } else {
-                    0
-                };
-                (FIELD_DIALOG_DEFAULT_WIDTH, default_height + editor_extra)
-            }
-        };
+        let (w, h) = self.dialog_dimensions(area);
         let dialog = clear_centered(f, w, h, area);
 
         if self.editor.is_some() {

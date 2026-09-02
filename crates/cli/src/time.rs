@@ -11,12 +11,7 @@ pub const TIME_COLUMN_WIDTH: usize = 16;
 /// Output is left-aligned and padded to [`TIME_COLUMN_WIDTH`] characters.
 pub fn format_relative(now: DateTime<Utc>, then: DateTime<Utc>) -> String {
     let core = format_relative_core(now, then);
-    let pad_needed = TIME_COLUMN_WIDTH.saturating_sub(core.chars().count());
-    let mut out = core;
-    for _ in 0..pad_needed {
-        out.push(' ');
-    }
-    out
+    format!("{core:<width$}", width = TIME_COLUMN_WIDTH)
 }
 
 fn format_relative_core(now: DateTime<Utc>, then: DateTime<Utc>) -> String {

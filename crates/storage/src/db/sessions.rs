@@ -372,7 +372,7 @@ fn load_message_tree(
     let mut nodes: Vec<Node> = Vec::new();
     let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
 
-    let rows = stmt
+    let message_rows = stmt
         .query_map(params![session_id], |row| {
             let msg_id: i64 = row.get(0)?;
             let parent_id: Option<i64> = row.get(1)?;
@@ -400,7 +400,7 @@ fn load_message_tree(
             source,
         })?;
 
-    for row in rows {
+    for row in message_rows {
         let (
             msg_id,
             parent_id,
@@ -475,14 +475,12 @@ fn load_session_worldbooks(conn: &Connection, session_id: &str) -> Result<Vec<St
             context: "failed to query worldbooks".to_owned(),
             source,
         })?;
-    let mut worldbooks: Vec<String> = Vec::new();
-    for wb in wb_rows {
-        worldbooks.push(wb.map_err(|source| DbError::Query {
+    wb_rows
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|source| DbError::Query {
             context: "failed to read worldbook row".to_owned(),
             source,
-        })?);
-    }
-    Ok(worldbooks)
+        })
 }
 
 /// Group-chat character attachments ordered by `attach_index`. When the
@@ -519,13 +517,12 @@ fn load_session_characters(
             context: "failed to query session_characters".to_owned(),
             source,
         })?;
-    let mut characters: Vec<libllm_core::group_chat::CharacterAttachment> = Vec::new();
-    for ch in ch_rows {
-        characters.push(ch.map_err(|source| DbError::Query {
+    let mut characters: Vec<libllm_core::group_chat::CharacterAttachment> = ch_rows
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|source| DbError::Query {
             context: "failed to read session_characters row".to_owned(),
             source,
-        })?);
-    }
+        })?;
 
     if characters.is_empty()
         && let Some(slug) = legacy_character
@@ -657,13 +654,12 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
                 source,
             })?;
 
-        let mut entries = Vec::new();
-        for row in rows {
-            entries.push(row.map_err(|source| DbError::Query {
+        let entries: Vec<SessionListEntry> = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|source| DbError::Query {
                 context: "failed to read session row".to_owned(),
                 source,
-            })?);
-        }
+            })?;
         tracing::debug!(session_count = entries.len(), "db.session.list");
         Ok(entries)
     })

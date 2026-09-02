@@ -198,97 +198,116 @@ pub(super) async fn update_to_tag(client: &reqwest::Client, tag: &str) -> Result
     Ok(())
 }
 
-pub(super) fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
-    if yes {
-        tracing::info!(
-            from = CHANNEL,
-            to = target,
-            result = "confirmed",
-            reason = "yes_flag",
-            "update.channel_switch"
-        );
-        return Ok(true);
-    }
+enum Confirmation {
+    YesFlag,
+    NonInteractive,
+    Answered(bool),
+}
 
+/// Honors `yes` without prompting, refuses when stdin is not a terminal, otherwise prints
+/// `warning` to stderr, asks "Continue? [y/N]", and reads one line. Errors only when stderr
+/// cannot be flushed or stdin cannot be read.
+fn ask_confirmation(yes: bool, warning: &str) -> Result<Confirmation> {
+    if yes {
+        return Ok(Confirmation::YesFlag);
+    }
     let stdin = io::stdin();
     if !stdin.is_terminal() {
-        tracing::warn!(
-            from = CHANNEL,
-            to = target,
-            result = "error",
-            reason = "non_interactive",
-            "update.channel_switch"
-        );
-        anyhow::bail!(
-            "Currently on '{CHANNEL}'. \
-             Switching channels in a non-interactive terminal requires --yes."
-        );
+        return Ok(Confirmation::NonInteractive);
     }
+    eprintln!("{warning}");
+    eprint!("\nContinue? [y/N] ");
+    io::stderr().flush()?;
+    let mut answer = String::new();
+    stdin.read_line(&mut answer)?;
+    Ok(Confirmation::Answered(
+        answer.trim().eq_ignore_ascii_case("y"),
+    ))
+}
 
-    eprintln!("WARNING: You are currently on '{CHANNEL}'.");
-    eprintln!(
-        "Switching to '{target}' may cause issues if your current build introduced\n\
+pub(super) fn confirm_channel_switch(target: &str, yes: bool) -> Result<bool> {
+    let warning = format!(
+        "WARNING: You are currently on '{CHANNEL}'.\n\
+         Switching to '{target}' may cause issues if your current build introduced\n\
          data format changes that '{target}' does not yet support.\n\
          Your data directory could become unreadable."
     );
-    eprint!("\nContinue? [y/N] ");
-    io::stderr().flush()?;
-
-    let mut answer = String::new();
-    stdin.read_line(&mut answer)?;
-    let confirmed = answer.trim().eq_ignore_ascii_case("y");
-    tracing::info!(
-        from = CHANNEL,
-        to = target,
-        result = if confirmed { "confirmed" } else { "declined" },
-        "update.channel_switch"
-    );
-    Ok(confirmed)
+    match ask_confirmation(yes, &warning)? {
+        Confirmation::YesFlag => {
+            tracing::info!(
+                from = CHANNEL,
+                to = target,
+                result = "confirmed",
+                reason = "yes_flag",
+                "update.channel_switch"
+            );
+            Ok(true)
+        }
+        Confirmation::NonInteractive => {
+            tracing::warn!(
+                from = CHANNEL,
+                to = target,
+                result = "error",
+                reason = "non_interactive",
+                "update.channel_switch"
+            );
+            anyhow::bail!(
+                "Currently on '{CHANNEL}'. \
+                 Switching channels in a non-interactive terminal requires --yes."
+            );
+        }
+        Confirmation::Answered(confirmed) => {
+            tracing::info!(
+                from = CHANNEL,
+                to = target,
+                result = if confirmed { "confirmed" } else { "declined" },
+                "update.channel_switch"
+            );
+            Ok(confirmed)
+        }
+    }
 }
 
 pub(super) fn confirm_downgrade(target: &str, yes: bool) -> Result<bool> {
     let from = concat!("v", env!("CARGO_PKG_VERSION"));
-    if yes {
-        tracing::info!(
-            from = from,
-            to = target,
-            result = "confirmed",
-            reason = "yes_flag",
-            "update.downgrade"
-        );
-        return Ok(true);
-    }
-
-    let stdin = io::stdin();
-    if !stdin.is_terminal() {
-        tracing::warn!(
-            from = from,
-            to = target,
-            result = "error",
-            reason = "non_interactive",
-            "update.downgrade"
-        );
-        anyhow::bail!("Downgrading to '{target}' in a non-interactive terminal requires --yes.");
-    }
-
-    eprintln!(
+    let warning = format!(
         "WARNING: Downgrading from {from} to {target}.\n\
          Older builds may not understand data written by newer ones; \
          your data directory could become unreadable."
     );
-    eprint!("\nContinue? [y/N] ");
-    io::stderr().flush()?;
-
-    let mut answer = String::new();
-    stdin.read_line(&mut answer)?;
-    let confirmed = answer.trim().eq_ignore_ascii_case("y");
-    tracing::info!(
-        from = from,
-        to = target,
-        result = if confirmed { "confirmed" } else { "declined" },
-        "update.downgrade"
-    );
-    Ok(confirmed)
+    match ask_confirmation(yes, &warning)? {
+        Confirmation::YesFlag => {
+            tracing::info!(
+                from = from,
+                to = target,
+                result = "confirmed",
+                reason = "yes_flag",
+                "update.downgrade"
+            );
+            Ok(true)
+        }
+        Confirmation::NonInteractive => {
+            tracing::warn!(
+                from = from,
+                to = target,
+                result = "error",
+                reason = "non_interactive",
+                "update.downgrade"
+            );
+            anyhow::bail!(
+                "Downgrading to '{target}' in a non-interactive terminal requires --yes."
+            );
+        }
+        Confirmation::Answered(confirmed) => {
+            tracing::info!(
+                from = from,
+                to = target,
+                result = if confirmed { "confirmed" } else { "declined" },
+                "update.downgrade"
+            );
+            Ok(confirmed)
+        }
+    }
 }
 
 #[cfg(test)]

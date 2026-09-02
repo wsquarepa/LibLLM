@@ -18,12 +18,7 @@ pub(crate) fn render_passkey_dialog(f: &mut ratatui::Frame, app: &App, area: Rec
     let dialog = clear_centered(f, DIALOG_WIDTH, DIALOG_HEIGHT, area);
 
     let max_visible = DIALOG_WIDTH as usize - 2 - LABEL_PREFIX_LEN - 1;
-    let masked_full: String = "*".repeat(app.passkey.input.len());
-    let masked: String = if masked_full.len() > max_visible {
-        masked_full[masked_full.len() - max_visible..].to_owned()
-    } else {
-        masked_full
-    };
+    let masked = super::masked_and_truncated(app.passkey.input.len(), max_visible);
     let passkey_color = if super::is_flash_active(app.input_reject_flash) {
         Color::Yellow
     } else {

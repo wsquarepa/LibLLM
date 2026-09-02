@@ -24,18 +24,8 @@ pub(crate) fn render_set_passkey_dialog(f: &mut ratatui::Frame, app: &App, area:
     };
 
     let max_visible = DIALOG_WIDTH as usize - 2 - LABEL_PREFIX_LEN - 1;
-    let new_masked_full: String = "*".repeat(app.set_passkey.input.len());
-    let new_masked: String = if new_masked_full.len() > max_visible {
-        new_masked_full[new_masked_full.len() - max_visible..].to_owned()
-    } else {
-        new_masked_full
-    };
-    let confirm_masked_full: String = "*".repeat(app.set_passkey.confirm.len());
-    let confirm_masked: String = if confirm_masked_full.len() > max_visible {
-        confirm_masked_full[confirm_masked_full.len() - max_visible..].to_owned()
-    } else {
-        confirm_masked_full
-    };
+    let new_masked = super::masked_and_truncated(app.set_passkey.input.len(), max_visible);
+    let confirm_masked = super::masked_and_truncated(app.set_passkey.confirm.len(), max_visible);
 
     let new_label_style = if app.set_passkey.active_field == 0 {
         Style::default()

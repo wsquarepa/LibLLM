@@ -108,6 +108,10 @@ pub(crate) fn is_flash_active(flash: Option<std::time::Instant>) -> bool {
     flash.is_some_and(|t| t.elapsed() < REJECT_FLASH_DURATION)
 }
 
+pub(crate) fn masked_and_truncated(len: usize, max_visible: usize) -> String {
+    "*".repeat(len.min(max_visible))
+}
+
 const MULTILINE_WIDTH_PERCENT: u16 = 70;
 const MULTILINE_HEIGHT_PERCENT: u16 = 60;
 
@@ -801,6 +805,21 @@ mod tests {
             KeyCode::Char('a'),
             KeyModifiers::CONTROL
         )));
+    }
+
+    #[test]
+    fn masked_and_truncated_keeps_short_input_whole() {
+        assert_eq!(masked_and_truncated(3, 10), "***");
+    }
+
+    #[test]
+    fn masked_and_truncated_caps_at_max_visible() {
+        assert_eq!(masked_and_truncated(12, 5), "*****");
+    }
+
+    #[test]
+    fn masked_and_truncated_empty_input_is_empty() {
+        assert_eq!(masked_and_truncated(0, 5), "");
     }
 
     #[test]

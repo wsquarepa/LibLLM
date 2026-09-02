@@ -1203,4 +1203,42 @@ mod tests {
         assert_eq!(filtered_selection_position(&visible, 2), Some(0));
         assert_eq!(filtered_selection_position(&Vec::<usize>::new(), 2), None);
     }
+
+    #[test]
+    fn search_title_pins_idle_active_and_committed_forms() {
+        let theme = Theme::default();
+        let title = Color::Cyan;
+        let mut s = SearchState::new();
+        assert_eq!(search_title_width(&s, 40), 8);
+        assert_eq!(
+            search_body(&s, title, &theme, 40),
+            (" Search ".to_owned(), false, theme.dimmed)
+        );
+        s.enter(0);
+        s.push_char('a');
+        s.push_char('b');
+        assert_eq!(search_title_width(&s, 40), 13);
+        assert_eq!(
+            search_body(&s, title, &theme, 40),
+            (" Search: ab_ ".to_owned(), true, title)
+        );
+        s.commit();
+        assert_eq!(search_title_width(&s, 40), 12);
+        assert_eq!(
+            search_body(&s, title, &theme, 40),
+            (" Search: ab ".to_owned(), false, title)
+        );
+    }
+
+    #[test]
+    fn search_title_truncates_query_to_the_width_budget() {
+        let theme = Theme::default();
+        let mut s = SearchState::new();
+        s.enter(0);
+        for c in "abcd".chars() {
+            s.push_char(c);
+        }
+        assert_eq!(search_title_width(&s, 14), 14);
+        assert_eq!(search_body(&s, Color::Cyan, &theme, 14).0, " Search: bcd_ ");
+    }
 }

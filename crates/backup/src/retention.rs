@@ -128,35 +128,24 @@ pub fn apply_prune(
     backups_dir: &Path,
 ) -> Result<()> {
     let id_set: HashSet<&str> = prunable_ids.iter().map(String::as_str).collect();
-
-    let prunable_entries: Vec<(usize, String)> = index
+    let prunable: Vec<(String, String)> = index
         .entries
         .iter()
-        .enumerate()
-        .filter(|(_, e)| id_set.contains(e.id.as_str()))
-        .map(|(i, e)| (i, e.filename.clone()))
+        .filter(|e| id_set.contains(e.id.as_str()))
+        .map(|e| (e.id.clone(), e.filename.clone()))
         .collect();
-
-    let mut removed_indices: HashSet<usize> = HashSet::new();
-
-    for (idx, filename) in prunable_entries {
+    let mut removed_ids: HashSet<String> = HashSet::new();
+    for (id, filename) in prunable {
         let file_path = backups_dir.join(&filename);
         match std::fs::remove_file(&file_path) {
             Ok(()) => {
-                removed_indices.insert(idx);
+                removed_ids.insert(id);
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                removed_indices.insert(idx);
+                removed_ids.insert(id);
             }
             Err(source) => {
-                // Flush already-deleted entries into the in-memory index before
-                // returning so the index is consistent with the disk state.
-                let mut i = 0;
-                index.entries.retain(|_| {
-                    let keep = !removed_indices.contains(&i);
-                    i += 1;
-                    keep
-                });
+                index.entries.retain(|e| !removed_ids.contains(&e.id));
                 return Err(BackupError::DeleteBackupFile {
                     path: file_path,
                     source,
@@ -164,14 +153,7 @@ pub fn apply_prune(
             }
         }
     }
-
-    let mut i = 0;
-    index.entries.retain(|_| {
-        let keep = !removed_indices.contains(&i);
-        i += 1;
-        keep
-    });
-
+    index.entries.retain(|e| !removed_ids.contains(&e.id));
     Ok(())
 }
 

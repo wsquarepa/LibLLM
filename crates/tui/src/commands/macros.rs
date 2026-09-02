@@ -358,6 +358,38 @@ mod tests {
     }
 
     #[test]
+    fn bare_three_dot_placeholder_reports_the_delimiter() {
+        assert_eq!(
+            parse_placeholder("..."),
+            Err("Invalid placeholder: {{...}}".to_owned())
+        );
+    }
+
+    #[test]
+    fn bare_two_dot_placeholder_reports_the_delimiter() {
+        assert_eq!(
+            parse_placeholder(".."),
+            Err("Invalid placeholder: {{..}}".to_owned())
+        );
+    }
+
+    #[test]
+    fn inverted_two_dot_range_reports_both_bounds() {
+        assert_eq!(
+            parse_placeholder("5..1"),
+            Err("Invalid range: 5..1 (start > end)".to_owned())
+        );
+    }
+
+    #[test]
+    fn inverted_three_dot_range_reports_both_bounds() {
+        assert_eq!(
+            parse_placeholder("5...1"),
+            Err("Invalid range: 5...1 (start > end)".to_owned())
+        );
+    }
+
+    #[test]
     fn all_placeholder_preserves_whitespace() {
         let result = expand_macro("Say: {{}}", "  hello   world  ").unwrap();
         assert_eq!(result, "Say:   hello   world  ");

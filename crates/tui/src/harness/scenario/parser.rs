@@ -64,9 +64,6 @@ fn parse_setup_line(line: &str, lineno: usize, setup: &mut Setup) -> Result<()> 
         "override" => {
             setup.overrides.push(rest.trim().to_string());
         }
-        "seed" => {
-            setup.seed = Some(rest.trim().to_string());
-        }
         other => {
             bail!("line {lineno}: unknown setup key {other:?}");
         }
@@ -91,15 +88,7 @@ fn parse_db_setup(s: &str, lineno: usize) -> Result<DbSetup> {
     match s {
         "none" => Ok(DbSetup::None),
         "temp" => Ok(DbSetup::Temp),
-        other => {
-            if let Some(pk) = other.strip_prefix("encrypted:") {
-                Ok(DbSetup::Encrypted(pk.to_string()))
-            } else {
-                bail!(
-                    "line {lineno}: unknown db setup {other:?}; expected none, temp, or encrypted:<passkey>"
-                );
-            }
-        }
+        other => bail!("line {lineno}: unknown db setup {other:?}; expected none or temp"),
     }
 }
 
@@ -435,18 +424,24 @@ advance 6s
     }
 
     #[test]
-    fn parses_overrides_and_seed_and_db_none_api_none() {
-        let s = parse("[setup]\ndb none\napi none\noverride persona_readonly\nseed fixtures/x.sql\n[steps]\npump\n").unwrap();
+    fn parses_overrides_and_db_none_api_none() {
+        let s = parse("[setup]\ndb none\napi none\noverride persona_readonly\n[steps]\npump\n")
+            .unwrap();
         assert_eq!(s.setup.db, DbSetup::None);
         assert_eq!(s.setup.api, ApiSetup::None);
         assert_eq!(s.setup.overrides, vec!["persona_readonly".to_string()]);
-        assert_eq!(s.setup.seed.as_deref(), Some("fixtures/x.sql"));
     }
 
     #[test]
-    fn parses_encrypted_db() {
-        let s = parse("[setup]\ndb encrypted:hunter2\n[steps]\npump\n").unwrap();
-        assert_eq!(s.setup.db, DbSetup::Encrypted("hunter2".into()));
+    fn rejects_encrypted_db_setup_as_unknown() {
+        let err = parse("[setup]\ndb encrypted:hunter2\n[steps]\npump\n").unwrap_err();
+        assert!(err.to_string().contains("unknown db setup"), "{err}");
+    }
+
+    #[test]
+    fn rejects_seed_setup_key_as_unknown() {
+        let err = parse("[setup]\nseed fixtures/x.sql\n[steps]\npump\n").unwrap_err();
+        assert!(err.to_string().contains("unknown setup key"), "{err}");
     }
 
     #[test]

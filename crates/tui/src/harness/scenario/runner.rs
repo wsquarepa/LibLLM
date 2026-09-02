@@ -68,18 +68,11 @@ async fn build_harness<'a>(
     session: &'a mut Session,
     golden_dir: &Path,
 ) -> anyhow::Result<Harness<'a>> {
-    if setup.seed.is_some() {
-        anyhow::bail!("seed not yet supported by the harness runner");
-    }
-
     let mut builder = Harness::builder().size(setup.size.0, setup.size.1);
 
     builder = match &setup.db {
         DbSetup::None => builder.no_db(),
         DbSetup::Temp => builder.temp_db(),
-        DbSetup::Encrypted(_) => {
-            anyhow::bail!("encrypted db not yet supported by the harness runner");
-        }
     };
 
     builder = match &setup.api {
@@ -483,7 +476,6 @@ mod tests {
             db: DbSetup::None,
             api: ApiSetup::None,
             overrides: Vec::new(),
-            seed: None,
         }
     }
 
@@ -590,7 +582,6 @@ mod tests {
                 db: DbSetup::Temp,
                 api: ApiSetup::Mock,
                 overrides: Vec::new(),
-                seed: None,
             },
             steps: vec![
                 Step::EnqueueCompletion(vec!["Hi".to_owned()]),
@@ -656,7 +647,6 @@ mod tests {
                 db: DbSetup::Temp,
                 api: ApiSetup::Mock,
                 overrides: Vec::new(),
-                seed: None,
             },
             steps: vec![
                 Step::EnqueueError("boom".to_owned()),

@@ -8,7 +8,6 @@ pub use runner::{Failure, RunMode, RunReport, run_scenario};
 pub enum DbSetup {
     None,
     Temp,
-    Encrypted(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,7 +22,6 @@ pub struct Setup {
     pub db: DbSetup,
     pub api: ApiSetup,
     pub overrides: Vec<String>,
-    pub seed: Option<String>,
 }
 
 impl Default for Setup {
@@ -33,7 +31,6 @@ impl Default for Setup {
             db: DbSetup::None,
             api: ApiSetup::None,
             overrides: Vec::new(),
-            seed: None,
         }
     }
 }

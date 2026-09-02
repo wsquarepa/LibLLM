@@ -25,9 +25,9 @@ pub enum AuthError {
         field: &'static str,
     },
     #[error("invalid header name: {0}")]
-    InvalidHeaderName(#[from] InvalidHeaderName),
+    InvalidHeaderName(InvalidHeaderName),
     #[error("invalid header value: {0}")]
-    InvalidHeaderValue(#[from] InvalidHeaderValue),
+    InvalidHeaderValue(InvalidHeaderValue),
 }
 
 /// Applies the configured authentication to an outbound request builder.
@@ -993,10 +993,14 @@ mod tests {
             variant: AuthKind::Basic,
             field: "username",
         };
-        assert_eq!(
-            err.to_string(),
-            format!("auth {}: username is required", AuthKind::Basic)
-        );
+        assert_eq!(err.to_string(), "auth Basic: username is required");
+    }
+
+    #[test]
+    fn auth_error_reports_no_source() {
+        let inner = HeaderName::from_bytes(b"bad header").expect_err("space is invalid");
+        let err = AuthError::InvalidHeaderName(inner);
+        assert!(std::error::Error::source(&err).is_none());
     }
 
     #[test]

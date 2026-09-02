@@ -1,6 +1,7 @@
 //! User-defined macro expansion with positional argument substitution.
 
 const MAX_MACRO_PLACEHOLDER_RANGE: usize = 256;
+const PLACEHOLDER_DELIMITERS: [&str; 2] = ["...", ".."];
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Placeholder {
@@ -16,78 +17,45 @@ pub(super) fn parse_placeholder(content: &str) -> Result<Placeholder, String> {
         return Ok(Placeholder::All);
     }
 
-    if let Some(rest) = content.strip_suffix("...") {
-        if rest.is_empty() {
-            return Err("Invalid placeholder: {{...}}".to_owned());
+    for delim in PLACEHOLDER_DELIMITERS {
+        if let Some(rest) = content.strip_suffix(delim) {
+            if rest.is_empty() {
+                return Err(format!("Invalid placeholder: {{{{{delim}}}}}"));
+            }
+            let n: usize = rest
+                .parse()
+                .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+            if n == 0 {
+                return Err("Placeholder indices start at 1".to_owned());
+            }
+            return Ok(Placeholder::Greedy(n));
         }
-        let n: usize = rest
-            .parse()
-            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
-        if n == 0 {
-            return Err("Placeholder indices start at 1".to_owned());
-        }
-        return Ok(Placeholder::Greedy(n));
     }
 
-    if let Some(rest) = content.strip_suffix("..") {
-        if rest.is_empty() {
-            return Err("Invalid placeholder: {{..}}".to_owned());
+    for delim in PLACEHOLDER_DELIMITERS {
+        if let Some(dot_pos) = content.find(delim) {
+            let left = &content[..dot_pos];
+            let right = &content[dot_pos + delim.len()..];
+            let a: usize = left
+                .parse()
+                .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+            let b: usize = right
+                .parse()
+                .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
+            if a == 0 || b == 0 {
+                return Err("Placeholder indices start at 1".to_owned());
+            }
+            if a > b {
+                return Err(format!("Invalid range: {a}{delim}{b} (start > end)"));
+            }
+            if b - a + 1 > MAX_MACRO_PLACEHOLDER_RANGE {
+                return Err(format!(
+                    "Range {a}{delim}{b} spans {} indices, exceeding the limit of {MAX_MACRO_PLACEHOLDER_RANGE}",
+                    b - a + 1
+                ));
+            }
+            return Ok(Placeholder::Range(a, b));
         }
-        let n: usize = rest
-            .parse()
-            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
-        if n == 0 {
-            return Err("Placeholder indices start at 1".to_owned());
-        }
-        return Ok(Placeholder::Greedy(n));
-    }
-
-    if let Some(dot_pos) = content.find("...") {
-        let left = &content[..dot_pos];
-        let right = &content[dot_pos + 3..];
-        let a: usize = left
-            .parse()
-            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
-        let b: usize = right
-            .parse()
-            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
-        if a == 0 || b == 0 {
-            return Err("Placeholder indices start at 1".to_owned());
-        }
-        if a > b {
-            return Err(format!("Invalid range: {a}...{b} (start > end)"));
-        }
-        if b - a + 1 > MAX_MACRO_PLACEHOLDER_RANGE {
-            return Err(format!(
-                "Range {a}...{b} spans {} indices, exceeding the limit of {MAX_MACRO_PLACEHOLDER_RANGE}",
-                b - a + 1
-            ));
-        }
-        return Ok(Placeholder::Range(a, b));
-    }
-
-    if let Some(dot_pos) = content.find("..") {
-        let left = &content[..dot_pos];
-        let right = &content[dot_pos + 2..];
-        let a: usize = left
-            .parse()
-            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
-        let b: usize = right
-            .parse()
-            .map_err(|_| format!("Invalid placeholder: {{{{{content}}}}}"))?;
-        if a == 0 || b == 0 {
-            return Err("Placeholder indices start at 1".to_owned());
-        }
-        if a > b {
-            return Err(format!("Invalid range: {a}..{b} (start > end)"));
-        }
-        if b - a + 1 > MAX_MACRO_PLACEHOLDER_RANGE {
-            return Err(format!(
-                "Range {a}..{b} spans {} indices, exceeding the limit of {MAX_MACRO_PLACEHOLDER_RANGE}",
-                b - a + 1
-            ));
-        }
-        return Ok(Placeholder::Range(a, b));
     }
 
     let n: usize = content

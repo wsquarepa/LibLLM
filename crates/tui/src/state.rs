@@ -10,6 +10,16 @@ use super::types::{
     SaveTrigger, StatusLevel, StatusMessage,
 };
 
+fn tick_flash(flash: &mut Option<std::time::Instant>) -> bool {
+    let Some(started) = *flash else {
+        return false;
+    };
+    if !dialogs::is_flash_active(Some(started)) {
+        *flash = None;
+    }
+    true
+}
+
 impl App<'_> {
     pub(super) fn can_persist_session(&self) -> bool {
         matches!(
@@ -28,51 +38,25 @@ impl App<'_> {
     }
 
     pub(super) fn tick_reject_flashes(&mut self) -> bool {
-        let mut needs_redraw = false;
-        if let Some(t) = self.input_reject_flash {
-            if dialogs::is_flash_active(Some(t)) {
-                needs_redraw = true;
-            } else {
-                self.input_reject_flash = None;
-                needs_redraw = true;
-            }
-        }
-        if let Some(d) = self.config_dialog.as_mut()
-            && let Some(t) = d.reject_flash
+        let mut needs_redraw = tick_flash(&mut self.input_reject_flash);
+        for flash in [
+            self.config_dialog.as_mut().map(|d| &mut d.reject_flash),
+            self.theme_ui.dialog.as_mut().map(|d| &mut d.reject_flash),
+            self.persona.editor.as_mut().map(|d| &mut d.reject_flash),
+            self.system_prompt
+                .editor
+                .as_mut()
+                .map(|d| &mut d.reject_flash),
+            self.character.editor.as_mut().map(|d| &mut d.reject_flash),
+            self.worldbook
+                .entry_editor
+                .as_mut()
+                .map(|d| &mut d.reject_flash),
+        ]
+        .into_iter()
+        .flatten()
         {
-            if dialogs::is_flash_active(Some(t)) {
-                needs_redraw = true;
-            } else {
-                d.reject_flash = None;
-                needs_redraw = true;
-            }
-        }
-        if let Some(d) = self.theme_ui.dialog.as_mut()
-            && let Some(t) = d.reject_flash
-        {
-            if dialogs::is_flash_active(Some(t)) {
-                needs_redraw = true;
-            } else {
-                d.reject_flash = None;
-                needs_redraw = true;
-            }
-        }
-        for dialog in [
-            &mut self.persona.editor,
-            &mut self.system_prompt.editor,
-            &mut self.character.editor,
-            &mut self.worldbook.entry_editor,
-        ] {
-            if let Some(d) = dialog.as_mut()
-                && let Some(t) = d.reject_flash
-            {
-                if dialogs::is_flash_active(Some(t)) {
-                    needs_redraw = true;
-                } else {
-                    d.reject_flash = None;
-                    needs_redraw = true;
-                }
-            }
+            needs_redraw |= tick_flash(flash);
         }
         needs_redraw
     }

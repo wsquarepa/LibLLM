@@ -261,7 +261,7 @@ fn cached_worldbooks(app: &crate::App) -> Vec<libllm_core::worldinfo::RuntimeWor
 /// Binary-searches the smallest `k ∈ [0, max_drop]` such that
 /// `counter.count_authoritative(&render(k)).await? ≤ budget`. Returns `max_drop` if no
 /// value satisfies the budget (defensive fallback; the caller logs this as a warning).
-pub(crate) async fn find_smallest_drop<F>(
+async fn find_smallest_drop<F>(
     counter: &libllm_protocol::tokenizer::TokenCounter,
     budget: usize,
     max_drop: usize,
@@ -291,6 +291,34 @@ where
         }
     }
     Ok(best)
+}
+
+/// The trim decision for one request: how much of the branch the prompt must
+/// shed to fit the context budget, plus the branch lengths call sites trace.
+pub(super) struct ContextTrim {
+    /// Smallest number of oldest droppable messages to drop, or the token-count
+    /// failure that prevented the search. Call sites log that error under their
+    /// own event name and dispatch untruncated.
+    pub(super) dropped: anyhow::Result<usize>,
+    pub(super) branch_len: usize,
+    pub(super) summary_aware_len: usize,
+}
+
+/// Measures the current branch against the context budget, with `render(k)`
+/// producing the prompt that drops the `k` oldest droppable messages.
+pub(super) async fn plan_context_trim<F>(app: &crate::App<'_>, render: &F) -> ContextTrim
+where
+    F: Fn(usize) -> String,
+{
+    let budget = app.context_mgr.token_limit();
+    let branch_path = app.session.tree.branch_path();
+    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
+    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
+    ContextTrim {
+        dropped: find_smallest_drop(&app.token_counter, budget, max_drop, render).await,
+        branch_len: branch_path.len(),
+        summary_aware_len: summary_aware.len(),
+    }
 }
 
 enum StreamPreflight {
@@ -367,14 +395,11 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
     app.auto_scroll = true;
 
     let worldbooks = loaded_worldbooks(app);
-    let budget = app.context_mgr.token_limit();
-    let branch_path = app.session.tree.branch_path();
-    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
 
     let render = |k: usize| -> String { build_rendered_prompt(app, k).0 };
 
-    let dropped = match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
+    let trim = plan_context_trim(app, &render).await;
+    let dropped = match trim.dropped {
         Ok(k) => k,
         Err(err) => {
             tracing::warn!(
@@ -392,8 +417,8 @@ async fn launch_stream(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>) {
 
     tracing::info!(
         phase = "dispatch",
-        branch_len = branch_path.len(),
-        summary_aware_len = summary_aware.len(),
+        branch_len = trim.branch_len,
+        summary_aware_len = trim.summary_aware_len,
         dropped = dropped,
         worldbook_count = worldbooks.len(),
         has_system_prompt = effective_prompt.is_some(),
@@ -444,16 +469,13 @@ pub(crate) async fn stream_into_message(
     app.auto_scroll = true;
 
     let worldbooks = loaded_worldbooks(app);
-    let budget = app.context_mgr.token_limit();
-    let branch_path = app.session.tree.branch_path();
-    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
 
     let render = |k: usize| -> String {
         build_rendered_prompt_with_system(app, k, &system, nudge.as_deref()).0
     };
 
-    let dropped = match find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
+    let trim = plan_context_trim(app, &render).await;
+    let dropped = match trim.dropped {
         Ok(k) => k,
         Err(err) => {
             tracing::warn!(
@@ -470,8 +492,8 @@ pub(crate) async fn stream_into_message(
 
     tracing::info!(
         phase = "dispatch",
-        branch_len = branch_path.len(),
-        summary_aware_len = summary_aware.len(),
+        branch_len = trim.branch_len,
+        summary_aware_len = trim.summary_aware_len,
         dropped = dropped,
         worldbook_count = worldbooks.len(),
         stop_token_count = stop_sequences.len(),

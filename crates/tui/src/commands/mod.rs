@@ -332,29 +332,25 @@ async fn start_continuation(app: &mut App<'_>, sender: mpsc::Sender<StreamToken>
     app.auto_scroll = true;
 
     streaming::loaded_worldbooks(app);
-    let budget = app.context_mgr.token_limit();
-    let branch_path = app.session.tree.branch_path();
-    let summary_aware = app.context_mgr.summary_aware_path(&branch_path);
-    let max_drop = libllm_core::context::droppable_count(&summary_aware).saturating_sub(1);
 
     let render = |k: usize| -> String { streaming::build_rendered_prompt_continuation(app, k).0 };
 
-    let dropped =
-        match streaming::find_smallest_drop(&app.token_counter, budget, max_drop, &render).await {
-            Ok(k) => k,
-            Err(err) => {
-                tracing::warn!(
-                    result = "fallback_heuristic",
-                    error = %err,
-                    "continue.truncate"
-                );
-                app.set_status(
-                    format!("Token count failed; continuing without truncation: {err}"),
-                    StatusLevel::Warning,
-                );
-                0
-            }
-        };
+    let trim = streaming::plan_context_trim(app, &render).await;
+    let dropped = match trim.dropped {
+        Ok(k) => k,
+        Err(err) => {
+            tracing::warn!(
+                result = "fallback_heuristic",
+                error = %err,
+                "continue.truncate"
+            );
+            app.set_status(
+                format!("Token count failed; continuing without truncation: {err}"),
+                StatusLevel::Warning,
+            );
+            0
+        }
+    };
     let prompt = streaming::build_rendered_prompt_continuation(app, dropped).0;
     let stop_tokens = app.stop_tokens.clone();
     let sampling = app.sampling.clone();

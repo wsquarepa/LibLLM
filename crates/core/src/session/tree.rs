@@ -28,16 +28,12 @@ struct CacheDebugState {
     last_rebuild_us: u128,
     branch_hits: std::cell::Cell<u64>,
     user_branch_hits: std::cell::Cell<u64>,
-    deepest_hits: std::cell::Cell<u64>,
-    first_preview_hits: std::cell::Cell<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct TreeRuntimeCache {
     branch_ids: Vec<NodeId>,
     user_branch_ids: Vec<NodeId>,
-    deepest_branch_info: Option<(usize, usize)>,
-    last_assistant_preview: Option<String>,
     #[cfg(debug_assertions)]
     debug: CacheDebugState,
 }
@@ -129,8 +125,6 @@ impl MessageTree {
         let rebuild_start = Instant::now();
         self.runtime.branch_ids.clear();
         self.runtime.user_branch_ids.clear();
-        self.runtime.deepest_branch_info = None;
-        self.runtime.last_assistant_preview = None;
 
         let Some(head) = self.head else {
             return;
@@ -152,15 +146,7 @@ impl MessageTree {
             if node.message.role == Role::User {
                 self.runtime.user_branch_ids.push(id);
             }
-            if node.message.role == Role::Assistant {
-                self.runtime.last_assistant_preview = Some(node.message.content.clone());
-            }
         }
-
-        self.runtime.deepest_branch_info = self.runtime.branch_ids.iter().rev().find_map(|&id| {
-            let info = self.sibling_info(id);
-            (info.1 > 1).then_some(info)
-        });
 
         #[cfg(debug_assertions)]
         {
@@ -180,8 +166,6 @@ impl MessageTree {
                 user_branch_count = self.runtime.user_branch_ids.len(),
                 branch_hits = self.runtime.debug.branch_hits.get(),
                 user_branch_hits = self.runtime.debug.user_branch_hits.get(),
-                deepest_hits = self.runtime.debug.deepest_hits.get(),
-                first_preview_hits = self.runtime.debug.first_preview_hits.get(),
                 "session.cache",
             );
         }
@@ -412,24 +396,6 @@ impl MessageTree {
         &self.runtime.user_branch_ids
     }
 
-    pub fn current_deepest_branch_info(&self) -> Option<(usize, usize)> {
-        #[cfg(debug_assertions)]
-        self.bump_cache_hit(
-            "current_deepest_branch_info",
-            &self.runtime.debug.deepest_hits,
-        );
-        self.runtime.deepest_branch_info
-    }
-
-    pub fn current_last_assistant_preview(&self) -> Option<&str> {
-        #[cfg(debug_assertions)]
-        self.bump_cache_hit(
-            "current_last_assistant_preview",
-            &self.runtime.debug.first_preview_hits,
-        );
-        self.runtime.last_assistant_preview.as_deref()
-    }
-
     pub fn sibling_info(&self, id: NodeId) -> (usize, usize) {
         let parent = self.nodes[id].parent;
         match parent {
@@ -510,29 +476,6 @@ impl MessageTree {
 
     pub fn set_head(&mut self, id: Option<NodeId>) {
         self.update_head(id);
-    }
-
-    pub fn pop_head(&mut self) -> Option<Message> {
-        let head = self.head?;
-        if !self.nodes[head].children.is_empty() {
-            return None;
-        }
-
-        let node = &self.nodes[head];
-        let parent = node.parent;
-        let message = node.message.clone();
-
-        if let Some(pid) = parent {
-            self.nodes[pid].children.retain(|&c| c != head);
-            if self.preferred_child.get(&pid) == Some(&head) {
-                self.preferred_child.remove(&pid);
-            }
-        }
-
-        self.preferred_child.remove(&head);
-
-        self.update_head(parent);
-        Some(message)
     }
 
     pub fn node_count(&self) -> usize {
@@ -656,8 +599,6 @@ mod tests {
         assert!(tree.current_branch_ids().is_empty());
         assert!(tree.current_user_branch_ids().is_empty());
         assert!(tree.preferred_child.is_empty());
-        assert_eq!(tree.current_deepest_branch_info(), None);
-        assert_eq!(tree.current_last_assistant_preview(), None);
     }
 
     #[test]
@@ -874,52 +815,6 @@ mod tests {
         let u2 = tree.push(Some(a1), Message::new(Role::User, "u2".into()));
 
         assert_eq!(tree.current_user_branch_ids(), &[u1, u2]);
-    }
-
-    #[test]
-    fn current_deepest_branch_info_no_branching() {
-        let mut tree = MessageTree::new();
-        let a = tree.push(None, Message::new(Role::User, "a".into()));
-        tree.push(Some(a), Message::new(Role::Assistant, "b".into()));
-
-        assert_eq!(tree.current_deepest_branch_info(), None);
-    }
-
-    #[test]
-    fn current_deepest_branch_info_with_branches() {
-        let mut tree = MessageTree::new();
-        let root = tree.push(None, Message::new(Role::User, "root".into()));
-        tree.push(
-            Some(root),
-            Message::new(Role::Assistant, "sibling a".into()),
-        );
-        tree.set_head(Some(root));
-        tree.push(
-            Some(root),
-            Message::new(Role::Assistant, "sibling b".into()),
-        );
-
-        let info = tree.current_deepest_branch_info();
-        assert!(info.is_some());
-        let (_, total) = info.unwrap();
-        assert_eq!(total, 2);
-    }
-
-    #[test]
-    fn current_last_assistant_preview_present() {
-        let mut tree = MessageTree::new();
-        let u = tree.push(None, Message::new(Role::User, "hello".into()));
-        tree.push(Some(u), Message::new(Role::Assistant, "world".into()));
-
-        assert_eq!(tree.current_last_assistant_preview(), Some("world"));
-    }
-
-    #[test]
-    fn current_last_assistant_preview_absent() {
-        let mut tree = MessageTree::new();
-        tree.push(None, Message::new(Role::User, "hello".into()));
-
-        assert_eq!(tree.current_last_assistant_preview(), None);
     }
 
     #[test]

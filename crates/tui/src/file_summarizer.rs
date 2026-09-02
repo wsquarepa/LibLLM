@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use tokio::sync::mpsc;
 
 use libllm_core::files::{
-    FileError, FileSummary, FileSummaryStatus, FileToSummarize, ReadyEvent, SessionScopedLookup,
+    FileSummary, FileSummaryStatus, FileToSummarize, ReadyEvent, SessionScopedLookup,
 };
 use libllm_core::sampling::SamplingParams;
 use libllm_protocol::client::ApiClient;
@@ -282,16 +282,6 @@ impl FileSummarizer {
             }
             tokio::time::sleep(self.poll_interval).await;
         }
-    }
-
-    /// Thin wrapper that checks a resolved file against the summarizer's configured prompt.
-    pub async fn check_fits(
-        &self,
-        counter: &libllm_protocol::tokenizer::TokenCounter,
-        file: &libllm_core::files::ResolvedFile,
-        context_size: usize,
-    ) -> Result<(), FileError> {
-        libllm_protocol::summarize::check_file_fits(counter, file, &self.prompt, context_size).await
     }
 
     #[cfg(test)]

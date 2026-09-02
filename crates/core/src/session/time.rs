@@ -1,19 +1,25 @@
 //! Timestamp utilities: compact and ISO-8601 wall-clock formatters.
 
 pub fn now_compact() -> String {
-    let (year, month, day, hours, minutes, seconds) = wall_clock_parts();
-    format!("{year:04}{month:02}{day:02}-{hours:02}{minutes:02}{seconds:02}")
+    compact_at(std::time::SystemTime::now())
 }
 
 pub fn now_iso8601() -> String {
-    let (year, month, day, hours, minutes, seconds) = wall_clock_parts();
+    iso8601_at(std::time::SystemTime::now())
+}
+
+fn compact_at(at: std::time::SystemTime) -> String {
+    let (year, month, day, hours, minutes, seconds) = wall_clock_parts_at(at);
+    format!("{year:04}{month:02}{day:02}-{hours:02}{minutes:02}{seconds:02}")
+}
+
+fn iso8601_at(at: std::time::SystemTime) -> String {
+    let (year, month, day, hours, minutes, seconds) = wall_clock_parts_at(at);
     format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 
-fn wall_clock_parts() -> (u64, u64, u64, u64, u64, u64) {
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
+fn wall_clock_parts_at(at: std::time::SystemTime) -> (u64, u64, u64, u64, u64, u64) {
+    let duration = at.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     let secs = duration.as_secs();
     let time_secs = secs % 86400;
     let hours = time_secs / 3600;
@@ -51,4 +57,43 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 
 fn is_leap(year: u64) -> bool {
     (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use super::{compact_at, iso8601_at};
+
+    fn instant(seconds: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(seconds)
+    }
+
+    #[test]
+    fn compact_at_pins_known_instants() {
+        let cases: [(u64, &str); 4] = [
+            (1_700_000_000, "20231114-221320"),
+            (1_709_210_096, "20240229-123456"),
+            (1_709_251_200, "20240301-000000"),
+            (951_782_400, "20000229-000000"),
+        ];
+
+        for (seconds, expected) in cases {
+            assert_eq!(compact_at(instant(seconds)), expected);
+        }
+    }
+
+    #[test]
+    fn iso8601_at_pins_known_instants() {
+        let cases: [(u64, &str); 4] = [
+            (1_700_000_000, "2023-11-14T22:13:20Z"),
+            (1_709_210_096, "2024-02-29T12:34:56Z"),
+            (1_709_251_200, "2024-03-01T00:00:00Z"),
+            (951_782_400, "2000-02-29T00:00:00Z"),
+        ];
+
+        for (seconds, expected) in cases {
+            assert_eq!(iso8601_at(instant(seconds)), expected);
+        }
+    }
 }

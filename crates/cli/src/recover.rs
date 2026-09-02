@@ -164,19 +164,14 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
                 String::new()
             } else {
                 let root = chain_root_for(&index, entry);
-                match &root.kek_fingerprint {
-                    Some(libllm_backup::index::FingerprintField::Known(fp))
-                        if Some(fp) == current_fp.as_ref() =>
-                    {
-                        "current".to_string()
-                    }
-                    Some(libllm_backup::index::FingerprintField::Known(fp)) => {
+                match fingerprint_status(root, current_fp.as_deref()) {
+                    FingerprintStatus::Current => "current".to_string(),
+                    FingerprintStatus::Archived(fp) => {
                         format!("archived  fp:{}", &fp[..8.min(fp.len())])
                     }
-                    Some(libllm_backup::index::FingerprintField::Unknown) => {
+                    FingerprintStatus::ArchivedUnknown | FingerprintStatus::Unencrypted => {
                         "archived  fp:unknown".to_string()
                     }
-                    None => "archived  fp:unknown".to_string(),
                 }
             };
             if status_col.is_empty() {
@@ -194,13 +189,9 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
     let entry = &index.entries[display_order[chosen]];
     let root = chain_root_for(&index, entry);
-    let status_detail = match &root.kek_fingerprint {
-        Some(libllm_backup::index::FingerprintField::Known(fp))
-            if Some(fp) == current_fp.as_ref() =>
-        {
-            "current passkey".to_string()
-        }
-        Some(libllm_backup::index::FingerprintField::Known(fp)) => {
+    let status_detail = match fingerprint_status(root, current_fp.as_deref()) {
+        FingerprintStatus::Current => "current passkey".to_string(),
+        FingerprintStatus::Archived(fp) => {
             format!(
                 "ARCHIVED -- passkey fingerprint: {fp}\n\
                  Restore will refuse unless you re-run non-interactively:\n\
@@ -208,13 +199,13 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
                 entry.id
             )
         }
-        Some(libllm_backup::index::FingerprintField::Unknown) => format!(
+        FingerprintStatus::ArchivedUnknown => format!(
             "ARCHIVED -- fingerprint unknown (rebuilt from a foreign backup).\n\
              Restore will refuse unless you re-run non-interactively:\n\
              libllm recover restore {} --archived-passkey <the-archived-passkey>",
             entry.id
         ),
-        None => "unencrypted chain".to_string(),
+        FingerprintStatus::Unencrypted => "unencrypted chain".to_string(),
     };
 
     println!();
@@ -231,11 +222,8 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     println!();
 
     let archived = matches!(
-        &root.kek_fingerprint,
-        Some(libllm_backup::index::FingerprintField::Known(fp)) if Some(fp) != current_fp.as_ref()
-    ) || matches!(
-        &root.kek_fingerprint,
-        Some(libllm_backup::index::FingerprintField::Unknown)
+        fingerprint_status(root, current_fp.as_deref()),
+        FingerprintStatus::Archived(_) | FingerprintStatus::ArchivedUnknown
     );
 
     if archived {
@@ -286,6 +274,32 @@ fn chain_root_for<'a>(
         .unwrap_or(entry)
 }
 
+enum FingerprintStatus<'a> {
+    Current,
+    Archived(&'a str),
+    ArchivedUnknown,
+    Unencrypted,
+}
+
+/// Classifies a chain root against the fingerprint of the current backup key: `Current` when
+/// they match, `Archived` with the recorded fingerprint when they differ, `ArchivedUnknown`
+/// when the root carries no usable fingerprint, and `Unencrypted` when it carries none at all.
+fn fingerprint_status<'a>(
+    root: &'a libllm_backup::index::BackupEntry,
+    current_fp: Option<&str>,
+) -> FingerprintStatus<'a> {
+    match &root.kek_fingerprint {
+        Some(libllm_backup::index::FingerprintField::Known(fp))
+            if Some(fp.as_str()) == current_fp =>
+        {
+            FingerprintStatus::Current
+        }
+        Some(libllm_backup::index::FingerprintField::Known(fp)) => FingerprintStatus::Archived(fp),
+        Some(libllm_backup::index::FingerprintField::Unknown) => FingerprintStatus::ArchivedUnknown,
+        None => FingerprintStatus::Unencrypted,
+    }
+}
+
 fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     let index_path = data_dir.join("backups").join("index.json");
     let kek = libllm_backup::crypto::resolve_backup_key(data_dir, passkey)?;
@@ -313,15 +327,11 @@ fn cmd_list(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
     for entry in index.entries.iter().rev() {
         let root = chain_root_for(&index, entry);
-        let status = match &root.kek_fingerprint {
-            Some(libllm_backup::index::FingerprintField::Known(fp))
-                if Some(fp) == current_fp.as_ref() =>
-            {
-                "current".to_string()
-            }
-            Some(libllm_backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
-            Some(libllm_backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
-            None => "n/a".to_string(),
+        let status = match fingerprint_status(root, current_fp.as_deref()) {
+            FingerprintStatus::Current => "current".to_string(),
+            FingerprintStatus::Archived(fp) => format!("archived {fp}"),
+            FingerprintStatus::ArchivedUnknown => "archived unknown".to_string(),
+            FingerprintStatus::Unencrypted => "n/a".to_string(),
         };
         println!(
             "{:<20} {:<6} {:<12} {:<12} {:<10} {:<26} {}",
@@ -394,15 +404,11 @@ fn cmd_restore(
         .as_ref()
         .map(libllm_backup::crypto::compute_kek_fingerprint);
     let root = chain_root_for(&index, entry);
-    let status = match &root.kek_fingerprint {
-        Some(libllm_backup::index::FingerprintField::Known(fp))
-            if Some(fp) == current_fp.as_ref() =>
-        {
-            "current".to_string()
-        }
-        Some(libllm_backup::index::FingerprintField::Known(fp)) => format!("archived {fp}"),
-        Some(libllm_backup::index::FingerprintField::Unknown) => "archived unknown".to_string(),
-        None => "n/a".to_string(),
+    let status = match fingerprint_status(root, current_fp.as_deref()) {
+        FingerprintStatus::Current => "current".to_string(),
+        FingerprintStatus::Archived(fp) => format!("archived {fp}"),
+        FingerprintStatus::ArchivedUnknown => "archived unknown".to_string(),
+        FingerprintStatus::Unencrypted => "n/a".to_string(),
     };
 
     println!("Restore target:");

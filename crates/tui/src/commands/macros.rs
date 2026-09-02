@@ -1,6 +1,8 @@
 //! User-defined macro expansion with positional argument substitution.
 
 const MAX_MACRO_PLACEHOLDER_RANGE: usize = 256;
+// The three-dot form must precede the two-dot form: `strip_suffix("..")` also matches
+// a "..." suffix, so the shorter delimiter would claim three-dot placeholders first.
 const PLACEHOLDER_DELIMITERS: [&str; 2] = ["...", ".."];
 
 #[derive(Debug, PartialEq)]

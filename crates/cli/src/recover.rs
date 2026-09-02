@@ -189,7 +189,8 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
 
     let entry = &index.entries[display_order[chosen]];
     let root = chain_root_for(&index, entry);
-    let status_detail = match fingerprint_status(root, current_fp.as_deref()) {
+    let status = fingerprint_status(root, current_fp.as_deref());
+    let status_detail = match &status {
         FingerprintStatus::Current => "current passkey".to_string(),
         FingerprintStatus::Archived(fp) => {
             format!(
@@ -222,7 +223,7 @@ fn interactive_restore(data_dir: &Path, passkey: Option<&str>) -> Result<()> {
     println!();
 
     let archived = matches!(
-        fingerprint_status(root, current_fp.as_deref()),
+        &status,
         FingerprintStatus::Archived(_) | FingerprintStatus::ArchivedUnknown
     );
 

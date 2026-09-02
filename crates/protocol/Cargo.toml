@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 libllm-core = { workspace = true }
-futures.workspace = true
 futures-util.workspace = true
 lru.workspace = true
 reqwest.workspace = true

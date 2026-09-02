@@ -1918,7 +1918,6 @@ dependencies = [
 name = "libllm-protocol"
 version = "3.1.5"
 dependencies = [
- "futures",
  "futures-util",
  "libllm-core",
  "lru 0.18.0",

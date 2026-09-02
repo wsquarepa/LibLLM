@@ -122,17 +122,9 @@ pub fn argon2_params() -> argon2::Params {
 }
 
 fn create_restricted(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
+    let mut file = create_file_restricted(path)?;
     file.write_all(data)?;
-    file.sync_all()?;
-    Ok(())
+    file.sync_all()
 }
 
 /// Opens `path` exclusively for writing with owner-only mode 0600 on Unix.

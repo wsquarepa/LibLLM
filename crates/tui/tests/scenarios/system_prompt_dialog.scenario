@@ -1,0 +1,11 @@
+[setup]
+size 100x30
+db temp
+api none
+
+[steps]
+type "/system"
+key Enter
+expect focus == SystemPromptDialog
+paste "Cargo.toml"
+expect status_message == "System prompt import supports .txt files only."

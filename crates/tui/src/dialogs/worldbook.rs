@@ -48,9 +48,13 @@ fn entry_keys(entry: &libllm_core::worldinfo::Entry) -> String {
     }
 }
 
+fn label_with_keys(enabled: bool, keys: &str) -> String {
+    let marker = if enabled { "+" } else { "-" };
+    format!("[{marker}] {keys}")
+}
+
 fn entry_label(entry: &libllm_core::worldinfo::Entry) -> String {
-    let enabled = if entry.enabled { "+" } else { "-" };
-    format!("[{enabled}] {}", entry_keys(entry))
+    label_with_keys(entry.enabled, &entry_keys(entry))
 }
 
 /// Row labels for every editor entry, in entry order; the search filter and mouse
@@ -310,8 +314,7 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         .iter()
         .map(|&i| {
             let entry = &app.worldbook.editor_entries[i];
-            let enabled = if entry.enabled { "+" } else { "-" };
-            let label = format!("[{enabled}] {}", truncated_entry_keys(entry));
+            let label = label_with_keys(entry.enabled, &truncated_entry_keys(entry));
             let row_style = if entry.enabled {
                 Style::default()
             } else {
@@ -865,6 +868,12 @@ mod tests {
         let labels = editor_entry_labels(&entries);
         assert_eq!(labels[1], format!("[+] {long_key}"));
         assert_eq!(crate::dialogs::filter_indices(&labels, &search), vec![1]);
+    }
+
+    #[test]
+    fn label_with_keys_marks_disabled_entries() {
+        assert_eq!(label_with_keys(false, "(no keys)"), "[-] (no keys)");
+        assert_eq!(label_with_keys(true, "alpha, beta"), "[+] alpha, beta");
     }
 
     #[test]

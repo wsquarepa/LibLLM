@@ -84,25 +84,33 @@ fn markdown_format_assistant_body(
     }
 }
 
-fn markdown_metadata_block(meta: &ExportMeta, messages: &[&Message]) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("- **Exported:** {}", meta.exported_at));
+fn export_fields(meta: &ExportMeta, messages: &[&Message]) -> Vec<(&'static str, String)> {
+    let mut fields = Vec::new();
+    fields.push(("Exported", meta.exported_at.to_owned()));
     if let Some(model) = meta.model {
-        lines.push(format!("- **Model:** {model}"));
+        fields.push(("Model", model.to_owned()));
     }
     if let Some(template) = meta.template {
-        lines.push(format!("- **Template:** {template}"));
+        fields.push(("Template", template.to_owned()));
     }
     if let Some(character) = meta.character {
-        lines.push(format!("- **Character:** {character}"));
+        fields.push(("Character", character.to_owned()));
     }
     if let Some(persona) = meta.persona {
-        lines.push(format!("- **Persona:** {persona}"));
+        fields.push(("Persona", persona.to_owned()));
     }
     if !meta.worldbooks.is_empty() {
-        lines.push(format!("- **Worldbooks:** {}", meta.worldbooks.join(", ")));
+        fields.push(("Worldbooks", meta.worldbooks.join(", ")));
     }
-    lines.push(format!("- **Messages:** {}", messages.len()));
+    fields.push(("Messages", messages.len().to_string()));
+    fields
+}
+
+fn markdown_metadata_block(meta: &ExportMeta, messages: &[&Message]) -> String {
+    let mut lines: Vec<String> = export_fields(meta, messages)
+        .into_iter()
+        .map(|(label, value)| format!("- **{label}:** {value}"))
+        .collect();
     if let Some((first, last)) = period_range(messages) {
         if first == last {
             lines.push(format!("- **Recorded:** {first}"));
@@ -512,27 +520,8 @@ fn render_masthead(meta: &ExportMeta, title_escaped: &str) -> String {
 }
 
 fn render_dossier(meta: &ExportMeta, messages: &[&Message]) -> String {
-    let mut fields: Vec<(&str, String)> = Vec::new();
-    fields.push(("Exported", meta.exported_at.to_owned()));
-    if let Some(model) = meta.model {
-        fields.push(("Model", model.to_owned()));
-    }
-    if let Some(template) = meta.template {
-        fields.push(("Template", template.to_owned()));
-    }
-    if let Some(character) = meta.character {
-        fields.push(("Character", character.to_owned()));
-    }
-    if let Some(persona) = meta.persona {
-        fields.push(("Persona", persona.to_owned()));
-    }
-    if !meta.worldbooks.is_empty() {
-        fields.push(("Worldbooks", meta.worldbooks.join(", ")));
-    }
-    fields.push(("Messages", messages.len().to_string()));
-
     let mut out = String::new();
-    for (label, value) in fields {
+    for (label, value) in export_fields(meta, messages) {
         out.push_str(&format!(
             "      <div class=\"field\"><dt>{}</dt><dd>{}</dd></div>\n",
             html_escape(label),

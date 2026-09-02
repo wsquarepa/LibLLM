@@ -135,6 +135,7 @@ pub fn apply_prune(
         .map(|e| (e.id.clone(), e.filename.clone()))
         .collect();
     let mut removed_ids: HashSet<String> = HashSet::new();
+    let mut failure = None;
     for (id, filename) in prunable {
         let file_path = backups_dir.join(&filename);
         match std::fs::remove_file(&file_path) {
@@ -145,16 +146,16 @@ pub fn apply_prune(
                 removed_ids.insert(id);
             }
             Err(source) => {
-                index.entries.retain(|e| !removed_ids.contains(&e.id));
-                return Err(BackupError::DeleteBackupFile {
+                failure = Some(BackupError::DeleteBackupFile {
                     path: file_path,
                     source,
                 });
+                break;
             }
         }
     }
     index.entries.retain(|e| !removed_ids.contains(&e.id));
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 /// Computes prunable entries and removes them from the index and disk in one step.

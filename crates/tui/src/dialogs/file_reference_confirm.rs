@@ -3,12 +3,13 @@
 //! the `@<path>` token). The safe option (Paste Raw) is the default so that a
 //! reflexive Enter never attaches a file that clipboard poisoning slipped in.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
+use super::delete_confirm::ConfirmResult;
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::dialog_handler::return_to_input;
 use crate::{Action, App};
@@ -99,27 +100,13 @@ pub(crate) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         return None;
     };
 
-    match key.code {
-        KeyCode::Left | KeyCode::Right => {
-            state.selected = 1 - state.selected;
-        }
-        KeyCode::Enter => {
-            let insert_text = if state.selected == 1 {
-                state.token.clone()
-            } else {
-                state.raw.clone()
-            };
-            app.file_reference_confirm = None;
-            app.textarea.insert_str(&insert_text);
-            return_to_input(app);
-        }
-        KeyCode::Esc => {
-            let raw = state.raw.clone();
-            app.file_reference_confirm = None;
-            app.textarea.insert_str(&raw);
-            return_to_input(app);
-        }
-        _ => {}
-    }
+    let insert_text = match super::delete_confirm::handle_confirm_key(key, &mut state.selected) {
+        ConfirmResult::Pending => return None,
+        ConfirmResult::Confirmed => state.token.clone(),
+        ConfirmResult::Cancelled => state.raw.clone(),
+    };
+    app.file_reference_confirm = None;
+    app.textarea.insert_str(&insert_text);
+    return_to_input(app);
     None
 }

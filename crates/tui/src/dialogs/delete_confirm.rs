@@ -329,3 +329,40 @@ fn delete_worldbook(app: &mut App, name: &str) {
         super::super::StatusLevel::Info,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ConfirmResult, handle_confirm_key};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn arrow_toggles_selection() {
+        let mut s = 0;
+        let _ = handle_confirm_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &mut s);
+        assert_eq!(s, 1);
+        let _ = handle_confirm_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
+        assert_eq!(s, 0);
+    }
+
+    #[test]
+    fn enter_on_cancel_returns_cancelled() {
+        let mut s = 0;
+        let r = handle_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
+        assert!(matches!(r, ConfirmResult::Cancelled));
+    }
+
+    #[test]
+    fn enter_on_confirm_returns_confirmed() {
+        let mut s = 1;
+        let r = handle_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
+        assert!(matches!(r, ConfirmResult::Confirmed));
+    }
+
+    #[test]
+    fn esc_returns_cancelled_without_moving_selection() {
+        let mut s = 1;
+        let r = handle_confirm_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut s);
+        assert!(matches!(r, ConfirmResult::Cancelled));
+        assert_eq!(s, 1);
+    }
+}

@@ -1,6 +1,6 @@
 //! Confirmation dialog for Danger tab items 1-6 (synchronous destructive ops).
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -9,14 +9,8 @@ use ratatui::widgets::Paragraph;
 
 use crate::types::{App, DangerOp, Focus, StatusLevel};
 
+use super::delete_confirm::ConfirmResult;
 use super::{clear_centered, dialog_block};
-
-#[derive(Debug, Clone, Copy)]
-pub enum DangerConfirmResult {
-    Pending,
-    Cancel,
-    Confirm,
-}
 
 pub(crate) fn render_danger_confirm(f: &mut Frame, area: Rect, op: DangerOp, selected: usize) {
     let (title, body, confirm_label) = match op {
@@ -100,16 +94,16 @@ pub(crate) fn render_danger_confirm(f: &mut Frame, area: Rect, op: DangerOp, sel
 
 pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<crate::types::Action> {
     let mut sel = app.danger.confirm_selected.unwrap_or(0);
-    let r = handle_danger_confirm_key(key, &mut sel);
+    let r = super::delete_confirm::handle_confirm_key(key, &mut sel);
     app.danger.confirm_selected = Some(sel);
     match r {
-        DangerConfirmResult::Pending => {}
-        DangerConfirmResult::Cancel => {
+        ConfirmResult::Pending => {}
+        ConfirmResult::Cancelled => {
             app.danger.confirm_op = None;
             app.danger.confirm_selected = None;
             app.focus = Focus::ConfigDialog;
         }
-        DangerConfirmResult::Confirm => {
+        ConfirmResult::Confirmed => {
             if let Some(op) = app.danger.confirm_op.take() {
                 match crate::commands::danger::dispatch_sync(app, op) {
                     Ok(summary) => crate::commands::danger::report_summary(app, op, &summary),
@@ -121,57 +115,4 @@ pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<crate::t
         }
     }
     None
-}
-
-pub(crate) fn handle_danger_confirm_key(
-    key: KeyEvent,
-    selected: &mut usize,
-) -> DangerConfirmResult {
-    match key.code {
-        KeyCode::Left | KeyCode::Right => {
-            *selected = 1 - *selected;
-            DangerConfirmResult::Pending
-        }
-        KeyCode::Enter => {
-            if *selected == 1 {
-                DangerConfirmResult::Confirm
-            } else {
-                DangerConfirmResult::Cancel
-            }
-        }
-        KeyCode::Esc => DangerConfirmResult::Cancel,
-        _ => DangerConfirmResult::Pending,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
-    #[test]
-    fn arrow_toggles_selection() {
-        let mut s = 0;
-        let _ =
-            handle_danger_confirm_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &mut s);
-        assert_eq!(s, 1);
-        let _ = handle_danger_confirm_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
-        assert_eq!(s, 0);
-    }
-
-    #[test]
-    fn enter_on_cancel_returns_cancel() {
-        let mut s = 0;
-        let r =
-            handle_danger_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
-        assert!(matches!(r, DangerConfirmResult::Cancel));
-    }
-
-    #[test]
-    fn enter_on_confirm_returns_confirm() {
-        let mut s = 1;
-        let r =
-            handle_danger_confirm_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut s);
-        assert!(matches!(r, DangerConfirmResult::Confirm));
-    }
 }

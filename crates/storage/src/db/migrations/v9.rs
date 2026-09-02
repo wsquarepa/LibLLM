@@ -6,32 +6,18 @@ use rusqlite::{Connection, params};
 use crate::error::Result;
 
 pub(super) fn migrate(conn: &Connection) -> Result<()> {
-    let needs_rename: bool = conn
-        .prepare("PRAGMA table_info(sessions)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .iter()
-        .any(|c| c == "chat_policy");
+    let sessions_cols = super::v6::table_columns(conn, "sessions")?;
+    let needs_rename = sessions_cols.iter().any(|c| c == "chat_policy");
     if needs_rename {
         conn.execute_batch("ALTER TABLE sessions RENAME COLUMN chat_policy TO chat_mode;")?;
     }
 
-    let has_card_assembly: bool = conn
-        .prepare("PRAGMA table_info(sessions)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .iter()
-        .any(|c| c == "card_assembly");
+    let has_card_assembly = sessions_cols.iter().any(|c| c == "card_assembly");
     if has_card_assembly {
         conn.execute_batch("ALTER TABLE sessions DROP COLUMN card_assembly;")?;
     }
 
-    let has_scenario: bool = conn
-        .prepare("PRAGMA table_info(sessions)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .iter()
-        .any(|c| c == "scenario");
+    let has_scenario = sessions_cols.iter().any(|c| c == "scenario");
     if !has_scenario {
         conn.execute_batch("ALTER TABLE sessions ADD COLUMN scenario TEXT;")?;
     }
@@ -115,10 +101,7 @@ mod tests {
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
-        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-        let cols = stmt
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let cols = super::super::v6::table_columns(conn, table)?;
         Ok(cols.iter().any(|c| c == column))
     }
 

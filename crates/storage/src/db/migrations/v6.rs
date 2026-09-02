@@ -8,7 +8,7 @@ use rusqlite::Connection;
 
 use crate::error::{DbError, Result};
 
-fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>> {
+pub(super) fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>> {
     let pragma = format!("PRAGMA table_info({table})");
     conn.prepare(&pragma)
         .map_err(|source| DbError::Query {

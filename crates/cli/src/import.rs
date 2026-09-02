@@ -6,6 +6,23 @@ use libllm_storage::db::Database;
 
 const MAX_IMPORT_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
+/// Reads `path` as UTF-8 text after checking its size against the import cap.
+/// Errors when the file cannot be stat'ed, exceeds `MAX_IMPORT_FILE_BYTES`, or cannot be read.
+fn read_import_file(path: &std::path::Path) -> Result<String> {
+    let file_size = std::fs::metadata(path)
+        .with_context(|| format!("failed to stat {}", path.display()))?
+        .len();
+    if file_size > MAX_IMPORT_FILE_BYTES {
+        anyhow::bail!(
+            "{}: file is too large to import ({} bytes; limit is {} bytes)",
+            path.display(),
+            file_size,
+            MAX_IMPORT_FILE_BYTES
+        );
+    }
+    std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))
+}
+
 pub enum ImportType {
     Character,
     Worldbook,
@@ -44,19 +61,7 @@ pub fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<
             path.display()
         ),
         "json" => {
-            let file_size = std::fs::metadata(path)
-                .with_context(|| format!("failed to stat {}", path.display()))?
-                .len();
-            if file_size > MAX_IMPORT_FILE_BYTES {
-                anyhow::bail!(
-                    "{}: file is too large to import ({} bytes; limit is {} bytes)",
-                    path.display(),
-                    file_size,
-                    MAX_IMPORT_FILE_BYTES
-                );
-            }
-            let contents = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
+            let contents = read_import_file(path)?;
 
             if character::parse_card_json(&contents).is_ok() {
                 return Ok(ImportType::Character);
@@ -116,19 +121,7 @@ pub fn import_single_file(
                 Ok(format!("Imported character: \"{}\" ({})", card.name, slug))
             }
             ImportType::Worldbook => {
-                let file_size = std::fs::metadata(path)
-                    .with_context(|| format!("failed to stat {}", path.display()))?
-                    .len();
-                if file_size > MAX_IMPORT_FILE_BYTES {
-                    anyhow::bail!(
-                        "{}: file is too large to import ({} bytes; limit is {} bytes)",
-                        path.display(),
-                        file_size,
-                        MAX_IMPORT_FILE_BYTES
-                    );
-                }
-                let contents = std::fs::read_to_string(path)
-                    .with_context(|| format!("failed to read {}", path.display()))?;
+                let contents = read_import_file(path)?;
                 let fallback_name = path
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
@@ -139,19 +132,7 @@ pub fn import_single_file(
                 Ok(format!("Imported worldbook: \"{}\" ({})", wb.name, slug))
             }
             ImportType::Persona => {
-                let file_size = std::fs::metadata(path)
-                    .with_context(|| format!("failed to stat {}", path.display()))?
-                    .len();
-                if file_size > MAX_IMPORT_FILE_BYTES {
-                    anyhow::bail!(
-                        "{}: file is too large to import ({} bytes; limit is {} bytes)",
-                        path.display(),
-                        file_size,
-                        MAX_IMPORT_FILE_BYTES
-                    );
-                }
-                let contents = std::fs::read_to_string(path)
-                    .with_context(|| format!("failed to read {}", path.display()))?;
+                let contents = read_import_file(path)?;
                 let name = path
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -168,19 +149,7 @@ pub fn import_single_file(
                 Ok(format!("Imported persona: \"{}\" ({})", name, slug))
             }
             ImportType::SystemPrompt => {
-                let file_size = std::fs::metadata(path)
-                    .with_context(|| format!("failed to stat {}", path.display()))?
-                    .len();
-                if file_size > MAX_IMPORT_FILE_BYTES {
-                    anyhow::bail!(
-                        "{}: file is too large to import ({} bytes; limit is {} bytes)",
-                        path.display(),
-                        file_size,
-                        MAX_IMPORT_FILE_BYTES
-                    );
-                }
-                let contents = std::fs::read_to_string(path)
-                    .with_context(|| format!("failed to read {}", path.display()))?;
+                let contents = read_import_file(path)?;
                 let name = path
                     .file_stem()
                     .and_then(|s| s.to_str())

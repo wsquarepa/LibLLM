@@ -34,7 +34,7 @@ use tracing::Instrument;
 use tui_textarea::TextArea;
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use libllm_core::config::CliOverrides;
 use libllm_core::context::ContextManager;
@@ -792,7 +792,7 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
         if raw_path == "stdin" {
             continue;
         }
-        let expanded = expand_at_path(raw_path, &cwd);
+        let expanded = libllm_core::files::expand_path(raw_path, &cwd);
         let canonical = match std::fs::canonicalize(&expanded) {
             Ok(p) => p,
             Err(err) => {
@@ -841,25 +841,6 @@ fn refresh_input_file_cache(app: &mut App, input: &str) {
         live.insert(canonical);
     }
     app.input_file_cache.retain_paths(&live);
-}
-
-fn expand_at_path(raw: &str, cwd: &Path) -> PathBuf {
-    if let Some(rest) = raw.strip_prefix("~/")
-        && let Some(home) = dirs::home_dir()
-    {
-        return home.join(rest);
-    }
-    if raw == "~"
-        && let Some(home) = dirs::home_dir()
-    {
-        return home;
-    }
-    let p = Path::new(raw);
-    if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        cwd.join(p)
-    }
 }
 
 fn estimate_input_tokens_from_text(

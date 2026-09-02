@@ -179,7 +179,9 @@ pub fn assemble_snapshot_messages(
         .collect())
 }
 
-fn expand_path(raw: &str, cwd: &Path) -> PathBuf {
+/// Expands `~` and `~/...` against the home directory and joins a relative
+/// path onto `cwd`; absolute paths are returned unchanged.
+pub fn expand_path(raw: &str, cwd: &Path) -> PathBuf {
     if let Some(rest) = raw.strip_prefix("~/")
         && let Some(home) = dirs::home_dir()
     {

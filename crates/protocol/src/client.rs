@@ -17,29 +17,18 @@ use libllm_core::sampling::SamplingParams;
 /// 1 MiB bounds hostile servers while remaining well above legitimate templates.
 const MAX_PROPS_BODY_BYTES: usize = 1_048_576;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AuthError {
+    #[error("auth {variant}: {field} is required")]
     EmptyRequiredField {
         variant: AuthKind,
         field: &'static str,
     },
-    InvalidHeaderName(InvalidHeaderName),
-    InvalidHeaderValue(InvalidHeaderValue),
+    #[error("invalid header name: {0}")]
+    InvalidHeaderName(#[from] InvalidHeaderName),
+    #[error("invalid header value: {0}")]
+    InvalidHeaderValue(#[from] InvalidHeaderValue),
 }
-
-impl std::fmt::Display for AuthError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AuthError::EmptyRequiredField { variant, field } => {
-                write!(f, "auth {variant}: {field} is required")
-            }
-            AuthError::InvalidHeaderName(e) => write!(f, "invalid header name: {e}"),
-            AuthError::InvalidHeaderValue(e) => write!(f, "invalid header value: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for AuthError {}
 
 /// Applies the configured authentication to an outbound request builder.
 ///

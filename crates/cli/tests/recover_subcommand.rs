@@ -1,8 +1,3 @@
-#![expect(
-    clippy::expect_used,
-    reason = "test helpers: a failed setup step should panic at its call site"
-)]
-
 #[expect(
     dead_code,
     reason = "each test binary uses a different subset of common helpers"
@@ -17,18 +12,6 @@ use libllm_backup::snapshot::create_snapshot;
 use libllm_core::config::BackupConfig;
 use libllm_core::persona::PersonaFile;
 use libllm_storage::db::Database;
-
-fn seed_db(path: &std::path::Path) {
-    let db = Database::open(path, None).expect("open plain db");
-    db.insert_persona(
-        "alice",
-        &PersonaFile {
-            name: "alice".to_owned(),
-            persona: "curious".to_owned(),
-        },
-    )
-    .expect("insert alice");
-}
 
 #[test]
 fn recover_list_without_backups() {
@@ -62,7 +45,7 @@ fn recover_list_after_backup() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_db(&db_path);
+    common::seed_persona_db(&db_path);
     create_snapshot(data_dir, None, &BackupConfig::default()).expect("create snapshot");
 
     let output = Command::new(client_bin())
@@ -97,7 +80,7 @@ fn recover_verify_passes_clean_chain() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let config = BackupConfig::default();
     create_snapshot(data_dir, None, &config).expect("first snapshot");
@@ -125,7 +108,7 @@ fn recover_restore_round_trip() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let config = BackupConfig::default();
     create_snapshot(data_dir, None, &config).expect("snapshot after seeding alice");
@@ -179,7 +162,7 @@ fn recover_rebuild_index_after_index_deletion() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let config = BackupConfig::default();
     create_snapshot(data_dir, None, &config).expect("first snapshot");
@@ -231,7 +214,7 @@ fn recover_rebuild_index_preserves_diff_restore_points() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let config = BackupConfig::default();
     create_snapshot(data_dir, None, &config).expect("base snapshot");

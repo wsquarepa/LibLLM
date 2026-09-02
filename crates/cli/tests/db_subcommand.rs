@@ -1,8 +1,3 @@
-#![expect(
-    clippy::expect_used,
-    reason = "test helpers: a failed setup step should panic at its call site"
-)]
-
 #[expect(
     dead_code,
     reason = "each test binary uses a different subset of common helpers"
@@ -16,24 +11,12 @@ use common::client_bin;
 use libllm_core::persona::PersonaFile;
 use libllm_storage::db::Database;
 
-fn seed_plain_db(path: &std::path::Path) {
-    let db = Database::open(path, None).expect("open plain db");
-    db.insert_persona(
-        "alice",
-        &PersonaFile {
-            name: "Alice".to_owned(),
-            persona: "curious".to_owned(),
-        },
-    )
-    .expect("insert alice");
-}
-
 #[test]
 fn dump_round_trip_unencrypted() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
 
@@ -66,7 +49,7 @@ fn import_rejects_schema_version_mismatch() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let bad = dir.path().join("bad.db");
     {
@@ -108,7 +91,7 @@ fn import_round_trip_unencrypted() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
     let output = Command::new(client_bin())
@@ -172,7 +155,7 @@ fn import_failure_leaves_original_intact() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
     let output = Command::new(client_bin())
@@ -294,7 +277,7 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let dump_path = dir.path().join("dump.db");
     let output = Command::new(client_bin())
@@ -365,7 +348,7 @@ fn wal_liveness_refuses_dump_and_import_when_db_is_held() {
 fn sql_read_only_rejects_update() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let output = Command::new(client_bin())
         .args([
@@ -391,7 +374,7 @@ fn sql_write_allows_update() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     let output = Command::new(client_bin())
         .args([
@@ -421,7 +404,7 @@ fn sql_write_allows_update() {
 fn sql_rejects_multi_statement() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let output = Command::new(client_bin())
         .args([
@@ -446,7 +429,7 @@ fn sql_rejects_multi_statement() {
 fn sql_emits_csv_format() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let output = Command::new(client_bin())
         .args([
@@ -467,7 +450,7 @@ fn sql_emits_csv_format() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout, "slug,name\nalice,Alice\n");
+    assert_eq!(stdout, "slug,name\nalice,alice\n");
 }
 
 #[test]
@@ -518,7 +501,7 @@ fn dump_handles_output_path_with_tmp_extension() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
     let db_path = data_dir.join("data.db");
-    seed_plain_db(&db_path);
+    common::seed_persona_db(&db_path);
 
     // Output path that ends in `.tmp` — would collide with the internal
     // tmp-file name if the dump computed it via `with_extension`.
@@ -552,7 +535,7 @@ fn dump_handles_output_path_with_tmp_extension() {
 fn shell_runs_scripted_select() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let mut child = Command::new(client_bin())
         .args([
@@ -590,7 +573,7 @@ fn shell_runs_scripted_select() {
 fn shell_history_respects_ignorespace() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let mut child = Command::new(client_bin())
         .args([
@@ -632,7 +615,7 @@ fn shell_history_respects_ignorespace() {
 fn shell_private_mode_writes_no_history() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let mut child = Command::new(client_bin())
         .args([
@@ -672,7 +655,7 @@ fn shell_private_mode_writes_no_history() {
 fn shell_rejects_query_only_pragma_in_read_only_mode() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let mut child = Command::new(client_bin())
         .args([
@@ -705,7 +688,7 @@ fn shell_rejects_query_only_pragma_in_read_only_mode() {
 fn sql_rejects_query_only_pragma_in_read_only_mode() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    seed_plain_db(&data_dir.join("data.db"));
+    common::seed_persona_db(&data_dir.join("data.db"));
 
     let output = Command::new(client_bin())
         .args([

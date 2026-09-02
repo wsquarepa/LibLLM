@@ -207,6 +207,20 @@ pub fn seed_search_db(rows: &[(&str, &str, &str)]) -> tempfile::TempDir {
     dir
 }
 
+/// Opens (and migrates) a plaintext database at `db_path` and inserts one persona,
+/// slug `alice`, named `alice`, so subcommand tests have a row to dump, restore, or list.
+pub fn seed_persona_db(db_path: &Path) {
+    let db = libllm_storage::db::Database::open(db_path, None).expect("open plain db");
+    db.insert_persona(
+        "alice",
+        &PersonaFile {
+            name: "alice".to_owned(),
+            persona: "curious".to_owned(),
+        },
+    )
+    .expect("insert alice");
+}
+
 /// Start a mock LLM server that returns HTTP 500 for every `/completions` request.
 pub async fn start_mock_failing_server() -> MockServer {
     let server = MockServer::start().await;

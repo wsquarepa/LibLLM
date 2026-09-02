@@ -4,12 +4,12 @@
     reason = "test helpers: a failed setup step should panic at its call site"
 )]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use libllm_core::character::CharacterCard;
 use libllm_core::crypto::DerivedKey;
 use libllm_core::persona::PersonaFile;
-use libllm_core::sampling::{SamplingOverrides, SamplingParams};
+use libllm_core::sampling::SamplingOverrides;
 use libllm_core::session::{Message, MessageTree, Role, Session};
 use libllm_core::system_prompt::SystemPromptFile;
 use libllm_core::worldinfo::{Entry, WorldBook};
@@ -22,16 +22,6 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// All test I/O should target paths under this directory.
 pub fn temp_dir() -> tempfile::TempDir {
     tempfile::tempdir().expect("failed to create temp dir")
-}
-
-/// Create the standard libllm subdirectory layout inside `root`.
-///
-/// Creates: sessions/, characters/, worldinfo/, system/, personas/
-pub fn create_data_dirs(root: &Path) {
-    let subdirs = ["sessions", "characters", "worldinfo", "system", "personas"];
-    for sub in &subdirs {
-        std::fs::create_dir_all(root.join(sub)).expect("failed to create subdir");
-    }
 }
 
 /// Derive an encryption key from a fixed test passkey and a fresh salt.
@@ -100,22 +90,6 @@ pub fn simple_character(name: &str, description: &str) -> CharacterCard {
     }
 }
 
-/// Build a `CharacterCard` with all fields populated for thorough testing.
-pub fn full_character() -> CharacterCard {
-    CharacterCard {
-        name: "TestChar".to_string(),
-        description: "A test character for integration tests.".to_string(),
-        personality: "Helpful and precise.".to_string(),
-        scenario: "In a testing environment.".to_string(),
-        first_mes: "Hello, I am TestChar.".to_string(),
-        mes_example: "<START>\n{{user}}: Hi\n{{char}}: Hello!".to_string(),
-        system_prompt: "You are TestChar.".to_string(),
-        post_history_instructions: "Stay in character.".to_string(),
-        alternate_greetings: vec!["Greetings!".to_string()],
-        author_note: None,
-    }
-}
-
 /// Build a `WorldBook` with the given name and entries.
 pub fn worldbook(name: &str, entries: Vec<Entry>) -> WorldBook {
     WorldBook {
@@ -139,21 +113,6 @@ pub fn worldbook_entry(keys: Vec<&str>, content: &str) -> Entry {
     }
 }
 
-/// Build a constant (always-active) worldbook entry.
-pub fn constant_entry(content: &str) -> Entry {
-    Entry {
-        keys: Vec::new(),
-        secondary_keys: Vec::new(),
-        selective: false,
-        content: content.to_string(),
-        constant: true,
-        enabled: true,
-        order: 0,
-        depth: 4,
-        case_sensitive: false,
-    }
-}
-
 /// Build a `SystemPromptFile`.
 pub fn system_prompt(name: &str, content: &str) -> SystemPromptFile {
     SystemPromptFile {
@@ -170,27 +129,6 @@ pub fn persona(name: &str, persona_text: &str) -> PersonaFile {
     }
 }
 
-/// Build a `SamplingParams` with explicit values (no defaults).
-pub fn sampling_params(
-    temperature: f64,
-    top_k: i64,
-    top_p: f64,
-    min_p: f64,
-    repeat_last_n: i64,
-    repeat_penalty: f64,
-    max_tokens: i64,
-) -> SamplingParams {
-    SamplingParams {
-        temperature,
-        top_k,
-        top_p,
-        min_p,
-        repeat_last_n,
-        repeat_penalty,
-        max_tokens,
-    }
-}
-
 /// Build `SamplingOverrides` where every field is `None`.
 pub fn empty_overrides() -> SamplingOverrides {
     SamplingOverrides {
@@ -204,11 +142,6 @@ pub fn empty_overrides() -> SamplingOverrides {
     }
 }
 
-/// Build a session file path inside the sessions subdirectory.
-pub fn session_path(root: &Path, name: &str) -> PathBuf {
-    root.join("sessions").join(name)
-}
-
 /// Write raw JSON to a file for testing import/parse flows.
 pub fn write_json_file(path: &Path, json: &str) {
     std::fs::write(path, json).expect("failed to write JSON file");
@@ -219,25 +152,6 @@ pub fn write_json_file(path: &Path, json: &str) {
 /// Used by integration tests that spawn the CLI as a subprocess.
 pub fn client_bin() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_BIN_EXE_libllm"))
-}
-
-/// Read a file to a string (panics on failure, test-only).
-pub fn read_file(path: &Path) -> String {
-    std::fs::read_to_string(path).expect("failed to read file")
-}
-
-/// Assert that a file exists at the given path.
-pub fn assert_file_exists(path: &Path) {
-    assert!(path.exists(), "expected file to exist: {}", path.display());
-}
-
-/// Assert that a file does NOT exist at the given path.
-pub fn assert_file_missing(path: &Path) {
-    assert!(
-        !path.exists(),
-        "expected file to not exist: {}",
-        path.display()
-    );
 }
 
 /// Start a mock LLM server that returns a successful `/completions` response

@@ -558,6 +558,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn temp_db_seeds_builtin_prompts_so_system_dialog_opens() {
+        let scenario = Scenario {
+            setup: Setup {
+                size: (100, 30),
+                db: DbSetup::Temp,
+                api: ApiSetup::None,
+                overrides: Vec::new(),
+            },
+            steps: vec![
+                Step::Type("/system".to_owned()),
+                Step::Key("Enter".to_owned()),
+                Step::ExpectState {
+                    probe: "focus".to_owned(),
+                    matcher: Matcher::Eq("SystemPromptDialog".to_owned()),
+                },
+            ],
+        };
+        let golden_dir = tempfile::tempdir().unwrap();
+        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
+            .await
+            .unwrap();
+        assert!(
+            report.ok(),
+            "expected no failures, got: {:?}",
+            report.failures
+        );
+    }
+
+    #[tokio::test]
     async fn failing_scenario_collects_failure() {
         let scenario = Scenario {
             setup: default_setup_no_db_no_api(),

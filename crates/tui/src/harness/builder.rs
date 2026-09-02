@@ -104,6 +104,7 @@ impl HarnessBuilder {
                 let dir = tempfile::TempDir::new()?;
                 let db_path = dir.path().join("test.db");
                 let db = libllm_storage::db::Database::open(&db_path, None)?;
+                db.ensure_builtin_prompts()?;
                 let summarizer_params = SummarizerParams {
                     db_path: Some(db_path),
                     derived_key: None,

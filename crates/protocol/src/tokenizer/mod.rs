@@ -313,13 +313,6 @@ impl TokenCounter {
         Ok(n)
     }
 
-    /// Authoritatively tokenize N strings in parallel. Returns one result per input in
-    /// the same order. Failures are per-item: one bad request does not poison the others.
-    pub async fn count_many_authoritative(&self, texts: &[&str]) -> Vec<Result<usize>> {
-        let futures = texts.iter().map(|t| self.count_authoritative(t));
-        futures::future::join_all(futures).await
-    }
-
     /// Called by the main event loop when a `TokenCountUpdate` arrives from a background task.
     /// Writes successful counts into the cache. Errors are already logged by the refresh task.
     pub fn apply_update(&self, update: TokenCountUpdate) {
@@ -516,47 +509,5 @@ mod tests {
 
         let counter = TokenCounter::new(client, tx).await;
         assert_eq!(counter.kind(), TokenizerKind::Heuristic);
-    }
-
-    #[tokio::test]
-    async fn count_many_authoritative_preserves_input_order() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
-        let counter = TokenCounter::new_with_backend(
-            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
-            tx,
-        );
-
-        // Heuristic: ceil(len * 10 / 33) + 2; distinct input lengths produce distinct counts,
-        // so order preservation in the output is actually verifiable.
-        let a = "a";
-        let bbbb = "bbbb";
-        let ccccccccc = "ccccccccc";
-        let results = counter
-            .count_many_authoritative(&[a, bbbb, ccccccccc])
-            .await;
-        assert_eq!(results.len(), 3);
-        assert_eq!(
-            results[0].as_ref().unwrap(),
-            &HeuristicTokenizer::standard().count(a, 1)
-        );
-        assert_eq!(
-            results[1].as_ref().unwrap(),
-            &HeuristicTokenizer::standard().count(bbbb, 1)
-        );
-        assert_eq!(
-            results[2].as_ref().unwrap(),
-            &HeuristicTokenizer::standard().count(ccccccccc, 1)
-        );
-    }
-
-    #[tokio::test]
-    async fn count_many_authoritative_empty_slice_returns_empty() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
-        let counter = TokenCounter::new_with_backend(
-            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
-            tx,
-        );
-        let results = counter.count_many_authoritative(&[]).await;
-        assert!(results.is_empty());
     }
 }

@@ -11,9 +11,6 @@ use crate::types::{App, Focus, StatusLevel};
 ///
 /// Every field is populated without mutating `app` and without panicking.
 /// Fields that are structurally absent return `None` or an empty default.
-/// `branch_label` is always `None` because the status bar does not render a
-/// branch indicator — the information is not surfaced in `App` state at a level
-/// that can be read purely.
 #[derive(Debug, Clone, Serialize)]
 pub struct Observation {
     pub focus: Focus,
@@ -22,7 +19,6 @@ pub struct Observation {
     pub model: Option<String>,
     pub template: Option<String>,
     pub token_count: Option<usize>,
-    pub branch_label: Option<String>,
     pub status_message: Option<String>,
     pub status_level: Option<StatusLevel>,
     pub is_streaming: bool,
@@ -150,7 +146,6 @@ pub(crate) fn observe(app: &App) -> Observation {
         model,
         template,
         token_count,
-        branch_label: None,
         status_message,
         status_level,
         is_streaming: app.streaming.active,

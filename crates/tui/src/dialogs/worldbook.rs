@@ -40,6 +40,19 @@ fn worldbook_state(app: &App, name: &str) -> WorldbookState {
     }
 }
 
+fn entry_keys(entry: &libllm_core::worldinfo::Entry) -> String {
+    if entry.keys.is_empty() {
+        "(no keys)".to_owned()
+    } else {
+        entry.keys.join(", ")
+    }
+}
+
+fn entry_label(entry: &libllm_core::worldinfo::Entry) -> String {
+    let enabled = if entry.enabled { "+" } else { "-" };
+    format!("[{enabled}] {}", entry_keys(entry))
+}
+
 pub(crate) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let visible_indices = super::filter_indices(&app.worldbook.list, &app.dialog_search);
     let unfiltered_total = app.worldbook.list.len();
@@ -217,15 +230,7 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         .worldbook
         .editor_entries
         .iter()
-        .map(|entry| {
-            let enabled = if entry.enabled { "+" } else { "-" };
-            let keys_str = if entry.keys.is_empty() {
-                "(no keys)".to_owned()
-            } else {
-                entry.keys.join(", ")
-            };
-            format!("[{enabled}] {keys_str}")
-        })
+        .map(entry_label)
         .collect();
     let visible_indices = super::filter_indices(&entry_labels, &app.dialog_search);
     let count = visible_indices.len();
@@ -291,21 +296,17 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         .map(|&i| {
             let entry = &app.worldbook.editor_entries[i];
             let enabled = if entry.enabled { "+" } else { "-" };
-            let label = if entry.keys.is_empty() {
-                format!("[{enabled}] (no keys)")
+            let keys_str = entry_keys(entry);
+            let truncated = if keys_str.len() > 40 {
+                let end = keys_str[..40]
+                    .char_indices()
+                    .last()
+                    .map_or(0, |(i, c)| i + c.len_utf8());
+                format!("{}...", &keys_str[..end])
             } else {
-                let keys_str = entry.keys.join(", ");
-                let truncated = if keys_str.len() > 40 {
-                    let end = keys_str[..40]
-                        .char_indices()
-                        .last()
-                        .map_or(0, |(i, c)| i + c.len_utf8());
-                    format!("{}...", &keys_str[..end])
-                } else {
-                    keys_str
-                };
-                format!("[{enabled}] {truncated}")
+                keys_str
             };
+            let label = format!("[{enabled}] {truncated}");
             let row_style = if entry.enabled {
                 Style::default()
             } else {
@@ -353,15 +354,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
             .worldbook
             .editor_entries
             .iter()
-            .map(|entry| {
-                let enabled = if entry.enabled { "+" } else { "-" };
-                let keys_str = if entry.keys.is_empty() {
-                    "(no keys)".to_owned()
-                } else {
-                    entry.keys.join(", ")
-                };
-                format!("[{enabled}] {keys_str}")
-            })
+            .map(entry_label)
             .collect();
         let visible = super::page_size(
             app.last_terminal_height,
@@ -444,15 +437,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
         .worldbook
         .editor_entries
         .iter()
-        .map(|entry| {
-            let enabled = if entry.enabled { "+" } else { "-" };
-            let keys_str = if entry.keys.is_empty() {
-                "(no keys)".to_owned()
-            } else {
-                entry.keys.join(", ")
-            };
-            format!("[{enabled}] {keys_str}")
-        })
+        .map(entry_label)
         .collect();
 
     match key.code {
@@ -498,11 +483,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
             let idx = app.worldbook.editor_selected;
             let entry = &app.worldbook.editor_entries[idx];
             let content_lines = entry.content.lines().count();
-            let keys_desc = if entry.keys.is_empty() {
-                "(no keys)".to_owned()
-            } else {
-                entry.keys.join(", ")
-            };
+            let keys_desc = entry_keys(entry);
             app.delete_confirm.filename = format!("{keys_desc} ({content_lines} lines)");
             app.delete_confirm.selected = 0;
             app.focus = Focus::WorldbookEntryDeleteDialog;

@@ -1,8 +1,9 @@
-//! Input validation rules for TUI dialog fields.
+//! Input validation rules for TUI dialog fields and data-directory key resolution.
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use libllm_core::crypto::{self, DerivedKey};
 
 /// Check whether a non-empty directory looks like a libllm data directory.
 ///
@@ -86,4 +87,21 @@ pub fn validate_data_dir(data_path: &Path, no_encrypt: bool) -> Result<bool> {
             Ok(false)
         }
     })
+}
+
+/// Resolves the database key for `data_dir`: uses `passkey` when given, otherwise prompts
+/// for it on stderr, then loads or creates the salt under `data_dir` and derives the key.
+/// Returns the passkey alongside the key. Errors when the prompt cannot be read or the salt
+/// cannot be loaded or created.
+pub fn resolve_derived_key(data_dir: &Path, passkey: Option<&str>) -> Result<(String, DerivedKey)> {
+    let passkey = match passkey {
+        Some(pk) => pk.to_owned(),
+        None => {
+            eprint!("Passkey: ");
+            rpassword::read_password().context("failed to read interactive passkey")?
+        }
+    };
+    let salt = crypto::load_or_create_salt(&data_dir.join(".salt"))?;
+    let key = crypto::derive_key(&passkey, &salt)?;
+    Ok((passkey, key))
 }

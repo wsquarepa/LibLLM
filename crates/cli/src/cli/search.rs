@@ -3,7 +3,6 @@
 use std::io::{self, IsTerminal, Write};
 
 use anyhow::{Context, Result};
-use libllm_core::crypto;
 use libllm_storage::db::Database;
 use libllm_storage::search::{self, query as search_query, strip_terminal_controls};
 use time::format_description::well_known::Rfc3339;
@@ -40,16 +39,7 @@ fn open_db(args: &Args) -> Result<Database> {
     let key = if args.no_encrypt {
         None
     } else {
-        let passkey = match args.passkey.clone() {
-            Some(pk) => pk,
-            None => {
-                eprint!("Passkey: ");
-                rpassword::read_password().context("failed to read interactive passkey")?
-            }
-        };
-        let salt_path = data_dir.join(".salt");
-        let salt = crypto::load_or_create_salt(&salt_path)?;
-        Some(crypto::derive_key(&passkey, &salt)?)
+        Some(crate::validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?.1)
     };
 
     let db = Database::open(&db_path, key.as_ref())?;

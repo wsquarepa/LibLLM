@@ -12,7 +12,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use libllm_core::crypto::{self, DerivedKey};
+use libllm_core::crypto::DerivedKey;
 
 use crate::cli::{Args, DbSubcommand};
 
@@ -52,17 +52,8 @@ fn resolve_context(args: &Args) -> Result<DbContext> {
         });
     }
 
-    let passkey = match args.passkey.clone() {
-        Some(pk) => pk,
-        None => {
-            eprint!("Passkey: ");
-            rpassword::read_password().context("failed to read interactive passkey")?
-        }
-    };
-
-    let salt_path = data_dir.join(".salt");
-    let salt = crypto::load_or_create_salt(&salt_path)?;
-    let key = crypto::derive_key(&passkey, &salt)?;
+    let (passkey, key) =
+        crate::validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?;
 
     Ok(DbContext {
         data_dir,

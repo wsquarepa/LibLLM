@@ -645,22 +645,14 @@ fn resolve_recover_passkey(args: &Args, data_dir: &std::path::Path) -> Result<Op
 }
 
 fn resolve_edit_db(args: &Args) -> Result<Database> {
-    let db_path = libllm_config::data_dir().join("data.db");
+    let data_dir = libllm_config::data_dir();
+    let db_path = data_dir.join("data.db");
 
     if args.no_encrypt {
         return Ok(Database::open(&db_path, None)?);
     }
 
-    let passkey: String = match args.passkey.clone() {
-        Some(passkey) => passkey,
-        None => {
-            eprint!("Passkey: ");
-            rpassword::read_password().context("failed to read interactive passkey")?
-        }
-    };
-
-    let salt = crypto::load_or_create_salt(&libllm_config::salt_path())?;
-    let key = crypto::derive_key(&passkey, &salt)?;
+    let (_, key) = validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?;
     Database::open(&db_path, Some(&key)).context("Wrong passkey (or corrupt database).")
 }
 

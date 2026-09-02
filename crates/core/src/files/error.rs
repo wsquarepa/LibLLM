@@ -20,96 +20,40 @@ impl std::fmt::Display for DelimiterKind {
 
 /// Every failure mode of `libllm_core::files::resolve_all`. Each variant carries
 /// enough context for the UI copy to name the offending file.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FileError {
+    #[error("file not found: {}", .0.display())]
     Missing(PathBuf),
+    #[error("file too large: {} ({size} bytes > {cap} byte cap)", path.display())]
     TooLarge {
         path: PathBuf,
         size: usize,
         cap: usize,
     },
-    MessageTooLarge {
-        total: usize,
-        cap: usize,
-    },
+    #[error("attached files exceed per-message cap: {total} bytes > {cap} byte cap")]
+    MessageTooLarge { total: usize, cap: usize },
+    #[error("unsupported binary file: {}", .0.display())]
     BinaryUnsupported(PathBuf),
+    #[error("PDF has no extractable text (scanned without OCR?): {}", .0.display())]
     PdfNoText(PathBuf),
-    Collision {
-        path: PathBuf,
-        kind: DelimiterKind,
-    },
+    #[error("file body contains the reserved {kind} delimiter: {}", path.display())]
+    Collision { path: PathBuf, kind: DelimiterKind },
+    #[error("I/O error reading {}: {source}", path.display())]
     Io {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("file '{}' is too large to summarize ({tokens} tokens, max {limit})", path.display())]
     TooLargeForSummary {
         path: PathBuf,
         tokens: usize,
         limit: usize,
     },
+    #[error("could not tokenize '{}' for summary size check: {source}", path.display())]
     SummaryTokenize {
         path: PathBuf,
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-}
-
-impl std::fmt::Display for FileError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FileError::Missing(path) => {
-                write!(f, "file not found: {}", path.display())
-            }
-            FileError::TooLarge { path, size, cap } => write!(
-                f,
-                "file too large: {} ({size} bytes > {cap} byte cap)",
-                path.display()
-            ),
-            FileError::MessageTooLarge { total, cap } => write!(
-                f,
-                "attached files exceed per-message cap: {total} bytes > {cap} byte cap"
-            ),
-            FileError::BinaryUnsupported(path) => {
-                write!(f, "unsupported binary file: {}", path.display())
-            }
-            FileError::PdfNoText(path) => write!(
-                f,
-                "PDF has no extractable text (scanned without OCR?): {}",
-                path.display()
-            ),
-            FileError::Collision { path, kind } => write!(
-                f,
-                "file body contains the reserved {kind} delimiter: {}",
-                path.display()
-            ),
-            FileError::Io { path, source } => {
-                write!(f, "I/O error reading {}: {source}", path.display())
-            }
-            FileError::TooLargeForSummary {
-                path,
-                tokens,
-                limit,
-            } => write!(
-                f,
-                "file '{}' is too large to summarize ({tokens} tokens, max {limit})",
-                path.display()
-            ),
-            FileError::SummaryTokenize { path, source } => write!(
-                f,
-                "could not tokenize '{}' for summary size check: {source}",
-                path.display()
-            ),
-        }
-    }
-}
-
-impl std::error::Error for FileError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            FileError::Io { source, .. } => Some(source),
-            FileError::SummaryTokenize { source, .. } => Some(source.as_ref()),
-            _ => None,
-        }
-    }
 }
 
 #[cfg(test)]

@@ -53,6 +53,12 @@ fn entry_label(entry: &libllm_core::worldinfo::Entry) -> String {
     format!("[{enabled}] {}", entry_keys(entry))
 }
 
+/// Row labels for every editor entry, in entry order; the search filter and mouse
+/// hit-testing both key on these full, untruncated labels.
+pub(super) fn editor_entry_labels(entries: &[libllm_core::worldinfo::Entry]) -> Vec<String> {
+    entries.iter().map(entry_label).collect()
+}
+
 const ENTRY_KEYS_DISPLAY_BYTES: usize = 40;
 
 /// Shortens the joined key list to at most `ENTRY_KEYS_DISPLAY_BYTES` bytes, cutting on a
@@ -240,12 +246,7 @@ pub(crate) fn handle_worldbook_dialog_key(key: KeyEvent, app: &mut App) -> Optio
 }
 
 pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let entry_labels: Vec<String> = app
-        .worldbook
-        .editor_entries
-        .iter()
-        .map(entry_label)
-        .collect();
+    let entry_labels = editor_entry_labels(&app.worldbook.editor_entries);
     let visible_indices = super::filter_indices(&entry_labels, &app.dialog_search);
     let count = visible_indices.len();
     let height = super::paged_list_height(count, area.height, super::LIST_DIALOG_TALL_PADDING + 2);
@@ -354,12 +355,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
     }
     let is_ctrl_f = key.code == KeyCode::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL);
     if app.dialog_search.active || is_ctrl_f {
-        let labels: Vec<String> = app
-            .worldbook
-            .editor_entries
-            .iter()
-            .map(entry_label)
-            .collect();
+        let labels = editor_entry_labels(&app.worldbook.editor_entries);
         let visible = super::page_size(
             app.last_terminal_height,
             super::LIST_DIALOG_TALL_PADDING + 2,
@@ -437,12 +433,7 @@ pub(crate) fn handle_worldbook_editor_key(key: KeyEvent, app: &mut App) -> Optio
         return None;
     }
 
-    let labels: Vec<String> = app
-        .worldbook
-        .editor_entries
-        .iter()
-        .map(entry_label)
-        .collect();
+    let labels = editor_entry_labels(&app.worldbook.editor_entries);
 
     match key.code {
         KeyCode::Up => {
@@ -857,6 +848,23 @@ mod tests {
             truncated_entry_keys(&entry),
             format!("{}...", "b".repeat(40))
         );
+    }
+
+    #[test]
+    fn editor_entry_labels_filter_on_the_full_key_list() {
+        let long_key = format!("{}zebra", "a".repeat(40));
+        let entries = vec![
+            make_entry(vec!["alpha"]),
+            make_entry(vec![long_key.as_str()]),
+        ];
+        let mut search = crate::dialogs::SearchState::new();
+        search.enter(0);
+        for c in "zebra".chars() {
+            search.push_char(c);
+        }
+        let labels = editor_entry_labels(&entries);
+        assert_eq!(labels[1], format!("[+] {long_key}"));
+        assert_eq!(crate::dialogs::filter_indices(&labels, &search), vec![1]);
     }
 
     #[test]

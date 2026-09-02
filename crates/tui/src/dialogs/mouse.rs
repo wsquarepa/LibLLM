@@ -330,20 +330,7 @@ pub(crate) fn handle_dialog_mouse_click(mouse: MouseEvent, app: &mut crate::App)
             crate::dialogs::scenario::handle_mouse_click(app, mouse.column, mouse.row);
         }
         crate::Focus::WorldbookEditorDialog => {
-            let entry_labels: Vec<String> = app
-                .worldbook
-                .editor_entries
-                .iter()
-                .map(|entry| {
-                    let enabled = if entry.enabled { "+" } else { "-" };
-                    let keys_str = if entry.keys.is_empty() {
-                        "(no keys)".to_owned()
-                    } else {
-                        entry.keys.join(", ")
-                    };
-                    format!("[{enabled}] {keys_str}")
-                })
-                .collect();
+            let entry_labels = super::worldbook::editor_entry_labels(&app.worldbook.editor_entries);
             let indices = super::filter_indices(&entry_labels, &app.dialog_search);
             let dialog = super::list_dialog_rect(
                 terminal_area,

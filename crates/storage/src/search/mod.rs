@@ -23,34 +23,12 @@ pub struct SearchHit {
     pub score: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SearchError {
-    Db(rusqlite::Error),
+    #[error("database error: {0}")]
+    Db(#[from] rusqlite::Error),
+    #[error("invalid match expression: {0}")]
     InvalidMatch(String),
-}
-
-impl std::fmt::Display for SearchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Db(err) => write!(f, "database error: {err}"),
-            Self::InvalidMatch(msg) => write!(f, "invalid match expression: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for SearchError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Db(err) => Some(err),
-            Self::InvalidMatch(_) => None,
-        }
-    }
-}
-
-impl From<rusqlite::Error> for SearchError {
-    fn from(err: rusqlite::Error) -> Self {
-        Self::Db(err)
-    }
 }
 
 pub fn search(

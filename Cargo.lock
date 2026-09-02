@@ -1879,7 +1879,6 @@ dependencies = [
  "argon2",
  "base64",
  "dirs",
- "hex",
  "infer",
  "minijinja",
  "pdf-extract",

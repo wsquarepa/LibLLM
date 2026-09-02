@@ -15,7 +15,6 @@ libllm-config.workspace = true
 libllm-backup.workspace = true
 anyhow.workspace = true
 arboard.workspace = true
-chrono.workspace = true
 crossterm.workspace = true
 dirs.workspace = true
 futures-util.workspace = true

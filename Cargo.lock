@@ -1954,7 +1954,6 @@ version = "3.1.5"
 dependencies = [
  "anyhow",
  "arboard",
- "chrono",
  "crossterm",
  "dirs",
  "futures-util",

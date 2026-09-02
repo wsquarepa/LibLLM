@@ -10,6 +10,9 @@ use super::types::{
     SaveTrigger, StatusLevel, StatusMessage,
 };
 
+/// Clears `flash` once its highlight window has elapsed.
+///
+/// Returns whether `flash` was set on entry, which is whether a redraw is needed.
 fn tick_flash(flash: &mut Option<std::time::Instant>) -> bool {
     let Some(started) = *flash else {
         return false;

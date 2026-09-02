@@ -36,7 +36,8 @@ fn post_passkey_focus(app: &mut App) {
 
 /// Opens the database at `db_path` with `key`, seeds built-in prompts and default
 /// presets, switches the session to database save mode, and loads the active persona
-/// and card author's note. Fails only when the database cannot be opened.
+/// and card author's note. Fails only when the database cannot be opened; a failure to
+/// seed the built-in prompts is reported as a warning status instead.
 fn open_database_and_bootstrap(
     app: &mut App,
     db_path: &Path,

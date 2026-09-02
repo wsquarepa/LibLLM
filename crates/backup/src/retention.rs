@@ -517,6 +517,14 @@ mod tests {
             remaining_ids.contains(&"fails"),
             "fails entry must remain in index; remaining: {remaining_ids:?}"
         );
+        assert!(
+            remaining_ids.contains(&"third"),
+            "third entry must remain in index; remaining: {remaining_ids:?}"
+        );
+        assert!(
+            backups_dir.join("third-base.bak").exists(),
+            "third file must survive on disk after the failure stopped the pass"
+        );
     }
 
     #[test]

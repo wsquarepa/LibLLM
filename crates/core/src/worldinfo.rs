@@ -295,22 +295,7 @@ pub fn scan_runtime_entries(
 }
 
 fn build_window(messages: &[&str], depth: usize) -> String {
-    let scan_messages = if messages.len() > depth {
-        &messages[messages.len() - depth..]
-    } else {
-        messages
-    };
-
-    let total_len: usize = scan_messages.iter().map(|msg| msg.len()).sum::<usize>()
-        + scan_messages.len().saturating_sub(1);
-    let mut combined = String::with_capacity(total_len);
-    for (idx, message) in scan_messages.iter().enumerate() {
-        if idx > 0 {
-            combined.push('\n');
-        }
-        combined.push_str(message);
-    }
-    combined
+    messages[messages.len().saturating_sub(depth)..].join("\n")
 }
 
 #[cfg(test)]

@@ -297,3 +297,33 @@ mod executor_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SearchError;
+
+    #[test]
+    fn db_display_prefixes_the_sqlite_message() {
+        let inner = rusqlite::Error::InvalidQuery;
+        let expected = format!("database error: {inner}");
+        let err = SearchError::Db(inner);
+        assert_eq!(err.to_string(), expected);
+        assert!(std::error::Error::source(&err).is_some());
+    }
+
+    #[test]
+    fn invalid_match_display_names_the_expression() {
+        let err = SearchError::InvalidMatch("foo AND".to_owned());
+        assert_eq!(err.to_string(), "invalid match expression: foo AND");
+        assert!(std::error::Error::source(&err).is_none());
+    }
+
+    #[test]
+    fn rusqlite_error_converts_into_db_variant() {
+        let err: SearchError = rusqlite::Error::InvalidQuery.into();
+        assert!(matches!(
+            err,
+            SearchError::Db(rusqlite::Error::InvalidQuery)
+        ));
+    }
+}

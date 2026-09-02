@@ -444,8 +444,7 @@ fn has_later_summary(
     node_idx.is_some_and(|idx| {
         branch_ids[idx + 1..].iter().any(|&id| {
             tree.node(id)
-                .map(|n| n.message.role == Role::Summary)
-                .unwrap_or(false)
+                .is_some_and(|n| n.message.role == Role::Summary)
         })
     })
 }

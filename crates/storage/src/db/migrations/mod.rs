@@ -3,8 +3,9 @@
 //! Each migration lives in its own file (`v1.rs`, `v2.rs`, ...) and exposes a
 //! single `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `run_migrations`
 //! reads the current schema version, runs every missing step in order, and
-//! stamps each one as it finishes. Adding a new migration is three lines: a new
-//! file, a `mod vN;` declaration, and an entry in the `MIGRATIONS` table below.
+//! stamps each one as it finishes. Adding a new migration takes four edits: a
+//! new file, a `mod vN;` declaration, an entry in the `MIGRATIONS` table below,
+//! and a bump of `CURRENT_VERSION`.
 
 mod v1;
 mod v10;
@@ -96,11 +97,7 @@ fn stamp_version(conn: &Connection, version: i64) -> Result<()> {
 
 /// Runs one migration and records its version in a single transaction so a crash
 /// mid-upgrade rolls back instead of leaving a half-applied schema.
-fn apply_migration(
-    conn: &Connection,
-    version: i64,
-    migrate: fn(&Connection) -> Result<()>,
-) -> Result<()> {
+fn apply_migration(conn: &Connection, version: i64, migrate: Migration) -> Result<()> {
     let tx = conn
         .unchecked_transaction()
         .map_err(|source| DbError::Query {

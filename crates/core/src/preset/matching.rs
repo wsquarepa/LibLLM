@@ -573,6 +573,14 @@ mod tests {
     }
 
     #[test]
+    fn template_hash_pins_known_digest() {
+        assert_eq!(
+            template_hash("hello"),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
     fn template_hash_is_stable_across_whitespace_drift() {
         let a = "hello   world\n\n\n";
         let b = "  hello world\n\n";

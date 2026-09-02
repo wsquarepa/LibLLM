@@ -1832,7 +1832,6 @@ dependencies = [
  "crossterm",
  "dialoguer",
  "dirs",
- "futures-util",
  "libllm-backup",
  "libllm-config",
  "libllm-core",

@@ -32,18 +32,7 @@ pub fn resolve_all_resolved(
     cwd: &Path,
     config: &FilesConfig,
 ) -> Result<Vec<ResolvedFile>, FileError> {
-    if !config.enabled {
-        return Ok(Vec::new());
-    }
-    let refs = file_reference_ranges(content);
-    let mut files: Vec<ResolvedFile> = Vec::with_capacity(refs.len());
-    for r in refs {
-        if r.path() == "stdin" {
-            continue;
-        }
-        files.push(resolve_one(&r.raw, cwd, config)?);
-    }
-    Ok(files)
+    resolve_with_prepended_resolved(Vec::new(), content, cwd, config)
 }
 
 /// Resolve and classify every `@<token>` in `content`, producing a list of

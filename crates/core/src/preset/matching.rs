@@ -303,7 +303,11 @@ pub fn template_hash(server_template: &str) -> String {
     let normalized = normalize(server_template);
     let mut hasher = Sha256::new();
     hasher.update(normalized.as_bytes());
-    hex::encode(hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[cfg(test)]

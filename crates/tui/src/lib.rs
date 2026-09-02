@@ -45,13 +45,6 @@ use libllm_protocol::client::{ApiClient, StreamToken};
 
 pub use input::match_next_candidates;
 
-pub fn build_effective_system_prompt_standalone(
-    session: &Session,
-    db: Option<&libllm_storage::db::Database>,
-) -> Option<String> {
-    business::build_effective_system_prompt(session, db)
-}
-
 /// Carries the DB connection parameters needed to open a dedicated summarizer connection.
 ///
 /// Both fields are `None` for single-run (no DB file) invocations. When present, `db_path`

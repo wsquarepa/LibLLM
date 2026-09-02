@@ -384,7 +384,7 @@ pub async fn run() -> anyhow::Result<()> {
             };
 
         let effective_prompt =
-            libllm_tui::build_effective_system_prompt_standalone(&session, db.as_ref());
+            libllm_tui::business::build_effective_system_prompt(&session, db.as_ref());
 
         let mut parent = session.tree.head();
         for sys_msg in system_messages {

@@ -429,7 +429,19 @@ fn sql_rejects_multi_statement() {
 fn sql_emits_csv_format() {
     let dir = common::temp_dir();
     let data_dir = dir.path();
-    common::seed_persona_db(&data_dir.join("data.db"));
+    let db_path = data_dir.join("data.db");
+    common::seed_persona_db(&db_path);
+    {
+        let db = Database::open(&db_path, None).expect("open db");
+        db.update_persona(
+            "alice",
+            &PersonaFile {
+                name: "Alice Liddell".to_owned(),
+                persona: "curious".to_owned(),
+            },
+        )
+        .expect("rename alice");
+    }
 
     let output = Command::new(client_bin())
         .args([
@@ -450,7 +462,7 @@ fn sql_emits_csv_format() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout, "slug,name\nalice,alice\n");
+    assert_eq!(stdout, "slug,name\nalice,Alice Liddell\n");
 }
 
 #[test]

@@ -3,6 +3,8 @@
     reason = "test helpers: a failed setup step should panic at its call site"
 )]
 
+mod common;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -26,12 +28,8 @@ fn setup_db(dir: &Path) -> std::path::PathBuf {
 }
 
 fn setup_encrypted_db(dir: &Path, passkey: &str) -> std::path::PathBuf {
-    let salt = libllm_core::crypto::load_or_create_salt(&dir.join(".salt")).unwrap();
-    let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = dir.join("data.db");
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(&db_path, &dir.join(".salt"), passkey);
     conn.execute_batch(
         "CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL);",
     )
@@ -50,11 +48,7 @@ fn insert_note(db_path: &Path, content: &str) {
 
 fn insert_note_encrypted(db_path: &Path, content: &str, passkey: &str) {
     let salt_path = db_path.parent().unwrap().join(".salt");
-    let salt = libllm_core::crypto::load_or_create_salt(&salt_path).unwrap();
-    let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
-    let conn = rusqlite::Connection::open(db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(db_path, &salt_path, passkey);
     conn.execute("INSERT INTO notes (content) VALUES (?1)", [content])
         .unwrap();
 }
@@ -67,11 +61,7 @@ fn count_notes(db_path: &Path) -> i64 {
 
 fn count_notes_encrypted(db_path: &Path, passkey: &str) -> i64 {
     let salt_path = db_path.parent().unwrap().join(".salt");
-    let salt = libllm_core::crypto::load_or_create_salt(&salt_path).unwrap();
-    let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
-    let conn = rusqlite::Connection::open(db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(db_path, &salt_path, passkey);
     conn.query_row("SELECT count(*) FROM notes", [], |row| row.get(0))
         .unwrap()
 }
@@ -120,13 +110,8 @@ fn full_backup_restore_cycle_encrypted() {
     let dir = tempfile::TempDir::new().unwrap();
     let config = BackupConfig::default();
 
-    let salt = libllm_core::crypto::load_or_create_salt(&dir.path().join(".salt")).unwrap();
-    let db_key = libllm_core::crypto::derive_key("test-passkey", &salt).unwrap();
-
     let db_path = dir.path().join("data.db");
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *db_key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(&db_path, &dir.path().join(".salt"), "test-passkey");
     conn.execute_batch(
         "CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL);",
     )

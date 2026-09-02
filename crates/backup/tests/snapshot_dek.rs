@@ -3,6 +3,8 @@
     reason = "test helpers: a failed setup step should panic at its call site"
 )]
 
+mod common;
+
 use libllm_backup::crypto::{resolve_backup_key, unwrap_dek};
 use libllm_backup::index::{BackupType, FingerprintField, open_index};
 use libllm_backup::snapshot::create_snapshot;
@@ -21,24 +23,16 @@ fn dummy_config() -> BackupConfig {
 }
 
 fn setup_encrypted_db(data_dir: &std::path::Path, passkey: &str) {
-    let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
-    let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = data_dir.join("data.db");
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(&db_path, &data_dir.join(".salt"), passkey);
     conn.execute_batch("PRAGMA journal_mode = WAL;").unwrap();
     conn.execute_batch("CREATE TABLE kv (k TEXT, v TEXT);")
         .unwrap();
 }
 
 fn insert_encrypted(data_dir: &std::path::Path, passkey: &str, k: &str, v: &str) {
-    let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
-    let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = data_dir.join("data.db");
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(&db_path, &data_dir.join(".salt"), passkey);
     conn.execute(
         "INSERT INTO kv (k, v) VALUES (?1, ?2)",
         rusqlite::params![k, v],
@@ -47,12 +41,8 @@ fn insert_encrypted(data_dir: &std::path::Path, passkey: &str, k: &str, v: &str)
 }
 
 fn count_kv_encrypted(data_dir: &std::path::Path, passkey: &str) -> i64 {
-    let salt = libllm_core::crypto::load_or_create_salt(&data_dir.join(".salt")).unwrap();
-    let key = libllm_core::crypto::derive_key(passkey, &salt).unwrap();
     let db_path = data_dir.join("data.db");
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\n", *key.hex()))
-        .unwrap();
+    let conn = common::open_encrypted_conn(&db_path, &data_dir.join(".salt"), passkey);
     conn.query_row("SELECT COUNT(*) FROM kv", [], |row| row.get(0))
         .unwrap()
 }

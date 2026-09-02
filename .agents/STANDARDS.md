@@ -45,8 +45,9 @@ acceptable.
 
 Default to private implementation details. Expose only the smallest API needed
 by the next layer. Use `pub(crate)` (or `pub(super)`, as in `libllm-tui`) for
-cross-module internals and `pub` only when callers outside the crate should
-rely on the item.
+cross-module internals and `pub` only when another workspace crate uses the
+item. No crate is published: `pub` means "used by another workspace crate",
+nothing more, and there is no semver or API-stability obligation to preserve.
 
 ## Workspace Layout
 
@@ -62,6 +63,7 @@ Actual layout:
 ├── README.md
 ├── CONTEXT.md          # domain glossary
 ├── rustfmt.toml
+├── clippy.toml         # test-code exemption for unwrap_used / expect_used
 ├── install.sh
 ├── AGENTS.md -> .agents/RULES.md
 ├── CLAUDE.md -> .agents/RULES.md
@@ -92,7 +94,8 @@ The root `Cargo.toml` is authoritative for:
 - `[workspace.package]` shared version and edition.
 - `[workspace.dependencies]` shared dependency versions.
 - `[workspace.lints]` shared lint policy (`unsafe_code = "forbid"`,
-  `unsafe_op_in_unsafe_fn = "deny"`, `clippy::allow_attributes = "deny"`).
+  `unsafe_op_in_unsafe_fn = "deny"`, `clippy::allow_attributes = "deny"`,
+  `clippy::unwrap_used = "warn"`, `clippy::expect_used = "warn"`).
 
 Member crates inherit workspace metadata and dependency versions. They declare
 only crate-specific features, targets, and dependencies.
@@ -173,27 +176,30 @@ module structure deliberate and shallow.
 
 Module rules:
 
-- `lib.rs` contains crate-level docs, module declarations, and intentional
-  re-exports. It should not contain substantial implementation logic, and it
-  should curate: re-export the primary types callers need rather than only
-  exposing bare `pub mod` lists.
-- One module has one main reason to change. A module that accretes several
-  unrelated responsibilities (data structure + container + utilities) must be
-  split along those seams.
+- `lib.rs` contains crate-level docs and module declarations, not substantial
+  implementation logic. Bare `pub mod` lists are the convention: an item's
+  full path (`libllm_core::group_chat::GroupChat`) names the module that owns
+  it, which is exactly the discoverability this document optimizes for. Do not
+  add re-exports to shorten paths. A re-export earns its place only when it
+  hides a module that is an implementation detail of its parent.
+- Judge a module by the width of its interface, not by its line count or by
+  counting "responsibilities". A large module behind a small, well-named
+  interface is a deep module and is fine. A module whose interface exposes
+  many unrelated entry points must be split, even when it is short.
 - A module with one principal type lives in `name.rs`. A module with several
-  collaborators lives as a `name/` directory with a `name/mod.rs` root — this
+  collaborators lives as a `name/` directory with a `name/mod.rs` root. This
   repo uses the `mod.rs` convention throughout (`db/mod.rs`, `dialogs/mod.rs`,
-  `files/mod.rs`, `render/mod.rs`); follow it for new directories.
-- Keep child modules private by default and re-export a small facade from the
-  parent module when callers need a simpler path.
+  `files/mod.rs`, `render/mod.rs`); follow it for new directories. It is a
+  consistency choice, not a design principle.
+- Keep child modules private by default.
 
-Avoid deep public paths such as `crate::a::b::c::d::Type`. Deep paths usually
-mean the public facade is missing or the type is in the wrong layer.
-
-Central mutable state must be grouped, not flat. A state struct accumulating
-dozens of ungrouped fields across unrelated concerns is the module-level
-"grab-bag" anti-pattern expressed as a type: group fields into cohesive
-substructs per concern.
+Central mutable state is grouped by borrow pattern. Rust borrows whole fields,
+so a method that mutates one concern of a flat state struct holds `&mut` over
+everything, and helpers end up taking a dozen loose parameters to get around
+it. Group fields into a substruct when a change needs to borrow one concern
+mutably while reading another; the borrow that fails tells you where the seam
+goes. The known flat outlier is `App` in `libllm-tui`. Group its fields as
+changes need disjoint borrows, not as a standalone refactor.
 
 ## Naming
 
@@ -231,20 +237,19 @@ Rules:
 - Prefer explicit domain types over strings, booleans, tuples, or loose maps.
 - Avoid boolean flag parameters that switch behavior. Split the function or use
   an enum with named variants.
-- Prefer returning a value over mutating an input. If mutation is necessary,
-  make ownership and side effects obvious in the type signature.
+- Mutation through `&mut` is the idiomatic default for state-carrying types
+  such as `App`; the signature makes the side effect visible. Hidden mutation
+  is what to avoid: interior mutability, globals, or a `&self` method that
+  changes observable state.
 - Prefer concrete types in internal APIs. Use generics, trait objects, or
   `impl Trait` only when they buy real API flexibility or caller ergonomics.
-- Do not expose dependency types in stable public APIs unless the dependency is
-  intentionally part of the contract.
 - Keep trait definitions at real abstraction boundaries. Many implementations
   behind one dispatch point (e.g. dialogs behind a handler trait) is a real
-  boundary; a trait with one implementation and no external caller is not.
+  boundary, and so is one production implementation plus a test double when
+  the real thing cannot run in a unit test. A trait with one implementation
+  and no test double is not.
 - If a trait may be used as a trait object, design it for object safety from
   the start.
-
-Use crate roots and parent modules as facades. Re-export the types callers
-need; keep implementation modules private.
 
 ## Error Handling
 
@@ -263,10 +268,15 @@ Rules:
 - Do not silently ignore errors. Either handle them deliberately or return
   them.
 - Do not catch broad errors and replace them with generic messages.
-- Do not use `unwrap` or `expect` in production paths unless the invariant is
-  structurally guaranteed and the message documents the invariant precisely.
-- Tests may use `unwrap` or `expect` when failure would make the test itself
-  invalid.
+- `clippy::unwrap_used` and `clippy::expect_used` are enabled workspace-wide
+  and CI runs with `-D warnings`. A production `unwrap` or `expect` needs an
+  `#[expect(clippy::expect_used, reason = "...")]` whose reason states the
+  structurally guaranteed invariant; prefer `expect` with a message over a
+  bare `unwrap` so the panic names the invariant too. `#[test]` functions and
+  `#[cfg(test)]` modules are exempt via `clippy.toml` (`allow-unwrap-in-tests`,
+  `allow-expect-in-tests`); a plain helper function inside an integration-test
+  binary is not, and carries the same attribute (file-level `#![expect]` when
+  the whole file is helpers).
 - Panics are for bugs, violated invariants, and unrecoverable programmer
   errors, not normal user or environment failures.
 - Destructors must not be the only place where fallible cleanup happens.
@@ -322,8 +332,11 @@ Rules:
 Use structured diagnostics via `tracing`. Pick levels by this rubric:
 
 - `TRACE`: per-frame or per-keystroke events (render, input, layout).
-- `DEBUG`: state transitions, config reads, background task lifecycle.
-- `INFO`: DB operations, migrations, session save/load, API summaries.
+- `DEBUG`: state transitions, config reads, background task lifecycle, and
+  individual repository operations (`db.session.list`, `db.prompt.update`).
+- `INFO`: one line per user-visible event: migrations, API request summaries,
+  startup and shutdown. The default filter is `info`, so anything emitted per
+  row or per query belongs at `DEBUG`.
 - `WARN`: retries, degraded fallbacks, recoverable problems.
 - `ERROR`: unrecoverable failures.
 
@@ -376,7 +389,11 @@ Rules:
   `max_width = 100`).
 - Keep imports at the top of the file and let `rustfmt` organize them.
 - Workspace lint configuration in the root `Cargo.toml`; every crate inherits
-  it via `[lints] workspace = true`.
+  it via `[lints] workspace = true`. Settings that need a config file (the
+  test exemption for `unwrap_used` and `expect_used`) live in `clippy.toml`.
+- Every rule in this document is either enforced by a lint or labelled
+  advisory. Unenforced "must" rules drift, and a stated contract the code does
+  not honor is worse than none.
 - Clippy warnings are defects: the CI gate is `-D warnings` across the
   workspace and all targets.
 - Never suppress warnings with `#[allow(...)]` — `clippy::allow_attributes`
@@ -413,7 +430,6 @@ Rules:
 - A crate's dependency list is part of its architecture contract: `libllm-core`
   must not grow dependencies that imply infrastructure concerns (runtimes,
   HTTP, database drivers, system introspection).
-- Keep public dependencies stable if their types appear in public APIs.
 - Prefer established crates with active maintenance, clear licensing, and small
   transitive dependency cost.
 - Keep dev-only tools and fixtures in `dev-dependencies`; optional test
@@ -462,9 +478,11 @@ Documentation lives as close as possible to the API it explains.
 Rules:
 
 - `lib.rs` explains the crate's purpose and its architectural contract.
-- Public types, traits, functions, modules, and macros have rustdoc.
-- Public fallible functions document meaningful error conditions.
-- Public panicking behavior is documented when callers can trigger it.
+- Rustdoc on public items is advisory: `missing_docs` is not enabled, and
+  `libllm-core` alone has several hundred undocumented public items. Write
+  rustdoc for anything whose behavior is not obvious from its signature, and
+  always for fallible functions (the error conditions) and for functions that
+  can panic on caller input.
 - Examples explain why an API is useful, not merely restate its syntax.
 - Separate architecture documents (RULES.md, this file) describe durable
   boundaries, invariants, and workflows that cannot be expressed clearly in
@@ -481,7 +499,8 @@ Use this checklist when reviewing a Rust change:
 - `main.rs` only wires process concerns.
 - Domain logic in core is independent of databases, the network, async
   runtimes, and process state.
-- New public API is intentionally exposed and documented.
+- New `pub` items are used by another workspace crate; everything else is
+  `pub(crate)` or private.
 - Private implementation details remain private.
 - Error types are specific and preserve debugging context.
 - Dependencies are declared in the right manifest table and centralized when
@@ -491,26 +510,3 @@ Use this checklist when reviewing a Rust change:
 - New configuration is typed, validated, and passed explicitly.
 - New dialogs follow the keybinding contract in ADR-0004.
 - `cargo xtask ci` passes.
-
-## Anti-Patterns
-
-Eliminate these patterns:
-
-- Large files with unrelated responsibilities.
-- `main.rs` containing business logic.
-- State structs with dozens of flat, ungrouped fields spanning unrelated
-  concerns.
-- Long `if x == Variant` dispatch chains where a match or a trait-based
-  dispatch point belongs.
-- Public modules that expose implementation structure with no curated facade.
-- Broad `utils`, `common`, `misc`, or `helpers` modules.
-- Error values represented as plain strings.
-- `unwrap` or `expect` in production paths without a proven invariant.
-- Boolean parameters that select different behaviors.
-- Traits with only one implementation and no real abstraction boundary.
-- Global mutable state outside the sanctioned `libllm-config` and `libllm-diagnostics` boundaries.
-- Environment-variable reads inside domain logic.
-- Async runtimes started inside library crates.
-- Network-dependent default tests.
-- `#[allow(...)]` or any other lint suppression used to avoid fixing code.
-- Documentation that states a contract the code does not honor.

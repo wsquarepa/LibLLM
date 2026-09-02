@@ -34,6 +34,60 @@ fn post_passkey_focus(app: &mut App) {
     }
 }
 
+/// Opens the database at `db_path` with `key`, seeds built-in prompts and default
+/// presets, switches the session to database save mode, and loads the active persona
+/// and card author's note. Fails only when the database cannot be opened.
+fn open_database_and_bootstrap(
+    app: &mut App,
+    db_path: &Path,
+    key: &std::sync::Arc<libllm_core::crypto::DerivedKey>,
+) -> Result<(), libllm_storage::error::DbError> {
+    let db = Database::open(db_path, Some(key))?;
+    if let Err(e) = db.ensure_builtin_prompts() {
+        app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
+    }
+    libllm_core::preset::ensure_default_presets(
+        &libllm_config::instruct_presets_dir(),
+        &libllm_config::reasoning_presets_dir(),
+        &libllm_config::template_presets_dir(),
+    );
+    let id = match &app.save_mode {
+        SaveMode::PendingPasskey { id } => id.clone(),
+        _ => session::generate_session_id(),
+    };
+    app.db = Some(db);
+    app.save_mode = SaveMode::Database { id };
+    business::load_active_persona(app);
+    business::load_active_card_author_note(app);
+    Ok(())
+}
+
+fn install_file_summarizer(
+    app: &mut App,
+    db_path: &Path,
+    key: &std::sync::Arc<libllm_core::crypto::DerivedKey>,
+) {
+    match business::build_file_summarizer(
+        db_path,
+        Some(key),
+        &app.config,
+        &app.cli_overrides,
+        app.file_summary.ready_tx.clone(),
+    ) {
+        Ok(fs) => app.file_summary.summarizer = Some(fs),
+        Err(err) => {
+            tracing::error!(
+                error = %err,
+                "tui.file_summarizer.construct.late_failed"
+            );
+            app.set_status(
+                format!("File summaries disabled: {err}"),
+                StatusLevel::Warning,
+            );
+        }
+    }
+}
+
 pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
     match event {
         BackgroundEvent::KeyDerived(key, db_path) => {
@@ -50,45 +104,11 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
                     "unlock.phase"
                 );
             }
-            match Database::open(&db_path, Some(&key)) {
-                Ok(db) => {
-                    if let Err(e) = db.ensure_builtin_prompts() {
-                        app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
-                    }
-                    libllm_core::preset::ensure_default_presets(
-                        &libllm_config::instruct_presets_dir(),
-                        &libllm_config::reasoning_presets_dir(),
-                        &libllm_config::template_presets_dir(),
-                    );
-                    let id = match &app.save_mode {
-                        SaveMode::PendingPasskey { id } => id.clone(),
-                        _ => session::generate_session_id(),
-                    };
-                    app.db = Some(db);
-                    app.save_mode = SaveMode::Database { id };
-                    business::load_active_persona(app);
-                    business::load_active_card_author_note(app);
+            match open_database_and_bootstrap(app, &db_path, &key) {
+                Ok(()) => {
                     app.invalidate_worldbook_cache();
                     app.invalidate_chat_render_cache();
-                    match business::build_file_summarizer(
-                        &db_path,
-                        Some(&key),
-                        &app.config,
-                        &app.cli_overrides,
-                        app.file_summary.ready_tx.clone(),
-                    ) {
-                        Ok(fs) => app.file_summary.summarizer = Some(fs),
-                        Err(err) => {
-                            tracing::error!(
-                                error = %err,
-                                "tui.file_summarizer.construct.late_failed"
-                            );
-                            app.set_status(
-                                format!("File summaries disabled: {err}"),
-                                StatusLevel::Warning,
-                            );
-                        }
-                    }
+                    install_file_summarizer(app, &db_path, &key);
                     app.passkey.deriving = false;
                     post_passkey_focus(app);
                     business::refresh_sidebar(app);
@@ -130,49 +150,15 @@ pub(crate) fn handle_background_event(event: BackgroundEvent, app: &mut App) {
             app.invalidate_chat_render_cache();
             if app.set_passkey.is_initial {
                 let db_path = libllm_config::data_dir().join("data.db");
-                match Database::open(&db_path, Some(&new_key)) {
-                    Ok(db) => {
-                        if let Err(e) = db.ensure_builtin_prompts() {
-                            app.set_status(format!("Warning: {e}"), StatusLevel::Warning);
-                        }
-                        libllm_core::preset::ensure_default_presets(
-                            &libllm_config::instruct_presets_dir(),
-                            &libllm_config::reasoning_presets_dir(),
-                            &libllm_config::template_presets_dir(),
-                        );
-                        let id = match &app.save_mode {
-                            SaveMode::PendingPasskey { id } => id.clone(),
-                            _ => session::generate_session_id(),
-                        };
-                        app.db = Some(db);
-                        app.save_mode = SaveMode::Database { id };
-                        business::load_active_persona(app);
-                        business::load_active_card_author_note(app);
+                match open_database_and_bootstrap(app, &db_path, &new_key) {
+                    Ok(()) => {
                         if let Err(e) = libllm_config::save(&app.config) {
                             app.set_status(
                                 format!("Failed to write default config: {e}"),
                                 StatusLevel::Warning,
                             );
                         }
-                        match business::build_file_summarizer(
-                            &db_path,
-                            Some(&new_key),
-                            &app.config,
-                            &app.cli_overrides,
-                            app.file_summary.ready_tx.clone(),
-                        ) {
-                            Ok(fs) => app.file_summary.summarizer = Some(fs),
-                            Err(err) => {
-                                tracing::error!(
-                                    error = %err,
-                                    "tui.file_summarizer.construct.late_failed"
-                                );
-                                app.set_status(
-                                    format!("File summaries disabled: {err}"),
-                                    StatusLevel::Warning,
-                                );
-                            }
-                        }
+                        install_file_summarizer(app, &db_path, &new_key);
                         post_passkey_focus(app);
                         business::refresh_sidebar(app);
                     }

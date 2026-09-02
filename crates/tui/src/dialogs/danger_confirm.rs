@@ -9,7 +9,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::types::{App, DangerOp, Focus, StatusLevel};
 
-use super::delete_confirm::ConfirmResult;
+use super::delete_confirm::{ConfirmResult, handle_confirm_key};
 use super::{clear_centered, dialog_block};
 
 pub(crate) fn render_danger_confirm(f: &mut Frame, area: Rect, op: DangerOp, selected: usize) {
@@ -94,7 +94,7 @@ pub(crate) fn render_danger_confirm(f: &mut Frame, area: Rect, op: DangerOp, sel
 
 pub(crate) fn handle_dialog_key(key: KeyEvent, app: &mut App) -> Option<crate::types::Action> {
     let mut sel = app.danger.confirm_selected.unwrap_or(0);
-    let r = super::delete_confirm::handle_confirm_key(key, &mut sel);
+    let r = handle_confirm_key(key, &mut sel);
     app.danger.confirm_selected = Some(sel);
     match r {
         ConfirmResult::Pending => {}

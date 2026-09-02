@@ -9,7 +9,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
-use super::delete_confirm::ConfirmResult;
+use super::delete_confirm::{ConfirmResult, handle_confirm_key};
 use super::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::dialog_handler::return_to_input;
 use crate::{Action, App};
@@ -100,7 +100,7 @@ pub(crate) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
         return None;
     };
 
-    let insert_text = match super::delete_confirm::handle_confirm_key(key, &mut state.selected) {
+    let insert_text = match handle_confirm_key(key, &mut state.selected) {
         ConfirmResult::Pending => return None,
         ConfirmResult::Confirmed => state.token.clone(),
         ConfirmResult::Cancelled => state.raw.clone(),

@@ -63,7 +63,7 @@ use tui_textarea::TextArea;
 use super::render::{clear_centered, dialog_block, render_hints_below_dialog};
 use crate::types::{App, StatusLevel};
 
-pub(crate) const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
+const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
 pub(crate) const MAX_NAME_LENGTH: usize = 32;
 const MAX_PASSKEY_LENGTH: usize = 128;
 
@@ -86,7 +86,7 @@ pub(crate) fn generate_unique_name(
     }
 }
 
-pub(crate) fn sanitize_import_name(raw: &str) -> Option<String> {
+fn sanitize_import_name(raw: &str) -> Option<String> {
     let cleaned: String = raw
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
@@ -101,7 +101,7 @@ pub(crate) fn sanitize_import_name(raw: &str) -> Option<String> {
 /// Returns the sanitized import name and the file body, or `None` after setting a
 /// status message when the extension is not txt, the file exceeds the import cap,
 /// the filename yields no name, or the file cannot be read.
-pub(crate) fn import_txt_file(
+fn import_txt_file(
     path: &std::path::Path,
     ext: &str,
     kind: &str,
@@ -147,7 +147,7 @@ pub(crate) fn import_txt_file(
 
 const REJECT_FLASH_DURATION: std::time::Duration = std::time::Duration::from_millis(150);
 
-pub(crate) fn is_save_shortcut(key: &KeyEvent) -> bool {
+fn is_save_shortcut(key: &KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
 }
@@ -156,7 +156,7 @@ pub(crate) fn is_flash_active(flash: Option<std::time::Instant>) -> bool {
     flash.is_some_and(|t| t.elapsed() < REJECT_FLASH_DURATION)
 }
 
-pub(crate) fn masked_and_truncated(len: usize, max_visible: usize) -> String {
+fn masked_and_truncated(len: usize, max_visible: usize) -> String {
     "*".repeat(len.min(max_visible))
 }
 

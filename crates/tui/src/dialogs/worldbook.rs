@@ -65,16 +65,10 @@ pub(super) fn editor_entry_labels(entries: &[libllm_core::worldinfo::Entry]) -> 
 
 const ENTRY_KEYS_DISPLAY_BYTES: usize = 40;
 
-/// Shortens the joined key list to at most `ENTRY_KEYS_DISPLAY_BYTES` bytes, cutting on a
-/// character boundary and appending "..." when anything was removed.
+/// Keeps at most `ENTRY_KEYS_DISPLAY_BYTES` bytes of the joined key list and appends
+/// "..." when anything was removed.
 fn truncated_entry_keys(entry: &libllm_core::worldinfo::Entry) -> String {
-    let keys_str = entry_keys(entry);
-    if keys_str.len() > ENTRY_KEYS_DISPLAY_BYTES {
-        let end = keys_str.floor_char_boundary(ENTRY_KEYS_DISPLAY_BYTES);
-        format!("{}...", &keys_str[..end])
-    } else {
-        keys_str
-    }
+    libllm_core::text::truncate_bytes_with_ellipsis(&entry_keys(entry), ENTRY_KEYS_DISPLAY_BYTES)
 }
 
 pub(crate) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {

@@ -6,14 +6,18 @@ use std::io::{self, IsTerminal, Write};
 
 const LEGACY_DIRS: [&str; 5] = ["sessions", "characters", "worldinfo", "system", "personas"];
 
+fn legacy_dir_populated(data_dir: &std::path::Path, dir: &str) -> bool {
+    let path = data_dir.join(dir);
+    path.is_dir()
+        && std::fs::read_dir(&path)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
+}
+
 pub(crate) fn has_legacy_data(data_dir: &std::path::Path) -> bool {
-    LEGACY_DIRS.iter().any(|dir| {
-        let path = data_dir.join(dir);
-        path.is_dir()
-            && std::fs::read_dir(&path)
-                .map(|mut d| d.next().is_some())
-                .unwrap_or(false)
-    })
+    LEGACY_DIRS
+        .iter()
+        .any(|dir| legacy_dir_populated(data_dir, dir))
 }
 
 pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) -> Result<()> {
@@ -34,15 +38,9 @@ pub async fn check_and_run_migration(no_encrypt: bool, passkey: Option<&str>) ->
 
     let legacy_dirs_found = LEGACY_DIRS
         .iter()
-        .filter(|dir| {
-            let path = data_dir.join(dir);
-            path.is_dir()
-                && std::fs::read_dir(&path)
-                    .map(|mut d| d.next().is_some())
-                    .unwrap_or(false)
-        })
+        .filter(|dir| legacy_dir_populated(&data_dir, dir))
         .count();
-    let has_legacy = has_legacy_data(&data_dir);
+    let has_legacy = legacy_dirs_found > 0;
 
     tracing::debug!(
         phase = "check",

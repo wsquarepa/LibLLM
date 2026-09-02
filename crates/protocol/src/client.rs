@@ -999,6 +999,34 @@ mod tests {
     }
 
     #[test]
+    fn empty_required_field_display_names_variant_and_field() {
+        let err = AuthError::EmptyRequiredField {
+            variant: AuthKind::Basic,
+            field: "username",
+        };
+        assert_eq!(
+            err.to_string(),
+            format!("auth {}: username is required", AuthKind::Basic)
+        );
+    }
+
+    #[test]
+    fn invalid_header_name_display_wraps_source_message() {
+        let inner = HeaderName::from_bytes(b"bad header").expect_err("space is invalid");
+        let expected = format!("invalid header name: {inner}");
+        let err = AuthError::InvalidHeaderName(inner);
+        assert_eq!(err.to_string(), expected);
+    }
+
+    #[test]
+    fn invalid_header_value_display_wraps_source_message() {
+        let inner = HeaderValue::from_str("bad\nvalue").expect_err("newline is invalid");
+        let expected = format!("invalid header value: {inner}");
+        let err = AuthError::InvalidHeaderValue(inner);
+        assert_eq!(err.to_string(), expected);
+    }
+
+    #[test]
     fn apply_none_adds_no_headers() {
         let client = test_client();
         let req = apply_auth(&Auth::None, client.post("http://example.com/"))

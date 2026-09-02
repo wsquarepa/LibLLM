@@ -23,6 +23,10 @@ impl libllm_core::files::FileSummaryLookup for SnapshotFileSummaryLookup {
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "worldbook_cache is set to Some in the cache_stale branch or was already Some"
+)]
 pub(crate) fn loaded_worldbooks(app: &mut App) -> Vec<libllm_core::worldinfo::RuntimeWorldBook> {
     let enabled_names = business::enabled_worldbook_names(app.session, &app.config);
     let cache_stale = app
@@ -586,6 +590,10 @@ pub(crate) async fn start_group_chat_loop(app: &mut App<'_>, sender: &mpsc::Send
 /// - `Directed`: no auto-speak; loop exits immediately.
 /// - `RoundRobin` / `WeightedRandom`: pick once with no budget, run one turn, then exit.
 /// - `ActionValue`: cascade with forced first turn (no budget) then budget-gated turns.
+#[expect(
+    clippy::expect_used,
+    reason = "loop_rng is Some, guarded by the is_none() early return at the top"
+)]
 pub(crate) async fn continue_group_chat_loop(
     app: &mut App<'_>,
     sender: &mpsc::Sender<StreamToken>,
@@ -823,6 +831,10 @@ pub(crate) async fn start_retry_streaming(
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "a user message was pushed before the stream started, so the tree has a head node"
+)]
 pub(crate) async fn handle_stream_token(
     token: StreamToken,
     app: &mut App<'_>,

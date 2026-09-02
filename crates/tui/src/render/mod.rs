@@ -326,6 +326,10 @@ pub fn render_hints_below_dialog(
     f.render_widget(paragraph, hint_area);
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the sidebar cache is rebuilt above before it is read"
+)]
 pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     let selected_idx = app.sidebar.list_state.selected();
     let filter_query = app.sidebar.search.query.clone();
@@ -454,6 +458,10 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, list_area, &mut local_state);
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "cache is Some: either just assigned in the miss branch or already Some in the hit branch"
+)]
 pub fn render_chat(
     f: &mut ratatui::Frame,
     app: &App,

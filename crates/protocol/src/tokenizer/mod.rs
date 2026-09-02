@@ -2,7 +2,7 @@
 //! `/api/extra/tokencount`, with a heuristic fallback.
 
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use crate::error::{ApiError, Result};
@@ -149,6 +149,13 @@ const DEFAULT_CACHE_CAPACITY: usize = 512;
 
 /// Facade over `TokenizerBackend` that exposes a sync read API and an async refresh pipeline.
 /// Lives on `App`; cloned refs are cheap (all internals are `Arc`-wrapped).
+/// A poisoned lock means another thread panicked while holding it. The cache, the
+/// pending set, and the last-authoritative slot have no cross-operation invariant a
+/// half-finished update could break, so recover the guard instead of cascading the panic.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 #[derive(Clone)]
 pub struct TokenCounter {
     backend: Arc<TokenizerBackend>,
@@ -166,6 +173,10 @@ impl TokenCounter {
         backend: TokenizerBackend,
         refresh_tx: mpsc::Sender<TokenCountUpdate>,
     ) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "DEFAULT_CACHE_CAPACITY is a non-zero constant"
+        )]
         let capacity =
             NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).expect("cache capacity must be non-zero");
         Self {
@@ -269,17 +280,12 @@ impl TokenCounter {
     pub fn count_cached(&self, text: &str, message_count: usize) -> CountState {
         let key = Self::hash_key(text);
 
-        if let Some(&n) = self
-            .cache
-            .lock()
-            .expect("tokenizer cache poisoned")
-            .get(&key)
-        {
+        if let Some(&n) = lock(&self.cache).get(&key) {
             return CountState::Authoritative(n);
         }
 
         let should_dispatch = {
-            let mut pending = self.pending.lock().expect("tokenizer pending poisoned");
+            let mut pending = lock(&self.pending);
             pending.insert(key)
         };
 
@@ -288,10 +294,7 @@ impl TokenCounter {
         }
 
         let is_server_backend = !self.is_heuristic();
-        let last = *self
-            .last_authoritative
-            .lock()
-            .expect("tokenizer last_authoritative poisoned");
+        let last = *lock(&self.last_authoritative);
         match (is_server_backend, last) {
             (true, Some(n)) => CountState::Stale(n),
             _ => CountState::Estimated(self.fallback.count(text, message_count)),
@@ -301,23 +304,12 @@ impl TokenCounter {
     /// Async read used by pre-send. Awaits the backend directly on a miss, writes result to cache.
     pub async fn count_authoritative(&self, text: &str) -> Result<usize> {
         let key = Self::hash_key(text);
-        if let Some(&n) = self
-            .cache
-            .lock()
-            .expect("tokenizer cache poisoned")
-            .get(&key)
-        {
+        if let Some(&n) = lock(&self.cache).get(&key) {
             return Ok(n);
         }
         let n = self.backend.count(text).await?;
-        self.cache
-            .lock()
-            .expect("tokenizer cache poisoned")
-            .put(key, n);
-        *self
-            .last_authoritative
-            .lock()
-            .expect("tokenizer last_authoritative poisoned") = Some(n);
+        lock(&self.cache).put(key, n);
+        *lock(&self.last_authoritative) = Some(n);
         Ok(n)
     }
 
@@ -331,19 +323,10 @@ impl TokenCounter {
     /// Called by the main event loop when a `TokenCountUpdate` arrives from a background task.
     /// Writes successful counts into the cache. Errors are already logged by the refresh task.
     pub fn apply_update(&self, update: TokenCountUpdate) {
-        self.pending
-            .lock()
-            .expect("tokenizer pending poisoned")
-            .remove(&update.key);
+        lock(&self.pending).remove(&update.key);
         if let Ok(n) = update.result {
-            self.cache
-                .lock()
-                .expect("tokenizer cache poisoned")
-                .put(update.key, n);
-            *self
-                .last_authoritative
-                .lock()
-                .expect("tokenizer last_authoritative poisoned") = Some(n);
+            lock(&self.cache).put(update.key, n);
+            *lock(&self.last_authoritative) = Some(n);
         }
     }
 
@@ -364,10 +347,7 @@ impl TokenCounter {
             }
             if tx.send(TokenCountUpdate { key, result }).await.is_err() {
                 // Main loop is gone; clear pending so we don't leak the key.
-                pending
-                    .lock()
-                    .expect("tokenizer pending poisoned")
-                    .remove(&key);
+                lock(&pending).remove(&key);
             }
         });
     }
@@ -375,10 +355,7 @@ impl TokenCounter {
     #[cfg(test)]
     pub(crate) fn insert_cached_for_test(&self, text: &str, count: usize) {
         let key = Self::hash_key(text);
-        self.cache
-            .lock()
-            .expect("tokenizer cache poisoned")
-            .put(key, count);
+        lock(&self.cache).put(key, count);
     }
 }
 

@@ -272,6 +272,10 @@ fn load_builtin_instruct(name: &str) -> Option<InstructPreset> {
 ///
 /// The special name "Raw" returns a minimal preset with newline-only suffixes. Legacy
 /// aliases like "chatml" are mapped to their canonical names.
+#[expect(
+    clippy::expect_used,
+    reason = "the default preset is embedded at compile time; a parse failure is a build defect"
+)]
 pub fn resolve_instruct_preset(name: &str, presets_dir: &Path) -> InstructPreset {
     if name.eq_ignore_ascii_case("raw") {
         return InstructPreset::raw();

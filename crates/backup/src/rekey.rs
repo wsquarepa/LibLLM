@@ -64,6 +64,10 @@ pub fn delete_journal(backups_dir: &Path) -> Result<()> {
 /// Rewrap all active chains from old_kek to new_kek, stage a sidecar copy of
 /// the current index, and write both the new index and the journal. Does NOT
 /// rekey the database — the caller must do that next, then call finalize_rekey.
+#[expect(
+    clippy::expect_used,
+    reason = "rewrapped entries were read from this index and no entry is removed in between"
+)]
 pub fn prepare_rekey(data_dir: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) -> Result<()> {
     let backups_dir = data_dir.join("backups");
     if !backups_dir.exists() {

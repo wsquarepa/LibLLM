@@ -31,6 +31,7 @@ pub(super) struct BannerContext<'a> {
     pub wall_clock: &'a str,
 }
 
+#[expect(clippy::expect_used, reason = "fmt::Write for String is infallible")]
 pub(super) fn render(ctx: &BannerContext<'_>) -> String {
     let mut out = String::with_capacity(2048);
     let border = "=".repeat(80);
@@ -121,6 +122,7 @@ fn build_descriptor(build: &BuildInfo) -> String {
     }
 }
 
+#[expect(clippy::expect_used, reason = "fmt::Write for String is infallible")]
 fn write_row(out: &mut String, label: &str, value: &str) {
     writeln!(out, " {:<13} {}", label, value)
         .expect("writing to an in-memory String is infallible");

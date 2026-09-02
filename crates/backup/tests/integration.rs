@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers: a failed setup step should panic at its call site"
+)]
+
 use std::path::Path;
 use std::time::Duration;
 

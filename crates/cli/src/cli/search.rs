@@ -58,6 +58,10 @@ fn open_db(args: &Args) -> Result<Database> {
     Ok(db)
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "message timestamps were written by this app and are within the RFC 3339 range"
+)]
 fn write_text(hits: &[search::SearchHit], full: bool) -> Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
@@ -109,6 +113,10 @@ fn render_hl(input: &str, tty: bool) -> String {
     out
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "message timestamps were written by this app and are within the RFC 3339 range"
+)]
 fn write_json(hits: &[search::SearchHit]) -> Result<()> {
     let entries: Vec<serde_json::Value> = hits
         .iter()

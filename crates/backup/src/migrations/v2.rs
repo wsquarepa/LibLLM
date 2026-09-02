@@ -15,6 +15,10 @@ pub(super) fn migrate(
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "entry ids were collected from this index and no entry is removed during migration"
+)]
 fn migrate_encrypted(index: &mut BackupIndex, backups_dir: &Path, kek: &[u8; 32]) -> Result<()> {
     let fingerprint = compute_kek_fingerprint(kek);
     let chain_roots: Vec<String> = index

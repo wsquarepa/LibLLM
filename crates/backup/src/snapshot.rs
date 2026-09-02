@@ -16,6 +16,10 @@ use crate::index::{
 ///
 /// Automatically decides between a base and diff snapshot based on the rebase threshold
 /// and hard ceiling in `config`. Runs retention thinning after writing the snapshot.
+#[expect(
+    clippy::expect_used,
+    reason = "kek_fingerprint and existing_chain_dek are resolved above whenever backup_key is present"
+)]
 pub fn create_snapshot(
     data_dir: &Path,
     passkey: Option<&str>,
@@ -235,6 +239,10 @@ fn build_payload(
 ///   honest warning; the DEK is gone with the lost index and cannot be recovered.
 ///
 /// When `passkey` is `None`, all encrypted entries are skipped with a warning.
+#[expect(
+    clippy::expect_used,
+    reason = "backup_key is Some on that path: the None case continued above"
+)]
 pub fn rebuild_index(
     backups_dir: &Path,
     passkey: Option<&str>,

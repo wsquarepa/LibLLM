@@ -765,6 +765,10 @@ impl<'a> TabbedFieldDialog<'a> {
 
     /// Extend or start a text selection in the active multiline editor.
     /// Returns true if a drag was consumed.
+    #[expect(
+        clippy::expect_used,
+        reason = "drag events reach the editor only while it is open"
+    )]
     pub fn handle_mouse_drag(
         &mut self,
         terminal_area: Rect,
@@ -846,6 +850,10 @@ impl<'a> TabbedFieldDialog<'a> {
         None
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "called only while editing, which requires editor to be Some"
+    )]
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let editor = self.editor.as_ref().expect("render_with_editor is only called when self.editing is true, which requires editor to be Some");
         let tab = self.current_tab;

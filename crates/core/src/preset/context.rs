@@ -140,6 +140,10 @@ fn load_builtin_template(name: &str) -> Option<ContextPreset> {
 }
 
 /// Resolves a context template preset by name, falling back to the "Default" builtin.
+#[expect(
+    clippy::expect_used,
+    reason = "the default preset is embedded at compile time; a parse failure is a build defect"
+)]
 pub fn resolve_template_preset(name: &str, presets_dir: &Path) -> ContextPreset {
     if let Some(preset) = load_json_from_dir(presets_dir, name) {
         return preset;

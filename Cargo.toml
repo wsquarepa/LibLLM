@@ -12,6 +12,8 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 allow_attributes = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
 
 [workspace.dependencies]
 libllm-tui = { path = "crates/tui" }

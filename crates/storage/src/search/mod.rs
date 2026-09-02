@@ -71,6 +71,10 @@ pub fn search(
     result
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "message timestamps were written by this crate and are within the RFC 3339 range"
+)]
 fn run(
     conn: &rusqlite::Connection,
     query: &CompiledQuery,

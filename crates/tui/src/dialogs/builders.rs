@@ -125,6 +125,10 @@ const ENTRY_EDITOR_FIELDS: &[&str] = &[
 const ENTRY_EDITOR_MULTILINE: &[usize] = &[1];
 const ENTRY_EDITOR_PLACEHOLDER_FIELDS: &[usize] = &[0, 3];
 
+#[expect(
+    clippy::expect_used,
+    reason = "sections and locked are built from exactly six config sections above"
+)]
 pub fn open_config_editor(
     sections: Vec<Vec<String>>,
     locked: Vec<Vec<usize>>,

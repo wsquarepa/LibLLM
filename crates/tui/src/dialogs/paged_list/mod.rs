@@ -519,10 +519,7 @@ fn format_title(
     unfiltered_total: Option<usize>,
 ) -> String {
     let trimmed = base.trim_end();
-    let is_filtered = unfiltered_total.is_some_and(|u| u > total);
-
-    if is_filtered {
-        let unfiltered = unfiltered_total.unwrap();
+    if let Some(unfiltered) = unfiltered_total.filter(|&u| u > total) {
         let display_position = if total == 0 {
             0
         } else {

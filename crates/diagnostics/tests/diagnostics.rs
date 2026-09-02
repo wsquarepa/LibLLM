@@ -31,6 +31,10 @@ fn banner_and_event_lines_are_rendered() {
     assert_log_matches_shape(&log_path);
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "test helper: an unreadable log is a failed assertion"
+)]
 fn assert_log_matches_shape(path: &Path) {
     let contents = std::fs::read_to_string(path).expect("read log");
     let first = contents.lines().next().expect("empty log");

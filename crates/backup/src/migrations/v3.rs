@@ -9,6 +9,10 @@ use crate::index::{BackupIndex, BackupType, save_index};
 /// header are left untouched (size/hash may still be reconciled). The KEK is
 /// required for encrypted indexes both to gate the rewrite and to authenticate
 /// any pre-existing header before reconciling metadata.
+#[expect(
+    clippy::expect_used,
+    reason = "entry ids were collected from this index and no entry is removed during migration"
+)]
 pub(super) fn migrate(
     index: &mut BackupIndex,
     backups_dir: &Path,

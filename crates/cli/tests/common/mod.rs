@@ -1,3 +1,9 @@
+#![expect(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "test helpers: a failed setup step should panic at its call site"
+)]
+
 use std::path::{Path, PathBuf};
 
 use libllm_core::character::CharacterCard;

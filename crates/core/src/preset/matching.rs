@@ -147,9 +147,9 @@ pub fn render_jinja(template: &str, ctx: &CanonicalContext) -> Result<String, Re
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Lenient);
     env.set_fuel(Some(RENDER_FUEL));
-    env.add_template("chat", template)
+    let tmpl = env
+        .template_from_str(template)
         .map_err(RenderTemplateError::Parse)?;
-    let tmpl = env.get_template("chat").expect("just added");
     let value = Value::from_serialize(serde_json::json!({
         "messages": ctx.messages,
         "bos_token": ctx.bos_token,

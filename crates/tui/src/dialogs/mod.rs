@@ -377,6 +377,10 @@ impl<'a> FieldDialog<'a> {
 
     const LABEL_PREFIX_WIDTH: usize = 24;
 
+    #[expect(
+        clippy::expect_used,
+        reason = "placeholder is Some whenever show_placeholder is true"
+    )]
     fn render_fields(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let mut lines: Vec<Line> = vec![Line::from("")];
 
@@ -493,6 +497,10 @@ impl<'a> FieldDialog<'a> {
         render_hints_below_dialog(f, dialog, area, &[Line::from(hint)]);
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "called only while editing, which requires editor to be Some"
+    )]
     fn render_with_editor(&self, f: &mut ratatui::Frame, dialog: Rect, area: Rect) {
         let editor = self.editor.as_ref().expect("render_with_editor is only called when self.editing is true, which requires editor to be Some");
         let label = self.labels[self.selected];
@@ -662,6 +670,10 @@ impl<'a> FieldDialog<'a> {
 
     /// Extend or start a text selection in the active multiline editor.
     /// Returns true if a drag was consumed.
+    #[expect(
+        clippy::expect_used,
+        reason = "drag events reach the editor only while it is open"
+    )]
     pub fn handle_mouse_drag(
         &mut self,
         terminal_area: Rect,

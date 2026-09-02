@@ -1,3 +1,8 @@
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a failed setup step should panic at its call site"
+)]
+
 #[expect(
     dead_code,
     reason = "each test binary uses a different subset of common helpers"

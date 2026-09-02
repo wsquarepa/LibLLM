@@ -107,6 +107,10 @@ pub fn chmod_0600(path: &Path) -> std::io::Result<()> {
 /// Production: `m_cost=65536 KiB, t_cost=3, p_cost=1, output=32`. Under `cfg(test)`
 /// or the `test-support` feature, reduced to `m_cost=8, t_cost=1, p_cost=1` so the
 /// test suite does not pay a multi-second KDF per encrypted-database open.
+#[expect(
+    clippy::expect_used,
+    reason = "the Argon2 constants are fixed at compile time; rejection by argon2 is a build defect"
+)]
 pub fn argon2_params() -> argon2::Params {
     argon2::Params::new(
         ARGON2_MEM_KIB,

@@ -108,6 +108,10 @@ pub(crate) fn replay_chain(
 /// is written as an encrypted SQLCipher database using the DB key derived from that passkey.
 /// When `passkey` is None, backup files are read as plaintext and the restored database is
 /// written as a plaintext SQLite file.
+#[expect(
+    clippy::expect_used,
+    reason = "chain_to returns at least the target entry"
+)]
 pub fn restore_to_point(
     data_dir: &Path,
     target_id: &str,

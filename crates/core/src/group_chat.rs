@@ -215,6 +215,10 @@ pub fn validate_group_chat_args(
 
     let mut seen: HashMap<String, String> = HashMap::new();
     for slug in characters {
+        #[expect(
+            clippy::expect_used,
+            reason = "every slug was checked against card_names_by_slug in the loop above"
+        )]
         let name = card_names_by_slug.get(slug).expect("checked above");
         let key = name.to_lowercase();
         if let Some(other_slug) = seen.get(&key) {
@@ -534,6 +538,10 @@ pub fn decide_next_speaker(
     })
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "callers pass a non-empty candidate list; the loop always returns before the fallback unless float rounding leaves roll slightly above total"
+)]
 fn weighted_pick(candidates: &[usize], weights: &[f32], rng: &mut impl Rng) -> usize {
     let candidate_weights: Vec<f32> = candidates.iter().map(|&i| weights[i].max(0.0)).collect();
     let total: f32 = candidate_weights.iter().sum();

@@ -18,7 +18,9 @@ pub fn redact_error_text(s: &str) -> String {
             i = url_end;
             continue;
         }
-        let ch = s[i..].chars().next().expect("i < s.len()");
+        let Some(ch) = s[i..].chars().next() else {
+            break;
+        };
         out.push(ch);
         i += ch.len_utf8();
     }

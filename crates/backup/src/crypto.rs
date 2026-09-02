@@ -112,6 +112,10 @@ const FINGERPRINT_LEN: usize = 16;
 
 /// Derives a 16-byte non-reversible fingerprint of a KEK, rendered as
 /// 32 lowercase hex chars. Stable across rewraps of the same underlying key.
+#[expect(
+    clippy::expect_used,
+    reason = "HKDF-SHA256 can expand to 16 bytes, and fmt::Write for String is infallible"
+)]
 pub fn compute_kek_fingerprint(kek: &[u8; 32]) -> String {
     let hk = Hkdf::<Sha256>::new(None, kek);
     let mut out = [0u8; FINGERPRINT_LEN];

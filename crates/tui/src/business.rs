@@ -81,6 +81,7 @@ pub(super) fn predict_next_speaker(app: &App) -> Option<String> {
 /// Falls back to the builtin assistant or roleplay prompt when the session has no explicit
 /// system prompt. Appends persona description when a character session has a persona set.
 /// Returns `None` when neither a base prompt nor a persona is available.
+#[expect(clippy::expect_used, reason = "has_persona is persona.is_some()")]
 pub fn build_effective_system_prompt(session: &Session, db: Option<&Database>) -> Option<String> {
     let is_character = session.character.is_some();
 

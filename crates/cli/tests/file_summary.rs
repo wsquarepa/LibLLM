@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers: a failed setup step should panic at its call site"
+)]
+
 //! Integration tests for the file-summary cache feature.
 
 #[path = "common/mod.rs"]

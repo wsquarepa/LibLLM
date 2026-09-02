@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers: a failed setup step should panic at its call site"
+)]
+
 //! Integration tests for Danger tab synchronous dispatch operations.
 //! Drives the libllm-level functions directly; the full TUI flow is exercised
 //! in `danger_subprocess.rs` for Destroy All Data.

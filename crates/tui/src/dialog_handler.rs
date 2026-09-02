@@ -9,6 +9,10 @@ use libllm_core::session::{Message, Role};
 use super::types::*;
 use super::{business, dialogs, maintenance};
 
+#[expect(
+    clippy::expect_used,
+    reason = "a stream is only cancelled after a user message gave the tree a head node"
+)]
 pub(super) fn cancel_generation(app: &mut App) {
     if let Some(handle) = app.streaming.task.take() {
         handle.abort();
@@ -362,6 +366,10 @@ pub(super) fn handle_field_dialog_key(
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "each DialogKind arm runs only while its editor is open, so the editor Option is Some"
+)]
 pub(super) fn commit_field_dialog(app: &mut App, kind: DialogKind) -> Option<Action> {
     match kind {
         DialogKind::Config => unreachable!(),

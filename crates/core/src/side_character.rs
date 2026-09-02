@@ -25,7 +25,7 @@ pub fn split_user_input(raw: &str) -> Vec<String> {
     for (idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim_start();
         let is_blank = trimmed.is_empty();
-        if prev_blank && is_header_line(trimmed) {
+        if prev_blank && header_close_idx(trimmed).is_some() {
             header_indices.push(idx);
         }
         prev_blank = is_blank;
@@ -141,10 +141,7 @@ pub fn header_prefix_ranges(raw: &str) -> Vec<HeaderPrefix> {
             .unwrap_or(line.len());
         let trimmed = &line[leading_ws..];
         let is_blank = trimmed.is_empty();
-        if prev_blank && is_header_line(trimmed) {
-            let close_idx = trimmed
-                .find("]:")
-                .expect("is_header_line guarantees ]: is present");
+        if prev_blank && let Some(close_idx) = header_close_idx(trimmed) {
             out.push(HeaderPrefix {
                 line: idx,
                 start: leading_ws,
@@ -156,17 +153,14 @@ pub fn header_prefix_ranges(raw: &str) -> Vec<HeaderPrefix> {
     out
 }
 
-fn is_header_line(trimmed: &str) -> bool {
-    if trimmed.starts_with("\\[") {
-        return false;
+/// Returns the byte index of the `]:` that closes a `[Name]:` header line, or
+/// `None` when the line is not a header (escaped `\\[`, no leading `[`, or an
+/// empty name).
+fn header_close_idx(trimmed: &str) -> Option<usize> {
+    if trimmed.starts_with("\\[") || !trimmed.starts_with('[') {
+        return None;
     }
-    if !trimmed.starts_with('[') {
-        return false;
-    }
-    let Some(close_idx) = trimmed.find("]:") else {
-        return false;
-    };
-    close_idx > 1
+    trimmed.find("]:").filter(|&close_idx| close_idx > 1)
 }
 
 fn unescape_bracket_prefixes(text: &str) -> String {

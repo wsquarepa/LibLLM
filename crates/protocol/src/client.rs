@@ -159,6 +159,10 @@ impl ApiClient {
     /// Creates a new client targeting the given base URL (e.g. `http://localhost:5001/v1`).
     ///
     /// When `tls_skip_verify` is true, TLS certificate validation is disabled.
+    #[expect(
+        clippy::expect_used,
+        reason = "reqwest's builder fails only without a TLS backend; install_default_crypto_provider above guarantees one"
+    )]
     pub fn new(base_url: &str, tls_skip_verify: bool, auth: Auth) -> Self {
         crate::crypto_provider::install_default_crypto_provider();
         let client = reqwest::Client::builder()

@@ -409,6 +409,10 @@ fn cmd_config(app: &mut App) {
     app.focus = Focus::ConfigDialog;
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "sibling ids were read from the session tree"
+)]
 fn cmd_branch(app: &mut App) {
     let target = {
         let path_ids = app.session.tree.current_branch_ids();
@@ -827,6 +831,10 @@ fn cmd_report(app: &mut App) {
 /// and reject-flash decay.
 ///
 /// Returns `true` when any of these mutated state in a way that requires a redraw.
+#[expect(
+    clippy::expect_used,
+    reason = "guarded by the is_some() check on the same field"
+)]
 pub(crate) async fn run_periodic_tasks(
     app: &mut App<'_>,
     token_tx: mpsc::Sender<StreamToken>,

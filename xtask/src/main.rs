@@ -39,6 +39,10 @@ fn main() -> ExitCode {
 
 /// The xtask manifest is always at `<workspace_root>/xtask`, so the parent of
 /// `CARGO_MANIFEST_DIR` is the workspace root.
+#[expect(
+    clippy::expect_used,
+    reason = "the xtask manifest dir always has a parent"
+)]
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -143,7 +147,15 @@ fn run_step(log: &Arc<Mutex<File>>, log_path: &Path, args: &[&str]) -> Result<()
         .spawn()
         .map_err(|err| format!("failed to spawn `cargo {}`: {err}", args.join(" ")))?;
 
+    #[expect(
+        clippy::expect_used,
+        reason = "both handles were set to Stdio::piped above"
+    )]
     let stdout = child.stdout.take().expect("stdout is piped");
+    #[expect(
+        clippy::expect_used,
+        reason = "both handles were set to Stdio::piped above"
+    )]
     let stderr = child.stderr.take().expect("stderr is piped");
     let out_pump = pump(stdout, Box::new(io::stdout()), Arc::clone(log));
     let err_pump = pump(stderr, Box::new(io::stderr()), Arc::clone(log));
@@ -151,8 +163,18 @@ fn run_step(log: &Arc<Mutex<File>>, log_path: &Path, args: &[&str]) -> Result<()
     let status = child
         .wait()
         .map_err(|err| format!("failed to wait on `cargo {}`: {err}", args.join(" ")))?;
-    out_pump.join().expect("stdout pump thread panicked")?;
-    err_pump.join().expect("stderr pump thread panicked")?;
+    #[expect(
+        clippy::expect_used,
+        reason = "a panicking pump thread is a bug in xtask itself"
+    )]
+    let out_result = out_pump.join().expect("stdout pump thread panicked");
+    #[expect(
+        clippy::expect_used,
+        reason = "a panicking pump thread is a bug in xtask itself"
+    )]
+    let err_result = err_pump.join().expect("stderr pump thread panicked");
+    out_result?;
+    err_result?;
 
     if status.success() {
         Ok(())

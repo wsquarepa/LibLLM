@@ -62,6 +62,10 @@ impl FileSummarizer {
     /// Schedules summarisation for one file. Idempotent: if a row already
     /// exists for `(session_id, content_hash)`, no task is spawned. Silently
     /// skips scheduling when `shutdown()` has been called.
+    #[expect(
+        clippy::expect_used,
+        reason = "a poisoned conn mutex means a summarizer task panicked mid-write; the summarizer cannot continue"
+    )]
     pub fn schedule(&self, session_id: &str, file: &FileToSummarize) {
         if self.shutting_down.load(Ordering::SeqCst) {
             tracing::debug!(
@@ -221,6 +225,10 @@ impl FileSummarizer {
     /// Lazy-schedules any missing rows before waiting. Force-transitions
     /// stuck `pending` rows to `failed` after
     /// `per_file_timeout * files.len()` has elapsed.
+    #[expect(
+        clippy::expect_used,
+        reason = "a poisoned conn mutex means a summarizer task panicked mid-write; the summarizer cannot continue"
+    )]
     pub async fn ensure_ready(&self, session_id: &str, files: &[FileToSummarize]) -> Result<()> {
         if files.is_empty() {
             return Ok(());

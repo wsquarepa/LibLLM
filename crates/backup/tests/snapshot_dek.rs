@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers: a failed setup step should panic at its call site"
+)]
+
 use libllm_backup::crypto::{resolve_backup_key, unwrap_dek};
 use libllm_backup::index::{BackupType, FingerprintField, open_index};
 use libllm_backup::snapshot::create_snapshot;

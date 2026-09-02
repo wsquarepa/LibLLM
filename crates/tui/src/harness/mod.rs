@@ -1,6 +1,10 @@
 //! In-process verification harness for the TUI. Compiled only under the
 //! `test-support` feature. Boots `App` against a `ratatui` `TestBackend`,
 //! drives it with synthetic events, and exposes screen + state for assertions.
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a failed step should panic at its call site rather than thread a Result through every scenario"
+)]
 
 mod builder;
 mod mock_api;

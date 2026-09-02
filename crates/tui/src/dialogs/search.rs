@@ -296,6 +296,10 @@ fn render_separator(area: Rect, buf: &mut Buffer, theme: &Theme) {
         .render(area, buf);
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "message timestamps were written by this app and are within the RFC 3339 range"
+)]
 fn render_preview(state: &SearchDialogState, area: Rect, buf: &mut Buffer, theme: &Theme) {
     let Some(hit) = state.hits.get(state.selected) else {
         Paragraph::new("(no preview)")

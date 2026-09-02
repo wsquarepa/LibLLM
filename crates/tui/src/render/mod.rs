@@ -341,24 +341,21 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
             && cache.filter_active == filter_active
     });
 
-    if !cache_valid {
-        let display_names: Vec<String> = app
-            .sidebar
-            .sessions
-            .iter()
-            .map(|e| e.display_name.clone())
-            .collect();
-        let visible_indices: Vec<usize> = if app.sidebar.search.is_filtering() {
-            (0..app.sidebar.sessions.len())
-                .filter(|&i| {
-                    app.sidebar.sessions[i].is_new_chat
-                        || app.sidebar.search.matches(&display_names[i])
-                })
-                .collect()
-        } else {
-            (0..app.sidebar.sessions.len()).collect()
-        };
+    let visible_indices: Vec<usize> = if app.sidebar.search.is_filtering() {
+        (0..app.sidebar.sessions.len())
+            .filter(|&i| {
+                app.sidebar.sessions[i].is_new_chat
+                    || app
+                        .sidebar
+                        .search
+                        .matches(&app.sidebar.sessions[i].display_name)
+            })
+            .collect()
+    } else {
+        (0..app.sidebar.sessions.len()).collect()
+    };
 
+    if !cache_valid {
         let items: Vec<ListItem<'static>> = visible_indices
             .iter()
             .map(|&i| {
@@ -433,26 +430,10 @@ pub fn render_sidebar(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     .highlight_symbol("> ");
 
     let mut local_state = ListState::default();
-    if let Some(orig_idx) = selected_idx {
-        let display_names: Vec<String> = app
-            .sidebar
-            .sessions
-            .iter()
-            .map(|e| e.display_name.clone())
-            .collect();
-        let visible_indices: Vec<usize> = if app.sidebar.search.is_filtering() {
-            (0..app.sidebar.sessions.len())
-                .filter(|&i| {
-                    app.sidebar.sessions[i].is_new_chat
-                        || app.sidebar.search.matches(&display_names[i])
-                })
-                .collect()
-        } else {
-            (0..app.sidebar.sessions.len()).collect()
-        };
-        if let Some(pos) = visible_indices.iter().position(|&i| i == orig_idx) {
-            local_state.select(Some(pos));
-        }
+    if let Some(orig_idx) = selected_idx
+        && let Some(pos) = visible_indices.iter().position(|&i| i == orig_idx)
+    {
+        local_state.select(Some(pos));
     }
 
     f.render_stateful_widget(list, list_area, &mut local_state);

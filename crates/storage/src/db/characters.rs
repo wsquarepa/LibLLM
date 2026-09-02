@@ -165,7 +165,7 @@ pub fn list_characters(conn: &Connection) -> Result<Vec<(String, String)>> {
             "SELECT slug, name FROM characters ORDER BY name",
             "failed to list characters",
         )?;
-        tracing::info!(count = entries.len(), "db.character.list");
+        tracing::debug!(count = entries.len(), "db.character.list");
         Ok(entries)
     })
 }
@@ -210,7 +210,7 @@ pub fn update_character(conn: &Connection, slug: &str, card: &CharacterCard) -> 
                     context: "failed to update character".to_owned(),
                     source,
                 })?;
-            tracing::info!(slug = slug, affected = affected, "db.character.update");
+            tracing::debug!(slug = slug, affected = affected, "db.character.update");
             if affected == 0 {
                 return Err(DbError::CharacterNotFound { slug: slug.to_owned() });
             }
@@ -227,7 +227,7 @@ pub fn delete_character(conn: &Connection, slug: &str) -> Result<()> {
                 context: "failed to delete character".to_owned(),
                 source,
             })?;
-        tracing::info!(slug = slug, affected = affected, "db.character.delete");
+        tracing::debug!(slug = slug, affected = affected, "db.character.delete");
         if affected == 0 {
             return Err(DbError::CharacterNotFound { slug: slug.to_owned() });
         }

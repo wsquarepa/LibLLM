@@ -91,7 +91,7 @@ pub fn list_prompts(conn: &Connection) -> Result<Vec<PromptListEntry>> {
             })?);
         }
         let builtin_count = entries.iter().filter(|e| e.builtin).count();
-        tracing::info!(count = entries.len(), builtin_count = builtin_count, "db.prompt.list");
+        tracing::debug!(count = entries.len(), builtin_count = builtin_count, "db.prompt.list");
         Ok(entries)
     })
 }
@@ -114,7 +114,7 @@ pub fn update_prompt(conn: &Connection, slug: &str, prompt: &SystemPromptFile) -
                     context: "failed to update system prompt".to_owned(),
                     source,
                 })?;
-            tracing::info!(slug = slug, affected = affected, "db.prompt.update");
+            tracing::debug!(slug = slug, affected = affected, "db.prompt.update");
             if affected == 0 {
                 return Err(DbError::PromptNotFound { slug: slug.to_owned() });
             }
@@ -147,7 +147,7 @@ pub fn rename_prompt(
                     context: "failed to rename system prompt".to_owned(),
                     source,
                 })?;
-            tracing::info!(old_slug = old_slug, new_slug = new_slug, affected = affected, "db.prompt.rename");
+            tracing::debug!(old_slug = old_slug, new_slug = new_slug, affected = affected, "db.prompt.rename");
             if affected == 0 {
                 return Err(DbError::PromptNotFound { slug: old_slug.to_owned() });
             }
@@ -164,7 +164,7 @@ pub fn delete_prompt(conn: &Connection, slug: &str) -> Result<()> {
                 context: "failed to delete system prompt".to_owned(),
                 source,
             })?;
-        tracing::info!(slug = slug, affected = affected, "db.prompt.delete");
+        tracing::debug!(slug = slug, affected = affected, "db.prompt.delete");
         if affected == 0 {
             return Err(DbError::PromptNotFound { slug: slug.to_owned() });
         }
@@ -199,7 +199,7 @@ pub fn ensure_builtins(conn: &Connection) -> Result<()> {
                 existed += 1;
             }
         }
-        tracing::info!(inserted = inserted, existed = existed, "db.prompt.ensure_builtins");
+        tracing::debug!(inserted = inserted, existed = existed, "db.prompt.ensure_builtins");
         Ok(())
     })
 }

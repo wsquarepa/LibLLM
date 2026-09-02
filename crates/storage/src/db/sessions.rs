@@ -343,7 +343,7 @@ pub fn session_exists(conn: &Connection, id: &str) -> Result<bool> {
             context: "failed to check session existence".to_owned(),
             source,
         })?;
-    tracing::info!(
+    tracing::debug!(
         session_id = id,
         result = "ok",
         found = count > 0,
@@ -664,7 +664,7 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
                 source,
             })?);
         }
-        tracing::info!(session_count = entries.len(), "db.session.list");
+        tracing::debug!(session_count = entries.len(), "db.session.list");
         Ok(entries)
     })
 }
@@ -677,7 +677,7 @@ pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
                 context: "failed to delete session".to_owned(),
                 source,
             })?;
-        tracing::info!(session_id = id, affected = affected, "db.session.delete");
+        tracing::debug!(session_id = id, affected = affected, "db.session.delete");
         if affected == 0 {
             return Err(DbError::SessionNotFound { id: id.to_owned() });
         }
@@ -753,7 +753,7 @@ pub fn update_head(conn: &Connection, session_id: &str, head_id: Option<NodeId>)
             source,
         });
     match &result {
-        Ok(affected) => tracing::info!(
+        Ok(affected) => tracing::debug!(
             session_id = session_id,
             head_id = head_id_display,
             result = "ok",
@@ -786,7 +786,7 @@ pub fn update_preferred_child(
             source,
         });
     match &result {
-        Ok(affected) => tracing::info!(
+        Ok(affected) => tracing::debug!(
             session_id = session_id,
             parent_id = parent_id,
             child_id = child_id,

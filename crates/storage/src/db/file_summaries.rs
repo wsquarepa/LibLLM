@@ -39,7 +39,7 @@ pub fn insert_pending(
         })?;
     let inserted = changes == 1;
     if inserted {
-        tracing::info!(
+        tracing::debug!(
             session_id = %session_id,
             content_hash = %content_hash,
             basename = %basename,
@@ -70,7 +70,7 @@ pub fn set_done(
             source,
         })?;
     if n == 1 {
-        tracing::info!(
+        tracing::debug!(
             session_id = %session_id,
             content_hash = %content_hash,
             summary_bytes = summary.len(),
@@ -101,7 +101,7 @@ pub fn set_failed(conn: &Connection, session_id: &str, content_hash: &str) -> Re
             source,
         })?;
     if n == 1 {
-        tracing::info!(
+        tracing::debug!(
             session_id = %session_id,
             content_hash = %content_hash,
             "db.file_summaries.set_failed"

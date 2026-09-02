@@ -46,7 +46,7 @@ pub fn list_personas(conn: &Connection) -> Result<Vec<(String, String)>> {
             "SELECT slug, name FROM personas ORDER BY name",
             "failed to list personas",
         )?;
-        tracing::info!(count = entries.len(), "db.persona.list");
+        tracing::debug!(count = entries.len(), "db.persona.list");
         Ok(entries)
     })
 }
@@ -63,7 +63,7 @@ pub fn update_persona(conn: &Connection, slug: &str, persona: &PersonaFile) -> R
                 context: "failed to update persona".to_owned(),
                 source,
             })?;
-        tracing::info!(slug = slug, affected = affected, "db.persona.update");
+        tracing::debug!(slug = slug, affected = affected, "db.persona.update");
         if affected == 0 {
             return Err(DbError::PersonaNotFound { slug: slug.to_owned() });
         }
@@ -79,7 +79,7 @@ pub fn delete_persona(conn: &Connection, slug: &str) -> Result<()> {
                 context: "failed to delete persona".to_owned(),
                 source,
             })?;
-        tracing::info!(slug = slug, affected = affected, "db.persona.delete");
+        tracing::debug!(slug = slug, affected = affected, "db.persona.delete");
         if affected == 0 {
             return Err(DbError::PersonaNotFound { slug: slug.to_owned() });
         }

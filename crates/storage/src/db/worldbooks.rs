@@ -55,7 +55,7 @@ pub fn load_worldbook(conn: &Connection, slug: &str) -> Result<WorldBook> {
                 source,
             })?;
         let book = WorldBook { name, entries };
-        tracing::info!(slug = slug, entry_count = book.entries.len(), "db.worldbook.load");
+        tracing::debug!(slug = slug, entry_count = book.entries.len(), "db.worldbook.load");
         Ok(book)
     })
 }
@@ -67,7 +67,7 @@ pub fn list_worldbooks(conn: &Connection) -> Result<Vec<(String, String)>> {
             "SELECT slug, name FROM worldbooks ORDER BY name",
             "failed to list worldbooks",
         )?;
-        tracing::info!(count = entries.len(), "db.worldbook.list");
+        tracing::debug!(count = entries.len(), "db.worldbook.list");
         Ok(entries)
     })
 }
@@ -95,7 +95,7 @@ pub fn update_worldbook(conn: &Connection, slug: &str, book: &WorldBook) -> Resu
                     context: "failed to update worldbook".to_owned(),
                     source,
                 })?;
-            tracing::info!(slug = slug, affected = affected, "db.worldbook.update");
+            tracing::debug!(slug = slug, affected = affected, "db.worldbook.update");
             if affected == 0 {
                 return Err(DbError::WorldbookNotFound { slug: slug.to_owned() });
             }
@@ -112,7 +112,7 @@ pub fn delete_worldbook(conn: &Connection, slug: &str) -> Result<()> {
                 context: "failed to delete worldbook".to_owned(),
                 source,
             })?;
-        tracing::info!(slug = slug, affected = affected, "db.worldbook.delete");
+        tracing::debug!(slug = slug, affected = affected, "db.worldbook.delete");
         if affected == 0 {
             return Err(DbError::WorldbookNotFound { slug: slug.to_owned() });
         }

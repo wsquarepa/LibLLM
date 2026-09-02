@@ -145,20 +145,16 @@ pub(crate) fn handle_set_passkey_key(
             app.set_passkey.confirm.clear();
             app.set_passkey.error.clear();
             app.set_passkey.deriving = true;
-            app.unlock_debug = Some(crate::UnlockDebugState {
-                kind: if app.set_passkey.is_initial {
-                    "set_passkey"
-                } else {
-                    "change_passkey"
-                },
-                started_at: std::time::Instant::now(),
-            });
             let is_initial = app.set_passkey.is_initial;
             let debug_kind = if is_initial {
                 "set_passkey"
             } else {
                 "change_passkey"
             };
+            app.unlock_debug = Some(crate::UnlockDebugState {
+                kind: debug_kind,
+                started_at: std::time::Instant::now(),
+            });
 
             let salt_path = libllm_config::salt_path();
 

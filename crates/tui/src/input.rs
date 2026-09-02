@@ -240,7 +240,7 @@ fn recall_last_message(app: &mut App) {
     app.auto_scroll = true;
 }
 
-fn file_ref_paths(raw: &str) -> Vec<String> {
+pub(super) fn file_ref_paths(raw: &str) -> Vec<String> {
     libllm_core::files::file_reference_ranges(raw)
         .into_iter()
         .filter(|r| r.path() != "stdin")

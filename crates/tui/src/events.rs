@@ -184,7 +184,7 @@ pub(super) async fn process_action(
             let recall_refs = app.recall_refs.take();
             let reuse_parent_chain = recall_refs
                 .as_ref()
-                .is_some_and(|refs| refs == &file_ref_paths(&text));
+                .is_some_and(|refs| refs == &input::file_ref_paths(&text));
             if reuse_parent_chain {
                 commands::start_retry_streaming(app, &text, token_tx).await;
             } else {
@@ -347,14 +347,6 @@ pub(super) async fn process_action(
     }
 }
 
-fn file_ref_paths(raw: &str) -> Vec<String> {
-    libllm_core::files::file_reference_ranges(raw)
-        .into_iter()
-        .filter(|r| r.path() != "stdin")
-        .map(|r| r.path().to_owned())
-        .collect()
-}
-
 pub(crate) fn handle_edit_message(
     app: &mut App<'_>,
     node_id: libllm_core::session::NodeId,
@@ -375,7 +367,8 @@ pub(crate) fn handle_edit_message(
         }
     };
 
-    let file_refs_unchanged = file_ref_paths(&old_content) == file_ref_paths(&content);
+    let file_refs_unchanged =
+        input::file_ref_paths(&old_content) == input::file_ref_paths(&content);
 
     if file_refs_unchanged {
         let resolved_thought_seconds = if old_role == libllm_core::session::Role::Assistant {

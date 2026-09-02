@@ -134,6 +134,33 @@ mod tests {
     }
 
     #[test]
+    fn message_too_large_display_shows_total_and_cap() {
+        let err = FileError::MessageTooLarge {
+            total: 3_000_000,
+            cap: 2_097_152,
+        };
+        assert_eq!(
+            err.to_string(),
+            "attached files exceed per-message cap: 3000000 bytes > 2097152 byte cap"
+        );
+    }
+
+    #[test]
+    fn binary_unsupported_display_names_the_path() {
+        let err = FileError::BinaryUnsupported(PathBuf::from("/tmp/img.png"));
+        assert_eq!(err.to_string(), "unsupported binary file: /tmp/img.png");
+    }
+
+    #[test]
+    fn pdf_no_text_display_names_the_path() {
+        let err = FileError::PdfNoText(PathBuf::from("/tmp/scan.pdf"));
+        assert_eq!(
+            err.to_string(),
+            "PDF has no extractable text (scanned without OCR?): /tmp/scan.pdf"
+        );
+    }
+
+    #[test]
     fn collision_display_labels_delimiter_kind() {
         let err = FileError::Collision {
             path: PathBuf::from("/tmp/evil.md"),
@@ -154,6 +181,15 @@ mod tests {
             source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope"),
         };
         assert!(std::error::Error::source(&err).is_some());
+    }
+
+    #[test]
+    fn io_display_names_path_and_source() {
+        let err = FileError::Io {
+            path: PathBuf::from("/tmp/x"),
+            source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope"),
+        };
+        assert_eq!(err.to_string(), "I/O error reading /tmp/x: nope");
     }
 
     #[test]

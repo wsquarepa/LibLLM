@@ -4,7 +4,7 @@
 //! single `pub(super) fn migrate(conn: &Connection) -> Result<()>`. `run_migrations`
 //! reads the current schema version, runs every missing step in order, and
 //! stamps each one as it finishes. Adding a new migration is three lines: a new
-//! file, a `mod vN;` declaration, and an `if version < N` branch below.
+//! file, a `mod vN;` declaration, and an entry in the `MIGRATIONS` table below.
 
 mod v1;
 mod v10;
@@ -23,6 +23,22 @@ use rusqlite::Connection;
 use crate::error::{DbError, Result};
 
 pub const CURRENT_VERSION: i64 = 11;
+
+type Migration = fn(&Connection) -> Result<()>;
+
+const MIGRATIONS: &[(i64, Migration)] = &[
+    (1, v1::migrate),
+    (2, v2::migrate),
+    (3, v3::migrate),
+    (4, v4::migrate),
+    (5, v5::migrate),
+    (6, v6::migrate),
+    (7, v7::migrate),
+    (8, v8::migrate),
+    (9, v9::migrate),
+    (10, v10::migrate),
+    (11, v11::migrate),
+];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     libllm_core::timed_result!(tracing::Level::INFO, "db.migrate", ; {
@@ -48,49 +64,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             })?;
 
         let mut applied = 0usize;
-        if version < 1 {
-            apply_migration(conn, 1, v1::migrate)?;
-            applied += 1;
-        }
-        if version < 2 {
-            apply_migration(conn, 2, v2::migrate)?;
-            applied += 1;
-        }
-        if version < 3 {
-            apply_migration(conn, 3, v3::migrate)?;
-            applied += 1;
-        }
-        if version < 4 {
-            apply_migration(conn, 4, v4::migrate)?;
-            applied += 1;
-        }
-        if version < 5 {
-            apply_migration(conn, 5, v5::migrate)?;
-            applied += 1;
-        }
-        if version < 6 {
-            apply_migration(conn, 6, v6::migrate)?;
-            applied += 1;
-        }
-        if version < 7 {
-            apply_migration(conn, 7, v7::migrate)?;
-            applied += 1;
-        }
-        if version < 8 {
-            apply_migration(conn, 8, v8::migrate)?;
-            applied += 1;
-        }
-        if version < 9 {
-            apply_migration(conn, 9, v9::migrate)?;
-            applied += 1;
-        }
-        if version < 10 {
-            apply_migration(conn, 10, v10::migrate)?;
-            applied += 1;
-        }
-        if version < 11 {
-            apply_migration(conn, 11, v11::migrate)?;
-            applied += 1;
+        for &(target, migrate) in MIGRATIONS {
+            if version < target {
+                apply_migration(conn, target, migrate)?;
+                applied += 1;
+            }
         }
 
         tracing::info!(
@@ -143,6 +121,17 @@ mod tests {
     use rusqlite::Connection;
 
     use super::run_migrations;
+    use super::{CURRENT_VERSION, MIGRATIONS};
+
+    #[test]
+    fn migration_table_is_strictly_ascending_and_ends_at_current_version() {
+        let versions: Vec<i64> = MIGRATIONS.iter().map(|(version, _)| *version).collect();
+        assert!(
+            versions.windows(2).all(|pair| pair[0] < pair[1]),
+            "migration versions must be strictly ascending: {versions:?}"
+        );
+        assert_eq!(versions.last().copied(), Some(CURRENT_VERSION));
+    }
 
     #[test]
     fn migrations_are_idempotent() {

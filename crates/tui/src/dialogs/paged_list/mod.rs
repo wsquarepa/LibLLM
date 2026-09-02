@@ -424,11 +424,21 @@ pub(crate) fn map_list_click(
     visible_indices.get(range.start + inner as usize).copied()
 }
 
-const SEARCH_PREFIX_ACTIVE: &str = " Search: ";
+const SEARCH_PREFIX: &str = " Search: ";
 const SEARCH_SUFFIX_ACTIVE: &str = "_ ";
-const SEARCH_PREFIX_COMMITTED: &str = " Search: ";
 const SEARCH_SUFFIX_COMMITTED: &str = " ";
 const SEARCH_LABEL_IDLE: &str = " Search ";
+
+/// Suffix and bold flag for the search title while searching or filtering; `None` when idle.
+fn search_decoration(state: &SearchState) -> Option<(&'static str, bool)> {
+    if state.active {
+        Some((SEARCH_SUFFIX_ACTIVE, true))
+    } else if state.is_filtering() {
+        Some((SEARCH_SUFFIX_COMMITTED, false))
+    } else {
+        None
+    }
+}
 
 fn tail_fit(s: &str, max_chars: usize) -> String {
     let total = s.chars().count();
@@ -453,19 +463,13 @@ pub(crate) fn search_title_line(
 }
 
 pub(crate) fn search_title_width(state: &SearchState, max_width: u16) -> u16 {
-    if state.active {
-        let fixed = (SEARCH_PREFIX_ACTIVE.len() + SEARCH_SUFFIX_ACTIVE.len()) as u16;
-        let budget = max_width.saturating_sub(fixed) as usize;
-        let query_chars = state.query.chars().count().min(budget);
-        fixed + query_chars as u16
-    } else if state.is_filtering() {
-        let fixed = (SEARCH_PREFIX_COMMITTED.len() + SEARCH_SUFFIX_COMMITTED.len()) as u16;
-        let budget = max_width.saturating_sub(fixed) as usize;
-        let query_chars = state.query.chars().count().min(budget);
-        fixed + query_chars as u16
-    } else {
-        SEARCH_LABEL_IDLE.len() as u16
-    }
+    let Some((suffix, _)) = search_decoration(state) else {
+        return SEARCH_LABEL_IDLE.len() as u16;
+    };
+    let fixed = (SEARCH_PREFIX.len() + suffix.len()) as u16;
+    let budget = max_width.saturating_sub(fixed) as usize;
+    let query_chars = state.query.chars().count().min(budget);
+    fixed + query_chars as u16
 }
 
 fn search_body(
@@ -474,37 +478,18 @@ fn search_body(
     theme: &Theme,
     max_width: u16,
 ) -> (String, bool, Color) {
-    if state.active {
-        let fg = if state.compile_error() {
-            theme.status_error_fg
-        } else {
-            title_color
-        };
-        let fixed = SEARCH_PREFIX_ACTIVE.len() + SEARCH_SUFFIX_ACTIVE.len();
-        let budget = (max_width as usize).saturating_sub(fixed);
-        let visible_query = tail_fit(&state.query, budget);
-        (
-            format!("{SEARCH_PREFIX_ACTIVE}{visible_query}{SEARCH_SUFFIX_ACTIVE}"),
-            true,
-            fg,
-        )
-    } else if state.is_filtering() {
-        let fg = if state.compile_error() {
-            theme.status_error_fg
-        } else {
-            title_color
-        };
-        let fixed = SEARCH_PREFIX_COMMITTED.len() + SEARCH_SUFFIX_COMMITTED.len();
-        let budget = (max_width as usize).saturating_sub(fixed);
-        let visible_query = tail_fit(&state.query, budget);
-        (
-            format!("{SEARCH_PREFIX_COMMITTED}{visible_query}{SEARCH_SUFFIX_COMMITTED}"),
-            false,
-            fg,
-        )
+    let Some((suffix, bold)) = search_decoration(state) else {
+        return (SEARCH_LABEL_IDLE.to_owned(), false, theme.dimmed);
+    };
+    let fg = if state.compile_error() {
+        theme.status_error_fg
     } else {
-        (SEARCH_LABEL_IDLE.to_owned(), false, theme.dimmed)
-    }
+        title_color
+    };
+    let fixed = SEARCH_PREFIX.len() + suffix.len();
+    let budget = (max_width as usize).saturating_sub(fixed);
+    let visible_query = tail_fit(&state.query, budget);
+    (format!("{SEARCH_PREFIX}{visible_query}{suffix}"), bold, fg)
 }
 
 fn visible_rows(area: Rect) -> usize {

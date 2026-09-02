@@ -61,6 +61,7 @@ use ratatui::widgets::Paragraph;
 use tui_textarea::TextArea;
 
 use super::render::{clear_centered, dialog_block, render_hints_below_dialog};
+use crate::types::{App, StatusLevel};
 
 pub(crate) const MAX_TXT_IMPORT_BYTES: u64 = 1_024_000;
 pub(crate) const MAX_NAME_LENGTH: usize = 32;
@@ -95,6 +96,53 @@ pub(crate) fn sanitize_import_name(raw: &str) -> Option<String> {
         return None;
     }
     Some(trimmed.to_owned())
+}
+
+/// Returns the sanitized import name and the file body, or `None` after setting a
+/// status message when the extension is not txt, the file exceeds the import cap,
+/// the filename yields no name, or the file cannot be read.
+pub(crate) fn import_txt_file(
+    path: &std::path::Path,
+    ext: &str,
+    kind: &str,
+    app: &mut App,
+) -> Option<(String, String)> {
+    if ext != "txt" {
+        app.set_status(
+            format!("{kind} import supports .txt files only."),
+            StatusLevel::Warning,
+        );
+        return None;
+    }
+    match path.metadata() {
+        Ok(meta) if meta.len() > MAX_TXT_IMPORT_BYTES => {
+            app.set_status("File too large (max 1 MB).".to_owned(), StatusLevel::Error);
+            return None;
+        }
+        Err(e) => {
+            app.set_status(format!("Cannot read file: {e}"), StatusLevel::Error);
+            return None;
+        }
+        _ => {}
+    }
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        app.set_status("Invalid filename.".to_owned(), StatusLevel::Error);
+        return None;
+    };
+    let Some(name) = sanitize_import_name(stem) else {
+        app.set_status(
+            "Filename produces an empty name after sanitization.".to_owned(),
+            StatusLevel::Error,
+        );
+        return None;
+    };
+    match std::fs::read_to_string(path) {
+        Ok(content) => Some((name, content)),
+        Err(e) => {
+            app.set_status(format!("Read error: {e}"), StatusLevel::Error);
+            None
+        }
+    }
 }
 
 const REJECT_FLASH_DURATION: std::time::Duration = std::time::Duration::from_millis(150);

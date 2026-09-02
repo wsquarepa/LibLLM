@@ -199,60 +199,8 @@ fn create_and_edit_persona(app: &mut App) {
 }
 
 pub(crate) fn handle_persona_paste(path: &std::path::Path, ext: &str, app: &mut App) -> bool {
-    if ext != "txt" {
-        app.set_status(
-            "Persona import supports .txt files only.".to_owned(),
-            super::super::StatusLevel::Warning,
-        );
+    let Some((name, content)) = super::import_txt_file(path, ext, "Persona", app) else {
         return true;
-    }
-
-    match path.metadata() {
-        Ok(meta) if meta.len() > super::MAX_TXT_IMPORT_BYTES => {
-            app.set_status(
-                "File too large (max 1 MB).".to_owned(),
-                super::super::StatusLevel::Error,
-            );
-            return true;
-        }
-        Err(e) => {
-            app.set_status(
-                format!("Cannot read file: {e}"),
-                super::super::StatusLevel::Error,
-            );
-            return true;
-        }
-        _ => {}
-    }
-
-    let stem = match path.file_stem().and_then(|s| s.to_str()) {
-        Some(s) => s,
-        None => {
-            app.set_status(
-                "Invalid filename.".to_owned(),
-                super::super::StatusLevel::Error,
-            );
-            return true;
-        }
-    };
-
-    let name = match super::sanitize_import_name(stem) {
-        Some(n) => n,
-        None => {
-            app.set_status(
-                "Filename produces an empty name after sanitization.".to_owned(),
-                super::super::StatusLevel::Error,
-            );
-            return true;
-        }
-    };
-
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => {
-            app.set_status(format!("Read error: {e}"), super::super::StatusLevel::Error);
-            return true;
-        }
     };
 
     let persona = libllm_core::persona::PersonaFile {

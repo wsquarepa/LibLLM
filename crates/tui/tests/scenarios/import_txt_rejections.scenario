@@ -1,0 +1,11 @@
+[setup]
+size 100x30
+db temp
+api none
+
+[steps]
+type "/persona"
+key Enter
+expect focus == PersonaDialog
+paste "Cargo.toml"
+expect status_message == "Persona import supports .txt files only."

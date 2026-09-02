@@ -171,13 +171,7 @@ pub(crate) fn render(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     );
     let block = dialog_block(title, app.theme.border_focused);
 
-    let visible: Vec<usize> = state
-        .entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| e.name.starts_with(&state.filter))
-        .map(|(i, _)| i)
-        .collect();
+    let visible: Vec<usize> = state.visible();
 
     let items: Vec<ListItem<'_>> = visible
         .iter()

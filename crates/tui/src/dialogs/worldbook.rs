@@ -53,6 +53,20 @@ fn entry_label(entry: &libllm_core::worldinfo::Entry) -> String {
     format!("[{enabled}] {}", entry_keys(entry))
 }
 
+const ENTRY_KEYS_DISPLAY_BYTES: usize = 40;
+
+/// Shortens the joined key list to at most `ENTRY_KEYS_DISPLAY_BYTES` bytes, cutting on a
+/// character boundary and appending "..." when anything was removed.
+fn truncated_entry_keys(entry: &libllm_core::worldinfo::Entry) -> String {
+    let keys_str = entry_keys(entry);
+    if keys_str.len() > ENTRY_KEYS_DISPLAY_BYTES {
+        let end = keys_str.floor_char_boundary(ENTRY_KEYS_DISPLAY_BYTES);
+        format!("{}...", &keys_str[..end])
+    } else {
+        keys_str
+    }
+}
+
 pub(crate) fn render_worldbook_dialog(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let visible_indices = super::filter_indices(&app.worldbook.list, &app.dialog_search);
     let unfiltered_total = app.worldbook.list.len();
@@ -296,17 +310,7 @@ pub(crate) fn render_worldbook_editor(f: &mut ratatui::Frame, app: &App, area: R
         .map(|&i| {
             let entry = &app.worldbook.editor_entries[i];
             let enabled = if entry.enabled { "+" } else { "-" };
-            let keys_str = entry_keys(entry);
-            let truncated = if keys_str.len() > 40 {
-                let end = keys_str[..40]
-                    .char_indices()
-                    .last()
-                    .map_or(0, |(i, c)| i + c.len_utf8());
-                format!("{}...", &keys_str[..end])
-            } else {
-                keys_str
-            };
-            let label = format!("[{enabled}] {truncated}");
+            let label = format!("[{enabled}] {}", truncated_entry_keys(entry));
             let row_style = if entry.enabled {
                 Style::default()
             } else {
@@ -827,6 +831,32 @@ mod tests {
             depth: 4,
             case_sensitive: false,
         }
+    }
+
+    #[test]
+    fn truncated_entry_keys_cuts_on_a_char_boundary() {
+        let key = format!("{}é", "a".repeat(39));
+        let entry = make_entry(vec![key.as_str()]);
+        assert_eq!(
+            truncated_entry_keys(&entry),
+            format!("{}...", "a".repeat(39))
+        );
+    }
+
+    #[test]
+    fn truncated_entry_keys_leaves_short_lists_unchanged() {
+        let entry = make_entry(vec!["alpha", "beta"]);
+        assert_eq!(truncated_entry_keys(&entry), "alpha, beta");
+    }
+
+    #[test]
+    fn truncated_entry_keys_appends_ellipsis_past_forty_bytes() {
+        let key = "b".repeat(41);
+        let entry = make_entry(vec![key.as_str()]);
+        assert_eq!(
+            truncated_entry_keys(&entry),
+            format!("{}...", "b".repeat(40))
+        );
     }
 
     #[test]

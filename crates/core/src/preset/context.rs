@@ -18,12 +18,6 @@ pub struct ContextPreset {
     pub example_separator: String,
     #[serde(default)]
     pub chat_start: String,
-    #[serde(default)]
-    pub story_string_position: u32,
-    #[serde(default)]
-    pub story_string_depth: u32,
-    #[serde(default)]
-    pub story_string_role: u32,
 }
 
 /// Variable bindings for context template rendering (handlebars-style `{{variable}}`).
@@ -188,6 +182,13 @@ mod tests {
         for name in &names {
             let _p = resolve_template_preset(name, dir.path());
         }
+    }
+
+    #[test]
+    fn context_preset_ignores_removed_keys() {
+        let json = r#"{"name": "Legacy", "story_string_position": 1, "story_string_depth": 2, "story_string_role": 3}"#;
+        let preset: ContextPreset = serde_json::from_str(json).expect("unknown keys are ignored");
+        assert_eq!(preset.name, "Legacy");
     }
 
     #[test]

@@ -73,8 +73,6 @@ pub struct InstructPreset {
     #[serde(default)]
     pub last_output_sequence: String,
     #[serde(default)]
-    pub last_system_sequence: String,
-    #[serde(default)]
     pub separator_sequence: String,
     #[serde(default)]
     pub stop_sequence: StopSequence,
@@ -83,21 +81,7 @@ pub struct InstructPreset {
     #[serde(default)]
     pub system_same_as_user: bool,
     #[serde(default)]
-    pub names_behavior: String,
-    #[serde(default)]
-    pub story_string_prefix: String,
-    #[serde(default)]
-    pub story_string_suffix: String,
-    #[serde(default)]
-    pub user_alignment_message: String,
-    #[serde(default)]
     pub sequences_as_stop_strings: bool,
-    #[serde(default)]
-    pub activation_regex: String,
-    #[serde(rename = "macro", default)]
-    pub macro_enabled: bool,
-    #[serde(default)]
-    pub skip_examples: bool,
 }
 
 impl InstructPreset {
@@ -458,6 +442,33 @@ mod tests {
             let p = resolve_instruct_preset(name, dir.path());
             assert!(!p.name.is_empty(), "preset {name} should have a name");
         }
+    }
+
+    #[test]
+    fn every_bundled_instruct_preset_deserializes() {
+        for (name, json) in crate::preset::BUILTIN_INSTRUCT {
+            let preset: InstructPreset = serde_json::from_str(json).unwrap_or_else(|err| {
+                panic!("bundled instruct preset {name} failed to load: {err}")
+            });
+            assert_eq!(&preset.name, name);
+        }
+    }
+
+    #[test]
+    fn instruct_preset_ignores_removed_keys() {
+        let json = r#"{
+            "name": "Legacy",
+            "last_system_sequence": "x",
+            "story_string_prefix": "x",
+            "story_string_suffix": "x",
+            "user_alignment_message": "x",
+            "names_behavior": "x",
+            "activation_regex": "x",
+            "macro": true,
+            "skip_examples": true
+        }"#;
+        let preset: InstructPreset = serde_json::from_str(json).expect("unknown keys are ignored");
+        assert_eq!(preset.name, "Legacy");
     }
 
     #[test]

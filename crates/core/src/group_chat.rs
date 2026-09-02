@@ -1420,9 +1420,6 @@ mod tests {
                 .to_owned(),
             example_separator: String::new(),
             chat_start: String::new(),
-            story_string_position: 0,
-            story_string_depth: 0,
-            story_string_role: 0,
         };
         let p = build_turn_prompt(TurnPromptInputs {
             persona: Some(&persona),

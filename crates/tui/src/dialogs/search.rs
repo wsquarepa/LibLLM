@@ -521,7 +521,6 @@ mod tests {
             session_id: "s".into(),
             session_display_name: "S".into(),
             message_id: 0,
-            message_rowid: 0,
             role: libllm_core::session::Role::User,
             timestamp: time::OffsetDateTime::now_utc(),
             snippet: String::new(),

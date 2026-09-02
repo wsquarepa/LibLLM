@@ -16,7 +16,6 @@ pub struct SearchHit {
     pub session_id: String,
     pub session_display_name: String,
     pub message_id: i64,
-    pub message_rowid: i64,
     pub role: Role,
     pub timestamp: OffsetDateTime,
     pub snippet: String,
@@ -84,7 +83,6 @@ fn run(
         "SELECT m.session_id, \
                 s.display_name, \
                 m.id, \
-                m.rowid, \
                 m.role, \
                 m.timestamp, \
                 snippet(messages_fts, 0, char(1), char(2), '...', 16), \
@@ -133,18 +131,17 @@ fn run(
     let mut stmt = conn.prepare(&sql).map_err(map_match_error)?;
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            let role_str: String = row.get(4)?;
-            let timestamp_str: String = row.get(5)?;
+            let role_str: String = row.get(3)?;
+            let timestamp_str: String = row.get(4)?;
             Ok(RawHit {
                 session_id: row.get(0)?,
                 session_display_name: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 message_id: row.get(2)?,
-                message_rowid: row.get(3)?,
                 role_raw: role_str,
                 timestamp_raw: timestamp_str,
-                snippet: row.get(6)?,
-                preview_text: row.get(7)?,
-                score: row.get(8)?,
+                snippet: row.get(5)?,
+                preview_text: row.get(6)?,
+                score: row.get(7)?,
             })
         })
         .map_err(map_match_error)?;
@@ -162,7 +159,6 @@ fn run(
             session_id: raw.session_id,
             session_display_name: raw.session_display_name,
             message_id: raw.message_id,
-            message_rowid: raw.message_rowid,
             role,
             timestamp,
             snippet: raw.snippet,
@@ -177,7 +173,6 @@ struct RawHit {
     session_id: String,
     session_display_name: String,
     message_id: i64,
-    message_rowid: i64,
     role_raw: String,
     timestamp_raw: String,
     snippet: String,

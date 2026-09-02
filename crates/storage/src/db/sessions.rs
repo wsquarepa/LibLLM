@@ -372,7 +372,7 @@ fn load_message_tree(
     let mut nodes: Vec<Node> = Vec::new();
     let mut preferred_child: HashMap<NodeId, NodeId> = HashMap::new();
 
-    let message_rows = stmt
+    let rows = stmt
         .query_map(params![session_id], |row| {
             let msg_id: i64 = row.get(0)?;
             let parent_id: Option<i64> = row.get(1)?;
@@ -400,7 +400,7 @@ fn load_message_tree(
             source,
         })?;
 
-    for row in message_rows {
+    for row in rows {
         let (
             msg_id,
             parent_id,
@@ -654,7 +654,7 @@ pub fn list_sessions(conn: &Connection) -> Result<Vec<SessionListEntry>> {
                 source,
             })?;
 
-        let entries: Vec<SessionListEntry> = rows
+        let entries = rows
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|source| DbError::Query {
                 context: "failed to read session row".to_owned(),

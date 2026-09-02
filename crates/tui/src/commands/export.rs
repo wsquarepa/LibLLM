@@ -64,12 +64,8 @@ pub(in crate::commands) fn cmd_export(app: &mut App, arg: &str) {
             )
             .into_owned();
             libllm_core::session::Message {
-                role: m.role,
                 content,
-                timestamp: m.timestamp.clone(),
-                thought_seconds: m.thought_seconds,
-                speaker: m.speaker.clone(),
-                pre_turn_action_points: m.pre_turn_action_points.clone(),
+                ..(*m).clone()
             }
         })
         .collect();

@@ -145,12 +145,8 @@ where
         })
         .map(|m| match m.role {
             libllm_core::session::Role::User => libllm_core::session::Message {
-                role: m.role,
                 content: libllm_core::files::rewrite_user_message(&m.content),
-                timestamp: m.timestamp.clone(),
-                thought_seconds: m.thought_seconds,
-                speaker: m.speaker.clone(),
-                pre_turn_action_points: m.pre_turn_action_points.clone(),
+                ..m
             },
             _ => m,
         })
@@ -1231,12 +1227,8 @@ mod tests {
             .iter()
             .map(|m| match m.role {
                 Role::User => Message {
-                    role: m.role,
                     content: libllm_core::files::rewrite_user_message(&m.content),
-                    timestamp: m.timestamp.clone(),
-                    thought_seconds: m.thought_seconds,
-                    speaker: m.speaker.clone(),
-                    pre_turn_action_points: m.pre_turn_action_points.clone(),
+                    ..m.clone()
                 },
                 _ => m.clone(),
             })

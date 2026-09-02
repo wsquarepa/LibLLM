@@ -54,9 +54,21 @@ pub fn strip_terminal_controls(input: &str) -> String {
     out
 }
 
+/// Keeps at most `max_bytes` bytes of `text`, cutting on a character boundary, and
+/// appends "..." when anything was removed. Text of `max_bytes` bytes or fewer is
+/// returned unchanged.
+pub fn truncate_bytes_with_ellipsis(text: &str, max_bytes: usize) -> String {
+    if text.len() > max_bytes {
+        let end = text.floor_char_boundary(max_bytes);
+        format!("{}...", &text[..end])
+    } else {
+        text.to_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::strip_terminal_controls;
+    use super::{strip_terminal_controls, truncate_bytes_with_ellipsis};
 
     #[test]
     fn strip_controls_passes_plain_text() {
@@ -126,5 +138,31 @@ mod tests {
     fn strip_controls_bare_esc_at_end_of_string_does_not_panic() {
         let input = "text\x1b";
         assert_eq!(strip_terminal_controls(input), "text");
+    }
+
+    #[test]
+    fn truncate_bytes_with_ellipsis_cuts_on_a_char_boundary() {
+        let text = format!("{}é", "a".repeat(39));
+        assert_eq!(
+            truncate_bytes_with_ellipsis(&text, 40),
+            format!("{}...", "a".repeat(39))
+        );
+    }
+
+    #[test]
+    fn truncate_bytes_with_ellipsis_leaves_short_text_unchanged() {
+        assert_eq!(
+            truncate_bytes_with_ellipsis("alpha, beta", 40),
+            "alpha, beta"
+        );
+    }
+
+    #[test]
+    fn truncate_bytes_with_ellipsis_keeps_exactly_max_bytes_then_appends() {
+        let text = "b".repeat(41);
+        assert_eq!(
+            truncate_bytes_with_ellipsis(&text, 40),
+            format!("{}...", "b".repeat(40))
+        );
     }
 }

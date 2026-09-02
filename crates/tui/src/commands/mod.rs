@@ -435,7 +435,7 @@ fn cmd_branch(app: &mut App) {
         return;
     }
 
-    const BRANCH_PREVIEW_CHARS: usize = 60;
+    const BRANCH_PREVIEW_BYTES: usize = 60;
     app.branch.items = siblings
         .iter()
         .map(|&sib_id| {
@@ -445,15 +445,8 @@ fn cmd_branch(app: &mut App) {
                 .node(sib_id)
                 .expect("sib_id was obtained from tree.siblings_of() so it is a valid node id");
             let content = &node.message.content;
-            let preview = if content.len() > BRANCH_PREVIEW_CHARS {
-                let end = content[..BRANCH_PREVIEW_CHARS]
-                    .char_indices()
-                    .last()
-                    .map_or(0, |(i, c)| i + c.len_utf8());
-                format!("{}...", &content[..end])
-            } else {
-                content.clone()
-            };
+            let preview =
+                libllm_core::text::truncate_bytes_with_ellipsis(content, BRANCH_PREVIEW_BYTES);
             let preview = preview.replace('\n', " ");
             let label = format!("[{}] {}", node.message.role, preview);
             (sib_id, label)

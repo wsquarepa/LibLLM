@@ -93,7 +93,10 @@ pub fn validate_data_dir(data_path: &Path, no_encrypt: bool) -> Result<bool> {
 /// for it on stderr, then loads or creates the salt under `data_dir` and derives the key.
 /// Returns the passkey alongside the key. Errors when the prompt cannot be read or the salt
 /// cannot be loaded or created.
-pub fn resolve_derived_key(data_dir: &Path, passkey: Option<&str>) -> Result<(String, DerivedKey)> {
+pub(crate) fn resolve_derived_key(
+    data_dir: &Path,
+    passkey: Option<&str>,
+) -> Result<(String, DerivedKey)> {
     let passkey = match passkey {
         Some(pk) => pk.to_owned(),
         None => {

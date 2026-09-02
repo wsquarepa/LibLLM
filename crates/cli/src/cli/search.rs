@@ -8,6 +8,7 @@ use libllm_storage::search::{self, query as search_query, strip_terminal_control
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::Args;
+use crate::validation;
 
 const HIGHLIGHT_OPEN: char = '\u{1}';
 const HIGHLIGHT_CLOSE: char = '\u{2}';
@@ -39,7 +40,8 @@ fn open_db(args: &Args) -> Result<Database> {
     let key = if args.no_encrypt {
         None
     } else {
-        Some(crate::validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?.1)
+        let (_, key) = validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?;
+        Some(key)
     };
 
     let db = Database::open(&db_path, key.as_ref())?;

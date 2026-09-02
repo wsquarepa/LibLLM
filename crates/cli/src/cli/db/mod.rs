@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use libllm_core::crypto::DerivedKey;
 
 use crate::cli::{Args, DbSubcommand};
+use crate::validation;
 
 /// Resolved context shared by all four db subcommands.
 pub struct DbContext {
@@ -52,8 +53,7 @@ fn resolve_context(args: &Args) -> Result<DbContext> {
         });
     }
 
-    let (passkey, key) =
-        crate::validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?;
+    let (passkey, key) = validation::resolve_derived_key(&data_dir, args.passkey.as_deref())?;
 
     Ok(DbContext {
         data_dir,

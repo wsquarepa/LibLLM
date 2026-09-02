@@ -512,7 +512,8 @@ fn resolve_session(args: &Args) -> Result<ResolvedSession> {
         ));
     }
 
-    let db_path = libllm_config::data_dir().join("data.db");
+    let data_dir = libllm_config::data_dir();
+    let db_path = data_dir.join("data.db");
 
     if args.no_encrypt {
         let db = Database::open(&db_path, None)?;
@@ -543,8 +544,7 @@ fn resolve_session(args: &Args) -> Result<ResolvedSession> {
     }
 
     if let Some(ref passkey) = args.passkey {
-        let salt = crypto::load_or_create_salt(&libllm_config::salt_path())?;
-        let key = crypto::derive_key(passkey, &salt)?;
+        let (_, key) = validation::resolve_derived_key(&data_dir, Some(passkey.as_str()))?;
         let key_arc = std::sync::Arc::new(key);
         let db = Database::open(&db_path, Some(&*key_arc))
             .context("Wrong passkey (or corrupt database).")?;

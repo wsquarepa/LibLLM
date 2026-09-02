@@ -1808,7 +1808,6 @@ dependencies = [
  "bsdiff",
  "chacha20poly1305",
  "chrono",
- "clap",
  "hkdf",
  "libllm-core",
  "rand 0.10.1",

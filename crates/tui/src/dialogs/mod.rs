@@ -99,6 +99,11 @@ pub(crate) fn sanitize_import_name(raw: &str) -> Option<String> {
 
 const REJECT_FLASH_DURATION: std::time::Duration = std::time::Duration::from_millis(150);
 
+pub(crate) fn is_save_shortcut(key: &KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
+}
+
 pub(crate) fn is_flash_active(flash: Option<std::time::Instant>) -> bool {
     flash.is_some_and(|t| t.elapsed() < REJECT_FLASH_DURATION)
 }
@@ -764,6 +769,38 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn ctrl_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn ctrl_shift_s_is_save_shortcut() {
+        assert!(is_save_shortcut(&KeyEvent::new(
+            KeyCode::Char('S'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn plain_s_is_not_save_shortcut() {
+        assert!(!is_save_shortcut(&KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::NONE
+        )));
+    }
+
+    #[test]
+    fn ctrl_other_char_is_not_save_shortcut() {
+        assert!(!is_save_shortcut(&KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use ratatui::widgets::ListItem;
 
 use libllm_core::regex_rules::{RegexRule, Scope, Target};
 
-use super::{clear_centered, dialog_block, render_hints_below_dialog};
+use super::{clear_centered, dialog_block, is_save_shortcut, render_hints_below_dialog};
 use crate::dialog_handler::return_to_input;
 use crate::{Action, App, Focus};
 
@@ -378,11 +378,6 @@ fn format_rule_summary(rule: &RegexRule) -> String {
     )
 }
 
-fn is_save_shortcut(key: &KeyEvent) -> bool {
-    key.modifiers.contains(KeyModifiers::CONTROL)
-        && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
-}
-
 pub(crate) fn handle_regex_dialog_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     let len = app.config.regex.len();
     match key.code {
@@ -694,34 +689,6 @@ pub(crate) fn save_and_recompile(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent::new(code, modifiers)
-    }
-
-    #[test]
-    fn ctrl_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL
-        )));
-    }
-
-    #[test]
-    fn ctrl_shift_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(
-            KeyCode::Char('S'),
-            KeyModifiers::CONTROL
-        )));
-    }
-
-    #[test]
-    fn plain_s_is_not_save_shortcut() {
-        assert!(!is_save_shortcut(&key(
-            KeyCode::Char('s'),
-            KeyModifiers::NONE
-        )));
-    }
 
     #[test]
     fn validate_pattern_marks_invalid_rule_disabled() {

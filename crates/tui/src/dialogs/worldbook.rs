@@ -6,7 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::ListItem;
 
-use super::{clear_centered, dialog_block, render_hints_below_dialog};
+use super::{clear_centered, dialog_block, is_save_shortcut, render_hints_below_dialog};
 use crate::dialog_handler::return_to_input;
 use crate::{Action, App, DeleteContext, Focus};
 
@@ -22,11 +22,6 @@ pub(crate) struct WorldbookUi<'a> {
     pub editor_selected: usize,
     pub entry_editor: Option<super::FieldDialog<'a>>,
     pub entry_editor_index: usize,
-}
-
-fn is_save_shortcut(key: &KeyEvent) -> bool {
-    key.modifiers.contains(KeyModifiers::CONTROL)
-        && matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
 }
 
 enum WorldbookState {
@@ -838,7 +833,6 @@ pub(crate) fn handle_worldbook_paste(path: &std::path::Path, ext: &str, app: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn make_entry(keys: Vec<&str>) -> libllm_core::worldinfo::Entry {
         libllm_core::worldinfo::Entry {
@@ -885,33 +879,5 @@ mod tests {
             &[entry_a],
             &[entry_b],
         ));
-    }
-
-    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent::new(code, modifiers)
-    }
-
-    #[test]
-    fn ctrl_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(
-            KeyCode::Char('s'),
-            KeyModifiers::CONTROL
-        )));
-    }
-
-    #[test]
-    fn ctrl_shift_s_is_save_shortcut() {
-        assert!(is_save_shortcut(&key(
-            KeyCode::Char('S'),
-            KeyModifiers::CONTROL
-        )));
-    }
-
-    #[test]
-    fn plain_s_is_not_save_shortcut() {
-        assert!(!is_save_shortcut(&key(
-            KeyCode::Char('s'),
-            KeyModifiers::NONE
-        )));
     }
 }

@@ -432,6 +432,24 @@ fn textarea_is_empty(app: &App) -> bool {
     app.textarea.lines().iter().all(|l| l.trim().is_empty())
 }
 
+/// True when the current branch carries a `Role::Summary` node after `node_id`.
+/// Editing or deleting a message a summary already covers would leave that
+/// summary describing text no longer on the branch.
+fn has_later_summary(
+    tree: &libllm_core::session::MessageTree,
+    node_id: libllm_core::session::NodeId,
+) -> bool {
+    let branch_ids = tree.current_branch_ids();
+    let node_idx = branch_ids.iter().position(|&id| id == node_id);
+    node_idx.is_some_and(|idx| {
+        branch_ids[idx + 1..].iter().any(|&id| {
+            tree.node(id)
+                .map(|n| n.message.role == Role::Summary)
+                .unwrap_or(false)
+        })
+    })
+}
+
 pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     if app.session.tree.current_branch_ids().is_empty() {
         return None;
@@ -508,19 +526,9 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
                     return None;
                 }
 
-                let branch_ids = app.session.tree.current_branch_ids();
-                let node_idx = branch_ids.iter().position(|&id| id == node_id);
-                let has_later_summary = node_idx.is_some_and(|idx| {
-                    branch_ids[idx + 1..].iter().any(|&id| {
-                        app.session
-                            .tree
-                            .node(id)
-                            .map(|n| n.message.role == Role::Summary)
-                            .unwrap_or(false)
-                    })
-                });
-
-                if has_later_summary && node.message.role != Role::Summary {
+                if has_later_summary(&app.session.tree, node_id)
+                    && node.message.role != Role::Summary
+                {
                     app.set_status(
                         "Cannot edit before a summary. Branch from this message instead."
                             .to_owned(),
@@ -541,19 +549,7 @@ pub fn handle_chat_key(key: KeyEvent, app: &mut App) -> Option<Action> {
             let role = node.message.role;
             let preview = chat_message_preview(&node.message.content);
 
-            let branch_ids = app.session.tree.current_branch_ids();
-            let node_idx = branch_ids.iter().position(|&id| id == node_id);
-            let has_later_summary = node_idx.is_some_and(|idx| {
-                branch_ids[idx + 1..].iter().any(|&id| {
-                    app.session
-                        .tree
-                        .node(id)
-                        .map(|n| n.message.role == Role::Summary)
-                        .unwrap_or(false)
-                })
-            });
-
-            if has_later_summary && role != Role::Summary {
+            if has_later_summary(&app.session.tree, node_id) && role != Role::Summary {
                 app.set_status(
                     "Cannot edit before a summary. Branch from this message instead.".to_owned(),
                     StatusLevel::Warning,

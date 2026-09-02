@@ -157,17 +157,7 @@ fn apply_preset_selection(app: &mut App, chosen: String) {
 }
 
 pub(crate) fn open_preset_picker(app: &mut App, kind: PresetKind) {
-    let names = match kind {
-        PresetKind::Template => {
-            libllm_core::preset::list_template_preset_names(&libllm_config::template_presets_dir())
-        }
-        PresetKind::Instruct => {
-            libllm_core::preset::list_instruct_preset_names(&libllm_config::instruct_presets_dir())
-        }
-        PresetKind::Reasoning => {
-            libllm_core::preset::list_reasoning_preset_names(&libllm_config::reasoning_presets_dir())
-        }
-    };
+    let names = list_names_for_kind(kind);
 
     let current = app
         .config_dialog
@@ -318,6 +308,15 @@ fn dir_for_kind(kind: PresetKind) -> std::path::PathBuf {
     }
 }
 
+fn list_names_for_kind(kind: PresetKind) -> Vec<String> {
+    let dir = dir_for_kind(kind);
+    match kind {
+        PresetKind::Template => libllm_core::preset::list_template_preset_names(&dir),
+        PresetKind::Instruct => libllm_core::preset::list_instruct_preset_names(&dir),
+        PresetKind::Reasoning => libllm_core::preset::list_reasoning_preset_names(&dir),
+    }
+}
+
 fn sanitize_preset_name(raw: &str) -> Option<String> {
     let safe: String = raw.replace(['/', '\\'], "_");
     let safe = safe.trim_matches('.');
@@ -409,17 +408,7 @@ pub(crate) fn delete_preset(kind: PresetKind, name: &str) {
 }
 
 pub(crate) fn refresh_preset_list(app: &mut App) {
-    let names = match app.preset.picker_kind {
-        PresetKind::Template => {
-            libllm_core::preset::list_template_preset_names(&libllm_config::template_presets_dir())
-        }
-        PresetKind::Instruct => {
-            libllm_core::preset::list_instruct_preset_names(&libllm_config::instruct_presets_dir())
-        }
-        PresetKind::Reasoning => {
-            libllm_core::preset::list_reasoning_preset_names(&libllm_config::reasoning_presets_dir())
-        }
-    };
+    let names = list_names_for_kind(app.preset.picker_kind);
     app.preset.picker_selected = app
         .preset
         .picker_selected

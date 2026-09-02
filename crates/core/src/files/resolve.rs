@@ -10,7 +10,7 @@ use crate::session::{Message, Role};
 
 use super::classify::classify;
 use super::error::FileError;
-use super::parse::file_reference_ranges;
+use super::parse::{FileReference, file_reference_ranges};
 use super::snapshot::{build_snapshot_body, check_delimiter_collision};
 
 /// One successfully resolved attachment. Used internally and surfaced in
@@ -89,7 +89,7 @@ pub fn resolve_with_prepended_resolved(
         if r.path() == "stdin" {
             continue;
         }
-        files.push(resolve_one(&r.raw, cwd, config)?);
+        files.push(resolve_one(&r, cwd, config)?);
     }
     Ok(files)
 }
@@ -108,11 +108,11 @@ pub fn resolve_with_prepended(
 }
 
 fn resolve_one(
-    raw_token: &str,
+    reference: &FileReference,
     cwd: &Path,
     config: &FilesConfig,
 ) -> Result<ResolvedFile, FileError> {
-    let raw_path = strip_at_and_quotes(raw_token);
+    let raw_path = reference.path();
     let path_buf = expand_path(raw_path, cwd);
     let canonical = std::fs::canonicalize(&path_buf).map_err(|source| {
         if source.kind() == std::io::ErrorKind::NotFound {
@@ -152,7 +152,7 @@ fn resolve_one(
         .to_owned();
     check_delimiter_collision(&canonical, &basename, &text)?;
     Ok(ResolvedFile {
-        raw_token: raw_token.to_owned(),
+        raw_token: reference.raw.clone(),
         canonical_path: canonical,
         basename,
         body: text,
@@ -177,17 +177,6 @@ pub fn assemble_snapshot_messages(
         .into_iter()
         .map(|f| Message::new(Role::System, build_snapshot_body(&f.basename, &f.body)))
         .collect())
-}
-
-/// Strip the leading `@` and any surrounding double quotes from a raw
-/// token. `@notes.md` → `notes.md`; `@"a b.md"` → `a b.md`.
-fn strip_at_and_quotes(raw_token: &str) -> &str {
-    let after_at = raw_token.strip_prefix('@').unwrap_or(raw_token);
-    if after_at.len() >= 2 && after_at.starts_with('"') && after_at.ends_with('"') {
-        &after_at[1..after_at.len() - 1]
-    } else {
-        after_at
-    }
 }
 
 fn expand_path(raw: &str, cwd: &Path) -> PathBuf {

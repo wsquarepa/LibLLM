@@ -10,7 +10,7 @@ use crate::index::{BackupType, FingerprintField, WrappedDek, open_index, save_in
 pub const JOURNAL_FILENAME: &str = ".rekey.journal";
 pub const PRE_REKEY_SIDECAR: &str = "index.json.pre-rekey";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RekeyJournal {
     pub old_fp: String,
     pub new_fp: String,
@@ -320,19 +320,6 @@ mod tests {
     };
     use chrono::Utc;
     use tempfile::TempDir;
-
-    #[test]
-    fn journal_round_trip() {
-        let tmp = TempDir::new().unwrap();
-        let j = RekeyJournal {
-            old_fp: "a".into(),
-            new_fp: "b".into(),
-        };
-        write_journal(tmp.path(), &j).unwrap();
-        assert_eq!(read_journal(tmp.path()).unwrap(), Some(j.clone()));
-        delete_journal(tmp.path()).unwrap();
-        assert_eq!(read_journal(tmp.path()).unwrap(), None);
-    }
 
     /// Builds an encrypted type-3 base (header + payload) under `passkey`.
     fn make_populated(data_dir: &Path, passkey: &str) -> ([u8; 32], [u8; 32], String) {

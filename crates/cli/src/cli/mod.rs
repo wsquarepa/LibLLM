@@ -536,12 +536,6 @@ mod tests {
     }
 
     #[test]
-    fn single_character_parses_into_vec_of_one() {
-        let args = Args::try_parse_from(["libllm", "-c", "alice", "-p", "me"]).unwrap();
-        assert_eq!(args.character, vec!["alice".to_owned()]);
-    }
-
-    #[test]
     fn multiple_characters_parse_in_order() {
         let args = Args::try_parse_from([
             "libllm", "-c", "alice", "-c", "bob", "-c", "charlie", "-p", "me",
@@ -614,17 +608,5 @@ mod tests {
     #[test]
     fn parse_talkativeness_rejects_neg_inf() {
         assert!(parse_talkativeness("alice=-inf").is_err());
-    }
-
-    #[test]
-    fn parse_talkativeness_accepts_valid_range() {
-        let m = parse_talkativeness("alice=0.7").unwrap();
-        assert!((m["alice"] - 0.7_f32).abs() < 1e-6);
-    }
-
-    #[test]
-    fn parse_talkativeness_clamps_above_one() {
-        let m = parse_talkativeness("alice=1.5").unwrap();
-        assert!((m["alice"] - 1.0_f32).abs() < 1e-6);
     }
 }

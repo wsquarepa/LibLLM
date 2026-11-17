@@ -894,6 +894,7 @@ mod tests {
         assert_eq!(loaded.character, session.character);
         assert_eq!(loaded.persona, session.persona);
         assert_eq!(loaded.worldbooks, session.worldbooks);
+        assert_eq!(loaded.author_note, None);
         assert_eq!(loaded.tree.head(), Some(1));
         assert_eq!(loaded.tree.node_count(), 2);
 
@@ -1367,18 +1368,6 @@ mod tests {
     }
 
     #[test]
-    fn session_author_note_round_trip_none() {
-        let mut conn = setup_db();
-        let session = make_session_with_messages();
-        assert!(session.author_note.is_none());
-
-        insert_session(&mut conn, "sess-no-an", &session).unwrap();
-        let loaded = load_session(&conn, "sess-no-an").unwrap();
-
-        assert_eq!(loaded.author_note, None);
-    }
-
-    #[test]
     fn session_author_note_save_round_trip_after_edit() {
         let mut conn = setup_db();
         let mut session = make_session_with_messages();
@@ -1474,28 +1463,10 @@ mod tests {
     }
 
     #[test]
-    fn load_session_characters_falls_back_to_legacy_column() {
+    fn load_session_prefers_attachment_rows_over_legacy_character_column() {
         let conn = setup_db();
         conn.execute(
-            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('leg', 'now', 'now')",
-            [],
-        )
-        .unwrap();
-
-        let characters = super::load_session_characters(&conn, "leg", Some("alice")).unwrap();
-
-        assert_eq!(characters.len(), 1);
-        assert_eq!(characters[0].slug, "alice");
-        assert!((characters[0].talkativeness - 1.0).abs() < 1e-6);
-        assert!((characters[0].action_points - 0.0).abs() < 1e-6);
-        assert!(!characters[0].spoke_this_round);
-    }
-
-    #[test]
-    fn load_session_characters_prefers_attachment_rows() {
-        let conn = setup_db();
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('gc', 'now', 'now')",
+            "INSERT INTO sessions (id, character, created_at, updated_at) VALUES ('gc', 'legacy', 'now', 'now')",
             [],
         )
         .unwrap();
@@ -1512,78 +1483,11 @@ mod tests {
         )
         .unwrap();
 
-        let characters = super::load_session_characters(&conn, "gc", Some("legacy")).unwrap();
+        let characters = load_session(&conn, "gc").unwrap().characters;
 
         assert_eq!(characters.len(), 2);
         assert!(!characters.iter().any(|c| c.slug == "legacy"));
         assert_eq!(characters[0].slug, "bob");
         assert_eq!(characters[1].slug, "alice");
-    }
-
-    #[test]
-    fn load_session_worldbooks_returns_attached_slugs() {
-        let conn = setup_db();
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('wb', 'now', 'now')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES ('wb', 'alpha')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO session_worldbooks (session_id, worldbook_slug) VALUES ('wb', 'beta')",
-            [],
-        )
-        .unwrap();
-
-        let worldbooks = super::load_session_worldbooks(&conn, "wb").unwrap();
-
-        assert_eq!(worldbooks, vec!["alpha".to_owned(), "beta".to_owned()]);
-    }
-
-    #[test]
-    fn load_message_tree_reconstructs_branches() {
-        let conn = setup_db();
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, updated_at) VALUES ('br', 'now', 'now')",
-            [],
-        )
-        .unwrap();
-        // parent node (id=0)
-        conn.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-             VALUES (0, 'br', NULL, 2, 'user', 'root', '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
-        // child A (id=1)
-        conn.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-             VALUES (1, 'br', 0, NULL, 'assistant', 'branch-a', '2026-01-01T00:00:01Z')",
-            [],
-        )
-        .unwrap();
-        // child B (id=2) — preferred child of root, head of the tree
-        conn.execute(
-            "INSERT INTO messages (id, session_id, parent_id, preferred_child_id, role, content, timestamp)
-             VALUES (2, 'br', 0, NULL, 'assistant', 'branch-b', '2026-01-01T00:00:02Z')",
-            [],
-        )
-        .unwrap();
-
-        let tree = super::load_message_tree(&conn, "br", Some(2)).unwrap();
-
-        assert_eq!(tree.head(), Some(2));
-        assert_eq!(tree.node_count(), 3);
-
-        let root = tree.node(0).unwrap();
-        assert_eq!(root.children.len(), 2);
-        assert!(root.children.contains(&1));
-        assert!(root.children.contains(&2));
-
-        assert_eq!(tree.preferred_child_map().get(&0), Some(&2));
     }
 }

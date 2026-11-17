@@ -916,7 +916,7 @@ mod tests {
         let sections = vec![make_section("A", &["f"]), make_section("B", &["f"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
         assert!(!d.has_changes());
-        d.sections[1].values[0] = "changed".to_owned();
+        d.set_value(1, 0, "changed".to_owned());
         assert!(d.has_changes());
     }
 
@@ -1089,14 +1089,6 @@ mod tests {
     }
 
     #[test]
-    fn esc_at_top_level_closes() {
-        let sections = vec![make_section("A", &["x"])];
-        let mut d = TabbedFieldDialog::new(" test ", sections);
-        let action = d.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(matches!(action, TabbedFieldAction::Close));
-    }
-
-    #[test]
     fn esc_when_clean_returns_close() {
         let mut d =
             TabbedFieldDialog::new("test", vec![TabSection::new("S", &["a"], vec!["v".into()])]);
@@ -1119,33 +1111,18 @@ mod tests {
         let theme = crate::theme::Theme::dark();
         let sections = vec![make_section("Alpha", &["x"]), make_section("Beta", &["y"])];
         let mut d = TabbedFieldDialog::new(" test ", sections);
-        let line = d.build_tab_bar_line(&theme);
-        let rendered: String = line
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref().to_string())
-            .collect();
-        assert!(rendered.contains("Alpha"));
-        assert!(rendered.contains("Beta"));
+        let highlighted = |d: &TabbedFieldDialog| -> Vec<String> {
+            d.build_tab_bar_line(&theme)
+                .spans
+                .iter()
+                .filter(|s| s.style.fg == Some(Color::Yellow))
+                .map(|s| s.content.as_ref().to_owned())
+                .collect()
+        };
+        assert_eq!(highlighted(&d), vec!["[ Alpha ]".to_owned()]);
 
         d.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        let line_after = d.build_tab_bar_line(&theme);
-        let styles: Vec<Style> = line_after.spans.iter().map(|s| s.style).collect();
-        assert!(styles.iter().any(|s| s.fg == Some(Color::Yellow)));
-    }
-
-    #[test]
-    fn reset_via_sections_mut_clears_values() {
-        let mut s1 = make_section("A", &["x"]);
-        s1.values[0] = "#ff0000".to_owned();
-        let sections = vec![s1];
-        let mut d = TabbedFieldDialog::new(" test ", sections);
-        for section in d.sections_mut() {
-            for v in section.values.iter_mut() {
-                v.clear();
-            }
-        }
-        assert_eq!(d.sections()[0].values[0], "");
+        assert_eq!(highlighted(&d), vec!["[ Beta ]".to_owned()]);
     }
 
     #[test]

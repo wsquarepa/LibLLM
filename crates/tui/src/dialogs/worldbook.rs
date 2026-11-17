@@ -822,16 +822,6 @@ mod tests {
     }
 
     #[test]
-    fn truncated_entry_keys_cuts_on_a_char_boundary() {
-        let key = format!("{}é", "a".repeat(39));
-        let entry = make_entry(vec![key.as_str()]);
-        assert_eq!(
-            truncated_entry_keys(&entry),
-            format!("{}...", "a".repeat(39))
-        );
-    }
-
-    #[test]
     fn truncated_entry_keys_leaves_short_lists_unchanged() {
         let entry = make_entry(vec!["alpha", "beta"]);
         assert_eq!(truncated_entry_keys(&entry), "alpha, beta");

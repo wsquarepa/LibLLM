@@ -172,19 +172,6 @@ mod tests {
     }
 
     #[test]
-    fn all_template_presets_load() {
-        let dir = setup_data_dir();
-        let names = list_template_preset_names(dir.path());
-        assert!(
-            !names.is_empty(),
-            "should have at least one template preset"
-        );
-        for name in &names {
-            let _p = resolve_template_preset(name, dir.path());
-        }
-    }
-
-    #[test]
     fn context_preset_ignores_removed_keys() {
         let json = r#"{"name": "Legacy", "story_string_position": 1, "story_string_depth": 2, "story_string_role": 3}"#;
         let preset: ContextPreset = serde_json::from_str(json).expect("unknown keys are ignored");

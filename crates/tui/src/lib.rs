@@ -1098,13 +1098,10 @@ mod tests {
     #[test]
     fn estimate_input_tokens_from_text_trims_outer_whitespace() {
         let counter = heuristic_counter();
-        assert_eq!(estimate_input_tokens_from_text("  abcd  ", &counter), 4);
-    }
-
-    #[test]
-    fn estimate_input_tokens_from_text_counts_multiline_content() {
-        let counter = heuristic_counter();
-        assert_eq!(estimate_input_tokens_from_text("abcd\nefgh", &counter), 5);
+        assert_eq!(
+            estimate_input_tokens_from_text("  abcd  ", &counter),
+            estimate_input_tokens_from_text("abcd", &counter)
+        );
     }
 
     #[test]

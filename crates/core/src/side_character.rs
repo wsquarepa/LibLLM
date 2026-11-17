@@ -214,18 +214,6 @@ mod tests {
     }
 
     #[test]
-    fn one_side_character_splits_into_two_segments() {
-        let raw = "I walk into the tavern.\n\n[Barkeep]: Welcome, stranger.";
-        assert_eq!(
-            split_user_input(raw),
-            vec![
-                "I walk into the tavern.".to_owned(),
-                "[Barkeep]: Welcome, stranger.".to_owned(),
-            ]
-        );
-    }
-
-    #[test]
     fn two_side_characters_produce_three_segments() {
         let raw = "I open the door.\n\n[Alice]: Hi.\n\n[Bob]: Hello there.";
         assert_eq!(

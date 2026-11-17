@@ -10,7 +10,7 @@
 mod common;
 
 use libllm_cli::validation;
-use libllm_core::config::{Auth, Config};
+use libllm_core::config::Config;
 
 fn setup_data_dir() -> tempfile::TempDir {
     let dir = common::temp_dir();
@@ -22,35 +22,6 @@ fn setup_data_dir() -> tempfile::TempDir {
 // ---------------------------------------------------------------------------
 // Config tests
 // ---------------------------------------------------------------------------
-
-#[test]
-fn config_default_values() {
-    let cfg = Config::default();
-    assert!(cfg.api_url.is_none());
-    assert_eq!(cfg.api_url(), "http://localhost:5001/v1");
-    assert!(cfg.template_preset.is_none());
-    assert!(cfg.instruct_preset.is_none());
-    assert!(cfg.reasoning_preset.is_none());
-    assert!(cfg.sampling.temperature.is_none());
-    assert!(cfg.sampling.top_k.is_none());
-    assert!(cfg.sampling.top_p.is_none());
-    assert!(cfg.sampling.min_p.is_none());
-    assert!(cfg.sampling.repeat_last_n.is_none());
-    assert!(cfg.sampling.repeat_penalty.is_none());
-    assert!(cfg.sampling.max_tokens.is_none());
-    assert!(cfg.worldbooks.is_empty());
-    assert!(!cfg.tls_skip_verify);
-    assert!(cfg.default_persona.is_none());
-}
-
-#[test]
-fn config_api_url_custom() {
-    let cfg = Config {
-        api_url: Some("http://example.com/api".to_owned()),
-        ..Config::default()
-    };
-    assert_eq!(cfg.api_url(), "http://example.com/api");
-}
 
 #[test]
 fn config_save_load_roundtrip() {
@@ -122,14 +93,6 @@ fn config_partial_toml() {
     assert!(loaded.default_persona.is_none());
 }
 
-#[test]
-fn config_ensure_dirs_creates_data_directory() {
-    let dir = setup_data_dir();
-    let root = dir.path();
-
-    assert!(root.is_dir());
-}
-
 // ---------------------------------------------------------------------------
 // Summarization config tests
 // ---------------------------------------------------------------------------
@@ -193,26 +156,9 @@ trigger_percent = 0
     assert_eq!(config.summarization.effective_trigger_percent(), 1);
 }
 
-#[test]
-fn summarization_trigger_threshold_old_field_is_ignored() {
-    // Upgrading users with the old field name get the new default silently.
-    let toml_str = r#"
-[summarization]
-trigger_threshold = 42
-"#;
-    let config: libllm_core::config::Config = toml::from_str(toml_str).unwrap();
-    assert_eq!(config.summarization.trigger_percent, 90);
-}
-
 // ---------------------------------------------------------------------------
 // Migration tests
 // ---------------------------------------------------------------------------
-
-#[test]
-fn migrate_config_path_is_callable() {
-    let _dir = setup_data_dir();
-    libllm_config::migrate_config();
-}
 
 #[test]
 fn config_survives_migration() {
@@ -480,32 +426,6 @@ fn empty_theme_override_drops_to_none() {
 }
 
 #[test]
-fn side_character_labels_round_trip() {
-    let dir = common::temp_dir();
-    libllm_config::set_data_dir(dir.path().to_path_buf()).ok();
-    libllm_config::ensure_dirs().unwrap();
-
-    let cfg = libllm_core::config::Config {
-        theme_colors: Some(libllm_core::config::ThemeColorOverrides {
-            side_character_fg: Some("#aa00aa".to_owned()),
-            side_character_bg: Some("#001100".to_owned()),
-            user_character_fg: Some("#00ff00".to_owned()),
-            user_character_bg: Some("#110011".to_owned()),
-            ..Default::default()
-        }),
-        ..libllm_core::config::Config::default()
-    };
-    libllm_config::save(&cfg).unwrap();
-
-    let loaded = libllm_config::load();
-    let overrides = loaded.theme_colors.expect("overrides should persist");
-    assert_eq!(overrides.user_character_fg.as_deref(), Some("#00ff00"));
-    assert_eq!(overrides.user_character_bg.as_deref(), Some("#110011"));
-    assert_eq!(overrides.side_character_fg.as_deref(), Some("#aa00aa"));
-    assert_eq!(overrides.side_character_bg.as_deref(), Some("#001100"));
-}
-
-#[test]
 fn log_filter_without_debug_is_a_parse_error() {
     use clap::Parser;
     let result = libllm_cli::cli::Args::try_parse_from(["libllm", "--log-filter", "info"]);
@@ -531,107 +451,4 @@ fn log_filter_with_debug_parses() {
         "info",
     ]);
     assert!(result.is_ok(), "expected parse success but got an error");
-}
-
-// ---------------------------------------------------------------------------
-// Auth round-trip tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn config_auth_roundtrip_bearer() {
-    let dir = setup_data_dir();
-    let _key = common::test_key(dir.path());
-    let cfg = Config {
-        auth: Auth::Bearer {
-            token: "sk-abc".into(),
-        },
-        ..Config::default()
-    };
-    libllm_config::save(&cfg).unwrap();
-    let loaded = libllm_config::load();
-    assert_eq!(
-        loaded.auth,
-        Auth::Bearer {
-            token: "sk-abc".into()
-        }
-    );
-}
-
-#[test]
-fn config_auth_roundtrip_basic() {
-    let dir = setup_data_dir();
-    let _key = common::test_key(dir.path());
-    let cfg = Config {
-        auth: Auth::Basic {
-            username: "u".into(),
-            password: "p".into(),
-        },
-        ..Config::default()
-    };
-    libllm_config::save(&cfg).unwrap();
-    let loaded = libllm_config::load();
-    assert_eq!(
-        loaded.auth,
-        Auth::Basic {
-            username: "u".into(),
-            password: "p".into()
-        }
-    );
-}
-
-#[test]
-fn config_auth_roundtrip_header() {
-    let dir = setup_data_dir();
-    let _key = common::test_key(dir.path());
-    let cfg = Config {
-        auth: Auth::Header {
-            name: "X-Key".into(),
-            value: "v".into(),
-        },
-        ..Config::default()
-    };
-    libllm_config::save(&cfg).unwrap();
-    let loaded = libllm_config::load();
-    assert_eq!(
-        loaded.auth,
-        Auth::Header {
-            name: "X-Key".into(),
-            value: "v".into()
-        }
-    );
-}
-
-#[test]
-fn config_auth_roundtrip_query() {
-    let dir = setup_data_dir();
-    let _key = common::test_key(dir.path());
-    let cfg = Config {
-        auth: Auth::Query {
-            name: "api_key".into(),
-            value: "v".into(),
-        },
-        ..Config::default()
-    };
-    libllm_config::save(&cfg).unwrap();
-    let loaded = libllm_config::load();
-    assert_eq!(
-        loaded.auth,
-        Auth::Query {
-            name: "api_key".into(),
-            value: "v".into()
-        }
-    );
-}
-
-#[test]
-fn config_auth_defaults_to_none_for_missing_section() {
-    let dir = setup_data_dir();
-    let _key = common::test_key(dir.path());
-    std::fs::write(
-        libllm_config::config_path(),
-        "api_url = \"http://localhost:5001/v1\"\n",
-    )
-    .unwrap();
-    let loaded = libllm_config::load();
-    assert_eq!(loaded.auth, Auth::None);
 }

@@ -1200,11 +1200,6 @@ mod tests {
     use libllm_core::session::Session;
 
     #[test]
-    fn non_empty_with_content() {
-        assert_eq!(non_empty("hello"), Some("hello".to_owned()));
-    }
-
-    #[test]
     fn non_empty_empty_string() {
         assert_eq!(non_empty(""), None);
     }
@@ -1230,18 +1225,6 @@ mod tests {
 
         let names = enabled_worldbook_names(&session, &cfg);
         assert_eq!(names, vec!["lore_a", "lore_b"]);
-    }
-
-    #[test]
-    fn enabled_worldbook_names_config_only() {
-        let session = Session::default();
-        let cfg = Config {
-            worldbooks: vec!["cfg_lore".to_owned()],
-            ..Config::default()
-        };
-
-        let names = enabled_worldbook_names(&session, &cfg);
-        assert_eq!(names, vec!["cfg_lore"]);
     }
 
     #[test]

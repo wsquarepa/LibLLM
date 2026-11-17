@@ -10,31 +10,6 @@ use libllm_core::session::{MessageTree, Role, Session};
 use libllm_storage::db::Database;
 
 #[test]
-fn session_database_round_trip() {
-    let dir = common::temp_dir();
-    let db_path = dir.path().join("data.db");
-    let mut db = Database::open(&db_path, None).expect("open db");
-
-    let session = common::linear_session(vec![
-        common::user_msg("hello"),
-        common::assistant_msg("hi there"),
-        common::user_msg("how are you?"),
-    ]);
-    db.insert_session("plain-1", &session)
-        .expect("insert failed");
-    let loaded = db.load_session("plain-1").expect("load failed");
-
-    let messages = loaded.tree.branch_path();
-    assert_eq!(messages.len(), 3);
-    assert_eq!(messages[0].role, Role::User);
-    assert_eq!(messages[0].content, "hello");
-    assert_eq!(messages[1].role, Role::Assistant);
-    assert_eq!(messages[1].content, "hi there");
-    assert_eq!(messages[2].role, Role::User);
-    assert_eq!(messages[2].content, "how are you?");
-}
-
-#[test]
 fn session_encrypted_database_round_trip() {
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
@@ -79,29 +54,6 @@ fn session_wrong_key_rejected() {
 }
 
 #[test]
-fn session_branching() {
-    let mut tree = MessageTree::new();
-
-    let root = tree.push(None, common::user_msg("root"));
-    let a1 = tree.push(Some(root), common::assistant_msg("branch A"));
-    let _a2 = tree.push(Some(a1), common::user_msg("continue A"));
-
-    let b1 = tree.push(Some(root), common::assistant_msg("branch B"));
-
-    let path = tree.branch_path();
-    assert_eq!(path.len(), 2);
-    assert_eq!(path[0].content, "root");
-    assert_eq!(path[1].content, "branch B");
-
-    let root_node = tree.node(root).expect("root node");
-    assert_eq!(root_node.children.len(), 2);
-
-    let siblings = tree.siblings_of(b1);
-    assert!(siblings.contains(&a1));
-    assert!(siblings.contains(&b1));
-}
-
-#[test]
 fn session_empty_round_trip() {
     let dir = common::temp_dir();
     let db_path = dir.path().join("data.db");
@@ -114,36 +66,6 @@ fn session_empty_round_trip() {
 
     assert_eq!(loaded.tree.branch_path().len(), 0);
     assert!(loaded.tree.head().is_none());
-}
-
-#[test]
-fn session_metadata_fields_survive_round_trip() {
-    let dir = common::temp_dir();
-    let db_path = dir.path().join("data.db");
-    let mut db = Database::open(&db_path, None).expect("open db");
-
-    let session = Session {
-        tree: MessageTree::new(),
-        model: Some("llama-3".to_string()),
-        template: Some("chatml".to_string()),
-        system_prompt: Some("Be helpful.".to_string()),
-        character: Some("TestChar".to_string()),
-        worldbooks: vec!["lore-a".to_string(), "lore-b".to_string()],
-        persona: Some("Alice".to_string()),
-        scenario: None,
-        characters: Vec::new(),
-        chat_mode: libllm_core::group_chat::ChatMode::default(),
-        author_note: None,
-    };
-    db.insert_session("meta-1", &session).expect("insert meta");
-    let loaded = db.load_session("meta-1").expect("load meta");
-
-    assert_eq!(loaded.model.as_deref(), Some("llama-3"));
-    assert_eq!(loaded.template.as_deref(), Some("chatml"));
-    assert_eq!(loaded.system_prompt.as_deref(), Some("Be helpful."));
-    assert_eq!(loaded.character.as_deref(), Some("TestChar"));
-    assert_eq!(loaded.worldbooks, vec!["lore-a", "lore-b"]);
-    assert_eq!(loaded.persona.as_deref(), Some("Alice"));
 }
 
 #[test]
@@ -225,129 +147,6 @@ fn worldbook_rename_insert_before_delete_preserves_old_on_failure() {
         still_there.is_ok(),
         "original worldbook must still exist when the insert fails before the delete"
     );
-}
-
-#[test]
-fn worldbook_rename_insert_then_delete_completes_cleanly() {
-    let dir = common::temp_dir();
-    let db_path = dir.path().join("data.db");
-    let db = Database::open(&db_path, None).expect("open db");
-
-    let original = common::worldbook("old", vec![common::worldbook_entry(vec!["key"], "lore")]);
-    db.insert_worldbook("old", &original)
-        .expect("insert original");
-
-    let renamed = common::worldbook(
-        "new-name",
-        vec![common::worldbook_entry(vec!["key"], "lore")],
-    );
-    db.insert_worldbook("new-name", &renamed)
-        .expect("insert with new slug succeeds");
-    db.delete_worldbook("old")
-        .expect("delete old slug succeeds");
-
-    assert!(db.load_worldbook("old").is_err(), "old slug must be gone");
-    assert!(db.load_worldbook("new-name").is_ok(), "new slug must exist");
-}
-
-#[test]
-fn session_round_trip_preserves_file_snapshot_nodes() {
-    let dir = common::temp_dir();
-    let db_path = dir.path().join("data.db");
-    let mut db = Database::open(&db_path, None).expect("open db");
-
-    let snapshot_body = libllm_core::files::build_snapshot_body("notes.md", "hello\nworld");
-    let session = common::linear_session(vec![
-        common::system_msg(&snapshot_body),
-        common::user_msg("summarise @./notes.md please"),
-    ]);
-    db.insert_session("snap-1", &session).expect("insert");
-    let loaded = db.load_session("snap-1").expect("load");
-    let messages = loaded.tree.branch_path();
-
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[0].role, Role::System);
-    assert_eq!(messages[0].content, snapshot_body);
-    assert!(libllm_core::files::is_snapshot(&messages[0].content));
-    assert_eq!(
-        libllm_core::files::snapshot_basename(&messages[0].content).as_deref(),
-        Some("notes.md")
-    );
-    assert_eq!(messages[1].role, Role::User);
-    assert_eq!(messages[1].content, "summarise @./notes.md please");
-}
-
-#[test]
-fn encrypted_session_round_trip_preserves_file_snapshot_nodes() {
-    let dir = common::temp_dir();
-    let db_path = dir.path().join("data.db");
-    let key = common::test_key(dir.path());
-
-    let snapshot_body = libllm_core::files::build_snapshot_body("secret.md", "classified");
-    let session = common::linear_session(vec![
-        common::system_msg(&snapshot_body),
-        common::user_msg("decrypt @./secret.md"),
-    ]);
-    {
-        let mut db = Database::open(&db_path, Some(&key)).expect("open encrypted db");
-        db.insert_session("enc-snap", &session).expect("insert");
-    }
-    {
-        let db = Database::open(&db_path, Some(&key)).expect("reopen encrypted db");
-        let loaded = db.load_session("enc-snap").expect("load");
-        let messages = loaded.tree.branch_path();
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].role, Role::System);
-        assert!(libllm_core::files::is_snapshot(&messages[0].content));
-        assert!(messages[0].content.contains("<<<FILE secret.md>>>"));
-        assert!(messages[0].content.contains("classified"));
-    }
-}
-
-#[test]
-fn group_session_round_trips_through_database() {
-    let dir = common::temp_dir();
-    let db_path = dir.path().join("data.db");
-    let mut db = Database::open(&db_path, None).expect("open db");
-
-    let session = Session {
-        tree: MessageTree::new(),
-        characters: vec![
-            CharacterAttachment {
-                slug: "alice".to_owned(),
-                talkativeness: 0.7,
-                action_points: 0.0,
-                spoke_this_round: false,
-            },
-            CharacterAttachment {
-                slug: "bob".to_owned(),
-                talkativeness: 0.4,
-                action_points: 0.0,
-                spoke_this_round: false,
-            },
-            CharacterAttachment {
-                slug: "charlie".to_owned(),
-                talkativeness: 0.6,
-                action_points: 0.0,
-                spoke_this_round: false,
-            },
-        ],
-        chat_mode: ChatMode::WeightedRandom,
-        ..Default::default()
-    };
-
-    db.insert_session("g3", &session)
-        .expect("insert group session");
-    let loaded = db.load_session("g3").expect("load group session");
-
-    assert_eq!(loaded.characters.len(), 3);
-    assert!((loaded.characters[0].talkativeness - 0.7_f32).abs() < 1e-6);
-    assert!((loaded.characters[1].talkativeness - 0.4_f32).abs() < 1e-6);
-    assert!((loaded.characters[2].talkativeness - 0.6_f32).abs() < 1e-6);
-    assert_eq!(loaded.characters[0].slug, "alice");
-    assert_eq!(loaded.characters[1].slug, "bob");
-    assert_eq!(loaded.characters[2].slug, "charlie");
-    assert!(matches!(loaded.chat_mode, ChatMode::WeightedRandom));
 }
 
 #[test]

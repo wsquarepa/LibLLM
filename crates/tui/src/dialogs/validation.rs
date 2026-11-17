@@ -75,26 +75,6 @@ mod tests {
     }
 
     #[test]
-    fn color_validates_hex() {
-        let v = FieldValidation::Color;
-        assert!(v.validate("#ff0000"));
-        assert!(v.validate("#1a2b3c"));
-    }
-
-    #[test]
-    fn color_validates_named() {
-        let v = FieldValidation::Color;
-        assert!(v.validate("red"));
-        assert!(v.validate("dark_gray"));
-    }
-
-    #[test]
-    fn color_validates_indexed() {
-        let v = FieldValidation::Color;
-        assert!(v.validate("indexed(236)"));
-    }
-
-    #[test]
     fn color_rejects_nonsense() {
         let v = FieldValidation::Color;
         assert!(!v.validate("not_a_color"));

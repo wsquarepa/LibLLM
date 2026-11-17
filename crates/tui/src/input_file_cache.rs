@@ -45,23 +45,6 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn insert_and_lookup() {
-        let mut cache = InputFileCache::new();
-        cache.insert(
-            PathBuf::from("/tmp/a.md"),
-            CachedResolution {
-                estimated_tokens: 3,
-            },
-        );
-        assert_eq!(
-            cache
-                .lookup(Path::new("/tmp/a.md"))
-                .map(|r| r.estimated_tokens),
-            Some(3)
-        );
-    }
-
-    #[test]
     fn retain_paths_evicts_missing() {
         let mut cache = InputFileCache::new();
         cache.insert(

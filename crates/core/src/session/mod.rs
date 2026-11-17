@@ -101,16 +101,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn save_mode_id_returns_none_for_none() {
-        assert_eq!(SaveMode::None.id(), None);
-    }
-
-    #[test]
-    fn save_mode_id_returns_some_for_database() {
-        assert_eq!(SaveMode::Database { id: "abc".into() }.id(), Some("abc"));
-    }
-
-    #[test]
     fn save_mode_set_id_updates_database() {
         let mut mode = SaveMode::Database { id: "old".into() };
         mode.set_id("new".into());
@@ -129,17 +119,6 @@ mod tests {
         assert!(SaveMode::PendingPasskey { id: "x".into() }.needs_passkey());
         assert!(!SaveMode::None.needs_passkey());
         assert!(!SaveMode::Database { id: "x".into() }.needs_passkey());
-    }
-
-    #[test]
-    fn session_default_has_empty_characters_and_action_value_mode() {
-        let s = Session::default();
-        assert!(s.characters.is_empty());
-        assert!(matches!(
-            s.chat_mode,
-            crate::group_chat::ChatMode::ActionValue
-        ));
-        assert!(s.scenario.is_none());
     }
 
     #[test]

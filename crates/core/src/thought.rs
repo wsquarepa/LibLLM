@@ -141,15 +141,6 @@ mod tests {
     }
 
     #[test]
-    fn split_explicit_open_and_close_at_start() {
-        let p = deepseek();
-        let s = split_first_think_block("<think>a</think>post", Some(&p));
-        assert_eq!(s.thought, Some("a"));
-        assert_eq!(s.after, "post");
-        assert!(s.closed);
-    }
-
-    #[test]
     fn split_tolerates_missing_whitespace_around_tags() {
         let p = deepseek();
         let s = split_first_think_block("<think>a</think>answer", Some(&p));

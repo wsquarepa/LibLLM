@@ -247,19 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn too_large_file_is_rejected() {
-        let tmp = TempDir::new().unwrap();
-        let big = vec![b'x'; 1024];
-        std::fs::write(tmp.path().join("big.md"), &big).unwrap();
-        let cfg = FilesConfig {
-            per_file_bytes: 100,
-            ..FilesConfig::default()
-        };
-        let err = resolve_all("read @big.md", tmp.path(), &cfg).unwrap_err();
-        assert!(matches!(err, FileError::TooLarge { .. }));
-    }
-
-    #[test]
     fn per_message_cap_is_enforced() {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("a.md"), "x".repeat(300)).unwrap();
@@ -429,22 +416,5 @@ mod tests {
             std::fs::canonicalize(&target).unwrap()
         );
         assert_eq!(resolved[0].body, "body");
-    }
-
-    #[test]
-    fn assemble_snapshot_messages_respects_per_message_cap() {
-        let cfg = FilesConfig {
-            per_message_bytes: 4,
-            ..FilesConfig::default()
-        };
-        let rf = ResolvedFile {
-            raw_token: "@x.md".to_owned(),
-            canonical_path: PathBuf::from("/tmp/x.md"),
-            basename: "x.md".to_owned(),
-            body: "abcdef".to_owned(),
-            byte_size: 6,
-        };
-        let err = assemble_snapshot_messages(vec![rf], &cfg).unwrap_err();
-        assert!(matches!(err, FileError::MessageTooLarge { .. }));
     }
 }

@@ -380,13 +380,6 @@ mod tests {
     }
 
     #[test]
-    fn session_filter_captures_substring() {
-        let parsed = parse("session:feature bug").unwrap();
-        assert_eq!(parsed.session_substring, Some("feature".to_owned()));
-        assert_eq!(parsed.match_expr, "bug*");
-    }
-
-    #[test]
     fn quoted_phrase_with_colon_is_not_a_filter() {
         let parsed = parse("\"role:user friendly\"").unwrap();
         assert_eq!(parsed.match_expr, "\"role:user friendly\"");

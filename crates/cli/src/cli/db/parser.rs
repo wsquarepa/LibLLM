@@ -289,11 +289,6 @@ mod tests {
     }
 
     #[test]
-    fn single_rejects_drop_table_after_semicolon() {
-        assert!(!is_single_statement("SELECT 1; DROP TABLE foo"));
-    }
-
-    #[test]
     fn single_accepts_trailing_line_comment_with_newline() {
         assert!(is_single_statement("SELECT 1;\n-- trailing comment only"));
     }

@@ -125,15 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn v9_adds_scenario_column() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
-        seed_v8(&conn)?;
-        super::migrate(&conn)?;
-        assert!(column_exists(&conn, "sessions", "scenario")?);
-        Ok(())
-    }
-
-    #[test]
     fn v9_populates_scenario_for_solo_session() -> Result<()> {
         let conn = Connection::open_in_memory()?;
         seed_v8(&conn)?;

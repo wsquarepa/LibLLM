@@ -1056,16 +1056,6 @@ mod tests {
         assert_eq!(sys_entry["is_system"], true);
     }
 
-    #[test]
-    fn jsonl_applies_template_vars() {
-        let msgs = test_messages();
-        let refs: Vec<&Message> = msgs.iter().collect();
-        let result = render_jsonl(&refs, "Alice", "Bob");
-        let lines: Vec<&str> = result.lines().collect();
-        let user_entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(user_entry["mes"], "Hello Alice");
-    }
-
     fn assistant_thought_msg(content: &str, thought_seconds: Option<u32>) -> Message {
         Message {
             role: Role::Assistant,

@@ -46,7 +46,7 @@ Only re-run `cargo xtask ci` after editing code to fix a failure.
 
 ### Test suites
 
-Integration tests live in `crates/cli/tests/` across sixteen files: `author_note_injection`, `business_logic`, `cli`, `configuration`, `content`, `danger_subprocess`, `danger_tab`, `db_subcommand`, `file_summary`, `group_chats`, `import_subcommand`, `persistence`, `recover_subcommand`, `regex_rules`, `template_detection`, `tokenization`. Keep this list in sync when adding or removing a test binary. Shared helpers are in `crates/cli/tests/common/mod.rs`; each binary compiles its own copy of `mod common;` and uses a different subset, so the declaration carries `#[expect(dead_code, reason = "...")]`, never `#[allow]`.
+Integration tests live in `crates/cli/tests/` across twelve files: `business_logic`, `cli`, `configuration`, `content`, `danger_subprocess`, `db_subcommand`, `file_summary`, `group_chats`, `import_subcommand`, `persistence`, `recover_subcommand`, `tokenization`. Keep this list in sync when adding or removing a test binary. Shared helpers are in `crates/cli/tests/common/mod.rs`; each binary compiles its own copy of `mod common;` and uses a different subset, so the declaration carries `#[expect(dead_code, reason = "...")]`, never `#[allow]`.
 
 `db_subcommand`, `import_subcommand`, and `recover_subcommand` spawn the compiled `libllm` binary via `common::client_bin()` to test the CLI contract end-to-end (exit codes, stderr/stdout split, env-var passkey, `--no-encrypt` data dirs). Use `.output()`, not `.status()`, so stderr is captured in failure messages. The `update` subcommand needs network access and the `edit` subcommand needs an `$EDITOR` mock; neither is subprocess-tested.
 

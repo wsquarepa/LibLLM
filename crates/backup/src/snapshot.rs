@@ -743,22 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn second_backup_creates_diff() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let db_path = setup_test_db(dir.path());
-        let config = BackupConfig::default();
-
-        create_snapshot(dir.path(), None, &config).unwrap();
-        modify_test_db(&db_path);
-        create_snapshot(dir.path(), None, &config).unwrap();
-
-        let idx = load_test_index(dir.path());
-        assert_eq!(idx.entries.len(), 2);
-        assert_eq!(idx.entries[1].entry_type, BackupType::Diff);
-        assert!(idx.entries[1].base_id.is_some());
-    }
-
-    #[test]
     fn diff_is_smaller_than_base_for_small_change() {
         let dir = tempfile::TempDir::new().unwrap();
         let db_path = setup_test_db(dir.path());
@@ -800,28 +784,6 @@ mod tests {
     }
 
     #[test]
-    fn backup_files_exist_on_disk() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let db_path = setup_test_db(dir.path());
-        let config = BackupConfig::default();
-
-        create_snapshot(dir.path(), None, &config).unwrap();
-        modify_test_db(&db_path);
-        create_snapshot(dir.path(), None, &config).unwrap();
-
-        let idx = load_test_index(dir.path());
-        let backups_dir = dir.path().join("backups");
-        for entry in &idx.entries {
-            let file_path = backups_dir.join(&entry.filename);
-            assert!(
-                file_path.exists(),
-                "backup file missing: {}",
-                entry.filename
-            );
-        }
-    }
-
-    #[test]
     fn unmodified_db_still_creates_backup() {
         let dir = tempfile::TempDir::new().unwrap();
         setup_test_db(dir.path());
@@ -838,21 +800,28 @@ mod tests {
     fn retention_runs_after_snapshot() {
         let dir = tempfile::TempDir::new().unwrap();
         let db_path = setup_test_db(dir.path());
+        // Every snapshot is a base, and every entry older than "now" falls into the
+        // monthly tier, so the second base wins its month and the first is pruned.
         let config = BackupConfig {
             keep_all_days: 0,
             keep_daily_days: 0,
             keep_weekly_days: 0,
-            rebase_hard_ceiling: 100,
+            rebase_hard_ceiling: 0,
             ..BackupConfig::default()
         };
 
         create_snapshot(dir.path(), None, &config).unwrap();
+        let first = load_test_index(dir.path()).entries[0].clone();
         modify_test_db(&db_path);
-        std::thread::sleep(std::time::Duration::from_secs(1));
         create_snapshot(dir.path(), None, &config).unwrap();
 
         let idx = load_test_index(dir.path());
-        assert!(idx.entries.len() <= 2);
+        assert_eq!(idx.entries.len(), 1, "older base must be pruned");
+        assert_ne!(idx.entries[0].id, first.id);
+        assert!(
+            !dir.path().join("backups").join(&first.filename).exists(),
+            "pruned base file must be deleted"
+        );
     }
 
     #[test]

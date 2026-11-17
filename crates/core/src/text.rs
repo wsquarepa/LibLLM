@@ -105,11 +105,6 @@ mod tests {
     }
 
     #[test]
-    fn strip_controls_removes_csi_erase_display() {
-        assert_eq!(strip_terminal_controls("\x1b[2J"), "");
-    }
-
-    #[test]
     fn strip_controls_preserves_fts_markers() {
         let input = "\u{1}word\u{2}";
         assert_eq!(strip_terminal_controls(input), "\u{1}word\u{2}");

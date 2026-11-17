@@ -98,18 +98,3 @@ pub(crate) fn handle_key(key: KeyEvent, app: &mut App) -> Option<Action> {
     }
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn injection_warning_state_round_trip() {
-        let w = InjectionWarning {
-            basename: "evil.md".to_owned(),
-            delimiter: "<<<FILE \u{2026}>>>",
-        };
-        assert_eq!(w.basename, "evil.md");
-        assert_eq!(w.delimiter, "<<<FILE \u{2026}>>>");
-    }
-}

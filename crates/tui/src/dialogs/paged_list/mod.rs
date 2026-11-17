@@ -98,11 +98,6 @@ impl SearchState {
                 .build(),
         );
     }
-
-    #[cfg(test)]
-    pub fn pre_search_selected(&self) -> Option<usize> {
-        self.pre_search_selected
-    }
 }
 
 impl Default for SearchState {
@@ -575,11 +570,6 @@ mod tests {
     }
 
     #[test]
-    fn viewport_single_item() {
-        assert_eq!(viewport(1, 0, 5), 0..1);
-    }
-
-    #[test]
     fn height_content_sized_for_short_list() {
         assert_eq!(paged_list_height(3, 100, 4), 7);
     }
@@ -597,11 +587,6 @@ mod tests {
     #[test]
     fn height_skips_floor_when_terminal_too_small() {
         assert_eq!(paged_list_height(100, 5, 4), 5);
-    }
-
-    #[test]
-    fn height_uses_branch_chrome() {
-        assert_eq!(paged_list_height(10, 50, 3), 13);
     }
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -752,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn search_ctrl_f_activates_and_snapshots() {
+    fn search_ctrl_f_activates_and_esc_restores_selection_from_entry() {
         let mut sel = 4usize;
         let labels = vec![
             "a".to_owned(),
@@ -765,7 +750,10 @@ mod tests {
         let action = handle_paged_list_key(&mut sel, &labels, 5, ctrl_key('f'), Some(&mut state));
         assert_eq!(action, PagedListAction::EnteredSearch);
         assert!(state.active);
-        assert_eq!(state.pre_search_selected(), Some(4));
+        handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Home), Some(&mut state));
+        assert_eq!(sel, 0);
+        handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Esc), Some(&mut state));
+        assert_eq!(sel, 4);
     }
 
     #[test]
@@ -988,51 +976,6 @@ mod tests {
     }
 
     #[test]
-    fn page_size_branch_chrome() {
-        assert_eq!(page_size(50, 3), 44);
-    }
-
-    #[test]
-    fn search_state_new_is_inactive_and_empty() {
-        let s = SearchState::new();
-        assert!(!s.active);
-        assert!(s.query.is_empty());
-        assert!(!s.is_filtering());
-    }
-
-    #[test]
-    fn search_state_enter_activates_and_snapshots_selection() {
-        let mut s = SearchState::new();
-        s.enter(7);
-        assert!(s.active);
-        assert_eq!(s.pre_search_selected(), Some(7));
-    }
-
-    #[test]
-    fn search_state_commit_deactivates_and_keeps_query() {
-        let mut s = SearchState::new();
-        s.enter(0);
-        s.push_char('a');
-        s.commit();
-        assert!(!s.active);
-        assert_eq!(s.query, "a");
-        assert!(s.is_filtering());
-    }
-
-    #[test]
-    fn search_state_cancel_clears_query_and_returns_snapshot() {
-        let mut s = SearchState::new();
-        s.enter(3);
-        s.push_char('a');
-        s.push_char('b');
-        let restored = s.cancel();
-        assert_eq!(restored, Some(3));
-        assert!(!s.active);
-        assert!(s.query.is_empty());
-        assert!(!s.is_filtering());
-    }
-
-    #[test]
     fn search_state_deactivate_and_clear_clears_everything() {
         let mut s = SearchState::new();
         s.enter(4);
@@ -1043,7 +986,7 @@ mod tests {
         assert!(s.query.is_empty());
         assert!(!s.is_filtering());
         assert!(!s.compile_error());
-        assert_eq!(s.pre_search_selected(), None);
+        assert_eq!(s.cancel(), None);
     }
 
     #[test]
@@ -1053,29 +996,23 @@ mod tests {
     }
 
     #[test]
-    fn search_state_push_pop_char_edits_query() {
-        let mut s = SearchState::new();
-        s.push_char('a');
-        s.push_char('b');
-        s.push_char('c');
-        assert_eq!(s.query, "abc");
-        s.pop_char();
-        assert_eq!(s.query, "ab");
-        s.pop_char();
-        s.pop_char();
-        s.pop_char();
-        assert_eq!(s.query, "");
-    }
-
-    #[test]
-    fn search_state_is_filtering_independent_of_active() {
-        let mut s = SearchState::new();
-        s.push_char('x');
-        assert!(s.is_filtering());
-        assert!(!s.active);
-        s.enter(0);
-        assert!(s.is_filtering());
-        assert!(s.active);
+    fn committed_search_still_constrains_navigation_to_matches() {
+        let mut sel = 0usize;
+        let labels = vec![
+            "alpha".to_owned(),
+            "beta".to_owned(),
+            "gamma".to_owned(),
+            "alfalfa".to_owned(),
+        ];
+        let mut state = SearchState::new();
+        state.enter(0);
+        state.push_char('a');
+        state.push_char('l');
+        state.commit();
+        let action =
+            handle_paged_list_key(&mut sel, &labels, 5, key(KeyCode::Down), Some(&mut state));
+        assert_eq!(action, PagedListAction::Consumed);
+        assert_eq!(sel, 3);
     }
 
     #[test]
@@ -1146,14 +1083,6 @@ mod tests {
         s.push_char('l');
         // "al" matches "alpha" (idx 0) and "alfalfa" (idx 3).
         assert_eq!(filter_indices(&labels, &s), vec![0, 3]);
-    }
-
-    #[test]
-    fn filter_indices_invalid_regex_returns_empty() {
-        let labels = vec!["alpha".to_owned(), "beta".to_owned()];
-        let mut s = SearchState::new();
-        s.push_char('(');
-        assert_eq!(filter_indices(&labels, &s), Vec::<usize>::new());
     }
 
     #[test]

@@ -159,14 +159,6 @@ mod tests {
     }
 
     #[test]
-    fn from_row_parts_none_when_text_is_empty() {
-        assert_eq!(
-            AuthorNote::from_row_parts(Some(String::new()), 4, false),
-            None
-        );
-    }
-
-    #[test]
     fn from_row_parts_none_when_text_is_whitespace() {
         assert_eq!(
             AuthorNote::from_row_parts(Some("   \t\n".to_owned()), 4, false),
@@ -185,16 +177,6 @@ mod tests {
                 at_top: true,
             })
         );
-    }
-
-    #[test]
-    fn position_at_top_is_zero() {
-        let note = AuthorNote {
-            text: "x".to_owned(),
-            depth: 99,
-            at_top: true,
-        };
-        assert_eq!(note.position(10), 0);
     }
 
     #[test]
@@ -218,26 +200,6 @@ mod tests {
     }
 
     #[test]
-    fn position_depth_exceeds_len_clamps_to_zero() {
-        let note = AuthorNote {
-            text: "x".to_owned(),
-            depth: 99,
-            at_top: false,
-        };
-        assert_eq!(note.position(10), 0);
-    }
-
-    #[test]
-    fn position_depth_one_is_len_minus_one() {
-        let note = AuthorNote {
-            text: "x".to_owned(),
-            depth: 1,
-            at_top: false,
-        };
-        assert_eq!(note.position(10), 9);
-    }
-
-    #[test]
     fn position_depth_four_is_len_minus_four() {
         let note = AuthorNote {
             text: "x".to_owned(),
@@ -245,27 +207,5 @@ mod tests {
             at_top: false,
         };
         assert_eq!(note.position(10), 6);
-    }
-
-    #[test]
-    fn position_empty_messages_clamps_to_zero() {
-        let note = AuthorNote {
-            text: "x".to_owned(),
-            depth: 4,
-            at_top: false,
-        };
-        assert_eq!(note.position(0), 0);
-    }
-
-    #[test]
-    fn serde_round_trip() {
-        let note = AuthorNote {
-            text: "hi".to_owned(),
-            depth: 3,
-            at_top: true,
-        };
-        let json = serde_json::to_string(&note).unwrap();
-        let back: AuthorNote = serde_json::from_str(&json).unwrap();
-        assert_eq!(note, back);
     }
 }

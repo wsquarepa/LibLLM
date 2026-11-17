@@ -11,6 +11,8 @@ expect status_message contains "No user message"
 expect status_level == Warning
 expect message_count == 0
 
-# After 6s the status message expires
+# The status message survives a short wait, then expires after 6s more
+advance 2s
+expect status_message contains "No user message"
 advance 6s
 expect status_message == null

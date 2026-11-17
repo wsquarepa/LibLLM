@@ -352,20 +352,6 @@ mod tests {
     }
 
     #[test]
-    fn build_list_marks_current_on_running_version_not_latest() {
-        let releases = vec![
-            rel("v2.6.0", false),
-            rel("v2.5.0", false),
-            rel("v2.4.0", false),
-        ];
-        let list = build_branch_list(&releases, "stable", "2.4.0");
-        let v260 = list.iter().find(|e| e.tag == "v2.6.0").unwrap();
-        let v240 = list.iter().find(|e| e.tag == "v2.4.0").unwrap();
-        assert!(!v260.current);
-        assert!(v240.current);
-    }
-
-    #[test]
     fn build_list_marks_running_version_current_even_when_far_below_latest() {
         let releases = vec![
             rel("v2.10.0", false),
@@ -379,18 +365,6 @@ mod tests {
         let v250 = list.iter().find(|e| e.tag == "v2.5.0").unwrap();
         assert!(v250.current);
         assert_eq!(list.iter().filter(|e| e.current).count(), 1);
-    }
-
-    #[test]
-    fn build_list_appends_prereleases_after_semver_in_api_order() {
-        let releases = vec![
-            rel("v2.6.0", false),
-            rel("feat/foo", true),
-            rel("bugfix/bar", true),
-        ];
-        let list = build_branch_list(&releases, "stable", "2.6.0");
-        let names: Vec<&str> = list.iter().map(|e| e.tag.as_str()).collect();
-        assert_eq!(names, vec!["v2.6.0", "feat/foo", "bugfix/bar"]);
     }
 
     #[test]

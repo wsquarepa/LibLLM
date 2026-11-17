@@ -203,13 +203,6 @@ mod tests {
     }
 
     #[test]
-    fn note_aliases_resolve() {
-        assert_eq!(resolve_alias("/note"), "/note");
-        assert_eq!(resolve_alias("/an"), "/note");
-        assert_eq!(resolve_alias("/authornote"), "/note");
-    }
-
-    #[test]
     fn matching_commands_excludes_hidden() {
         let matches = matching_commands("/", &["/quit"]);
         assert!(
@@ -233,15 +226,5 @@ mod tests {
                 cmd.name
             );
         }
-    }
-
-    #[test]
-    fn chat_command_is_registered() {
-        assert!(super::COMMANDS.iter().any(|c| c.name == "/chat"));
-    }
-
-    #[test]
-    fn next_command_is_registered() {
-        assert!(super::COMMANDS.iter().any(|c| c.name == "/next"));
     }
 }

@@ -551,20 +551,6 @@ mod tests {
     }
 
     #[test]
-    fn persists_preferred_branch_choices_via_database() {
-        let dir = TempDir::new().unwrap();
-        let db_path = dir.path().join("test.db");
-        let mut db = Database::open(&db_path, None).unwrap();
-
-        let (session, ids) = build_branching_session();
-        db.insert_session("branch-test", &session).unwrap();
-        let mut loaded = db.load_session("branch-test").unwrap();
-
-        loaded.tree.switch_to(ids.branch_parent);
-        assert_eq!(loaded.tree.head(), Some(ids.branch_leaf));
-    }
-
-    #[test]
     fn encrypted_db_load_rehydrates_preferred_branch_choices() {
         let dir = TempDir::new().unwrap();
         let db_path = dir.path().join("encrypted.db");

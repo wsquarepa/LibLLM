@@ -328,17 +328,6 @@ mod tests {
         assert!(prompt.contains("User: New message"));
     }
 
-    #[test]
-    fn format_prompt_handles_system_messages() {
-        let msgs = [
-            Message::new(Role::System, "You are helpful.".to_owned()),
-            Message::new(Role::User, "Hi".to_owned()),
-        ];
-        let refs: Vec<&Message> = msgs.iter().collect();
-        let prompt = Summarizer::format_prompt(None, "Summarize.", &refs, &NullFileSummaryLookup);
-        assert!(prompt.contains("System: You are helpful."));
-    }
-
     #[tokio::test]
     async fn shed_to_fit_trims_until_prompt_under_budget() {
         use crate::tokenizer::{HeuristicTokenizer, TokenCounter, TokenizerBackend};

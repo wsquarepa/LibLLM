@@ -344,12 +344,6 @@ impl TokenCounter {
             }
         });
     }
-
-    #[cfg(test)]
-    pub(crate) fn insert_cached_for_test(&self, text: &str, count: usize) {
-        let key = Self::hash_key(text);
-        lock(&self.cache).put(key, count);
-    }
 }
 
 #[cfg(test)]
@@ -383,39 +377,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counter_cache_hit_returns_authoritative() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
-        let counter = TokenCounter::new_with_backend(
-            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
-            tx,
-        );
-        // Prime the cache with a known value.
-        counter.insert_cached_for_test("hello", 42);
-        match counter.count_cached("hello", 1) {
-            CountState::Authoritative(n) => assert_eq!(n, 42),
-            other => panic!("expected Authoritative, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn counter_cache_miss_returns_estimate_and_enqueues() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
         let counter = TokenCounter::new_with_backend(
             TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
             tx,
         );
+        // ceil(8 * 10 / 33) + 2 * 1 = 3 + 2 = 5
         match counter.count_cached("abcdefgh", 1) {
-            CountState::Estimated(n) => {
-                assert_eq!(n, HeuristicTokenizer::standard().count("abcdefgh", 1));
-            }
+            CountState::Estimated(n) => assert_eq!(n, 5),
             other => panic!("expected Estimated, got {other:?}"),
         }
-        // A refresh should have been posted to rx.
         let update = tokio::time::timeout(std::time::Duration::from_millis(250), rx.recv())
             .await
             .expect("timed out waiting for refresh")
             .expect("channel closed");
         assert!(update.result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn applied_refresh_makes_cached_count_authoritative() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<TokenCountUpdate>(8);
+        let counter = TokenCounter::new_with_backend(
+            TokenizerBackend::Heuristic(HeuristicTokenizer::standard()),
+            tx,
+        );
+        let _ = counter.count_cached("abcdefgh", 1);
+        let update = tokio::time::timeout(std::time::Duration::from_millis(250), rx.recv())
+            .await
+            .expect("timed out waiting for refresh")
+            .expect("channel closed");
+        counter.apply_update(update);
+        // The backend counted with one message (5 tokens); an estimate for
+        // three messages would be ceil(8 * 10 / 33) + 2 * 3 = 9.
+        match counter.count_cached("abcdefgh", 3) {
+            CountState::Authoritative(n) => assert_eq!(n, 5),
+            other => panic!("expected Authoritative, got {other:?}"),
+        }
     }
 
     #[tokio::test]

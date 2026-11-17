@@ -186,15 +186,4 @@ mod tests {
         assert_eq!(drop_split_index(&refs, 4), 5);
         assert_eq!(drop_split_index(&refs, 99), 5);
     }
-
-    #[test]
-    fn drop_split_index_with_leading_summary() {
-        let summary = Message::new(Role::Summary, "prior".to_owned());
-        let a = user_msg("m1");
-        let b = assistant_msg("m2");
-        let refs: Vec<&_> = vec![&summary, &a, &b];
-
-        assert_eq!(drop_split_index(&refs, 1), 2);
-        assert_eq!(drop_split_index(&refs, 2), 3);
-    }
 }

@@ -11,7 +11,6 @@ use libllm_core::crypto::DerivedKey;
 use libllm_core::persona::PersonaFile;
 use libllm_core::sampling::SamplingOverrides;
 use libllm_core::session::{Message, MessageTree, Role, Session};
-use libllm_core::system_prompt::SystemPromptFile;
 use libllm_core::worldinfo::{Entry, WorldBook};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -43,11 +42,6 @@ pub fn user_msg(content: &str) -> Message {
 /// Build an assistant message.
 pub fn assistant_msg(content: &str) -> Message {
     Message::new(Role::Assistant, content.to_string())
-}
-
-/// Build a system message.
-pub fn system_msg(content: &str) -> Message {
-    Message::new(Role::System, content.to_string())
 }
 
 /// Build a `Session` with a linear chain of messages (no branching).
@@ -110,22 +104,6 @@ pub fn worldbook_entry(keys: Vec<&str>, content: &str) -> Entry {
         order: 0,
         depth: 4,
         case_sensitive: false,
-    }
-}
-
-/// Build a `SystemPromptFile`.
-pub fn system_prompt(name: &str, content: &str) -> SystemPromptFile {
-    SystemPromptFile {
-        name: name.to_string(),
-        content: content.to_string(),
-    }
-}
-
-/// Build a `PersonaFile`.
-pub fn persona(name: &str, persona_text: &str) -> PersonaFile {
-    PersonaFile {
-        name: name.to_string(),
-        persona: persona_text.to_string(),
     }
 }
 

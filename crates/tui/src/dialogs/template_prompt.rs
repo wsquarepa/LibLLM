@@ -246,12 +246,21 @@ mod tests {
     }
 
     #[test]
-    fn arrow_keys_toggle_button() {
+    fn arrow_keys_toggle_which_button_enter_activates() {
         let mut s = fixture_state();
-        assert_eq!(s.button_selected, 1);
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let _ =
             handle_template_prompt_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
-        assert_eq!(s.button_selected, 0);
+        assert!(matches!(
+            handle_template_prompt_key(enter, &mut s),
+            TemplatePromptResult::Switch
+        ));
+        let _ =
+            handle_template_prompt_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &mut s);
+        assert!(matches!(
+            handle_template_prompt_key(enter, &mut s),
+            TemplatePromptResult::Dismiss
+        ));
     }
 
     #[test]

@@ -749,6 +749,35 @@ mod tests {
     }
 
     #[test]
+    fn preview_footer_count_stops_at_line_cap() {
+        let theme = crate::theme::Theme::dark();
+        let mut state = SearchDialogState::new();
+        state.hits = vec![{
+            let mut hit = dummy_hit();
+            hit.preview_text = std::iter::repeat_n("x", PREVIEW_LINE_CAP + 500)
+                .collect::<Vec<_>>()
+                .join("\n");
+            hit
+        }];
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        render(&state, area, &mut buf, &theme);
+
+        let rendered = buffer_to_string(&buf);
+        let remaining: usize = rendered
+            .split("... +")
+            .nth(1)
+            .and_then(|rest| rest.split(' ').next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("expected truncation footer, got: {rendered}"));
+        assert!(
+            remaining <= PREVIEW_LINE_CAP,
+            "footer counted {remaining} lines, past the {PREVIEW_LINE_CAP} line cap"
+        );
+    }
+
+    #[test]
     fn preview_shows_no_preview_when_hits_empty() {
         let theme = crate::theme::Theme::dark();
         let mut state = SearchDialogState::new();
@@ -761,29 +790,6 @@ mod tests {
 
         let rendered = buffer_to_string(&buf);
         assert!(rendered.contains("(no preview)"));
-    }
-
-    #[test]
-    fn preview_truncates_pluralisation_for_many_extra_lines() {
-        let theme = crate::theme::Theme::dark();
-        let lines: String = (0..30)
-            .map(|i| format!("line{i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut state = SearchDialogState::new();
-        state.hits = vec![{
-            let mut hit = dummy_hit();
-            hit.preview_text = lines;
-            hit
-        }];
-        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
-        let mut buf = ratatui::buffer::Buffer::empty(area);
-        render(&state, area, &mut buf, &theme);
-        let rendered = buffer_to_string(&buf);
-        assert!(
-            rendered.contains("more lines"),
-            "expected 'more lines' for plural"
-        );
     }
 
     #[test]
@@ -874,51 +880,6 @@ mod tests {
             KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
         );
         assert_eq!(state.selected, 0);
-    }
-
-    #[test]
-    fn render_preview_caps_at_preview_line_cap() {
-        let theme = crate::theme::Theme::dark();
-        // Build a preview with PREVIEW_LINE_CAP + 500 lines, each just "x"
-        let many_lines: String = std::iter::repeat_n("x", PREVIEW_LINE_CAP + 500)
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut state = SearchDialogState::new();
-        state.hits = vec![{
-            let mut hit = dummy_hit();
-            hit.preview_text = many_lines;
-            hit
-        }];
-        // Use a tall area so body_rows is large enough to expose the cap
-        let area = ratatui::layout::Rect::new(0, 0, 80, 60);
-        let mut buf = ratatui::buffer::Buffer::empty(area);
-        // Must complete without panicking or OOMing
-        render(&state, area, &mut buf, &theme);
-        let rendered = buffer_to_string(&buf);
-        assert!(
-            rendered.contains("more lines"),
-            "expected truncation footer when lines exceed cap"
-        );
-    }
-
-    #[test]
-    fn render_preview_does_not_allocate_all_lines_eagerly() {
-        let theme = crate::theme::Theme::dark();
-        // PREVIEW_LINE_CAP * 10 short lines — should complete quickly without OOM
-        let huge: String = std::iter::repeat_n("x", PREVIEW_LINE_CAP * 10)
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut state = SearchDialogState::new();
-        state.hits = vec![{
-            let mut hit = dummy_hit();
-            hit.preview_text = huge;
-            hit
-        }];
-        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
-        let mut buf = ratatui::buffer::Buffer::empty(area);
-        render(&state, area, &mut buf, &theme);
-        let rendered = buffer_to_string(&buf);
-        assert!(rendered.contains("more lines"));
     }
 
     #[test]

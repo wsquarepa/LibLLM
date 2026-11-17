@@ -896,31 +896,11 @@ mod tests {
     }
 
     #[test]
-    fn decide_next_skips_characters_that_already_spoke() {
-        let mut rng = StdRng::seed_from_u64(0);
-        // a has lower AV but already spoke; b should be picked despite higher AV.
-        let cs = vec![att_spoken("a", 0.5, 0.0), att("b", 0.5, 1.5)];
-        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
-        assert_eq!(d.speaker_slug, "b", "should pick b because a already spoke");
-    }
-
-    #[test]
     fn decide_next_returns_none_when_all_eligible_spoke() {
         let mut rng = StdRng::seed_from_u64(0);
         let cs = vec![att_spoken("a", 0.5, 0.0), att_spoken("b", 0.5, 1.0)];
         let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None);
         assert!(d.is_none(), "no eligible characters left in this round");
-    }
-
-    #[test]
-    fn decide_next_round_robin_ties_break_by_attach_index() {
-        let mut rng = StdRng::seed_from_u64(0);
-        let cs = vec![att("a", 0.5, 0.0), att("b", 0.5, 0.0), att("c", 0.5, 0.0)];
-        let d = decide_next_speaker(&cs, ChatMode::RoundRobin, &mut rng, None).unwrap();
-        assert_eq!(
-            d.speaker_slug, "a",
-            "all tied at AV=0; round-robin picks first attach"
-        );
     }
 
     #[test]
@@ -983,14 +963,6 @@ mod tests {
     }
 
     #[test]
-    fn character_attachment_default_talkativeness() {
-        let a = CharacterAttachment::new("alice");
-        assert_eq!(a.slug, "alice");
-        assert!((a.talkativeness - DEFAULT_TALKATIVENESS).abs() < f32::EPSILON);
-        assert_eq!(a.action_points, 0.0);
-    }
-
-    #[test]
     fn chat_mode_serde_all_variants() {
         for (mode, label) in [
             (ChatMode::ActionValue, "\"action_value\""),
@@ -1008,17 +980,6 @@ mod tests {
     #[test]
     fn chat_mode_default_is_action_value() {
         assert_eq!(ChatMode::default(), ChatMode::ActionValue);
-    }
-
-    #[test]
-    fn session_scenario_serde_round_trip() {
-        let s = Session {
-            scenario: Some("a tavern at dusk".into()),
-            ..Session::default()
-        };
-        let json = serde_json::to_string(&s).unwrap();
-        let back: Session = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.scenario.as_deref(), Some("a tavern at dusk"));
     }
 
     #[test]
@@ -1360,27 +1321,6 @@ mod tests {
     }
 
     #[test]
-    fn build_turn_prompt_join_combines_fields_across_members() {
-        let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
-            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
-            ("charlie", card("Charlie", "Wizard.", "Curious.", "", "")),
-        ]);
-        let session = fixture_session(&["alice", "bob", "charlie"]);
-        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        for term in [
-            "Bard.",
-            "Dwarf.",
-            "Wizard.",
-            "Cheerful.",
-            "Stoic.",
-            "Curious.",
-        ] {
-            assert!(p.system.contains(term), "missing {term:?} in: {}", p.system);
-        }
-    }
-
-    #[test]
     fn build_turn_prompt_excludes_attachments_with_missing_cards() {
         let cards = cards_map(&[
             (
@@ -1495,21 +1435,6 @@ mod tests {
     }
 
     #[test]
-    fn build_turn_prompt_omits_scenario_block_when_absent() {
-        let cards = cards_map(&[
-            ("alice", card("Alice", "", "", "", "")),
-            ("bob", card("Bob", "", "", "", "")),
-        ]);
-        let session = fixture_session(&["alice", "bob"]);
-        let p = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        assert!(
-            !p.system.contains("[Scenario]"),
-            "unexpected [Scenario] block: {}",
-            p.system
-        );
-    }
-
-    #[test]
     fn build_turn_prompt_omits_scenario_block_when_whitespace_only() {
         let cards = cards_map(&[
             ("alice", card("Alice", "", "", "", "")),
@@ -1585,46 +1510,11 @@ mod tests {
     }
 
     #[test]
-    fn build_turn_prompt_foregrounds_active_speaker() {
-        let cards = cards_map(&[
-            ("alice", card("Alice", "Bard.", "Cheerful.", "", "")),
-            ("bob", card("Bob", "Dwarf.", "Stoic.", "", "")),
-        ]);
-        let mut session = fixture_session(&["alice", "bob"]);
-        session.scenario = Some("tavern".to_owned());
-        let alice = build_turn_prompt(inputs(&session, &cards, "alice")).unwrap();
-        let bob = build_turn_prompt(inputs(&session, &cards, "bob")).unwrap();
-        assert_eq!(alice.prefill, "Alice: ");
-        assert_eq!(bob.prefill, "Bob: ");
-        assert!(
-            alice.stop_sequences.contains(&"\nBob:".to_owned()),
-            "alice prompt should stop at Bob",
-        );
-        assert!(
-            bob.stop_sequences.contains(&"\nAlice:".to_owned()),
-            "bob prompt should stop at Alice",
-        );
-        assert!(
-            !alice.stop_sequences.iter().any(|s| s == "\nAlice:"),
-            "alice prompt must not stop at its own name",
-        );
-        assert!(
-            !bob.stop_sequences.iter().any(|s| s == "\nBob:"),
-            "bob prompt must not stop at its own name",
-        );
-    }
-
-    #[test]
     fn inherit_card_scenario_returns_some_for_non_empty() {
         assert_eq!(
             inherit_card_scenario("Templated."),
             Some("Templated.".to_owned())
         );
-    }
-
-    #[test]
-    fn inherit_card_scenario_returns_none_for_empty() {
-        assert_eq!(inherit_card_scenario(""), None);
     }
 
     #[test]

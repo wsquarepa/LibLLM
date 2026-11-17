@@ -891,12 +891,6 @@ mod sibling_index_tests {
     use super::next_sibling_index;
 
     #[test]
-    fn single_sibling_returns_none() {
-        assert_eq!(next_sibling_index(1, 0, -1), None);
-        assert_eq!(next_sibling_index(1, 0, 1), None);
-    }
-
-    #[test]
     fn left_at_first_returns_none() {
         assert_eq!(next_sibling_index(3, 0, -1), None);
     }

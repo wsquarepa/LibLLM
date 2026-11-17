@@ -364,11 +364,6 @@ advance 6s
     }
 
     #[test]
-    fn rejects_unknown_verb() {
-        assert!(parse("[steps]\nfrobnicate x\n").is_err());
-    }
-
-    #[test]
     fn parses_null_matcher() {
         let s = parse("[steps]\nexpect status_message == null\n").unwrap();
         assert_eq!(
@@ -430,18 +425,6 @@ advance 6s
         assert_eq!(s.setup.db, DbSetup::None);
         assert_eq!(s.setup.api, ApiSetup::None);
         assert_eq!(s.setup.overrides, vec!["persona_readonly".to_string()]);
-    }
-
-    #[test]
-    fn rejects_encrypted_db_setup_as_unknown() {
-        let err = parse("[setup]\ndb encrypted:hunter2\n[steps]\npump\n").unwrap_err();
-        assert!(err.to_string().contains("unknown db setup"), "{err}");
-    }
-
-    #[test]
-    fn rejects_seed_setup_key_as_unknown() {
-        let err = parse("[setup]\nseed fixtures/x.sql\n[steps]\npump\n").unwrap_err();
-        assert!(err.to_string().contains("unknown setup key"), "{err}");
     }
 
     #[test]

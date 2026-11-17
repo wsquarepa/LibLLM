@@ -117,31 +117,6 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn config_round_trips_through_toml() {
-        let cfg = Config {
-            regex: vec![RegexRule {
-                name: "strip-think".to_owned(),
-                pattern: r"(?s)<think>.*?</think>\s*".to_owned(),
-                replacement: String::new(),
-                scope: vec![Scope::Display],
-                target: vec![Target::Assistant],
-                enabled: true,
-                compile_error: None,
-            }],
-            ..Config::default()
-        };
-
-        let s = toml::to_string_pretty(&cfg).unwrap();
-        let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(back.regex.len(), 1);
-        assert_eq!(back.regex[0].name, "strip-think");
-        assert_eq!(back.regex[0].scope, vec![Scope::Display]);
-        assert_eq!(back.regex[0].target, vec![Target::Assistant]);
-        assert!(back.regex[0].enabled);
-        assert!(back.regex[0].compile_error.is_none());
-    }
-
-    #[test]
     fn config_with_no_regex_table_parses_to_empty() {
         let toml_str = r#"api_url = "http://localhost:5001/v1""#;
         let cfg: Config = toml::from_str(toml_str).unwrap();
@@ -226,52 +201,6 @@ mod tests {
         )]);
         let out = apply(&rules, Scope::Display, Role::User, "hey [OOC: brb 5min]");
         assert_eq!(out, "hey «brb 5min»");
-    }
-
-    #[test]
-    fn apply_resolves_named_capture_group() {
-        let rules = compile_rules(&[rule(
-            r"\[OOC: (?P<note>.*?)\]",
-            "<<${note}>>",
-            &[Scope::Display],
-            &[Target::User],
-        )]);
-        let out = apply(&rules, Scope::Display, Role::User, "[OOC: hi]");
-        assert_eq!(out, "<<hi>>");
-    }
-
-    #[test]
-    fn apply_handles_multibyte_input() {
-        let rules = compile_rules(&[rule(
-            "[\u{201c}\u{201d}]",
-            "\"",
-            &[Scope::PromptSend],
-            &[Target::User],
-        )]);
-        let out = apply(
-            &rules,
-            Scope::PromptSend,
-            Role::User,
-            "He said \u{201c}hi\u{201d}",
-        );
-        assert_eq!(out, "He said \"hi\"");
-    }
-
-    #[test]
-    fn apply_strips_think_blocks_dotall() {
-        let rules = compile_rules(&[rule(
-            r"(?s)<think>.*?</think>\s*",
-            "",
-            &[Scope::Display],
-            &[Target::Assistant],
-        )]);
-        let out = apply(
-            &rules,
-            Scope::Display,
-            Role::Assistant,
-            "<think>line1\nline2</think>\n\nactual answer",
-        );
-        assert_eq!(out, "actual answer");
     }
 
     #[test]

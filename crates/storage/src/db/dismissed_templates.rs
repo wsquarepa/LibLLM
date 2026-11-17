@@ -72,13 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn record_then_lookup_returns_true() {
-        let conn = fresh_conn();
-        record_dismissal(&conn, "abc123").unwrap();
-        assert!(is_dismissed(&conn, "abc123").unwrap());
-    }
-
-    #[test]
     fn record_is_idempotent() {
         let conn = fresh_conn();
         record_dismissal(&conn, "abc123").unwrap();

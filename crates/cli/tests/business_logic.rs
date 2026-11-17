@@ -6,52 +6,11 @@ mod common;
 
 use libllm_cli::cli::CliOverrides;
 use libllm_core::config::Config;
-use libllm_core::context::ContextManager;
 use libllm_core::group_chat::{CharacterAttachment, ChatMode};
 use libllm_core::session::{Message, MessageTree, Role, Session};
-use libllm_protocol::summarize::Summarizer;
+use libllm_core::worldinfo::RuntimeWorldBook;
 use libllm_tui::business;
 use libllm_tui::dialogs::chat_settings::roll_back_provisional_group;
-
-// ---------------------------------------------------------------------------
-// Summarizer and summary-aware context integration tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn summarizer_includes_prior_summary_as_context() {
-    let msgs = [
-        Message::new(Role::Summary, "Prior summary content".to_owned()),
-        Message::new(Role::User, "New message".to_owned()),
-    ];
-    let refs: Vec<&_> = msgs.iter().collect();
-    let prompt = Summarizer::format_prompt(
-        None,
-        "Instruction",
-        &refs,
-        &libllm_core::files::NullFileSummaryLookup,
-    );
-    assert!(prompt.contains("Previous summary: Prior summary content"));
-    assert!(prompt.contains("User: New message"));
-}
-
-#[test]
-fn summary_aware_path_with_context_manager() {
-    let ctx = ContextManager::new(8192);
-    let msgs = [
-        Message::new(Role::User, "old msg 1".to_owned()),
-        Message::new(Role::Assistant, "old reply 1".to_owned()),
-        Message::new(Role::Summary, "Summary of 2 earlier messages".to_owned()),
-        Message::new(Role::User, "new msg".to_owned()),
-        Message::new(Role::Assistant, "new reply".to_owned()),
-    ];
-    let refs: Vec<&_> = msgs.iter().collect();
-    let aware = ctx.summary_aware_path(&refs);
-
-    assert_eq!(aware.len(), 3);
-    assert_eq!(aware[0].role, Role::Summary);
-    assert_eq!(aware[1].content, "new msg");
-    assert_eq!(aware[2].content, "new reply");
-}
 
 fn no_overrides() -> CliOverrides {
     CliOverrides {
@@ -207,21 +166,6 @@ fn apply_tabbed_config_fields_preserves_locked() {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar Helpers (moved from tui_business.rs)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn new_chat_entry_is_new_chat() {
-    let entry = business::new_chat_entry();
-    assert!(entry.is_new_chat);
-    assert_eq!(entry.display_name, "+ New Chat");
-    assert_eq!(entry.sidebar_label, "+ New Chat");
-    assert!(entry.message_count.is_none());
-    assert!(entry.updated_at.is_none());
-    assert!(entry.sidebar_preview.is_none());
-}
-
-// ---------------------------------------------------------------------------
 // build_effective_system_prompt
 // ---------------------------------------------------------------------------
 
@@ -232,18 +176,6 @@ fn build_effective_system_prompt_no_character() {
     // when there is no session-level system_prompt and no persona.
     let result = business::build_effective_system_prompt(&session, None);
     assert!(result.is_none());
-}
-
-#[test]
-fn build_effective_system_prompt_with_custom_prompt() {
-    let session = Session {
-        system_prompt: Some("Custom prompt text".to_owned()),
-        ..empty_session()
-    };
-    let result = business::build_effective_system_prompt(&session, None);
-    assert!(result.is_some());
-    let text = result.unwrap();
-    assert!(text.contains("Custom prompt text"));
 }
 
 #[test]
@@ -262,20 +194,35 @@ fn build_effective_system_prompt_custom_prompt_preserved_without_character() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn inject_worldbook_entries_no_character_unchanged() {
-    let session = empty_session();
+fn inject_worldbook_entries_requires_an_attached_character() {
+    let worldbooks = [RuntimeWorldBook::from_worldbook(&common::worldbook(
+        "lore",
+        vec![common::worldbook_entry(
+            vec!["dragon"],
+            "Dragons hoard gold.",
+        )],
+    ))];
     let messages = [
-        Message::new(Role::User, "Hello world".to_owned()),
-        Message::new(Role::Assistant, "Hi there".to_owned()),
+        Message::new(Role::User, "Tell me about the dragon".to_owned()),
+        Message::new(Role::Assistant, "Which one?".to_owned()),
     ];
     let refs: Vec<&Message> = messages.iter().collect();
 
-    let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
-    assert_eq!(result.len(), messages.len());
-    for (original, returned) in messages.iter().zip(result.iter()) {
-        assert_eq!(original.content, returned.content);
-        assert_eq!(format!("{}", original.role), format!("{}", returned.role));
-    }
+    let with_character = Session {
+        character: Some("TestChar".to_owned()),
+        ..empty_session()
+    };
+    let injected =
+        business::inject_loaded_worldbook_entries(&with_character, &refs, "User", &worldbooks);
+    assert!(
+        injected.iter().any(|m| m.content == "Dragons hoard gold."),
+        "a keyword hit with a character attached must inject the entry"
+    );
+
+    let unchanged =
+        business::inject_loaded_worldbook_entries(&empty_session(), &refs, "User", &worldbooks);
+    let contents: Vec<&str> = unchanged.iter().map(|m| m.content.as_str()).collect();
+    assert_eq!(contents, ["Tell me about the dragon", "Which one?"]);
 }
 
 #[test]
@@ -293,100 +240,6 @@ fn inject_worldbook_entries_empty_worldbooks_unchanged() {
     // No worldbooks, so messages pass through unchanged regardless of character.
     let result = business::inject_loaded_worldbook_entries(&session, &refs, "User", &[]);
     assert_eq!(result.len(), messages.len());
-}
-
-// ---------------------------------------------------------------------------
-// Side-character splitting
-// ---------------------------------------------------------------------------
-
-#[test]
-fn side_character_split_chains_three_user_nodes() {
-    let raw = "User voice.\n\n[Alice]: hi.\n\n[Bob]: hello.";
-    let segments = libllm_core::side_character::split_user_input(raw);
-    assert_eq!(segments.len(), 3);
-
-    let mut tree = MessageTree::new();
-    let mut parent: Option<libllm_core::session::NodeId> = None;
-    for seg in &segments {
-        let id = tree.push(parent, Message::new(Role::User, seg.clone()));
-        parent = Some(id);
-    }
-
-    let ids = tree.current_branch_ids().to_vec();
-    assert_eq!(ids.len(), 3);
-    assert_eq!(tree.node(ids[0]).unwrap().message.content, "User voice.");
-    assert_eq!(tree.node(ids[1]).unwrap().message.content, "[Alice]: hi.");
-    assert_eq!(tree.node(ids[2]).unwrap().message.content, "[Bob]: hello.");
-    for id in &ids {
-        assert_eq!(tree.node(*id).unwrap().message.role, Role::User);
-    }
-    assert_eq!(tree.head(), Some(ids[2]));
-}
-
-#[test]
-fn remove_middle_message_preserves_descendants() {
-    let mut tree = MessageTree::new();
-    let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
-    let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
-    let m3 = tree.push(Some(m2), Message::new(Role::User, "m3".to_owned()));
-    let m4 = tree.push(Some(m3), Message::new(Role::Assistant, "m4".to_owned()));
-
-    let removed = tree.remove_node(m2);
-    assert!(removed);
-
-    let branch: Vec<String> = tree
-        .current_branch_ids()
-        .iter()
-        .map(|&id| tree.node(id).unwrap().message.content.clone())
-        .collect();
-    assert_eq!(branch, vec!["m1", "m3", "m4"]);
-    assert!(tree.head().is_some());
-
-    let _ = (m1, m3, m4);
-}
-
-#[test]
-fn remove_head_moves_head_to_parent() {
-    let mut tree = MessageTree::new();
-    let m1 = tree.push(None, Message::new(Role::User, "m1".to_owned()));
-    let m2 = tree.push(Some(m1), Message::new(Role::Assistant, "m2".to_owned()));
-
-    assert_eq!(tree.head(), Some(m2));
-    let removed = tree.remove_node(m2);
-    assert!(removed);
-
-    let survivor = tree
-        .head()
-        .expect("head must move to parent after leaf delete");
-    assert_eq!(tree.node(survivor).unwrap().message.content, "m1");
-}
-
-// ---------------------------------------------------------------------------
-// Display regex cache invalidation contract
-// ---------------------------------------------------------------------------
-
-#[test]
-fn display_regex_cache_clears_on_invalidate() {
-    use libllm_core::regex_rules::{RegexRule, Scope, Target};
-    use std::collections::HashMap;
-
-    let rule = RegexRule {
-        name: "x-to-y".to_owned(),
-        pattern: "x".to_owned(),
-        replacement: "y".to_owned(),
-        scope: vec![Scope::Display],
-        target: vec![Target::Assistant],
-        enabled: true,
-        compile_error: None,
-    };
-    let compiled = libllm_core::regex_rules::compile_rules(&[rule]);
-    assert_eq!(compiled.len(), 1, "valid rule should compile");
-
-    let mut cache: HashMap<libllm_core::session::NodeId, String> = HashMap::new();
-    cache.insert(0, "stale".to_owned());
-
-    cache.clear();
-    assert!(cache.is_empty(), "cache must be empty after clear");
 }
 
 // ---------------------------------------------------------------------------

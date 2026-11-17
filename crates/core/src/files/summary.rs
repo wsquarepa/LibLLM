@@ -130,12 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn null_lookup_always_returns_none() {
-        let null = NullFileSummaryLookup;
-        assert!(null.lookup("anything").is_none());
-    }
-
-    #[test]
     fn scoped_lookup_other_session_returns_none() {
         let resolver = FakeResolver;
         let scoped = ScopedFileSummaryLookup {

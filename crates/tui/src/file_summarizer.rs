@@ -425,33 +425,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn summarizer_schedule_inserts_pending_row() {
-        let conn = summarizer_conn();
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let summarizer = FileSummarizer::new(
-            Arc::clone(&conn),
-            libllm_protocol::client::ApiClient::new(
-                "http://127.0.0.1:1",
-                true,
-                libllm_core::config::Auth::None,
-            ),
-            "summarize this".to_owned(),
-            tx,
-        );
-        let file = FileToSummarize {
-            basename: "a.md".to_owned(),
-            content_hash: "h1".to_owned(),
-            body: "hello world".to_owned(),
-        };
-        summarizer.schedule("s1", &file);
-
-        let row = libllm_storage::db::file_summaries::lookup(&conn.lock().unwrap(), "s1", "h1")
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.status, FileSummaryStatus::Pending);
-    }
-
-    #[tokio::test]
     async fn summarizer_schedule_is_idempotent() {
         let conn = summarizer_conn();
         let (tx, _rx) = mpsc::unbounded_channel();

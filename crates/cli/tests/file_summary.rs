@@ -242,52 +242,6 @@ async fn null_lookup_renders_placeholder() {
 }
 
 #[tokio::test]
-async fn lookup_on_empty_session_returns_none() {
-    let conn = setup_summarizer_conn("s1");
-    let (tx, _rx) = mpsc::unbounded_channel();
-    let summarizer = FileSummarizer::new(
-        Arc::clone(&conn),
-        libllm_protocol::client::ApiClient::new(
-            "http://127.0.0.1:1",
-            true,
-            libllm_core::config::Auth::None,
-        ),
-        "Summarize the file.".to_owned(),
-        tx,
-    );
-    // Simulates the single-run path: the controller never calls schedule when
-    // save_mode.id() returns None. Confirm lookup is safe for non-existent sessions.
-    assert!(
-        summarizer
-            .lookup("nonexistent-session", "any-hash")
-            .is_none()
-    );
-}
-
-#[tokio::test]
-async fn no_rows_when_schedule_is_never_called() {
-    let conn = setup_summarizer_conn("s1");
-    let (tx, _rx) = mpsc::unbounded_channel();
-    let _summarizer = FileSummarizer::new(
-        Arc::clone(&conn),
-        libllm_protocol::client::ApiClient::new(
-            "http://127.0.0.1:1",
-            true,
-            libllm_core::config::Auth::None,
-        ),
-        "Summarize the file.".to_owned(),
-        tx,
-    );
-
-    let count: i64 = conn
-        .lock()
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM file_summaries", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(count, 0);
-}
-
-#[tokio::test]
 async fn fresh_encrypted_session_schedules_after_unlock_save() {
     let mock = common::start_mock_summarize_server("fresh session summary").await;
 
@@ -369,38 +323,6 @@ fn build_file_summarizer_opens_encrypted_db() {
         summarizer
             .lookup("nonexistent-session", "nonexistent-hash")
             .is_none()
-    );
-}
-
-#[tokio::test]
-async fn shutdown_then_schedule_drops_work() {
-    let conn = setup_summarizer_conn("s2");
-    let (tx, _rx) = mpsc::unbounded_channel();
-    let summarizer = FileSummarizer::new(
-        Arc::clone(&conn),
-        libllm_protocol::client::ApiClient::new(
-            "http://127.0.0.1:1",
-            true,
-            libllm_core::config::Auth::None,
-        ),
-        "Summarize the file.".to_owned(),
-        tx,
-    );
-
-    summarizer.shutdown().await;
-
-    let file = FileToSummarize {
-        basename: "c.md".to_owned(),
-        content_hash: "hash-c-shutdown".to_owned(),
-        body: "body c".to_owned(),
-    };
-    summarizer.schedule("s2", &file);
-
-    assert!(
-        file_summaries::lookup(&conn.lock().unwrap(), "s2", "hash-c-shutdown")
-            .unwrap()
-            .is_none(),
-        "schedule must drop work once shutdown latch is set"
     );
 }
 

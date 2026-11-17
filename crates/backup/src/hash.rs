@@ -33,20 +33,11 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn hash_bytes_deterministic() {
-        let input = b"hello world";
-        let first = hash_bytes(input);
-        let second = hash_bytes(input);
-        assert_eq!(first, second);
-        assert_eq!(first.len(), 64);
-        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn hash_bytes_differs_for_different_input() {
-        let a = hash_bytes(b"foo");
-        let b = hash_bytes(b"bar");
-        assert_ne!(a, b);
+    fn hash_bytes_is_blake3_lowercase_hex() {
+        assert_eq!(
+            hash_bytes(b"hello world"),
+            "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
+        );
     }
 
     #[test]

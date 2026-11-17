@@ -343,18 +343,6 @@ mod tests {
     }
 
     #[test]
-    fn character_author_note_round_trip_none() {
-        let conn = setup_db();
-        let card = make_card();
-        assert!(card.author_note.is_none());
-
-        insert_character(&conn, "aria", &card).unwrap();
-        let loaded = load_character(&conn, "aria").unwrap();
-
-        assert_eq!(loaded.author_note, None);
-    }
-
-    #[test]
     fn character_author_note_update_round_trip() {
         let conn = setup_db();
         let card = make_card();

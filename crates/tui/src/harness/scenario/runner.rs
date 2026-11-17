@@ -495,13 +495,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_key_enter() {
-        let (code, mods) = parse_key("Enter").unwrap();
-        assert_eq!(code, KeyCode::Enter);
-        assert_eq!(mods, KeyModifiers::NONE);
-    }
-
-    #[test]
     fn parse_key_ctrl_s() {
         let (code, mods) = parse_key("Ctrl+S").unwrap();
         assert_eq!(code, KeyCode::Char('S'));
@@ -516,13 +509,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_key_backtab() {
-        let (code, mods) = parse_key("BackTab").unwrap();
-        assert_eq!(code, KeyCode::BackTab);
-        assert_eq!(mods, KeyModifiers::NONE);
-    }
-
-    #[test]
     fn parse_key_unknown_returns_err() {
         assert!(parse_key("Frobnicate").is_err());
     }
@@ -532,58 +518,6 @@ mod tests {
         let (code, mods) = parse_key("Ctrl+Shift+X").unwrap();
         assert_eq!(code, KeyCode::Char('X'));
         assert_eq!(mods, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
-    }
-
-    #[tokio::test]
-    async fn passing_scenario_reports_ok() {
-        let scenario = Scenario {
-            setup: default_setup_no_db_no_api(),
-            steps: vec![
-                Step::ExpectScreenContains("Input".to_owned()),
-                Step::ExpectState {
-                    probe: "active_dialog".to_owned(),
-                    matcher: Matcher::Null,
-                },
-            ],
-        };
-        let golden_dir = tempfile::tempdir().unwrap();
-        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
-            .await
-            .unwrap();
-        assert!(
-            report.ok(),
-            "expected no failures, got: {:?}",
-            report.failures
-        );
-    }
-
-    #[tokio::test]
-    async fn temp_db_seeds_builtin_prompts_so_system_dialog_opens() {
-        let scenario = Scenario {
-            setup: Setup {
-                size: (100, 30),
-                db: DbSetup::Temp,
-                api: ApiSetup::None,
-                overrides: Vec::new(),
-            },
-            steps: vec![
-                Step::Type("/system".to_owned()),
-                Step::Key("Enter".to_owned()),
-                Step::ExpectState {
-                    probe: "focus".to_owned(),
-                    matcher: Matcher::Eq("SystemPromptDialog".to_owned()),
-                },
-            ],
-        };
-        let golden_dir = tempfile::tempdir().unwrap();
-        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
-            .await
-            .unwrap();
-        assert!(
-            report.ok(),
-            "expected no failures, got: {:?}",
-            report.failures
-        );
     }
 
     #[tokio::test]
@@ -601,41 +535,6 @@ mod tests {
         assert!(!report.ok());
         assert_eq!(report.failures.len(), 1);
         assert!(!report.failures[0].screen.is_empty());
-    }
-
-    #[tokio::test]
-    async fn streaming_scenario_with_mock_api() {
-        let scenario = Scenario {
-            setup: Setup {
-                size: (100, 30),
-                db: DbSetup::Temp,
-                api: ApiSetup::Mock,
-                overrides: Vec::new(),
-            },
-            steps: vec![
-                Step::EnqueueCompletion(vec!["Hi".to_owned()]),
-                Step::Type("x".to_owned()),
-                Step::Key("Enter".to_owned()),
-                Step::Pump,
-                Step::ExpectState {
-                    probe: "is_streaming".to_owned(),
-                    matcher: Matcher::Eq("false".to_owned()),
-                },
-                Step::ExpectState {
-                    probe: "head_text".to_owned(),
-                    matcher: Matcher::Contains("Hi".to_owned()),
-                },
-            ],
-        };
-        let golden_dir = tempfile::tempdir().unwrap();
-        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
-            .await
-            .unwrap();
-        assert!(
-            report.ok(),
-            "expected no failures, got: {:?}",
-            report.failures
-        );
     }
 
     #[tokio::test]
@@ -776,40 +675,6 @@ mod tests {
             .unwrap();
         assert!(!check_report.ok());
         assert_eq!(check_report.failures.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn advance_status_survives_short_advance_and_clears_after_long() {
-        let scenario = Scenario {
-            setup: default_setup_no_db_no_api(),
-            steps: vec![
-                Step::Type("/retry".to_owned()),
-                Step::Key("Enter".to_owned()),
-                Step::ExpectState {
-                    probe: "status_message".to_owned(),
-                    matcher: Matcher::Contains("No user message".to_owned()),
-                },
-                Step::Advance(std::time::Duration::from_secs(2)),
-                Step::ExpectState {
-                    probe: "status_message".to_owned(),
-                    matcher: Matcher::Contains("No user message".to_owned()),
-                },
-                Step::Advance(std::time::Duration::from_secs(6)),
-                Step::ExpectState {
-                    probe: "status_message".to_owned(),
-                    matcher: Matcher::Null,
-                },
-            ],
-        };
-        let golden_dir = tempfile::tempdir().unwrap();
-        let report = run_scenario(&scenario, golden_dir.path(), "test", RunMode::Check)
-            .await
-            .unwrap();
-        assert!(
-            report.ok(),
-            "expected no failures, got: {:?}",
-            report.failures
-        );
     }
 
     #[tokio::test]

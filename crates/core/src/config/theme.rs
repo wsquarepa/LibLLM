@@ -360,19 +360,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_reference_fg_in_color_label_all() {
-        assert!(ColorLabel::ALL.contains(&ColorLabel::FileReferenceFg));
-        assert_eq!(ColorLabel::FileReferenceFg.name(), "file_reference_fg");
-        assert_eq!(
-            ColorLabel::from_name("file_reference_fg"),
-            Some(ColorLabel::FileReferenceFg),
-        );
-    }
+    fn every_color_label_name_is_its_config_key() {
+        for label in ColorLabel::ALL {
+            let mut overrides = ThemeColorOverrides::default();
+            overrides.set(label, Some("#123456".to_owned()));
 
-    #[test]
-    fn theme_color_overrides_file_reference_fg_round_trip() {
-        let mut overrides = ThemeColorOverrides::default();
-        overrides.set(ColorLabel::FileReferenceFg, Some("blue".to_owned()));
-        assert_eq!(overrides.get(ColorLabel::FileReferenceFg), Some("blue"));
+            assert_eq!(ColorLabel::from_name(label.name()), Some(label));
+            assert_eq!(overrides.get(label), Some("#123456"));
+            let serialized = serde_json::to_value(&overrides).unwrap();
+            assert_eq!(
+                serialized[label.name()],
+                "#123456",
+                "label {label:?} does not map to config key {}",
+                label.name()
+            );
+        }
     }
 }

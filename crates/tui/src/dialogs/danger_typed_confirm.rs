@@ -324,15 +324,6 @@ mod tests {
     }
 
     #[test]
-    fn left_arrow_moves_cursor_back() {
-        let mut s = fixture("X");
-        type_string(&mut s, "AB");
-        assert_eq!(s.cursor_pos, 2);
-        handle_danger_typed_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut s);
-        assert_eq!(s.cursor_pos, 1);
-    }
-
-    #[test]
     fn backspace_removes_char_before_cursor() {
         let mut s = fixture("X");
         type_string(&mut s, "ABC");

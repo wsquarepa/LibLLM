@@ -36,12 +36,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replaces_char_variable() {
-        let result = apply_template_vars("Hello {{char}}", "Alice", "Bob");
-        assert_eq!(result, "Hello Alice");
-    }
-
-    #[test]
     fn replaces_both_variables() {
         let result = apply_template_vars("{{user}} talks to {{char}}", "Alice", "Bob");
         assert_eq!(result, "Bob talks to Alice");
@@ -60,20 +54,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_names_produce_empty_substitutions() {
-        let result = apply_template_vars("Hi {{char}} and {{user}}", "", "");
-        assert_eq!(result, "Hi  and ");
-    }
-
-    #[test]
     fn nested_braces_not_substituted() {
         let result = apply_template_vars("{{{char}}}", "Alice", "Bob");
         assert_eq!(result, "{{{char}}}");
-    }
-
-    #[test]
-    fn partial_brace_not_substituted() {
-        let result = apply_template_vars("{char}", "Alice", "Bob");
-        assert_eq!(result, "{char}");
     }
 }

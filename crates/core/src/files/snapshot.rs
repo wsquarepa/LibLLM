@@ -315,16 +315,6 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_inner_text_is_not_fooled_by_preamble_inline_mention() {
-        // The preamble contains `<<<FILE name>>>` as inline text. Make sure
-        // the parse does not mistake it for the opening delimiter.
-        let body = build_snapshot_body("notes.md", "REAL_BODY");
-        assert!(body.starts_with("The user has attached a file."));
-        assert!(body.contains("<<<FILE notes.md>>> and <<<END notes.md>>> delimiters."));
-        assert_eq!(snapshot_inner_text(&body), "REAL_BODY");
-    }
-
-    #[test]
     fn snapshot_inner_text_ignores_attacker_embedded_end_marker() {
         // An attacker's body includes `<<<END notes.md>>>` as a line earlier
         // in the body. `check_delimiter_collision` normally blocks this at

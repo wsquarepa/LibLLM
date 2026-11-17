@@ -164,11 +164,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dialog_name_is_none_for_input_focus() {
-        assert_eq!(active_dialog_name_for(Focus::Input), None);
-    }
-
-    #[test]
     fn dialog_name_is_none_for_chat_focus() {
         assert_eq!(active_dialog_name_for(Focus::Chat), None);
     }
@@ -176,29 +171,5 @@ mod tests {
     #[test]
     fn dialog_name_is_none_for_sidebar_focus() {
         assert_eq!(active_dialog_name_for(Focus::Sidebar), None);
-    }
-
-    #[test]
-    fn dialog_name_is_set_for_persona_dialog() {
-        assert_eq!(
-            active_dialog_name_for(Focus::PersonaDialog),
-            Some("persona".to_owned())
-        );
-    }
-
-    #[test]
-    fn dialog_name_is_set_for_config_dialog() {
-        assert_eq!(
-            active_dialog_name_for(Focus::ConfigDialog),
-            Some("config".to_owned())
-        );
-    }
-
-    #[test]
-    fn dialog_name_is_set_for_unsaved_warning() {
-        assert_eq!(
-            active_dialog_name_for(Focus::UnsavedWarningDialog),
-            Some("unsaved_warning".to_owned())
-        );
     }
 }

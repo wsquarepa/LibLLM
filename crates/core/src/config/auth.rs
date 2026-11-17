@@ -162,99 +162,45 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn auth_default_is_none() {
-        let auth = Auth::default();
-        assert_eq!(auth, Auth::None);
-        assert_eq!(auth.kind(), AuthKind::None);
-    }
+    fn auth_parses_and_round_trips_every_variant_through_toml() {
+        let cases = [
+            ("type = \"none\"", Auth::None),
+            (
+                "type = \"basic\"\nusername = \"user\"\npassword = \"pw\"",
+                Auth::Basic {
+                    username: "user".into(),
+                    password: "pw".into(),
+                },
+            ),
+            (
+                "type = \"bearer\"\ntoken = \"sk-xyz\"",
+                Auth::Bearer {
+                    token: "sk-xyz".into(),
+                },
+            ),
+            (
+                "type = \"header\"\nname = \"X-Api-Key\"\nvalue = \"abc\"",
+                Auth::Header {
+                    name: "X-Api-Key".into(),
+                    value: "abc".into(),
+                },
+            ),
+            (
+                "type = \"query\"\nname = \"api_key\"\nvalue = \"abc\"",
+                Auth::Query {
+                    name: "api_key".into(),
+                    value: "abc".into(),
+                },
+            ),
+        ];
+        for (auth_section, expected) in cases {
+            let parsed: Config = toml::from_str(&format!("[auth]\n{auth_section}\n")).unwrap();
+            assert_eq!(parsed.auth, expected, "parsing [auth] {auth_section}");
 
-    #[test]
-    fn auth_round_trips_through_toml_none() {
-        let cfg = Config {
-            auth: Auth::None,
-            ..Config::default()
-        };
-        let s = toml::to_string_pretty(&cfg).unwrap();
-        let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(back.auth, Auth::None);
-    }
-
-    #[test]
-    fn auth_round_trips_through_toml_basic() {
-        let cfg = Config {
-            auth: Auth::Basic {
-                username: "user".into(),
-                password: "pw".into(),
-            },
-            ..Config::default()
-        };
-        let s = toml::to_string_pretty(&cfg).unwrap();
-        let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(
-            back.auth,
-            Auth::Basic {
-                username: "user".into(),
-                password: "pw".into()
-            }
-        );
-    }
-
-    #[test]
-    fn auth_round_trips_through_toml_bearer() {
-        let cfg = Config {
-            auth: Auth::Bearer {
-                token: "sk-xyz".into(),
-            },
-            ..Config::default()
-        };
-        let s = toml::to_string_pretty(&cfg).unwrap();
-        let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(
-            back.auth,
-            Auth::Bearer {
-                token: "sk-xyz".into()
-            }
-        );
-    }
-
-    #[test]
-    fn auth_round_trips_through_toml_header() {
-        let cfg = Config {
-            auth: Auth::Header {
-                name: "X-Api-Key".into(),
-                value: "abc".into(),
-            },
-            ..Config::default()
-        };
-        let s = toml::to_string_pretty(&cfg).unwrap();
-        let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(
-            back.auth,
-            Auth::Header {
-                name: "X-Api-Key".into(),
-                value: "abc".into()
-            }
-        );
-    }
-
-    #[test]
-    fn auth_round_trips_through_toml_query() {
-        let cfg = Config {
-            auth: Auth::Query {
-                name: "api_key".into(),
-                value: "abc".into(),
-            },
-            ..Config::default()
-        };
-        let s = toml::to_string_pretty(&cfg).unwrap();
-        let back: Config = toml::from_str(&s).unwrap();
-        assert_eq!(
-            back.auth,
-            Auth::Query {
-                name: "api_key".into(),
-                value: "abc".into()
-            }
-        );
+            let saved = toml::to_string_pretty(&parsed).unwrap();
+            let reloaded: Config = toml::from_str(&saved).unwrap();
+            assert_eq!(reloaded.auth, expected, "reloading saved config:\n{saved}");
+        }
     }
 
     #[test]

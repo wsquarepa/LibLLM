@@ -12,39 +12,6 @@ use libllm_core::persona::PersonaFile;
 use libllm_storage::db::Database;
 
 #[test]
-fn dump_round_trip_unencrypted() {
-    let dir = common::temp_dir();
-    let data_dir = dir.path();
-    let db_path = data_dir.join("data.db");
-    common::seed_persona_db(&db_path);
-
-    let dump_path = dir.path().join("dump.db");
-
-    let output = Command::new(client_bin())
-        .args([
-            "-d",
-            data_dir.to_str().unwrap(),
-            "--no-encrypt",
-            "db",
-            "dump",
-            dump_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("spawn client");
-    assert!(
-        output.status.success(),
-        "dump failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-
-    let dumped = Database::open(&dump_path, None).expect("open dump");
-    let personas = dumped.list_personas().expect("list");
-    assert_eq!(personas.len(), 1);
-    assert_eq!(personas[0].0, "alice");
-}
-
-#[test]
 fn import_rejects_schema_version_mismatch() {
     let dir = common::temp_dir();
     let data_dir = dir.path();

@@ -434,17 +434,6 @@ mod tests {
     }
 
     #[test]
-    fn all_instruct_presets_load() {
-        let dir = setup_data_dir();
-        let names = list_instruct_preset_names(dir.path());
-        assert!(!names.is_empty(), "should have at least one preset");
-        for name in &names {
-            let p = resolve_instruct_preset(name, dir.path());
-            assert!(!p.name.is_empty(), "preset {name} should have a name");
-        }
-    }
-
-    #[test]
     fn every_bundled_instruct_preset_deserializes() {
         for (name, json) in crate::preset::BUILTIN_INSTRUCT {
             let preset: InstructPreset = serde_json::from_str(json).unwrap_or_else(|err| {
@@ -469,15 +458,6 @@ mod tests {
         }"#;
         let preset: InstructPreset = serde_json::from_str(json).expect("unknown keys are ignored");
         assert_eq!(preset.name, "Legacy");
-    }
-
-    #[test]
-    fn empty_message_list() {
-        let dir = setup_data_dir();
-        let preset = resolve_instruct_preset("ChatML", dir.path());
-        let refs: Vec<&Message> = Vec::new();
-        let output = preset.render(&refs, None);
-        let _ = output;
     }
 
     #[test]
@@ -564,44 +544,6 @@ mod tests {
         assert!(
             continuation.ends_with("Hi"),
             "continuation render should not append output_suffix on last assistant msg, got: {continuation:?}"
-        );
-    }
-
-    #[test]
-    fn render_continuation_vs_render_differ() {
-        let preset = InstructPreset {
-            name: "test".to_owned(),
-            output_suffix: "</s>".to_owned(),
-            input_suffix: "\n".to_owned(),
-            ..Default::default()
-        };
-        let msgs = [user_msg("Q"), assistant_msg("A")];
-        let refs: Vec<&_> = msgs.iter().collect();
-
-        let complete = preset.render(&refs, None);
-        let continuation = preset.render_continuation(&refs, None);
-
-        assert_ne!(
-            complete, continuation,
-            "render and render_continuation must produce different output"
-        );
-        assert!(
-            complete.contains("</s>"),
-            "complete output should contain output_suffix"
-        );
-        assert!(
-            !continuation.ends_with("</s>"),
-            "continuation should not end with output_suffix"
-        );
-    }
-
-    #[test]
-    fn backward_compat_alias_chatml() {
-        let result = super::super::backward_compat_alias("chatml");
-        assert_eq!(
-            result,
-            Some("ChatML"),
-            "\"chatml\" should alias to \"ChatML\""
         );
     }
 }

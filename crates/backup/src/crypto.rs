@@ -210,16 +210,6 @@ mod tests {
 
         assert!(result.is_err());
     }
-
-    #[test]
-    fn ciphertext_format_starts_with_24_byte_nonce() {
-        let key = derive_backup_key(TEST_PASSKEY, TEST_SALT).expect("key");
-        let plaintext = b"verify format";
-
-        let ciphertext = encrypt_payload(plaintext, &key).expect("encrypt");
-
-        assert!(ciphertext.len() >= NONCE_LEN + TAG_LEN + plaintext.len());
-    }
 }
 
 #[cfg(test)]

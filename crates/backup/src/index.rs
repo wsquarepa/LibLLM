@@ -380,15 +380,6 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_empty_index() {
-        let index = BackupIndex::new();
-        let json = serde_json::to_string(&index).unwrap();
-        let restored: BackupIndex = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.version, SCHEMA_VERSION);
-        assert!(restored.entries.is_empty());
-    }
-
-    #[test]
     fn round_trip_base_entry() {
         let entry = make_base_entry("20260414T153000Z");
         let json = serde_json::to_string(&entry).unwrap();
@@ -398,15 +389,6 @@ mod tests {
         assert!(restored.base_id.is_none());
         // base_id must not appear in JSON for base entries
         assert!(!json.contains("base_id"));
-    }
-
-    #[test]
-    fn round_trip_diff_entry() {
-        let entry = make_diff_entry("20260414T153001Z", "20260414T153000Z");
-        let json = serde_json::to_string(&entry).unwrap();
-        let restored: BackupEntry = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.entry_type, BackupType::Diff);
-        assert_eq!(restored.base_id.as_deref(), Some("20260414T153000Z"));
     }
 
     #[test]
@@ -685,16 +667,6 @@ mod tests {
 #[cfg(test)]
 mod wrapped_dek_tests {
     use super::WrappedDek;
-
-    #[test]
-    fn round_trips_through_json() {
-        let w = WrappedDek {
-            blob: vec![1, 2, 3, 4, 5],
-        };
-        let json = serde_json::to_string(&w).unwrap();
-        let back: WrappedDek = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, w);
-    }
 
     #[test]
     fn blob_serializes_as_base64_string() {

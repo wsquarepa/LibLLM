@@ -28,20 +28,7 @@ fn format_size(bytes: u64) -> String {
 }
 
 pub fn run(data_dir: &Path, passkey: Option<&str>, command: Option<&RecoverCommand>) -> Result<()> {
-    run_with_interactivity(
-        data_dir,
-        passkey,
-        command,
-        crate::interactive::is_interactive(),
-    )
-}
-
-pub fn run_with_interactivity(
-    data_dir: &Path,
-    passkey: Option<&str>,
-    command: Option<&RecoverCommand>,
-    interactive: bool,
-) -> Result<()> {
+    let interactive = crate::interactive::is_interactive();
     let subcommand = match command {
         Some(RecoverCommand::List) => "list",
         Some(RecoverCommand::Verify { .. }) => "verify",

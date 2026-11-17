@@ -105,10 +105,12 @@ mod mod_tests {
     use super::*;
 
     #[test]
-    fn content_hash_hex_is_deterministic() {
-        let h1 = content_hash_hex(b"hello world");
-        let h2 = content_hash_hex(b"hello world");
-        assert_eq!(h1, h2);
+    fn content_hash_hex_pins_persisted_digest() {
+        assert_eq!(
+            content_hash_hex(b"hello world"),
+            "df8d09e93f874900a99b8775cc15b6c7"
+        );
+        assert_eq!(content_hash_hex(b""), "99aa06d3014798d86001c324468d497f");
     }
 
     #[test]
@@ -123,13 +125,5 @@ mod mod_tests {
         let h = content_hash_hex(b"anything");
         assert_eq!(h.len(), 32);
         assert!(h.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
-    }
-
-    #[test]
-    fn content_hash_hex_empty_input_is_stable() {
-        let h1 = content_hash_hex(b"");
-        let h2 = content_hash_hex(b"");
-        assert_eq!(h1, h2);
-        assert_eq!(h1.len(), 32);
     }
 }

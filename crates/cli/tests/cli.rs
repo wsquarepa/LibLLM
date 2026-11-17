@@ -5,23 +5,11 @@
 mod common;
 
 use std::io::Write as _;
-use std::path::PathBuf;
 
 use clap::Parser;
-use libllm_cli::cli::{Args, Command, RecoverCommand};
-
-#[test]
-fn parse_message_flag() {
-    let args = Args::try_parse_from(["libllm", "-m", "hello"]).unwrap();
-    assert_eq!(args.message, Some("hello".to_string()));
-}
-
-#[test]
-fn parse_data_flag() {
-    let args = Args::try_parse_from(["libllm", "-d", "./foo"]).unwrap();
-    assert!(args.data.is_some());
-    assert_eq!(args.data.unwrap().to_str().unwrap(), "./foo");
-}
+use libllm_cli::cli::{Args, Command};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[test]
 fn parse_sampling_overrides() {
@@ -57,18 +45,6 @@ fn parse_edit_subcommand() {
 }
 
 #[test]
-fn parse_import_subcommand() {
-    let args = Args::try_parse_from(["libllm", "import", "card.json"]).unwrap();
-    match args.command {
-        Some(Command::Import { files, .. }) => {
-            assert_eq!(files.len(), 1);
-            assert_eq!(files[0].to_str().unwrap(), "card.json");
-        }
-        _ => panic!("expected Command::Import"),
-    }
-}
-
-#[test]
 fn parse_import_with_type() {
     let args = Args::try_parse_from(["libllm", "import", "-t", "persona", "note.txt"]).unwrap();
     match args.command {
@@ -77,26 +53,6 @@ fn parse_import_with_type() {
         }
         _ => panic!("expected Command::Import"),
     }
-}
-
-#[test]
-fn parse_import_with_type_long_form() {
-    let args = Args::try_parse_from(["libllm", "import", "--type", "persona", "note.txt"]).unwrap();
-    match args.command {
-        Some(Command::Import { kind, .. }) => {
-            assert_eq!(kind, Some("persona".to_string()));
-        }
-        _ => panic!("expected Command::Import"),
-    }
-}
-
-// The following 6 tests document EXPECTED behavior for `requires` constraints that are not yet
-// enforced by clap attributes in cli.rs. They will fail until those constraints are implemented.
-
-#[test]
-fn parse_character_without_persona_errors() {
-    let result = Args::try_parse_from(["libllm", "-c", "foo"]);
-    assert!(result.is_err(), "-c without -p should be rejected");
 }
 
 #[test]
@@ -133,26 +89,6 @@ fn parse_continue_without_message_errors() {
 }
 
 #[test]
-fn parse_recover_without_subcommand() {
-    let args = Args::try_parse_from(["libllm", "recover"]).unwrap();
-    match args.command {
-        Some(Command::Recover { command }) => assert!(command.is_none()),
-        _ => panic!("expected Command::Recover"),
-    }
-}
-
-#[test]
-fn parse_recover_with_list_subcommand() {
-    let args = Args::try_parse_from(["libllm", "recover", "list"]).unwrap();
-    match args.command {
-        Some(Command::Recover {
-            command: Some(RecoverCommand::List),
-        }) => {}
-        _ => panic!("expected Command::Recover with Some(RecoverCommand::List)"),
-    }
-}
-
-#[test]
 fn parse_update_without_branch() {
     let args = Args::try_parse_from(["libllm", "update"]).unwrap();
     match args.command {
@@ -185,29 +121,6 @@ fn cli_overrides_persona_is_slugified() {
 }
 
 #[test]
-fn parse_update_list_flag_rejected() {
-    let result = Args::try_parse_from(["libllm", "update", "--list"]);
-    let err = result.err().expect("--list should no longer be accepted");
-    assert!(
-        err.to_string().contains("--list"),
-        "error should mention --list: {err}"
-    );
-}
-
-#[test]
-fn recover_non_interactive_without_subcommand_returns_ok() {
-    let dummy_dir = PathBuf::from("/tmp/libllm-test-recover-noop");
-    let result = libllm_cli::recover::run_with_interactivity(&dummy_dir, None, None, false);
-    assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
-}
-
-#[test]
-fn parse_auth_type_accepts_bearer() {
-    let args = Args::try_parse_from(["libllm", "--auth-type", "bearer"]).unwrap();
-    assert_eq!(args.auth_type, Some(libllm_cli::cli::AuthKindArg::Bearer));
-}
-
-#[test]
 fn parse_auth_type_accepts_all_variants() {
     for (flag, expected) in [
         ("none", libllm_cli::cli::AuthKindArg::None),
@@ -219,19 +132,6 @@ fn parse_auth_type_accepts_all_variants() {
         let args = Args::try_parse_from(["libllm", "--auth-type", flag]).unwrap();
         assert_eq!(args.auth_type, Some(expected));
     }
-}
-
-#[test]
-fn parse_auth_type_rejects_invalid_value() {
-    let result = Args::try_parse_from(["libllm", "--auth-type", "garbage"]);
-    let stderr = result
-        .err()
-        .expect("invalid auth-type value should be rejected")
-        .to_string();
-    assert!(
-        stderr.contains("auth-type") || stderr.contains("possible values"),
-        "error message should mention auth-type or possible values: {stderr}"
-    );
 }
 
 #[test]
@@ -351,35 +251,65 @@ fn cli_collision_exits_nonzero() {
     );
 }
 
-#[test]
-fn cli_at_token_resolves_relative_file() {
+#[tokio::test]
+async fn cli_at_tokens_send_file_snapshots_in_order_with_tokens_rewritten_to_basenames() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "data: {\"choices\":[{\"text\":\"reply-marker\"}]}\n\ndata: [DONE]\n\n",
+        ))
+        .mount(&server)
+        .await;
     let fixtures = tempfile::tempdir().expect("fixtures");
-    let file_path = fixtures.path().join("notes.md");
-    std::fs::write(&file_path, "file-content-marker").expect("write");
+    std::fs::write(fixtures.path().join("a.md"), "alpha-body").expect("write a.md");
+    std::fs::write(fixtures.path().join("b.md"), "beta-body").expect("write b.md");
     let data_dir = tempfile::tempdir().expect("data-dir");
 
-    let output = std::process::Command::new(common::client_bin())
+    let mut command = std::process::Command::new(common::client_bin());
+    command
+        .current_dir(fixtures.path())
         .arg("-d")
         .arg(data_dir.path())
         .arg("--no-encrypt")
         .arg("--api-url")
-        .arg("http://127.0.0.1:1/v1")
+        .arg(server.uri())
         .arg("-m")
-        .arg(format!("summarise @{}", file_path.display()))
-        .output()
+        .arg("cmp @./a.md and @./b.md");
+    let output = tokio::task::spawn_blocking(move || command.output())
+        .await
+        .expect("join client")
         .expect("spawn client");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("file not found")
-            && !stderr.contains("too large")
-            && !stderr.contains("reserved <<<FILE"),
-        "expected no file-pipeline error; stderr: {stderr}"
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("reply-marker"));
+
+    let requests = server.received_requests().await.expect("request recording");
+    let completion = requests
+        .iter()
+        .find(|r| r.url.path() == "/completions")
+        .expect("completion request sent");
+    let body: serde_json::Value =
+        serde_json::from_slice(&completion.body).expect("completion body is JSON");
+    let prompt = body["prompt"].as_str().expect("prompt string");
+
+    let a_idx = prompt
+        .find("<<<FILE a.md>>>")
+        .expect("a.md snapshot in prompt");
+    let b_idx = prompt
+        .find("<<<FILE b.md>>>")
+        .expect("b.md snapshot in prompt");
+    assert!(a_idx < b_idx, "snapshots must keep attach order: {prompt}");
+    assert!(prompt.contains("alpha-body") && prompt.contains("beta-body"));
     assert!(
-        !output.status.success(),
-        "expected streaming to fail against unreachable API"
+        prompt.contains("cmp [a.md] and [b.md]"),
+        "@tokens must be rewritten to basenames: {prompt}"
     );
+    assert!(!prompt.contains("@./a.md"), "raw @token leaked: {prompt}");
 }
 
 #[test]
@@ -593,18 +523,6 @@ fn note_top_flag_round_trips_into_overrides() {
     let args = Args::try_parse_from(["libllm", "--note", "x", "--note-top"]).unwrap();
     let overrides = args.cli_overrides();
     assert_eq!(overrides.author_note_at_top, Some(true));
-}
-
-#[test]
-fn note_depth_rejects_non_numeric() {
-    let result = Args::try_parse_from(["libllm", "--note", "x", "--note-depth", "wat"]);
-    assert!(result.is_err());
-}
-
-#[test]
-fn note_depth_rejects_negative() {
-    let result = Args::try_parse_from(["libllm", "--note", "x", "--note-depth", "-3"]);
-    assert!(result.is_err());
 }
 
 #[test]

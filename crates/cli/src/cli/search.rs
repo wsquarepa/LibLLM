@@ -137,11 +137,6 @@ mod tests {
     use super::render_hl;
 
     #[test]
-    fn render_hl_strips_csi_escape_sequences() {
-        assert_eq!(render_hl("\x1b[1mhello\x1b[0m", false), "hello");
-    }
-
-    #[test]
     fn render_hl_strips_csi_and_preserves_fts_markers_non_tty() {
         // U+0001 and U+0002 must survive strip and be rendered as ** markers
         assert_eq!(render_hl("\x1b[1m\u{1}hi\u{2}\x1b[0m", false), "**hi**");

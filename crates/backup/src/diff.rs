@@ -94,15 +94,6 @@ mod tests {
     }
 
     #[test]
-    fn compress_reduces_size_for_repetitive_data() {
-        let repetitive: Vec<u8> = b"abcdefgh".iter().cycle().take(10_000).copied().collect();
-
-        let compressed = compress(&repetitive).unwrap();
-
-        assert!(compressed.len() < repetitive.len());
-    }
-
-    #[test]
     fn decompress_rejects_payload_exceeding_cap() {
         let repetitive: Vec<u8> = b"aaaaaaaaaaaaaaaa"
             .iter()

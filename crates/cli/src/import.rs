@@ -43,7 +43,7 @@ pub fn parse_import_kind(kind: &str) -> Result<ImportType> {
     }
 }
 
-pub fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<ImportType> {
+fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<ImportType> {
     if let Some(kind) = kind {
         return parse_import_kind(kind);
     }
@@ -88,7 +88,7 @@ pub fn detect_import_type(path: &std::path::Path, kind: Option<&str>) -> Result<
     }
 }
 
-pub fn import_single_file(
+fn import_single_file(
     path: &std::path::Path,
     import_type: &ImportType,
     db: &Database,

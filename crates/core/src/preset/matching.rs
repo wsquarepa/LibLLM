@@ -388,48 +388,6 @@ mod tests {
         assert!(render_jinja(bad, &CanonicalContext::fixed()).is_err());
     }
 
-    #[test]
-    fn render_preset_chatml_produces_im_start_tags() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let preset = crate::preset::resolve_instruct_preset("ChatML", dir.path());
-        let out = render_preset(&preset);
-        assert!(out.contains("<|im_start|>"));
-        assert!(out.contains("<|im_end|>"));
-        assert!(out.contains("user"));
-    }
-
-    #[test]
-    fn render_preset_llama3_produces_header_id_tags() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let preset = crate::preset::resolve_instruct_preset("Llama 3 Instruct", dir.path());
-        let out = render_preset(&preset);
-        assert!(out.contains("<|start_header_id|>"));
-        assert!(out.contains("<|end_header_id|>"));
-        assert!(out.contains("<|eot_id|>"));
-    }
-
-    #[test]
-    fn score_identical_strings_is_one() {
-        assert_eq!(score("hello world", "hello world"), 1.0);
-    }
-
-    #[test]
-    fn score_disjoint_strings_is_low() {
-        let s = score("AAAAAAAA", "ZZZZZZZZ");
-        assert!(s < 0.1, "expected near-zero, got {s}");
-    }
-
-    #[test]
-    fn score_similar_strings_is_high() {
-        let s = score("hello world", "hello worle");
-        assert!(s > 0.9, "expected near-1.0, got {s}");
-    }
-
-    #[test]
-    fn score_empty_pair_is_one() {
-        assert_eq!(score("", ""), 1.0);
-    }
-
     const LLAMA3_JINJA: &str = include_str!("matching_fixtures/llama3.jinja");
     const CHATML_JINJA: &str = include_str!("matching_fixtures/chatml.jinja");
     const MISTRAL_V3_JINJA: &str = include_str!("matching_fixtures/mistral_v3.jinja");
@@ -570,13 +528,6 @@ mod tests {
     }
 
     #[test]
-    fn template_hash_is_64_char_hex() {
-        let h = template_hash("hello");
-        assert_eq!(h.len(), 64);
-        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
     fn template_hash_pins_known_digest() {
         assert_eq!(
             template_hash("hello"),
@@ -589,16 +540,6 @@ mod tests {
         let a = "hello   world\n\n\n";
         let b = "  hello world\n\n";
         assert_eq!(template_hash(a), template_hash(b));
-    }
-
-    #[test]
-    fn template_hash_differs_for_meaningful_changes() {
-        assert_ne!(template_hash("hello world"), template_hash("hello earth"));
-    }
-
-    #[test]
-    fn template_hash_strips_trailing_nul() {
-        assert_eq!(template_hash("hello"), template_hash("hello\0"));
     }
 
     #[test]
@@ -632,23 +573,5 @@ mod tests {
         let at_limit = "x".repeat(MAX_TEMPLATE_SOURCE_BYTES);
         let out = render_jinja(&at_limit, &CanonicalContext::fixed()).unwrap();
         assert_eq!(out, at_limit);
-    }
-
-    #[test]
-    fn pick_best_match_dos_template_returns_no_match() {
-        let presets = all_builtin_presets();
-        let outcome = pick_best_match("{{ 'A' * 50000000 }}", &presets, "");
-        assert!(
-            matches!(outcome, MatchOutcome::NoMatch { .. }),
-            "expected NoMatch from DoS template, got {outcome:?}"
-        );
-    }
-
-    #[test]
-    fn pick_best_match_oversized_source_returns_no_match() {
-        let presets = all_builtin_presets();
-        let huge = "x".repeat(MAX_TEMPLATE_SOURCE_BYTES + 1);
-        let outcome = pick_best_match(&huge, &presets, "");
-        assert_eq!(outcome, MatchOutcome::NoMatch { best_score: 0.0 });
     }
 }

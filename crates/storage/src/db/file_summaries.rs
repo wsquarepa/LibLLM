@@ -246,15 +246,4 @@ mod tests {
         assert!(lookup(&conn, "s2", "hash1").unwrap().is_none());
         assert!(lookup(&conn, "s1", "hash1").unwrap().is_some());
     }
-
-    #[test]
-    fn status_round_trip() {
-        for s in [
-            FileSummaryStatus::Pending,
-            FileSummaryStatus::Done,
-            FileSummaryStatus::Failed,
-        ] {
-            assert_eq!(FileSummaryStatus::parse(s.as_str()).unwrap(), s);
-        }
-    }
 }

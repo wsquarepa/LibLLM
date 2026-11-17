@@ -591,14 +591,16 @@ mod tests {
     }
 
     #[test]
-    fn clear_drops_runtime_caches_and_preferred_branches() {
+    fn clear_empties_nodes_head_branch_and_preferred_branches() {
         let (mut tree, _) = build_branching_tree();
 
         tree.clear();
 
+        assert!(tree.nodes().is_empty());
+        assert_eq!(tree.head(), None);
         assert!(tree.current_branch_ids().is_empty());
         assert!(tree.current_user_branch_ids().is_empty());
-        assert!(tree.preferred_child.is_empty());
+        assert!(tree.preferred_child_map().is_empty());
     }
 
     #[test]

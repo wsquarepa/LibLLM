@@ -77,11 +77,6 @@ impl<'a> Harness<'a> {
             .expect("test backend draw");
     }
 
-    pub async fn key(&mut self, code: KeyCode) {
-        self.send_event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
-            .await;
-    }
-
     pub async fn chord(&mut self, code: KeyCode, mods: KeyModifiers) {
         self.send_event(Event::Key(KeyEvent::new(code, mods))).await;
     }

@@ -97,12 +97,6 @@ mod tests {
     }
 
     #[test]
-    fn tilde_prefix_rewrites_to_basename() {
-        let out = rewrite_user_message("read @~/notes/list.md");
-        assert_eq!(out, "read [list.md]");
-    }
-
-    #[test]
     fn quoted_path_rewrites_to_basename_without_quotes() {
         assert_eq!(
             rewrite_user_message(r#"summarise @"Lecture 29 notes.pdf" now"#),

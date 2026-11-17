@@ -452,29 +452,14 @@ mod tests {
     }
 
     #[test]
-    fn from_name_dark() {
-        assert!(Theme::from_name("dark").is_some());
-    }
-
-    #[test]
-    fn from_name_light() {
-        assert!(Theme::from_name("light").is_some());
-    }
-
-    #[test]
     fn from_name_unknown() {
         assert!(Theme::from_name("solarized").is_none());
         assert!(Theme::from_name("").is_none());
     }
 
     #[test]
-    fn resolve_default() {
-        let config = Config::default();
-        let t = resolve_theme(&config);
-        assert_eq!(t.user_character_fg, Color::Green);
-        assert_eq!(t.user_character_bg, Color::Reset);
-        assert_eq!(t.side_character_fg, Color::Red);
-        assert_eq!(t.side_character_bg, Color::Reset);
+    fn resolve_default_is_dark() {
+        assert!(resolve_theme(&Config::default()) == Theme::dark());
     }
 
     #[test]
@@ -483,8 +468,7 @@ mod tests {
             theme: Some("light".to_owned()),
             ..Config::default()
         };
-        let t = resolve_theme(&config);
-        assert_eq!(t.user_character_fg, Color::Blue);
+        assert!(resolve_theme(&config) == Theme::light());
     }
 
     #[test]
@@ -509,8 +493,7 @@ mod tests {
             }),
             ..Config::default()
         };
-        let t = resolve_theme(&config);
-        assert_eq!(t.user_character_fg, Color::Green);
+        assert!(resolve_theme(&config) == Theme::dark());
     }
 
     #[test]
@@ -526,17 +509,10 @@ mod tests {
     }
 
     #[test]
-    fn group_character_bg_palette_has_eight_entries() {
-        let theme = super::Theme::default();
-        let palette = theme.group_character_bg_palette();
-        assert_eq!(palette.len(), 8);
-    }
-
-    #[test]
-    fn available_themes_not_empty() {
-        let themes = Theme::available_themes();
-        assert!(themes.contains(&"dark"));
-        assert!(themes.contains(&"light"));
+    fn every_available_theme_resolves_by_name() {
+        for name in Theme::available_themes() {
+            assert!(Theme::from_name(name).is_some(), "{name} is not loadable");
+        }
     }
 
     #[test]

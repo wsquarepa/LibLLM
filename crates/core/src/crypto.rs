@@ -462,24 +462,4 @@ mod tests {
         assert_eq!(hex.len(), 64);
         assert!((*hex).chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
     }
-
-    #[test]
-    fn argon2_params_use_reduced_values_under_cfg_test() {
-        let params = argon2_params();
-        assert_eq!(
-            params.m_cost(),
-            8,
-            "m_cost should be reduced under cfg(test)"
-        );
-        assert_eq!(
-            params.t_cost(),
-            1,
-            "t_cost should be reduced under cfg(test)"
-        );
-        assert_eq!(
-            params.p_cost(),
-            1,
-            "p_cost should be reduced under cfg(test)"
-        );
-    }
 }

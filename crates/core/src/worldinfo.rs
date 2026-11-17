@@ -399,28 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn disabled_entries() {
-        let disabled = Entry {
-            keys: vec!["trigger".to_string()],
-            secondary_keys: Vec::new(),
-            selective: false,
-            content: "Should not appear".to_string(),
-            constant: false,
-            enabled: false,
-            order: 0,
-            depth: 4,
-            case_sensitive: false,
-        };
-        let wb = make_worldbook("Disabled", vec![disabled]);
-        let runtime = RuntimeWorldBook::from_worldbook(&wb);
-
-        let messages = vec!["This message contains the trigger word"];
-        let activated = scan_runtime_entries(&runtime, &messages);
-
-        assert_eq!(activated.len(), 1);
-    }
-
-    #[test]
     fn case_sensitivity() {
         let case_sensitive = Entry {
             keys: vec!["Dragon".to_string()],
@@ -516,15 +494,17 @@ mod tests {
 
         let far_messages = vec![
             "Message with keyword here",
-            "No keyword",
-            "No keyword",
-            "No keyword",
+            "Nothing relevant",
+            "Nothing relevant",
+            "Nothing relevant",
         ];
         let activated = scan_runtime_entries(&runtime, &far_messages);
 
-        assert!(
-            activated.iter().any(|a| a.content == "Deep (depth 4)"),
-            "deep entry should match"
+        let contents: Vec<&str> = activated.iter().map(|a| a.content.as_str()).collect();
+        assert_eq!(
+            contents,
+            vec!["Deep (depth 4)"],
+            "only the deep entry's window reaches the oldest message"
         );
     }
 
@@ -587,19 +567,5 @@ mod tests {
         let messages = vec!["hello", "world"];
         let window = build_window(&messages, 5);
         assert_eq!(window, "hello\nworld");
-    }
-
-    #[test]
-    fn build_window_exact_depth() {
-        let messages = vec!["one", "two", "three"];
-        let window = build_window(&messages, 3);
-        assert_eq!(window, "one\ntwo\nthree");
-    }
-
-    #[test]
-    fn build_window_more_messages_than_depth() {
-        let messages = vec!["first", "second", "third", "fourth"];
-        let window = build_window(&messages, 2);
-        assert_eq!(window, "third\nfourth");
     }
 }

@@ -83,13 +83,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn message_new_has_no_speaker_or_action_points() {
-        let m = Message::new(Role::Assistant, "hi".to_owned());
-        assert!(m.speaker.is_none());
-        assert!(m.pre_turn_action_points.is_none());
-    }
-
-    #[test]
     fn message_serde_round_trip_with_speaker() {
         let mut m = Message::new(Role::Assistant, "hi".to_owned());
         m.speaker = Some("alice".to_owned());

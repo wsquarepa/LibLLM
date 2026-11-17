@@ -1194,48 +1194,4 @@ mod tests {
             .unwrap();
         assert_eq!(k, 0);
     }
-
-    #[test]
-    fn threshold_tokens_math_matches_spec() {
-        let context_size = 131_072usize;
-        let trigger_percent = 90u8;
-        let threshold = context_size * trigger_percent as usize / 100;
-        assert_eq!(threshold, 117_964);
-
-        let context_size = 4096usize;
-        let trigger_percent = 50u8;
-        let threshold = context_size * trigger_percent as usize / 100;
-        assert_eq!(threshold, 2048);
-
-        let context_size = 1000usize;
-        let trigger_percent = 100u8;
-        let threshold = context_size * trigger_percent as usize / 100;
-        assert_eq!(threshold, 1000);
-    }
-
-    #[test]
-    fn rewrite_user_message_pass_substitutes_at_tokens_on_user_role_only() {
-        use libllm_core::session::{Message, Role};
-
-        let original = [
-            Message::new(Role::User, "@./notes.md please".to_owned()),
-            Message::new(Role::Assistant, "first response".to_owned()),
-            Message::new(Role::User, "also @./code.rs".to_owned()),
-            Message::new(Role::System, "system literal @./leave.md alone".to_owned()),
-        ];
-        let rewritten: Vec<Message> = original
-            .iter()
-            .map(|m| match m.role {
-                Role::User => Message {
-                    content: libllm_core::files::rewrite_user_message(&m.content),
-                    ..m.clone()
-                },
-                _ => m.clone(),
-            })
-            .collect();
-        assert_eq!(rewritten[0].content, "[notes.md] please");
-        assert_eq!(rewritten[1].content, "first response");
-        assert_eq!(rewritten[2].content, "also [code.rs]");
-        assert_eq!(rewritten[3].content, "system literal @./leave.md alone");
-    }
 }

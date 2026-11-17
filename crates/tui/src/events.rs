@@ -1344,17 +1344,6 @@ mod paste_tests {
     }
 
     #[test]
-    fn file_paste_returns_at_path() {
-        let tmp = TempDir::new().unwrap();
-        let p = tmp.path().join("a.md");
-        std::fs::write(&p, "hello").unwrap();
-        let cfg = libllm_core::config::FilesConfig::default();
-        let out = paste_as_file_reference(p.to_str().unwrap(), &cfg).unwrap();
-        assert!(out.starts_with("@"));
-        assert!(out.contains("a.md"));
-    }
-
-    #[test]
     fn binary_paste_returns_none() {
         let tmp = TempDir::new().unwrap();
         let p = tmp.path().join("bin");
@@ -1523,14 +1512,5 @@ mod wrap_tests {
     #[test]
     fn next_scroll_top_stays_put_when_cursor_visible() {
         assert_eq!(next_scroll_top(10, 12, 5), 10);
-    }
-
-    #[test]
-    fn visual_to_logical_respects_scroll() {
-        let text = lines(&["a", "b", "c", "d", "e", "f"]);
-        let (row, _col) = visual_to_logical(&text, 10, 2, 0);
-        assert_eq!(row, 2);
-        let (row, _col) = visual_to_logical(&text, 10, 2 + 3, 0);
-        assert_eq!(row, 5);
     }
 }

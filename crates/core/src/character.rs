@@ -549,13 +549,6 @@ mod tests {
     }
 
     #[test]
-    fn v1_format_has_no_author_note() {
-        let json = r#"{ "name": "Aria", "description": "x" }"#;
-        let card = parse_card_json(json).unwrap();
-        assert!(card.author_note.is_none());
-    }
-
-    #[test]
     fn unknown_role_value_is_accepted_and_ignored() {
         let json = r#"{
             "data": {

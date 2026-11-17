@@ -72,8 +72,9 @@ pub enum ParseWorldBookError {
 
 /// Parses a worldbook from JSON, accepting both the normalized format and the SillyTavern legacy format.
 ///
-/// Disabled and empty-content entries are filtered out. Uses `fallback_name` when the
-/// JSON does not include a `name` field.
+/// Normalized books keep every entry, disabled ones included, so the editor can re-enable
+/// them. Legacy books drop disabled and empty-content entries. Uses `fallback_name` when
+/// the legacy JSON does not include a `name` field.
 pub fn parse_worldbook_json(
     contents: &str,
     fallback_name: &str,
@@ -166,10 +167,12 @@ struct RuntimeEntry {
 }
 
 impl RuntimeWorldBook {
+    /// Builds the scan-ready form of `worldbook`, dropping disabled entries so they never activate.
     pub fn from_worldbook(worldbook: &WorldBook) -> Self {
         let entries: Vec<RuntimeEntry> = worldbook
             .entries
             .iter()
+            .filter(|entry| entry.enabled)
             .map(|entry| RuntimeEntry {
                 primary_keys: if entry.case_sensitive {
                     entry.keys.clone()
@@ -396,6 +399,28 @@ mod tests {
 
         assert_eq!(activated.len(), 1);
         assert_eq!(activated[0].content, "Always present lore");
+    }
+
+    #[test]
+    fn disabled_entries_do_not_activate() {
+        let mut keyword = make_entry(vec!["trigger"], "Disabled keyword lore");
+        keyword.enabled = false;
+        let mut constant = make_constant_entry("Disabled constant lore");
+        constant.enabled = false;
+        let mut wb = make_worldbook("Disabled", vec![keyword, constant]);
+        let messages = vec!["This message contains the trigger word"];
+
+        let activated = scan_runtime_entries(&RuntimeWorldBook::from_worldbook(&wb), &messages);
+        assert!(activated.is_empty(), "disabled entries must not activate");
+
+        wb.entries.iter_mut().for_each(|e| e.enabled = true);
+        let activated = scan_runtime_entries(&RuntimeWorldBook::from_worldbook(&wb), &messages);
+        let mut contents: Vec<&str> = activated.iter().map(|a| a.content.as_str()).collect();
+        contents.sort_unstable();
+        assert_eq!(
+            contents,
+            vec!["Disabled constant lore", "Disabled keyword lore"]
+        );
     }
 
     #[test]
